@@ -92,6 +92,8 @@ specs、tasks 与下面的 D8、硬纪律第 4 条已按 D2 改写。以下保�
 
 新目录 `src/lib/mail-watch/`，结构照 `calendar-watch`：`types.ts`、`pure.ts`（开关、跳过、归类、文案、收件人、页面状态）、`settings.ts`（读写配置与两个接口的服务层）、`run.ts`（编排，依赖注入）。`sales-actions` 路由在 `calendar-watch` 之后、`notify-email-escalation` 之前加 `runTrackedAutomation("mail-watch", …)`，截止时刻为请求开始后 265 秒（日历观察 240 秒、升级邮件 285 秒之间），并像升级邮件那一步一样自带收错。每个邮箱开始前检查截止时刻，过了就不再开始新的邮箱。
 
+`mail-watch` 作为一个被记录的自动化步骤，要在三处登记（实施时补充；与 `calendar-watch` 同样的三处）：`src/lib/automation/registry.ts`（名称「客户来信观察与提醒」）、`src/lib/cockpit/schedule.ts`（挂 `sales-actions`，每 15 分钟）、`src/lib/cockpit/posts.ts`（归「询盘销售」岗位）。这只是让运行记录在组织驾驶舱里有名字和归属，不是新的调度。
+
 - 否决：单独的定时任务。硬纪律第 3 条；判断点 6 已定 15 分钟轮询。
 - 否决：挂在 `tender-rfq-inbound`（每 10 分钟）。那一步只为有在途询价的组织跑，而且读的是组织授权邮箱，和「只读本人邮箱」是两回事。
 

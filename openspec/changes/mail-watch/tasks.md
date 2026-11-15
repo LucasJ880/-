@@ -16,7 +16,7 @@
 
 ## 4. 挂进定时任务
 
-- [ ] 4.1 `src/app/api/cron/sales-actions/route.ts` 在 `calendar-watch` 之后、`notify-email-escalation` 之前加 `mail-watch` 步骤（截止为请求开始后 265 秒，自带收错；平台开关关闭或没有满足条件的邮箱时记为跳过并写明原因）。`mail-watch-pure.test.ts` 补路由的源码断言（步骤顺序、截止毫秒数、收错）。verify：`npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts` 通过；隔离库测试里「开关关闭」「截止时刻」两个场景通过；`git diff --stat main -- vercel.json` 为空
+- [x] 4.1 `src/app/api/cron/sales-actions/route.ts` 在 `calendar-watch` 之后、`notify-email-escalation` 之前加 `mail-watch` 步骤（截止为请求开始后 265 秒，自带收错；平台开关关闭或没有满足条件的邮箱时记为跳过并写明原因）。`mail-watch-pure.test.ts` 补路由的源码断言（步骤顺序、截止毫秒数、收错）。verify：`npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts` 通过；隔离库测试里「开关关闭」「截止时刻」两个场景通过；`git diff --stat main -- vercel.json` 为空
 
 ## 5. 页面
 

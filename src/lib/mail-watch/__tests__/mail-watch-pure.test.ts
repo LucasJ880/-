@@ -286,6 +286,20 @@ async function main() {
     ok(/export function isMailWatchAllowed[\s\S]{0,260}assessRuntimeIsolation\(env\)[\s\S]{0,120}envFlag\("MAIL_WATCH_ENABLED", env\)/.test(read("src/lib/env/runtime-isolation.ts")), "平台开关与读信开关同一处解析（runtime-isolation）");
   }
 
+  console.log("\n定时任务里的 mail-watch 步骤（源码断言）");
+  {
+    const route = code("src/app/api/cron/sales-actions/route.ts");
+    const steps = [...route.matchAll(/runTrackedAutomation\("([a-z-]+)"/g)].map((m) => m[1]);
+    ok(JSON.stringify(steps) === '["sales-action-sync","muse-reminder-scan","calendar-watch","mail-watch","notify-email-escalation"]', "步骤顺序：mail-watch 在 calendar-watch 之后、notify-email-escalation 之前", steps);
+    ok(/runMailWatch\(\{ deadline: new Date\(requestStartedAt \+ MAIL_WATCH_DEADLINE_MS\) \}\)/.test(route) && /export const MAIL_WATCH_DEADLINE_MS = 265_000;/.test(read("src/lib/mail-watch/run.ts")), "截止时刻从请求开始算 265 秒（日历观察 240、升级邮件 285 之间）");
+    const block = route.slice(route.indexOf('runTrackedAutomation("mail-watch"'), route.indexOf('runTrackedAutomation("notify-email-escalation"'));
+    ok(/\}\)\.catch\(\(error\) => \{/.test(block), "自带收错：出错不影响其它步骤的结果与响应");
+    ok(/status: result\.skipped \? "skipped"/.test(block), "平台开关关闭或没有满足条件的邮箱：步骤记为跳过（原因在 metadata.skipped）");
+    ok(!/results:|data: result\.results/.test(block.slice(block.indexOf("metadata:"))) && /skipped: result\.skipped,/.test(block), "运行记录的 metadata 只有原因与计数");
+    ok(/return NextResponse\.json\(\{[^}]*\bmailWatch\b[^}]*\}\)/.test(route), "结果并入响应的 mailWatch 字段（原有字段的写法不动）");
+    ok(/export const maxDuration = 300;/.test(route), "请求上限 300 秒未变");
+  }
+
   console.log(`\n结果: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

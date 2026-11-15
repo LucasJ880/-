@@ -73,6 +73,11 @@ import type { CustomerRef, MailWatchConfig, RecipientMode, RunCounts } from "./t
 const OPEN_INQUIRY_WINDOW_DAYS = 90;
 const OPEN_INQUIRY_STATUSES = ["sent", "replied", "quoted", "no_response"];
 const DEFAULT_BUDGET_MS = 200_000;
+/**
+ * 定时任务里本步骤的截止时刻：从请求开始算 265 秒。
+ * 排在日历观察（240 秒）之后、未读升级邮件（285 秒）之前；整个请求 maxDuration = 300 秒。
+ */
+export const MAIL_WATCH_DEADLINE_MS = 265_000;
 
 /** 销售域微信推送（缺省 pushSalesReminder） */
 export type PushWechat = (userId: string, title: string, content: string) => Promise<{ sent: number; failed: number }>;

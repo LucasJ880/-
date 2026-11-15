@@ -54,7 +54,7 @@ TASKFLOW：MAIL-2（Phase M「邮箱助手」；任务书 `docs/QINGYAN_MAIL-1_M
 ## Impact
 
 - 新增：`src/lib/mail-watch/**`（`pure.ts`、`run.ts`、`settings.ts`、`types.ts` 与测试）、`src/app/api/organizations/[orgId]/mail-watch-settings/route.ts`、`src/app/api/sales/mail-watch/opt-in/route.ts`。
-- 修改：`src/lib/google-email.ts`（新增收件箱增量读取函数；既有函数不改）、`src/lib/env/runtime-isolation.ts`（开关）、`src/app/api/cron/sales-actions/route.ts`（加步骤）、`src/lib/notifications/constants.ts`、`type-visibility.ts`、`src/components/header.tsx`（图标表）、`src/app/(main)/settings/email/page.tsx`、`src/app/(main)/sales/customers/[id]/interaction-timeline.tsx` 与 `types.ts`、`src/lib/organizations/__tests__/settings-write-guard.test.ts`（登记新的写入方）、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`、`.env.example`。
+- 修改：`src/lib/google-email.ts`（新增收件箱增量读取函数；既有函数不改）、`src/lib/env/runtime-isolation.ts`（开关）、`src/app/api/cron/sales-actions/route.ts`（加步骤）、`src/lib/automation/registry.ts` 与 `src/lib/cockpit/schedule.ts`、`src/lib/cockpit/posts.ts`（登记步骤名称、节奏与岗位归属）、`src/lib/notifications/constants.ts`、`type-visibility.ts`、`src/components/header.tsx`（图标表）、`src/app/(main)/settings/email/page.tsx`、`src/app/(main)/sales/customers/[id]/interaction-timeline.tsx` 与 `types.ts`、`src/lib/organizations/__tests__/settings-write-guard.test.ts`（登记新的写入方）、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`、`.env.example`。
 - 与任务书「Impact」不同：`src/lib/notifications/href.ts` 不用改（`sales_customer` 的跳转已存在）；多出两个接口路由。
 - 零 schema；`vercel.json` 无 diff；不新增依赖；新增一个环境变量 `MAIL_WATCH_ENABLED`。
 - 上线前置：MAIL-1 已合并；运维前置同 MAIL-1（OAuth 同意屏幕状态、成员重新授权）。
