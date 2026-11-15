@@ -4,7 +4,7 @@ change：`nav-6-inbox-reply-clarity`（来源 `docs/QINGYAN_NAV-1c_REPORT.md` §
 
 | 项 | 值 |
 |---|---|
-| 状态 | 待审（PR 号开出后补）；没有开关，合并即生效 |
+| 状态 | #484 待审；没有开关，合并即生效 |
 | 新能力 | `trade/prospect-stage-labels`（2 条要求） |
 | 改的能力 | `trade/inquiry-reply-entry`（改 1 条、加 3 条） |
 | 测试 | 新增 `reply-clarity.test.ts` 36 项（`scripts/test-all.sh:334`、`scripts/test-ci-unit.sh:359`）；`reply-entry-db.isolated.test.ts` 加只读成员一组，21 → 28 |
@@ -69,7 +69,7 @@ change：`nav-6-inbox-reply-clarity`（来源 `docs/QINGYAN_NAV-1c_REPORT.md` §
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS，无新增 error fingerprint；本次改动的 10 个文件单独 `eslint` 无输出 |
 | `npm run test:ci` | `CI unit subset PASS`（退出码 0）。第一遍卡在一个与本次无关的招投标测试 `tender-workforce/t1b-pure.test.ts`：它打印完「36 通过」后进程没有退出，挂了二十多分钟（当时本机同时在跑应用和截图）；单独运行该测试几秒内正常退出。停掉后整套重跑，通过 |
-| `npm test` | __TESTALL__ |
+| `npm test` | 652/665。13 个失败与 NAV-1a / 1b / 1c 时逐项相同，都是环境类（无数据库连接 / Chromium / Gmail / Agent Trace）；在 main `148df620` 的干净检出上把这 13 项逐个重跑，同样 13 项失败 |
 | `bash scripts/check-test-registry.sh` | 已注册 637 个；基线 67 条，无新增 |
 | `git diff --stat main -- prisma vercel.json src/lib/authorization` | 无输出 |
 | `openspec validate nav-6-inbox-reply-clarity --strict` | valid |

@@ -24,8 +24,8 @@
 
 ## 3. 交付
 
-- [ ] 3.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-6-inbox-reply-clarity --strict`；本机起应用截图放 `docs/acceptance/nav-6/`（design「验证」表最后一行列的画面）。验证：命令全部通过（`npm test` 的环境类失败与 main 逐项相同）；`git diff --stat main -- prisma vercel.json src/lib/authorization` 无输出；截图里同一张卡片上不再有两个「已回复」。
-- [ ] 3.2 写 `docs/QINGYAN_NAV-6_REPORT.md`（改名出现的各处、接口变化、只读成员部分目前无人受影响的说明、与四件套不一致的地方、各命令真实输出）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-6 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-6 行状态为 `[G]`。
+- [x] 3.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-6-inbox-reply-clarity --strict`；本机起应用截图放 `docs/acceptance/nav-6/`（design「验证」表最后一行列的画面）。验证：命令全部通过（`npm test` 的环境类失败与 main 逐项相同）；`git diff --stat main -- prisma vercel.json src/lib/authorization` 无输出；截图里同一张卡片上不再有两个「已回复」。
+- [x] 3.2 写 `docs/QINGYAN_NAV-6_REPORT.md`（改名出现的各处、接口变化、只读成员部分目前无人受影响的说明、与四件套不一致的地方、各命令真实输出）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-6 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-6 行状态为 `[G]`。
 
 ## Workflow follow-up
 
