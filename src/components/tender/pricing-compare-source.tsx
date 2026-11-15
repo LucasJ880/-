@@ -6,8 +6,9 @@
 
 import {
   FILL_BUTTON_ZH,
-  GST_EXCLUDED_ZH,
   breakdownLinesZh,
+  gstNoteZh,
+  markupHintZh,
   laterRoundsZh,
   money2,
   quantityBasisZh,
@@ -28,7 +29,7 @@ export function CompareCostSourceBlock({
   return (
     <div className="mt-3 rounded-lg border border-border/60 px-3 py-2 text-xs" data-testid="pricing-compare-source">
       <p className="font-medium">来自比价矩阵</p>
-      {s.status === "none_selected" ? (
+      {s.status === "none_selected" || s.status === "unavailable" ? (
         <p className="mt-1 text-muted">{s.messageZh}</p>
       ) : s.status === "unconvertible" ? (
         <p className="mt-1 text-muted" data-testid="pricing-compare-unconvertible">
@@ -41,8 +42,13 @@ export function CompareCostSourceBlock({
             {quantityBasisZh(s.quantityBasis)}
           </p>
           <p className="mt-0.5 text-[11px] text-muted" data-testid="pricing-compare-breakdown">
-            {breakdownLinesZh(s.breakdown).join(" · ")} · {GST_EXCLUDED_ZH}
+            {breakdownLinesZh(s.breakdown).join(" · ")} · {gstNoteZh(s.breakdown)}
           </p>
+          {s.assumptions.length > 0 ? (
+            <p className="mt-0.5 text-[10px] text-muted" data-testid="pricing-compare-assumptions">
+              换算依据：{s.assumptions.join("；")}
+            </p>
+          ) : null}
           {s.warnings.length > 0 ? <p className="mt-0.5 text-[10px] text-amber-700">{s.warnings.join("；")}</p> : null}
           {canManage ? (
             <button
@@ -57,7 +63,7 @@ export function CompareCostSourceBlock({
           {canManage ? <span className="ml-2 text-[10px] text-muted">只填进输入框；点「保存并重算」才生效，手填可覆盖</span> : null}
         </>
       )}
-      {s.status !== "none_selected" && laterRoundsZh(s.laterUnselectedRounds) ? (
+      {(s.status === "ok" || s.status === "unconvertible") && laterRoundsZh(s.laterUnselectedRounds) ? (
         <p className="mt-0.5 text-[10px] text-muted">{laterRoundsZh(s.laterUnselectedRounds)}</p>
       ) : null}
       {src ? (
@@ -75,4 +81,16 @@ export function CompareCostSourceBlock({
       ) : null}
     </div>
   );
+}
+
+/** 目标毛利旁的成本加成换算；开关关闭（enabled = false）时不显示，卡片与原来相同 */
+export function MarkupHint({ enabled, margin }: { enabled: boolean; margin: string }) {
+  if (!enabled) return null;
+  const n = margin.trim() === "" ? null : Number(margin);
+  const hint = markupHintZh(n);
+  return hint ? (
+    <p className="mt-1 text-[10px] text-muted" data-testid="pricing-markup-hint">
+      {hint}
+    </p>
+  ) : null;
 }

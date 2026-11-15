@@ -6,16 +6,17 @@
  */
 
 import { db } from "@/lib/db";
-import { ITEM_STATUS } from "@/lib/inquiry/types";
+import { INQUIRY_STATUS, ITEM_STATUS } from "@/lib/inquiry/types";
 import { loadCompareMatrix } from "@/lib/tender-rfq/compare-service";
-import { NONE_SELECTED_ZH, quantityBasisOf, type CompareCostSuggestion } from "./compare-cost-source";
+import { NONE_SELECTED_ZH, UNAVAILABLE_ZH, quantityBasisOf, type CompareCostSuggestion } from "./compare-cost-source";
 
 export async function loadCompareCostSuggestion(input: { projectId: string; orgId: string; now?: Date }): Promise<CompareCostSuggestion> {
   const selected = await db.inquiryItem.findFirst({
     where: {
       isSelected: true,
       status: ITEM_STATUS.QUOTED,
-      inquiry: { projectId: input.projectId, project: { orgId: input.orgId } },
+      // 已取消的轮次里的选定不算
+      inquiry: { projectId: input.projectId, project: { orgId: input.orgId }, status: { not: INQUIRY_STATUS.CANCELED } },
     },
     orderBy: [{ inquiry: { roundNumber: "desc" } }, { updatedAt: "desc" }],
     select: { id: true, inquiryId: true, inquiry: { select: { roundNumber: true } } },
@@ -23,7 +24,12 @@ export async function loadCompareCostSuggestion(input: { projectId: string; orgI
   if (!selected) return { status: "none_selected", messageZh: NONE_SELECTED_ZH };
 
   const later = await db.projectInquiry.findMany({
-    where: { projectId: input.projectId, roundNumber: { gt: selected.inquiry.roundNumber } },
+    // 已取消的、还是草稿（没发出）的轮次不算「之后还有」
+    where: {
+      projectId: input.projectId,
+      roundNumber: { gt: selected.inquiry.roundNumber },
+      status: { notIn: [INQUIRY_STATUS.CANCELED, INQUIRY_STATUS.DRAFT] },
+    },
     orderBy: { roundNumber: "asc" },
     select: { roundNumber: true },
   });
@@ -69,4 +75,14 @@ export async function loadCompareCostSuggestion(input: { projectId: string; orgI
     warnings: normalized.warnings,
     ...identity,
   };
+}
+
+/** 读取 / 保存都用这个：取数出错时不让整张卡片挂掉（读取显示暂不可用；保存按没有建议处理，记为手填或保留原来的来源） */
+export async function loadCompareCostSuggestionSafe(input: { projectId: string; orgId: string; now?: Date }): Promise<CompareCostSuggestion> {
+  try {
+    return await loadCompareCostSuggestion(input);
+  } catch (e) {
+    console.warn("[pricing-helper] compare cost suggestion unavailable", { projectId: input.projectId, error: e instanceof Error ? e.message : String(e) });
+    return { status: "unavailable", messageZh: UNAVAILABLE_ZH };
+  }
 }

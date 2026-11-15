@@ -320,17 +320,33 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
     return out(goods, none);
   }
   const landedTotal = goodsTotal + adds.reduce((a, b) => a + b, 0);
-  const r2 = (n: number | null) => (n == null ? null : round2(n));
+  // 逐项各自舍入到分；舍入差（几分）记到最大的一项费用上，使逐项之和正好等于舍入后的落地总价（总价不变）
+  const cents = (n: number) => Math.round(n * 100);
+  const fees: Record<Step, number | null> = {
+    inland: part.inland == null ? null : cents(part.inland),
+    freight: part.freight == null ? null : cents(part.freight),
+    insurance: part.insurance == null ? null : cents(part.insurance),
+    duty: part.duty == null ? null : cents(part.duty),
+    clearance: part.clearance == null ? null : cents(part.clearance),
+  };
+  const goodsC = cents(goodsTotal);
+  const feeKeys = (Object.keys(fees) as Step[]).filter((k) => fees[k] != null);
+  const diff = cents(landedTotal) - goodsC - feeKeys.reduce((a, k) => a + (fees[k] as number), 0);
+  if (diff !== 0 && feeKeys.length > 0) {
+    const biggest = feeKeys.reduce((a, k) => ((fees[k] as number) > (fees[a] as number) ? k : a), feeKeys[0]);
+    fees[biggest] = (fees[biggest] as number) + diff;
+  }
+  const fromC = (c: number | null) => (c == null ? null : c / 100);
   return out(
     goods,
     { unit: qty ? landedTotal / qty : null, total: landedTotal },
     {
-      goods: round2(goodsTotal),
-      inland: r2(part.inland),
-      freight: r2(part.freight),
-      insurance: r2(part.insurance),
-      duty: r2(part.duty),
-      clearance: r2(part.clearance),
+      goods: goodsC / 100,
+      inland: fromC(fees.inland),
+      freight: fromC(fees.freight),
+      insurance: fromC(fees.insurance),
+      duty: fromC(fees.duty),
+      clearance: fromC(fees.clearance),
       feesIncludedInQuote: false,
     },
   );

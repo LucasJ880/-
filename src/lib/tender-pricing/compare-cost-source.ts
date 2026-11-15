@@ -38,7 +38,8 @@ export function isPricingCompareSourceEnabledForOrg(orgId: string | null | undef
 
 /* ---------------------------------- 类型 ---------------------------------- */
 
-export type QuantityBasis = { kind: "quoted_total" } | { kind: "first_tier"; qty: number } | { kind: "unknown" };
+/** quoted_total.estimateQty：按件估算的费用（运费等）用的询价单首档数量（有的话） */
+export type QuantityBasis = { kind: "quoted_total"; estimateQty?: number } | { kind: "first_tier"; qty: number } | { kind: "unknown" };
 
 type SuggestionIdentity = {
   inquiryId: string;
@@ -59,7 +60,9 @@ export type CompareCostSuggestion =
       warnings: string[];
     } & SuggestionIdentity)
   | ({ status: "unconvertible"; reasons: string[] } & SuggestionIdentity)
-  | { status: "none_selected"; messageZh: string };
+  | { status: "none_selected"; messageZh: string }
+  /** 取数出错：卡片其余部分照常，只这一行说暂不可用 */
+  | { status: "unavailable"; messageZh: string };
 
 export type OurCostSource =
   | {
@@ -79,6 +82,13 @@ export type OurCostSourceClaim = { kind: "rfq_compare"; inquiryItemId: string };
 
 export const NONE_SELECTED_ZH = "比价矩阵里还没有选定供应商——在询价区给一家已报价的供应商点「选定」后，这里会给出它的落地价。";
 export const GST_EXCLUDED_ZH = "不含 GST/HST（进口 GST/HST 可抵扣，不计入成本）";
+export const DDP_GST_ZH = "DDP：报价是否已含 GST/HST 以供应商报价为准；如含，可抵扣的部分不计入成本";
+export const UNAVAILABLE_ZH = "比价矩阵的落地价暂时取不到，请稍后刷新；不影响下面的计算。";
+
+/** 落地价的税务说明：DDP 时供应商负责进口税费，不能断言不含 GST/HST */
+export function gstNoteZh(b: LandedBreakdown): string {
+  return b.feesIncludedInQuote ? DDP_GST_ZH : GST_EXCLUDED_ZH;
+}
 export const FILL_BUTTON_ZH = "用这个作为我方成本";
 export const MARGIN_ON_PRICE_ZH = "毛利率（按售价）";
 export const TARGET_MARGIN_ON_PRICE_ZH = "目标毛利率 %（按售价）";
@@ -90,13 +100,15 @@ export const sameCents = (a: number, b: number) => Math.abs(a - b) < CENT_TOLERA
 /* ---------------------------------- 规则 ---------------------------------- */
 
 export function quantityBasisOf(quotedTotalPrice: number | null, firstTierQty: number | null): QuantityBasis {
-  if (quotedTotalPrice != null) return { kind: "quoted_total" };
+  if (quotedTotalPrice != null) return firstTierQty != null && firstTierQty > 0 ? { kind: "quoted_total", estimateQty: firstTierQty } : { kind: "quoted_total" };
   if (firstTierQty != null && firstTierQty > 0) return { kind: "first_tier", qty: firstTierQty };
   return { kind: "unknown" };
 }
 
 export function quantityBasisZh(b: QuantityBasis): string {
-  if (b.kind === "quoted_total") return "按供应商报价总价";
+  if (b.kind === "quoted_total") {
+    return b.estimateQty ? `货值按供应商报价总价；按件估算的费用按询价单首档数量 ${b.estimateQty.toLocaleString("en-CA")}` : "按供应商报价总价";
+  }
   if (b.kind === "first_tier") return `按询价单首档数量 ${b.qty.toLocaleString("en-CA")}`;
   return "数量口径未知";
 }
@@ -190,6 +202,7 @@ export function staleNoteZh(source: OurCostSource | null, savedCostCad: number |
     if (suggestion.inquiryItemId === source.inquiryItemId && sameCents(suggestion.landedCadTotal, source.landedCadTotal)) return null;
     return `比价矩阵现在是 ${suggestion.supplierName} 第 ${suggestion.roundNumber} 轮 ${money2(suggestion.landedCadTotal)} CAD；${was}，没有自动更新。`;
   }
+  if (suggestion.status === "unavailable") return null;
   if (suggestion.status === "unconvertible") {
     return `比价矩阵现在选定的 ${suggestion.supplierName} 第 ${suggestion.roundNumber} 轮换算不出落地价；${was}，没有自动更新。`;
   }

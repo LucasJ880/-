@@ -1,7 +1,7 @@
 /**
  * GET /api/projects/[id]/inquiries/[inquiryId]/compare/matrix（项目读权限）
  *
- * 落地价比价矩阵（P1-6）：代码算的落地价（CAD，到目的地，含关税，不含 GST/HST）+ 合规检查 + 推荐 + 一句话结论。
+ * 落地价比价矩阵（P1-6）：代码算的落地价（CAD，到目的地，含关税，不含 GST/HST；DDP 以供应商报价为准）+ 合规检查 + 推荐 + 一句话结论。
  * 不调 LLM；不改 isSelected（推荐只是建议，选定仍由人点）。
  */
 

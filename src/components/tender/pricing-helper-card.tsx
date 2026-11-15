@@ -18,11 +18,10 @@ import {
   MARGIN_ON_PRICE_ZH,
   TARGET_MARGIN_ON_PRICE_ZH,
   fillFromSuggestion,
-  markupHintZh,
   type CompareCostView,
   type OurCostSourceClaim,
 } from "@/lib/tender-pricing/compare-cost-source";
-import { CompareCostSourceBlock } from "./pricing-compare-source";
+import { CompareCostSourceBlock, MarkupHint } from "./pricing-compare-source";
 
 type Payload = {
   runId: string | null;
@@ -148,7 +147,6 @@ export function PricingHelperCard({
     setForm(filled.form);
     setCostClaim(filled.claim);
   };
-  const marginNum = form.margin.trim() === "" ? null : Number(form.margin);
 
   return (
     <div className="rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid="pricing-helper">
@@ -244,9 +242,7 @@ export function PricingHelperCard({
               </label>
             ))}
           </div>
-          {cc && markupHintZh(marginNum) ? (
-            <p className="mt-1 text-[10px] text-muted" data-testid="pricing-markup-hint">{markupHintZh(marginNum)}</p>
-          ) : null}
+          <MarkupHint enabled={!!cc} margin={form.margin} />
           {canManage ? (
             <button
               type="button"

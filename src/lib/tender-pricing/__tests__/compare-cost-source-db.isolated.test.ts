@@ -179,6 +179,11 @@ async function main() {
     const b = rec(s.breakdown);
     ok(close(b.freight, 9000) && close(b.duty, 300 * 0.19 * 1500 * 0.065) && close(b.clearance, 150) && b.inland === null && b.feesIncludedInQuote === false, "逐项：海运 9,000、关税按货值 6.5%、清关 150、没有内陆", b);
     ok(Array.isArray(s.laterUnselectedRounds) && (s.laterUnselectedRounds as unknown[]).length === 0, "之后没有别的轮次");
+    const asm = (s.assumptions as string[]) ?? [];
+    ok(asm.length > 0 && asm.every((a) => /^(汇率|出口内陆运费|国际运费|保险|关税|进口清关)/.test(a)), "换算依据只有落地价换算的几条（汇率、运费、保险、关税、清关），没有交期等合规检查的文字", asm);
+    const { loadCompareMatrix } = await import("@/lib/tender-rfq/compare-service");
+    const plain = await loadCompareMatrix({ projectId: P, orgId: ORG, inquiryId: r1.inquiryId });
+    ok(plain.ok && !("normalizedByItemId" in plain), "比价矩阵的其它调用方（不传 includeNormalized）拿到的内容与原来相同，不多带换算明细");
     ok((await snapshot(P)) === before, "读取前后：审批卡、询价、条目与选定、房间、审计都没有变化");
     ok(!g.text.includes(NOTE_SECRET) && !g.text.includes(BODY_SECRET) && !g.text.includes("supplier-fixture.test"), "返回里没有报价备注原文、邮件正文、供应商联系方式");
     ok(rec(g.body.inputs).ourCostCad === null && Object.keys(rec(g.body.inputs)).sort().join() === "competitorPriceCad,ourCostCad,targetMarginPct", "读取不改写成本；inputs 仍只有三项", g.body.inputs);
@@ -245,6 +250,22 @@ async function main() {
     await select(r2.inquiryId, r2.itemIds[0]);
     g = await get(P);
     ok(sug(g.body).roundNumber === 2 && sug(g.body).inquiryItemId === r2.itemIds[0] && close(sug(g.body).landedCadTotal, expectLanded(P, 250)), "第 2 轮选定之后：建议来自第 2 轮", sug(g.body));
+
+    /* ---------- 9b. 已取消、草稿的轮次 ---------- */
+    const r3 = await mkRound(P, 3, [{ supplierId: SA, unitPrice: 200, selected: true }]);
+    await db.projectInquiry.update({ where: { id: r3.inquiryId }, data: { status: "canceled" } });
+    const r4 = await mkRound(P, 4, [{ supplierId: SB, unitPrice: 210 }]);
+    await db.projectInquiry.update({ where: { id: r4.inquiryId }, data: { status: "draft" } });
+    g = await get(P);
+    ok(sug(g.body).roundNumber === 2 && JSON.stringify(sug(g.body).laterUnselectedRounds) === "[]", "第 3 轮已取消（里面有选定）、第 4 轮还是草稿：建议仍来自第 2 轮，不说「之后还有」", sug(g.body));
+
+    /* ---------- 9c. 供应商给了总价 ---------- */
+    const PT = await mkProject();
+    await db.organization.update({ where: { id: ORG }, data: { settingsJson: landedSettings({ [P]: 6.5, [P2]: 6.5, [PT]: 6.5 }) } });
+    const rt = await mkRound(PT, 1, [{ supplierId: SA, unitPrice: 280, selected: true }]);
+    await db.inquiryItem.update({ where: { id: rt.itemIds[0] }, data: { unitPrice: null, totalPrice: 400000 } });
+    const st2 = sug((await get(PT)).body);
+    ok(st2.status === "ok" && rec(st2.quantityBasis).kind === "quoted_total" && rec(st2.quantityBasis).estimateQty === 1500 && close(rec(st2.breakdown).goods, 400000 * 0.19), "供应商给了总价：货值按总价，写明按件估算的运费按首档数量 1500", st2);
 
     /* ---------- 10. 选定的条目不是已报价：不算 ---------- */
     const PD = await mkProject();

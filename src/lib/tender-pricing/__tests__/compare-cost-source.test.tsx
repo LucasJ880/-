@@ -7,12 +7,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CompareCostSourceBlock } from "@/components/tender/pricing-compare-source";
+import { CompareCostSourceBlock, MarkupHint } from "@/components/tender/pricing-compare-source";
 import { normalizeQuote, type LandedBreakdown, type LandedCostSettings, type NormalizeContext } from "@/lib/tender-rfq/landed-cost";
 import { buildCompareMatrix, type CompareInput } from "@/lib/tender-rfq/compare";
 import { buildScenarios, type ScoringModel } from "../calc";
 import {
+  DDP_GST_ZH,
   GST_EXCLUDED_ZH,
+  UNAVAILABLE_ZH,
   NONE_SELECTED_ZH,
   breakdownLinesZh,
   fillFromSuggestion,
@@ -67,10 +69,25 @@ console.log("落地价逐项");
   const noDuty = normalizeQuote({ unitPrice: 280, totalPrice: null, currency: "CNY", incoterm: "FOB" }, ctx({ dutyRatePct: null }));
   ok("缺关税率：没有落地总价，也没有逐项", noDuty.landedCad.total === null && noDuty.breakdownCad === null);
   const odd = normalizeQuote({ unitPrice: 3.333, totalPrice: null, currency: "USD", incoterm: "FOB" }, ctx({ quantity: 777 }));
-  ok("不整的金额：逐项各自舍入到分，之和与总价相差不到 1 分 × 项数", Math.abs(sumOf(odd.breakdownCad!) - odd.landedCad.total!) <= 0.05, { sum: sumOf(odd.breakdownCad!), total: odd.landedCad.total });
+  const cents = (n: number) => Math.round(n * 100);
+  const items = (bb: LandedBreakdown) => [bb.goods, bb.inland, bb.freight, bb.insurance, bb.duty, bb.clearance].filter((x): x is number => x != null);
+  ok("不整的金额：逐项都是到分的数，之和正好等于落地总价", items(odd.breakdownCad!).every((x) => Math.abs(x * 100 - Math.round(x * 100)) < 1e-6) && items(odd.breakdownCad!).reduce((a, x) => a + cents(x), 0) === cents(odd.landedCad.total!), { b: odd.breakdownCad, total: odd.landedCad.total });
+  // 随机：各种贸易条款、币种、数量、费用参数，逐项之和都正好等于总价，货值等于 goodsCad
+  let bad = 0;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const terms = ["EXW", "FCA", "FOB", "CIF", "CIP", "DAP"];
+  for (let i = 0; i < 3000; i += 1) {
+    const settings: LandedCostSettings = { ...FULL, freightEstimate: rnd() < 0.5 ? { mode: "per_unit", value: Math.round(rnd() * 1000) / 100 } : { mode: "percent", value: Math.round(rnd() * 900) / 100 }, insurancePct: Math.round(rnd() * 300) / 100, clearanceFlatCad: Math.round(rnd() * 50000) / 100 };
+    const q = normalizeQuote({ unitPrice: Math.round(rnd() * 100000) / 1000, totalPrice: null, currency: rnd() < 0.5 ? "USD" : "CNY", incoterm: terms[Math.floor(rnd() * terms.length)] }, ctx({ settings, dutyRatePct: Math.round(rnd() * 2000) / 100, quantity: 1 + Math.floor(rnd() * 5000) }));
+    const bb = q.breakdownCad;
+    if (!bb || items(bb).reduce((a, x) => a + cents(x), 0) !== cents(q.landedCad.total!) || bb.goods !== q.goodsCad.total) bad += 1;
+  }
+  ok("随机 3000 例：逐项之和都正好等于落地总价，货值与 goodsCad 相同", bad === 0, { bad });
   ok("落地价里没有 GST/HST 一项", !Object.keys(b).some((k) => /gst|hst|tax/i.test(k)));
   ok("逐项文字：海运、关税单列", breakdownLinesZh(b).some((l) => l.startsWith("海运（国际运费） 9,000.00")) && breakdownLinesZh(b).some((l) => l.startsWith("关税 5,187.00")));
   ok("逐项文字：DDP 写明已含在报价里", breakdownLinesZh(ddp.breakdownCad!).join("|") === "货值 61,000.00|运费、关税等已含在供应商报价里（DDP）");
+  ok("逐项文字：保险也列出来", breakdownLinesZh(b).includes("保险 888.00"));
 }
 
 console.log("比价矩阵结论措辞");
@@ -80,9 +97,9 @@ console.log("比价矩阵结论措辞");
     return { itemId: id, supplierId: id, supplierName: `${id} 公司`, quoted, emailDate: new Date("2026-11-01"), mandatoryAnswers: [], normalized: normalizeQuote(quoted, ctx()) };
   };
   const m = buildCompareMatrix([q("a", 280), q("b", 300)], { closeDate: new Date("2026-12-20"), deliveryDeadline: null, firstTierQty: 1500, mandatoryCodes: [], now: NOW });
-  ok("结论写「到目的地，含关税，不含 GST/HST」，没有「含税」", m.summaryZh.includes("到目的地，含关税，不含 GST/HST") && !m.summaryZh.includes("含税"), m.summaryZh);
+  ok("结论写「到目的地，含关税，不含 GST/HST；DDP 以供应商报价为准」，没有「含税」", m.summaryZh.includes("到目的地，含关税，不含 GST/HST；DDP 以供应商报价为准") && !m.summaryZh.includes("含税"), m.summaryZh);
   const muse = readFileSync(join(process.cwd(), "src/lib/muse-bridge/router-pure.ts"), "utf8");
-  ok("Muse 的比价理由里同一句话也改了", muse.includes("到目的地，含关税，不含 GST/HST") && !muse.includes("到目的地含税"));
+  ok("Muse 的比价理由里同一句话也改了", muse.includes("到目的地，含关税，不含 GST/HST；DDP 以供应商报价为准") && !muse.includes("到目的地含税"));
 }
 
 const okSug = (o: Partial<Extract<CompareCostSuggestion, { status: "ok" }>> = {}): CompareCostSuggestion => ({
@@ -102,7 +119,8 @@ const okSug = (o: Partial<Extract<CompareCostSuggestion, { status: "ok" }>> = {}
 
 console.log("数量口径");
 {
-  ok("供应商给了总价：按供应商报价总价", quantityBasisZh(quantityBasisOf(61000, 1500)) === "按供应商报价总价");
+  ok("供应商给了总价、询价单有首档数量：写明货值按总价、按件估算的费用按首档数量", quantityBasisZh(quantityBasisOf(61000, 1500)) === "货值按供应商报价总价；按件估算的费用按询价单首档数量 1,500");
+  ok("供应商给了总价、询价单没有数量：按供应商报价总价", quantityBasisZh(quantityBasisOf(61000, null)) === "按供应商报价总价");
   ok("只有单价：按询价单首档数量", quantityBasisZh(quantityBasisOf(null, 1500)) === "按询价单首档数量 1,500");
   ok("都没有：口径未知", quantityBasisOf(null, null).kind === "unknown");
 }
@@ -146,6 +164,8 @@ console.log("矩阵变了只提示");
   ok("同一家、落地价变了 1 分：提示", staleNoteZh(rfq, 95025, okSug({ landedCadTotal: 95025.01 })) != null);
   ok("现在换算不出：提示", (staleNoteZh(rfq, 95025, { status: "unconvertible", inquiryId: "inq3", inquiryItemId: "itemC", roundNumber: 3, supplierName: "丙厂", laterUnselectedRounds: [], reasons: ["缺汇率"] }) ?? "").includes("丙厂 第 3 轮换算不出落地价"));
   ok("现在没有选定：提示", (staleNoteZh(rfq, 95025, { status: "none_selected", messageZh: NONE_SELECTED_ZH }) ?? "").startsWith("比价矩阵现在没有选定的供应商"));
+  ok("取数出错（暂不可用）：不下「过时」的结论", staleNoteZh(rfq, 95025, { status: "unavailable", messageZh: UNAVAILABLE_ZH }) === null);
+  ok("取数出错时保存带声明：不记来自比价矩阵", verifyCostSource({ kind: "rfq_compare", inquiryItemId: "itemA" }, 95025, { status: "unavailable", messageZh: UNAVAILABLE_ZH }, NOW) === null);
   ok("手填的：没有提示", staleNoteZh({ kind: "manual", recordedAt: "x" }, 95025, okSug({ landedCadTotal: 1 })) === null);
   ok("没有来源：没有提示", staleNoteZh(null, 95025, okSug({ landedCadTotal: 1 })) === null);
   ok("读取已存的来源：形状不对当没有", readCostSource({ kind: "rfq_compare", inquiryItemId: "x" }) === null && readCostSource(null) === null && readCostSource({ kind: "manual", recordedAt: "t" })?.kind === "manual");
@@ -186,6 +206,15 @@ console.log("卡片呈现");
   const h = html(view());
   ok("有建议：供应商、轮次、落地价、数量口径、逐项、不含 GST/HST、填入按钮", h.includes("来自比价矩阵") && h.includes("甲厂") && h.includes("第 2 轮（已选定）") && h.includes("95,025.00") && h.includes("按询价单首档数量 1,500") && h.includes("海运（国际运费） 9,000.00") && h.includes("关税 5,187.00") && h.includes(GST_EXCLUDED_ZH) && h.includes('data-testid="pricing-compare-fill"'), h);
   ok("说明按钮只填输入框、要保存才生效", h.includes("只填进输入框；点「保存并重算」才生效，手填可覆盖"));
+  ok("保险一项也显示", h.includes("保险 888.00"));
+  const withAssumptions = html(view({ suggestion: okSug({ assumptions: ["汇率 CNY→CAD 0.19（2026-11-10，手工）", "关税 6.5% × 货值 79,800 = 5,187 CAD"] }) }));
+  ok("换算依据（汇率日期与来源、关税率）显示出来", withAssumptions.includes("换算依据：汇率 CNY→CAD 0.19（2026-11-10，手工）；关税 6.5%"), withAssumptions);
+  const ddpView = html(view({ suggestion: okSug({ breakdown: { goods: 61000, inland: null, freight: null, insurance: null, duty: null, clearance: null, feesIncludedInQuote: true }, landedCadTotal: 61000 }) }));
+  ok("DDP：不断言不含 GST/HST，写以供应商报价为准", ddpView.includes(DDP_GST_ZH) && !ddpView.includes(GST_EXCLUDED_ZH), ddpView);
+  const unavailable = html(view({ suggestion: { status: "unavailable", messageZh: UNAVAILABLE_ZH } }));
+  ok("取数出错：只这一行说暂不可用、没有按钮", unavailable.includes("暂时取不到") && !unavailable.includes("pricing-compare-fill"));
+  const hint = (enabled: boolean, margin: string) => renderToStaticMarkup(<MarkupHint enabled={enabled} margin={margin} />);
+  ok("成本加成换算：开关开启、目标毛利 20 → 显示 25%；开关关闭 → 什么都不显示；空 → 不显示", hint(true, "20").includes("相当于成本加成 25%") && hint(false, "20") === "" && hint(true, "") === "");
   ok("只读的人：没有按钮", !html(view(), false).includes("pricing-compare-fill"));
   const un = html(view({ suggestion: { status: "unconvertible", inquiryId: "i", inquiryItemId: "x", roundNumber: 2, supplierName: "甲厂", laterUnselectedRounds: [], reasons: ["缺 CNY→CAD 汇率，请在组织设置填写"] } }));
   ok("换算不出：写原因、没有数字、没有按钮", un.includes("换算不出落地价") && un.includes("缺 CNY→CAD 汇率") && !un.includes("pricing-compare-fill") && !/\d{1,3},\d{3}\.\d{2}/.test(un), un);
@@ -206,11 +235,15 @@ console.log("接线");
   ok("接口：组织只用服务端鉴权得到的项目组织", (route.match(/const orgId = access\.project\.orgId;/g) ?? []).length === 2 && !/body\.orgId|orgId:\s*body/.test(route));
   ok("接口：开关开启才返回 compareCost、才看来源声明", route.includes("isPricingCompareSourceEnabledForOrg(orgId)") && route.includes("...(compareCost ? { compareCost } : {})") && route.includes("compareEnabled ? readCostClaim(body.ourCostSource) : null"));
   ok("接口：返回的 inputs 仍只有三项（来源另给）", route.includes("ourCostCad: saved.ourCostCad ?? null,") && route.includes("...(compareEnabled ? { ourCostSource: source } : {})"));
-  ok("取数：只认人工选定、已报价；按轮次从新到旧；组织从调用方传入并限定项目", load.includes("isSelected: true") && load.includes("status: ITEM_STATUS.QUOTED") && load.includes('orderBy: [{ inquiry: { roundNumber: "desc" } }') && load.includes("inquiry: { projectId: input.projectId, project: { orgId: input.orgId } }"));
+  ok("取数：只认人工选定、已报价；按轮次从新到旧；组织从调用方传入并限定项目", load.includes("isSelected: true") && load.includes("status: ITEM_STATUS.QUOTED") && load.includes('orderBy: [{ inquiry: { roundNumber: "desc" } }') && load.includes("inquiry: { projectId: input.projectId, project: { orgId: input.orgId }, status: { not: INQUIRY_STATUS.CANCELED } }"));
   ok("取数：复用比价矩阵（带组织、指定轮次）", load.includes("loadCompareMatrix({") && load.includes("orgId: input.orgId,") && load.includes("inquiryId: selected.inquiryId,"));
   ok("取数：不看推荐、最低价", !/recommendedItemId|cheapestItemId/.test(load));
   ok("卡片：按钮只改表单与声明，不调保存", /const fill = \(\) => \{[\s\S]*?setForm\(filled\.form\);\s*setCostClaim\(filled\.claim\);\s*\};/.test(card) && !/const fill = \(\) => \{[^}]*post\(/.test(card));
   ok("卡片：手改成本就去掉声明；保存时带上声明", card.includes('if (k === "cost") setCostClaim(null);') && card.includes("...(costClaim ? { ourCostSource: costClaim } : {})"));
+  ok("卡片：重新读取时清掉声明（不让旧的声明跟着下一次保存）", /setForm\(\{[\s\S]*?\}\);\s*setCostClaim\(null\);/.test(card));
+  ok("卡片：成本加成只在开关开启时显示", card.includes("<MarkupHint enabled={!!cc} margin={form.margin} />"));
+  ok("接口：读取与保存都用不会抛错的取数（出错时卡片不挂）", (route.match(/await loadCompareCostSuggestionSafe\(\{ projectId, orgId \}\)/g) ?? []).length === 2 && !/await loadCompareCostSuggestion\(/.test(route) && load.includes("export async function loadCompareCostSuggestionSafe") && load.includes('return { status: "unavailable", messageZh: UNAVAILABLE_ZH };'));
+  ok("取数：已取消轮次里的选定不算；已取消、草稿轮次不算「之后还有」", load.includes("status: { not: INQUIRY_STATUS.CANCELED }") && load.includes("status: { notIn: [INQUIRY_STATUS.CANCELED, INQUIRY_STATUS.DRAFT] }"));
   ok("卡片：开关关闭（没有 compareCost）时文字与原来相同", card.includes('cc ? TARGET_MARGIN_ON_PRICE_ZH : "目标毛利 %"') && card.includes('{cc ? MARGIN_ON_PRICE_ZH : "毛利"}') && card.includes("{cc ? <CompareCostSourceBlock"));
 }
 

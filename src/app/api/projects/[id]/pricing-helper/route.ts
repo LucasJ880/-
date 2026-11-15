@@ -29,7 +29,7 @@ import {
   staleNoteZh,
   type CompareCostView,
 } from "@/lib/tender-pricing/compare-cost-source";
-import { loadCompareCostSuggestion } from "@/lib/tender-pricing/compare-cost-source-load";
+import { loadCompareCostSuggestionSafe } from "@/lib/tender-pricing/compare-cost-source-load";
 
 /**
  * 报价表助手（tender-pricing/v1）
@@ -78,7 +78,7 @@ export async function GET(
   const orgId = access.project.orgId;
   let compareCost: CompareCostView | null = null;
   if (orgId && isPricingCompareSourceEnabledForOrg(orgId)) {
-    const suggestion = await loadCompareCostSuggestion({ projectId, orgId });
+    const suggestion = await loadCompareCostSuggestionSafe({ projectId, orgId });
     const source = readCostSource((saved as Record<string, unknown>).ourCostSource);
     compareCost = { suggestion, source, staleNoteZh: staleNoteZh(source, inputs.ourCostCad, suggestion) };
   }
@@ -173,7 +173,7 @@ export async function POST(
   const claim = compareEnabled ? readCostClaim(body.ourCostSource) : null;
   const suggestion =
     compareEnabled && orgId && claim && inputs.ourCostCad != null
-      ? await loadCompareCostSuggestion({ projectId, orgId })
+      ? await loadCompareCostSuggestionSafe({ projectId, orgId })
       : null;
   const prevSource = readCostSource((prevInputs as Record<string, unknown>).ourCostSource);
   const source = nextCostSource({
