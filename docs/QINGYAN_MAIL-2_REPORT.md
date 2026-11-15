@@ -209,6 +209,6 @@ Lucas 的原话：「1. 你可以直接连接我的 gmail 去看一下 sales@sun
 | 待确认 E：`sales@` 来信的真实邮件头 | **没有做成** | 写这份报告的会话没有连接 Gmail 的工具（云端会话只能用启动时已连接的连接器）。需要 Lucas 在 claude.ai 的连接器设置里连上 Gmail，再开一个新会话；届时只看一封 `sales@` 来信的邮件头（`From` / `Reply-To` / `X-Original-From` / `Delivered-To` / `Return-Path`），不读正文。结论只影响 `src/lib/mail-watch/pure.ts` 的 `senderAddress` 一个函数 |
 | Marty 的可见范围 | 已确认（口头）：除招投标外都能看 | 无 |
 | 真实环境验收（真实 Gmail / 微信 / staging） | **没有做成** | 这个会话到不了 staging：预览地址从容器里连不上，没有 staging 的登录账号，也没有改 Vercel 环境变量的权限（验收要在 staging 上打开 `MAIL_READ_ENABLED`、`MAIL_WATCH_ENABLED`、`QINGYAN_ALLOW_CRON_NON_PROD`，并要一个绑定了真实 Gmail 的测试账号）。要跑需要：staging 上的这几个开关、一个测试账号的登录方式、容器对 staging 域名的网络放行。验收步骤照 §6 的表逐条走 |
-| 助手回答里的外链图片会自动加载（§3.3） | 进行中，**在另一个会话里做**：change `ai-markdown-image-allowlist` | 那个会话是从这边挂出的任务卡开出来的；已把背景与 Lucas 的决定（按推荐的方向做、可以开工）转给它。它的 PR 由这边盯并合并，合并后把 §3.3 与 `docs/QINGYAN_MAIL-1_REPORT.md` §9 第 1 条改成已处理 |
+| 助手回答里的外链图片会自动加载（§3.3） | **已修并合并**：change `ai-markdown-image-allowlist`（#486，2026-11-15 合并；archive `2026-11-15-ai-markdown-image-allowlist`；主规格 `agents/ai-output-rendering`） | 在另一个会话里实施，合并前由这边审过 diff、另用一批变形地址试过判定、核对了放行的站内文件代理（需登录、只读、不跳转外部）。范围是五个按 Markdown 渲染模型输出的页面；外部链接后面会显示真实主机名。**没有关的同类问题**：AI 起草的邮件 HTML 预览（`src/lib/common/sanitize.ts` 允许 `img` 与 `style`），未改、未做浏览器实测；全站没有内容安全策略。部署到生产之后这一项才算生效 |
 
-在外链图片修好、待确认 E 有结论、staging 验收跑过之前，不建议在生产打开 `MAIL_READ_ENABLED`；`MAIL_WATCH_ENABLED` 不读正文，受影响的只有待确认 E（公共地址来信可能归未匹配）。
+外链图片已修（见上表）。在待确认 E 有结论、staging 验收跑过之前，仍不建议在生产打开 `MAIL_READ_ENABLED`；`MAIL_WATCH_ENABLED` 不读正文，受影响的只有待确认 E（公共地址来信可能归未匹配）。
