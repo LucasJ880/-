@@ -197,6 +197,7 @@ async function main() {
     ok(close(st.ourCostCad, landedB) && rec(p.body.ourCostSource).kind === "rfq_compare", "成本保存了；响应里带来源", p.body);
     g = await get(P);
     ok(rec(cc(g.body).source).kind === "rfq_compare" && cc(g.body).staleNoteZh === null, "读取：来源是比价矩阵，没有过时提示", cc(g.body));
+    ok(Object.keys(rec(g.body.inputs)).sort().join() === "competitorPriceCad,ourCostCad,targetMarginPct", "记了来源之后，inputs 仍只有三项（来源只在 compareCost 里）", g.body.inputs);
     ok(closeCents(floorOf(g.body), landedB / 0.8), "情景表按保存的成本计算（成本底线 = 成本 ÷ 0.8）", floorOf(g.body));
 
     /* ---------- 5. 只改毛利：来源保留 ---------- */
@@ -234,6 +235,8 @@ async function main() {
     const note = String(cc(g.body).staleNoteZh ?? "");
     ok(note.includes("比价矩阵现在是 甲厂") && note.includes("按 乙厂") && note.includes("没有自动更新") && close(rec(g.body.inputs).ourCostCad, landedB), "按乙厂保存后改选甲厂：提示现在是甲厂、已保存的是乙厂，成本没变", { note, inputs: g.body.inputs });
     ok(close((await storedInputs(P)).ourCostCad, landedB) && rec((await storedInputs(P)).ourCostSource).inquiryItemId === itemB, "库里的成本与来源都没被改写");
+    const m2 = (n: number) => n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    ok(note.includes(`甲厂 Alpha 第 1 轮 ${m2(landedA)} CAD`) && note.includes(`已保存的我方成本 ${m2(landedB)} CAD`), "提示里的两个金额：现在甲厂的落地价、已保存的成本（不是别的数）", note);
 
     /* ---------- 9. 更新的一轮还没选定：用更早一轮，写明之后的轮次 ---------- */
     const r2 = await mkRound(P, 2, [{ supplierId: SC, unitPrice: 250 }]);

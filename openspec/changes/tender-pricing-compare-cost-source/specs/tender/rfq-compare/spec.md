@@ -5,8 +5,8 @@
 
 #### Scenario: FOB 报价
 - **WHEN** 一家 FOB 报价，海运、保险、关税、清关参数齐全
-- **THEN** 逐项金额加起来等于落地总价；总价与改动前相同（`npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx`；`npx tsx src/lib/tender-rfq/__tests__/landed-cost.test.ts`）
+- **THEN** 逐项金额（各自舍入到分）加起来等于落地总价；总价与改动前相同（`npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx`；`npx tsx src/lib/tender-rfq/__tests__/landed-cost.test.ts`）
 
 #### Scenario: 结论措辞
 - **WHEN** 生成比价矩阵结论
-- **THEN** 结论里有「含关税，不含 GST/HST」，没有「含税」（`compare-cost-source.test.tsx`）
+- **THEN** 结论里有「含关税，不含 GST/HST」，没有「含税」；Muse 比价理由里的同一句也改了（`compare-cost-source.test.tsx`）

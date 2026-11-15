@@ -130,6 +130,8 @@ console.log("保存时的来源");
   ok("没有声明、新数字：手填", nextCostSource({ ...base, claim: null })?.kind === "manual");
   ok("请求没改成本：保留原来的来源", nextCostSource({ ...base, costInBody: false, prevSource: rfq }) === rfq);
   ok("成本没变、也没有新声明（只改了毛利）：保留原来的来源，即使矩阵变了", nextCostSource({ ...base, claim: null, prevCostCad: 95025, prevSource: rfq, suggestion: okSug({ landedCadTotal: 99000 }) }) === rfq);
+  ok("成本没变、带了声明但核对不过（矩阵已经换了一家）：保留原来的来源，不改成手填（过时提示照样出现）", nextCostSource({ ...base, claim: { kind: "rfq_compare", inquiryItemId: "itemB" }, prevCostCad: 95025, prevSource: rfq, suggestion: okSug({ inquiryItemId: "itemC", landedCadTotal: 99000 }) }) === rfq);
+  ok("成本没变、原来是手填、带了核对不过的声明：仍是手填", nextCostSource({ ...base, claim: { kind: "rfq_compare", inquiryItemId: "itemB" }, prevCostCad: 95025, prevSource: { kind: "manual", recordedAt: "t" } })?.kind === "manual");
   ok("成本清空：没有来源", nextCostSource({ ...base, ourCostCad: null, prevSource: rfq }) === null);
   ok("开关关闭：不看声明；成本变了去掉原来的来源", nextCostSource({ ...base, enabled: false, prevSource: rfq, prevCostCad: 80000 }) === null);
   ok("开关关闭：成本没变，原来的来源留着", nextCostSource({ ...base, enabled: false, prevSource: rfq, prevCostCad: 95025 }) === rfq);

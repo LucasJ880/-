@@ -1,6 +1,6 @@
 # Design：比价矩阵里选定的供应商落地价，作为报价表助手的成本来源（FLOW-H2）
 
-> **状态：四件套待 Lucas 审，未实施。** 涉及价格计算，按约定先审。末尾「待审问题」Q1–Q5 每条都写了推荐；审的时候只要回「都按推荐」或逐条改。
+> **状态：Lucas 2026-11-15 审过，「都按推荐，继续实施」——Q1–Q5 全部按推荐。** 实施中补了两处（见 D2、D3 末尾的「实施时」）。
 
 ## Context
 
@@ -22,7 +22,7 @@
 
 - 不改 `src/lib/tender-pricing/calc.ts` 的计算（只在卡片上加换算显示）。
 - 不改 `src/lib/tender-bid-cost/**`、`src/lib/tender-bid-workspace/**`（TI-2）。
-- 不改 `src/lib/muse-bridge/**`；`projectScenariosForMuse` 的取法不变（决定 A）。
+- 不改 `src/lib/muse-bridge/**`，只有 `router-pure.ts` 里与矩阵结论同样写错的那一句「到目的地含税」（Q5）；`projectScenariosForMuse` 与 `price_scenario` 的取法不变（决定 A）。
 - 不改 `src/lib/inquiry/service.ts`（选定的写入）。
 - 不改 `src/lib/tender-intel/orchestrate.ts`、`src/lib/tender-bid-draft/**`（它们读 `ourCostCad` 的方式不变，不读来源）。
 - 不改 `prisma/schema.prisma`。
@@ -42,12 +42,16 @@
 
 - 否决：直接从 `InquiryItem` 读单价乘数量。会和矩阵算出两个数。
 
+**实施时**：`loadCompareMatrix` 多返回首档数量 `firstTierQty`，并加一个可选参数 `includeNormalized`，传了才按条目返回换算结果（逐项金额要用）。矩阵的行不加字段——Muse 的比价回复按严格结构把行原样带出去，加字段会改 Muse 的输出。其它调用方不传，返回的内容与原来相同（多一个 `firstTierQty`，矩阵接口与 Muse 都不往外带）。
+
 ### D3 逐项金额：在纯函数里多返回一项
 
 `normalizeQuote` 多返回 `breakdownCad: { goods, inland, freight, insurance, duty, clearance }`（不加的项为 null）。总价、假设文字、警告、阻断项不变。卡片按这几项列出来，海运与关税单独一行，并固定写「不含 GST/HST（进口 GST/HST 可抵扣，不计入成本）」。
 
 - 否决：只显示总价和假设文字。纪律要求「区分毛利率、成本加成、海运、关税及可抵扣税款」，一个总价看不出来。
 - 否决：解析假设文字拿金额。文字是给人看的，格式会变。
+
+**实施时**：逐项各自舍入到分，之和与总价最多差几分（总价不变，先算总再舍入）。卡片只显示，不另算总。
 
 ### D4 只建议；按钮只填输入框
 

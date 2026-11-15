@@ -157,7 +157,8 @@ export function verifyCostSource(
  * - 请求没改成本 → 保留原来的来源；
  * - 成本改成空 → 没有来源；
  * - 核对通过 → 来自比价矩阵；
- * - 成本数字没变、也没有新的声明 → 保留原来的来源（只改了毛利或对手价）；
+ * - 成本数字没变（只改了毛利或对手价；或带了声明但核对不过）→ 保留原来的来源——数字还是原来那个来源的数，
+ *   矩阵变了的提示也照样出现；
  * - 其余 → 手填。
  * 开关关闭时不看声明；成本变了就去掉原来的来源（不写新的）。
  */
@@ -177,7 +178,7 @@ export function nextCostSource(input: {
   if (!input.enabled) return unchanged ? input.prevSource : null;
   const verified = verifyCostSource(input.claim, input.ourCostCad, input.suggestion, input.now);
   if (verified) return verified;
-  if (unchanged && !input.claim) return input.prevSource;
+  if (unchanged) return input.prevSource;
   return { kind: "manual", recordedAt: input.now.toISOString() };
 }
 
