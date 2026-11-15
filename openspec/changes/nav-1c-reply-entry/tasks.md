@@ -1,6 +1,6 @@
 # Tasks
 
-每条带验证；真实输出写进 `docs/QINGYAN_NAV-1c_REPORT.md`。实施前先等 design「审核关注点」Q1–Q6 拍板。
+每条带验证；真实输出写进 `docs/QINGYAN_NAV-1c_REPORT.md`。四件套 Lucas 2026-11-15 审核通过（Q1–Q6 全部按推荐）。
 
 受影响测试基线（2026-11-15，main `0925ec9d`，Node 24）：
 

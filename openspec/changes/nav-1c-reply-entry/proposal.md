@@ -1,6 +1,6 @@
 # Proposal：看到来信就能回（NAV-1c）
 
-TASKFLOW：NAV-1c（Phase N；任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TASKBRIEF.md` §NAV-1c，Lucas 2026-11-14 拍板「回复以询盘收件箱为主（可改可发），今日询盘保留为老板审批视图」）。NAV-1a（#453）、NAV-1b（#463）已合并。核对基线：main `0925ec9d`（2026-11-15）；任务书为本 change 引用的文件相对 `dd0e99d` 都没有变。不触碰 `muse-bridge`，无受影响的 Muse 意图。
+TASKFLOW：NAV-1c（Phase N；任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TASKBRIEF.md` §NAV-1c，Lucas 2026-11-14 拍板「回复以询盘收件箱为主（可改可发），今日询盘保留为老板审批视图」）。NAV-1a（#453）、NAV-1b（#463）已合并。核对基线：main `0925ec9d`（2026-11-15）；任务书为本 change 引用的文件相对 `dd0e99d` 都没有变。四件套审核：Lucas 2026-11-15「按照你推荐的来」，design「审核关注点」Q1–Q6 全部按推荐。不触碰 `muse-bridge`，无受影响的 Muse 意图。
 
 ## Why
 
