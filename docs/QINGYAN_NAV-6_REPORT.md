@@ -4,7 +4,7 @@ change：`nav-6-inbox-reply-clarity`（来源 `docs/QINGYAN_NAV-1c_REPORT.md` §
 
 | 项 | 值 |
 |---|---|
-| 状态 | #484 待审；没有开关，合并即生效 |
+| 状态 | #484，2026-11-15 合并；archive `openspec/changes/archive/2026-11-15-nav-6-inbox-reply-clarity`；没有开关，已随合并生效 |
 | 新能力 | `trade/prospect-stage-labels`（2 条要求） |
 | 改的能力 | `trade/inquiry-reply-entry`（改 1 条、加 3 条） |
 | 测试 | 新增 `reply-clarity.test.ts` 36 项（`scripts/test-all.sh:334`、`scripts/test-ci-unit.sh:359`）；`reply-entry-db.isolated.test.ts` 加只读成员一组，21 → 28 |
