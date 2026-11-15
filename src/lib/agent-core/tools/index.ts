@@ -20,6 +20,7 @@ import "./marketing"; // Growth Center：白名单营销工具（内部再校验
 import "./org-knowledge"; // 组织通用知识库（向量/关键词检索）
 import "./enterprise-readonly"; // 企业数字员工 Phase1 只读工具补齐
 import "./product-content"; // AI 外贸产品内容总监
+import "./mail"; // MAIL-1：助手只读读信（只在网页助手对话里可用，见入口门 mail）
 
 import { applyToolPolicy } from "./_policy";
 

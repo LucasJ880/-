@@ -176,6 +176,8 @@ export function buildToolContextBase(
     allowedToolNames,
     scopeGuard: options.scopeGuard,
     runtimeContext: runtime,
+    // MAIL-1：入口门原样带进执行上下文（读信工具执行期按它的 mail 一项判定，与列表一致）
+    entryGate: options.entryGate,
   };
 }
 

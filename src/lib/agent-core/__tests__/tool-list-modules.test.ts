@@ -28,6 +28,8 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 const code = (p: string) => read(p).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
 const ALL = registry.list();
+/** 两道入口门都放行：只想比较模块过滤时用（读信工具的入口门另见 mail-tool-visibility.test.ts） */
+const ALL_GATES_OPEN = { marketing: true, mail: true };
 const MARKETING = ALL.filter((t) => t.name.startsWith("marketing_"));
 
 /** 执行期模块判定：企业管理员、有成员身份、无其他策略时，唯一可能的拒绝就是模块 */
@@ -56,7 +58,8 @@ ok(ALL.length > 50 && MARKETING.length === 12, `注册表有工具（${ALL.lengt
 
 console.log("\n列表 = 执行期（逐工具 × 模块组合）");
 for (const [label, modulesJson] of Object.entries(MODULE_CASES)) {
-  const listed = new Set(registry.list({ modulesJson }).map((t) => t.name));
+  // MAIL-1：读信工具另有入口门（不传即不给）；这里只比模块，所以把两道入口门都放行
+  const listed = new Set(registry.list({ modulesJson, entryGate: ALL_GATES_OPEN }).map((t) => t.name));
   const mismatch = ALL.filter((t) => listed.has(t.name) === executionModuleDenied(t, modulesJson)).map((t) => t.name);
   ok(mismatch.length === 0, `${label}：列表里有 ⇔ 执行期不以 module_disabled 拒绝`, mismatch.slice(0, 5));
 }
@@ -68,7 +71,7 @@ console.log("\n具体期望（不只靠同一函数自证）");
   ok(bad.length === 0, "只启用 sales：列表没有 trade_*、marketing_*、project_*", bad);
   ok(registry.list({ modulesJson: { enabled: ["sales"] } }).every((t) => t.domain !== "project" && t.domain !== "trade"), "只启用 sales：没有 project / trade 域工具");
   ok(salesOnly.some((n) => n.startsWith("sales_")), "只启用 sales：销售工具还在");
-  ok(registry.list({ modulesJson: undefined }).length === ALL.length, "未配置模块：不按模块限制（与执行期相同）");
+  ok(registry.list({ modulesJson: undefined, entryGate: ALL_GATES_OPEN }).length === ALL.length, "未配置模块：不按模块限制（与执行期相同）");
   ok(MARKETING.every((t) => JSON.stringify(toolRequiredModules(t.name, t.domain)) === '["marketing"]'), "marketing_* 所需模块为 marketing");
   ok(JSON.stringify(toolRequiredModules("product_content_x", "trade")) === '["product_content","trade"]', "product_content_* 所需模块不变");
   const noMkt = MODULE_CASES["无marketing"];

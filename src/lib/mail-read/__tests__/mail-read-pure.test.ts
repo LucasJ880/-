@@ -34,9 +34,8 @@ import {
   getThreadText,
   isMailReadEnabled,
   searchMailbox,
-  type GmailReadApi,
-  type GmailReadDeps,
 } from "@/lib/google-email";
+import { PROVIDER, b64, fakeGmail, gmailDeps as deps } from "./fake-gmail";
 
 let pass = 0;
 let fail = 0;
@@ -50,79 +49,6 @@ function ok(cond: boolean, name: string, detail?: unknown) {
   }
 }
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
-const b64 = (s: string) => Buffer.from(s, "utf-8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
-
-// ── 假 Gmail ────────────────────────────────────────────────
-
-type Call = { api: string; args: Record<string, unknown> };
-function fakeGmail(opts: {
-  listIds?: string[];
-  nextPageToken?: string;
-  threads?: Record<string, unknown>;
-  threadError?: { code: number };
-}): { api: GmailReadApi; calls: Call[] } {
-  const calls: Call[] = [];
-  const forbidden = (api: string) => async (args: Record<string, unknown>) => {
-    calls.push({ api, args });
-    throw new Error(`不应调用 ${api}`);
-  };
-  const api = {
-    users: {
-      getProfile: forbidden("getProfile"),
-      history: { list: forbidden("history.list") },
-      threads: {
-        get: async (args: { id: string; format?: string }) => {
-          calls.push({ api: "threads.get", args });
-          if (opts.threadError) throw opts.threadError;
-          const t = opts.threads?.[args.id];
-          if (!t) throw { code: 404 };
-          return { data: t };
-        },
-      },
-      messages: {
-        list: async (args: Record<string, unknown>) => {
-          calls.push({ api: "messages.list", args });
-          return {
-            data: {
-              messages: (opts.listIds ?? []).map((id) => ({ id, threadId: `t${id}` })),
-              nextPageToken: opts.nextPageToken ?? null,
-            },
-          };
-        },
-        get: async (args: { id: string; format?: string }) => {
-          calls.push({ api: "messages.get", args });
-          return {
-            data: {
-              id: args.id,
-              threadId: `t${args.id}`,
-              labelIds: ["INBOX", "UNREAD"],
-              internalDate: String(Date.UTC(2026, 10, 10, 15, 0, 0)),
-              snippet: `摘要-${args.id}`,
-              payload: {
-                headers: [
-                  { name: "From", value: "王总 <client@example.com>" },
-                  { name: "To", value: "lynn@sunny.example" },
-                  { name: "Subject", value: `主题-${args.id}` },
-                ],
-              },
-            },
-          };
-        },
-        attachments: { get: forbidden("attachments.get") },
-      },
-    },
-  } as unknown as GmailReadApi;
-  return { api, calls };
-}
-
-const READ_OK = `${GMAIL_COMPOSE_SCOPE} ${GMAIL_READONLY_SCOPE}`;
-function deps(api: GmailReadApi, provider: Record<string, unknown> | null): GmailReadDeps {
-  return {
-    getProvider: (async () => provider) as unknown as GmailReadDeps["getProvider"],
-    getGmail: async () => api,
-  };
-}
-const PROVIDER = { id: "p1", accessToken: "enc", refreshToken: null, tokenExpiry: null, grantedScopes: READ_OK };
 
 async function main() {
   console.log("mail-read-pure（查询拼装 / 截断 / 开关 / 原文省略 / 读接口）");

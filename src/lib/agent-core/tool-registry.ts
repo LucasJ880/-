@@ -18,6 +18,7 @@ import { isSuperAdmin, platformTier, type PlatformRole } from "@/lib/rbac/roles"
 import { canInvokeTool, toolModulesSatisfied } from "@/lib/tenancy/tool-auth";
 import { runPreExecuteGuards } from "./pre-execute-guard";
 import { handleRequiresApproval } from "./approval-gate";
+import { isMailToolName } from "@/lib/mail-read/pure";
 
 /** 未声明 allowRoles 的工具视为 admin-only（安全默认） */
 const DEFAULT_ALLOW_ROLES: ToolAllowRoles = ["admin"];
@@ -65,6 +66,7 @@ export interface RegistryFilters {
   /**
    * VIS-1c：人类对话的入口门（spec agents/tool-authorization「营销工具随营销模块与品牌增长入口」）。
    * `marketing: false` 时剔除 marketing_*；不传 = 不限制（数字员工与后台运行）。执行期不读它。
+   * MAIL-1：`mail` 不是 true（含不传入口门）时剔除 mail_*；读信工具执行期按同一个值再判一次。
    */
   entryGate?: ToolEntryGate;
 }
@@ -110,6 +112,12 @@ class ToolRegistry {
     }
     if (filters?.entryGate && !filters.entryGate.marketing) {
       result = result.filter((t) => !t.name.startsWith("marketing_"));
+    }
+    // MAIL-1（spec mail/assistant-read）：读信工具「不传即不给」——只要带了过滤条件，
+    // 入口门的 mail 不是 true 就剔除 mail_*。不带任何过滤条件的 list() 是注册表全量
+    // （策略表打标签、测试枚举用），不经这道门。
+    if (filters !== undefined && filters.entryGate?.mail !== true) {
+      result = result.filter((t) => !isMailToolName(t.name));
     }
     if (filters?.role) {
       const role = normalizeRole(filters.role);

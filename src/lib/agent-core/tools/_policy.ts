@@ -145,6 +145,12 @@ export const TOOL_POLICY: Record<string, ToolPolicy> = {
 
   // ── 组织通用知识库 ──
   org_search_knowledge:         { risk: "l0_read", allowRoles: "*" },
+
+  // ── MAIL-1 助手只读读信（只读本人绑定的 Gmail）──
+  // allowRoles 是 "*"：受众由入口门的 mail 决定（网页助手对话 ∧ 读信开关 ∧ 邮箱绑定页放行），
+  // 平台角色词表表达不了「销售 / 招投标 / 外贸 / 管理员」。不要在这里改成角色白名单。
+  mail_search:                  { risk: "l0_read", allowRoles: "*" },
+  mail_read_thread:             { risk: "l0_read", allowRoles: "*" },
 };
 
 /**
