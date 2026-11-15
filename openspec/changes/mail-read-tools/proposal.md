@@ -56,8 +56,9 @@ TASKFLOW：MAIL-1（Phase M「邮箱助手」；任务书 `docs/QINGYAN_MAIL-1_M
 
 ## Impact
 
-- 修改：`src/lib/google-email.ts`（读接口）、`src/lib/env/runtime-isolation.ts`（开关）、`src/lib/agent-core/types.ts`、`src/lib/agent-core/entry-gate.ts`、`src/lib/agent-core/entry-gate-server.ts`、`src/lib/agent-core/tool-registry.ts`（列表过滤）、`src/lib/agent-core/engine.ts`（执行上下文带入口门、读信轮次写入封锁）、`src/lib/agent-core/tools/index.ts`、`src/lib/agent-core/tools/_policy.ts`、`src/lib/tenancy/tool-auth.ts`、`src/lib/agent-core/streaming.ts`、`src/lib/agent-core/prompts/operator-system.ts`、`src/app/api/ai/threads/[threadId]/messages/route.ts`、`src/app/api/sales/email-status/route.ts`、`src/app/(main)/settings/email/page.tsx`、`src/lib/agent-core/__tests__/tool-list-modules.test.ts`（入口门源码断言跟着改）、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
-- 新增：`src/lib/agent-core/tools/mail.ts`、`src/lib/mail-read/**`（纯函数与测试）。
+- 修改：`src/lib/google-email.ts`（读接口）、`src/lib/env/runtime-isolation.ts`（开关）、`src/lib/agent-core/types.ts`、`src/lib/agent-core/entry-gate.ts`、`src/lib/agent-core/entry-gate-server.ts`、`src/lib/agent-core/tool-registry.ts`（列表过滤）、`src/lib/agent-core/engine.ts`（执行上下文带入口门、读信轮次写入封锁）、`src/lib/agent-core/tools/secretary.ts`（在既有的工具登记文件里登记两个读信工具）、`src/lib/agent-core/tools/_policy.ts`、`src/lib/tenancy/tool-auth.ts`、`src/lib/agent-core/streaming.ts`、`src/lib/agent-core/prompts/operator-system.ts`、`src/app/api/ai/threads/[threadId]/messages/route.ts`、`src/app/api/sales/email-status/route.ts`、`src/app/(main)/settings/email/page.tsx`、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`。
+- 新增：`src/lib/agent-core/tools/mail.ts`（只导出工厂函数）、`src/lib/agent-core/untrusted-run-guard.ts`、`src/lib/mail-read/**`（纯函数与测试）、`scripts/mail-1-local-acceptance.ts`（本地验收脚本）。
+- 实施时与初稿不同的两处：读信工具不在新文件里登记、也不改 `tools/index.ts`（运行时架构守卫不允许新增工具登记面文件）；`tool-list-modules.test.ts` 一行未改（给模型的列表在 `toOpenAITools` 里过滤，见 design D1）。
 - 比任务书「Impact」多出的文件：`runtime-isolation.ts`、`types.ts`、`entry-gate*.ts`、`tool-registry.ts`、`engine.ts`、`messages/route.ts`。原因见 design「与任务书对不上的地方」。
 - 不登记 `src/lib/agent-runtime-v2/tool-catalog.ts`（核对结论见 design）。
 - 零 schema；`vercel.json` 无 diff；不新增依赖；新增一个环境变量 `MAIL_READ_ENABLED`。
