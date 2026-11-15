@@ -26,6 +26,7 @@ import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
 import { buildSupplierGroupsEntry, supplierIdsInGroups, type SupplierGroupsEntry } from "./supplier-groups";
 import { isRfqSupplierGroupsEnabledForOrg } from "./supplier-groups-flags";
 import { loadActiveSupplierGroups } from "./supplier-groups-service";
+import { isDecisionGatesEnabledForOrg, noGoRfqReminderZh } from "@/lib/tender-decision-gates/gates";
 import { TENDER_SEND_CHASE_TYPE, TENDER_SEND_RFQ_TYPE, type TenderSendChasePayload } from "./types";
 import {
   assembleEntryPreview,
@@ -205,7 +206,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   // 去重在 orderEntrySuppliers 里做；没有分组时 groupSupplierRows 为空，结果与本功能之前相同
   const suppliers = orderEntrySuppliers([...recentSupplierRows, ...groupSupplierRows], prefs.defaultSupplierIds);
 
-  const state = decideRfqEntryState({
+  const baseState = decideRfqEntryState({
     projectId: project.id,
     lock,
     confirmedRequirementCount,
@@ -218,6 +219,11 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     replyBy,
     timeZone,
   });
+  // FLOW-H5：投标决定是不投时多一条不阻断的提醒（开关开着时）；入口可用与否不变
+  const noGo = isDecisionGatesEnabledForOrg(input.orgId)
+    ? await db.bidIntelligenceRoom.findFirst({ where: { projectId: project.id, orgId: input.orgId, goDecision: "NO_GO" }, select: { goDecidedAt: true } })
+    : null;
+  const state = noGo ? { ...baseState, warnings: [...baseState.warnings, noGoRfqReminderZh(noGo.goDecidedAt, timeZone)] } : baseState;
 
   // ── 引擎发出的轮次与耗时 ──
   const engineRounds: Record<string, { elapsed: string | null }> = {};

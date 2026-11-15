@@ -2,6 +2,7 @@
  * 一键生成项目 PDF（供应商询价 / 内部分析 / 同事任务单）
  */
 
+import { UNCONFIRMED_BASIS_BANNER_EN, isDecisionGatesEnabledForOrg } from "@/lib/tender-decision-gates/gates";
 import { db } from "@/lib/db";
 import { putPrivateBlob } from "@/lib/files/blob-access";
 import { sanitizeSupplierFacing } from "./pdf-common";
@@ -359,14 +360,17 @@ ${escd}`;
   } else if (input.docType === "bid_draft") {
     // Lane 5：投标文件起草——装配（只读）→ LLM 合成（AI_DRAFT，能力/价格不编造）→ HTML；
     // 结果元信息落 room.summaryJson.bidDraft 供工作台卡片展示（失败温和，不写半成品）
-    const { gatherBidDraftInputs, synthesizeBidDraft, renderBidDraftHtml } = await import(
+    const { gatherBidDraftInputsWithBasis, synthesizeBidDraft, renderBidDraftHtml, bidDraftMetaOf } = await import(
       "@/lib/tender-bid-draft"
     );
-    const inputs = await gatherBidDraftInputs({ projectId: project.id, orgId: input.orgId, userId: input.userId });
-    if (!inputs) throw new Error("尚无已完成的分析，无法起草");
+    const gathered = await gatherBidDraftInputsWithBasis({ projectId: project.id, orgId: input.orgId, userId: input.userId });
+    if (!gathered) throw new Error("尚无已完成的分析，无法起草");
+    const { inputs, basis } = gathered;
+    // FLOW-H5：开关开着时记下起草所用的分析与是否已批准；没批准的在草稿里加横幅（不改输入与提示词）
+    const gates = isDecisionGatesEnabledForOrg(input.orgId);
     const { result, errorCode } = await synthesizeBidDraft(inputs);
     if (!result) throw new Error(`起草失败（${errorCode ?? "unknown"}）`);
-    htmlOverride = renderBidDraftHtml(inputs, result);
+    htmlOverride = renderBidDraftHtml(inputs, result, { unconfirmedBasisBanner: gates && !basis.approved ? UNCONFIRMED_BASIS_BANNER_EN : null });
     textBody = "";
     try {
       const room = await db.bidIntelligenceRoom.findUnique({ where: { projectId: project.id }, select: { id: true, summaryJson: true } });
@@ -378,16 +382,7 @@ ${escd}`;
             summaryJson: JSON.parse(
               JSON.stringify({
                 ...rsj,
-                bidDraft: {
-                  version: result.version,
-                  generatedAt: result.generatedAt,
-                  placeholders: result.placeholders,
-                  toConfirm: result.compliance.filter((c) => c.status === "TO_CONFIRM").length,
-                  excludedNameHits: result.excludedNameHits,
-                  forbiddenHits: result.forbiddenHits,
-                  requirementCount: result.compliance.length,
-                  internalNotesZh: result.sections.internalNotesZh.slice(0, 12),
-                },
+                bidDraft: bidDraftMetaOf(result, gates ? basis : null),
               }),
             ),
           },
