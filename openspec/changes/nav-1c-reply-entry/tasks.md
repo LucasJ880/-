@@ -8,7 +8,7 @@
 |---|---|
 | trade-recipients | 70 |
 | entry-visibility | 91 |
-| inbox-service | inbox-service: 7 通过 |
+| inbox-service | 7 |
 | 外发同步 / 审批发送的隔离库测试（本机 Postgres） | 实施前记录 |
 
 ## 1. 回复目标与时间线
