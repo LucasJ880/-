@@ -260,6 +260,19 @@
 
 ---
 
+## Phase M — 邮箱助手（问了就能读，来了会提醒）
+
+任务书：`docs/QINGYAN_MAIL-1_MAILBOX_ASSISTANT_TASKBRIEF.md`（需求方 Sunny 线 2026-11-14；判断点 1–7 已于 2026-11-14 拍板，见任务书「拍板结果」；判断点 8 待定，未定前按 A 执行）。规则：读是直接的，写是要批的。三条边界全部 fail-closed：只读本人绑定的邮箱（工具没有邮箱 / 用户参数，不读组织授权邮箱 `mailboxEmail`）；邮件内容是资料不是指令；正文不落库。纪律同上：零 schema、本期零出站、不新增 cron / 队列（MAIL-2 挂既有 `sales-actions`）、读信工具不上微信 / Muse 通道、零新增 LLM 调用。与 Phase K / P / C / V 并列，属 Sunny 线。一个 change = 一个 PR，按 MAIL-1 → MAIL-2 顺序合并。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| MAIL-1 | 助手只读读信：`mail_search`（关键词 / 客户 / 天数 / 未读）与 `mail_read_thread`（线程正文纯文本，带截断标记，附件只列文件名与大小）两个只读工具，只在网页助手对话里出现，受众与「邮箱绑定」页一致；未绑 Gmail 或缺读信权限时返回结构化错误并指向 `/settings/email`，该页与 `GET /api/sales/email-status` 增加读信权限状态；工具结果按不可信资料处理（系统提示固定规则）；每次调用留元数据审计，不含正文；开关 `MAIL_READ_ENABLED` 默认关。不改发信、审批闸与执行前守卫 | — | OpenSpec change `mail-read-tools`；查询拼装 / 截断 / 错误码的纯函数测试、工具可见性表驱动测试、客户作用域测试注册；`vercel.json` 与 Prisma schema 无 diff；报告 `docs/QINGYAN_MAIL-1_REPORT.md` | [ ] |
+| MAIL-2 | 客户来信提醒：`sales-actions` 定时任务加 `mail-watch` 步骤（每 15 分钟，`history.list` 游标轮询，首轮不回溯，只取元数据不取正文）→ 查表归类（客户来信 / 客户回信 / 未匹配）→ AuditLog 账本（按 Gmail messageId 幂等）+ 客户时间线入站互动（只有主题）+ `mail_inbound` 通知与微信 / Muse 推送（客户名 + 主题）；配置与游标在 `settingsJson.mailWatch`；三道开关（平台 `MAIL_WATCH_ENABLED` ∧ 组织 ∧ 成员本人勾选）都默认关 | MAIL-1；判断点 8（未定前只提醒邮箱主人） | OpenSpec change `mail-watch`；`mail-watch-pure` / `mail-watch-db.isolated` 测试注册；报告 `docs/QINGYAN_MAIL-2_REPORT.md` | [ ] |
+
+**运维前置（有 Google Cloud Console 权限的人，合并前确认；细项见任务书「上线顺序与运维前置」）**：OAuth 同意屏幕的状态（`gmail.readonly` 属受限权限；「测试中」状态下刷新令牌约 7 天失效）；Sunny 成员的邮箱是否都在同一个 Google Workspace 下；早期只授权了撰写权限的账号上线后在 `/settings/email` 重新授权一次。
+
+---
+
 ## 度量（每个 GATE 复测）
 
 | 指标 | 基线（2026-10） | 目标 |
