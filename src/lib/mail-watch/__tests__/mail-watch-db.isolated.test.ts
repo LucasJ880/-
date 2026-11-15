@@ -293,7 +293,7 @@ async function main() {
       const r = await run();
       const n = await notes({ entityId: C_SAM });
       ok(box(r, BOB).counts.customerMail === 1 && n.length === 1 && n[0].userId === BOB, "Sam 的客户给老板发信：老板（全局可见）收到通知", n);
-      ok(!(await notes()).some((x) => x.userId === SAM), "客户的建档人 Sam 没有收到通知（判断点 8 未定：只提醒邮箱主人）");
+      ok(!(await notes()).some((x) => x.userId === SAM), "客户的建档人 Sam 没有收到通知（判断点 8 取 A：只提醒邮箱主人）");
       const it = await interactions(C_SAM);
       ok(it.length === 1 && it[0].createdById === BOB && it[0].emailMessageId === mail.id, "客户时间线多一条入站互动，记录人为老板");
     }
