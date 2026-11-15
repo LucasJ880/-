@@ -411,6 +411,10 @@ npx tsx src/lib/notifications/__tests__/notification-href.test.ts
 npx tsx src/lib/notifications/__tests__/type-visibility.test.ts
 npx tsx src/lib/settings/__tests__/sender-copy.test.ts
 npx tsx src/lib/agent-core/__tests__/tool-list-modules.test.ts
+npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts
+npx tsx src/lib/agent-core/__tests__/mail-tool-visibility.test.ts
+npx tsx src/lib/agent-core/tools/__tests__/mail-tools.test.ts
+npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
 npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
@@ -465,6 +469,7 @@ npx tsx src/lib/tender-bid-readiness/__tests__/stage-policy.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/workspace-contract.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts
 NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/bid-workspace-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/readiness-submission-db.isolated.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/line-entry.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts

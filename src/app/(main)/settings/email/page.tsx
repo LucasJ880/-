@@ -19,6 +19,7 @@ import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSenderCard } from "./org-sender-card";
 import { EmailProfileCard } from "./email-profile-card";
 import { PLATFORM_RELAY_SUMMARY, personalGmailNotice, platformRelayTitle } from "@/lib/settings/sender-copy";
+import { mailReadPanelState } from "@/lib/mail-read/pure";
 
 
 interface GmailState {
@@ -28,6 +29,8 @@ interface GmailState {
   hasComposeScope?: boolean;
   needsReauth?: boolean;
   draftEnabled?: boolean;
+  /** MAIL-1：读信开关开启且已连接时才有 */
+  hasReadScope?: boolean;
 }
 
 interface SmtpState {
@@ -44,6 +47,8 @@ interface StatusResponse {
   gmail: GmailState;
   smtp: SmtpState;
   activeChannel: "gmail" | "smtp" | null;
+  /** MAIL-1：读信开关（MAIL_READ_ENABLED）开启时才有 */
+  mailRead?: { enabled: boolean };
 }
 
 interface BindingData {
@@ -237,6 +242,8 @@ export default function EmailBindingPage() {
 
   const gmail = status?.gmail;
   const activeChannel = status?.activeChannel;
+  // MAIL-1：「读信权限」一项只在读信开关开启时显示（spec mail/assistant-read）
+  const mailReadPanel = mailReadPanelState(status);
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -351,6 +358,36 @@ export default function EmailBindingPage() {
                 </svg>
                 使用 Google 账号连接
               </button>
+            )}
+
+            {mailReadPanel !== "hidden" && (
+              <div
+                data-testid="mail-read-panel"
+                className={`mt-3 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                  mailReadPanel === "enabled"
+                    ? "border-emerald-200 bg-card-bg/60"
+                    : "border-amber-200 bg-amber-50/80"
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">读信权限</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                    {mailReadPanel === "enabled" &&
+                      "已开启：助手可以按你的提问读取你本人邮箱里的邮件。只读，不会标已读、归档或删除。"}
+                    {mailReadPanel === "needs_reauth" &&
+                      "未开启：当前授权没有读信权限，助手读不了邮件。请重新授权并同意读取邮件。"}
+                    {mailReadPanel === "needs_google" && "读信需要 Google 授权"}
+                  </p>
+                </div>
+                {mailReadPanel === "needs_reauth" && (
+                  <button
+                    onClick={() => handleConnectGoogle(true)}
+                    className="shrink-0 rounded-md border border-amber-300 bg-card-bg px-2.5 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+                  >
+                    重新授权
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

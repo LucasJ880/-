@@ -18,6 +18,7 @@ import { isSuperAdmin, platformTier, type PlatformRole } from "@/lib/rbac/roles"
 import { canInvokeTool, toolModulesSatisfied } from "@/lib/tenancy/tool-auth";
 import { runPreExecuteGuards } from "./pre-execute-guard";
 import { handleRequiresApproval } from "./approval-gate";
+import { isMailToolName } from "@/lib/mail-read/pure";
 
 /** 未声明 allowRoles 的工具视为 admin-only（安全默认） */
 const DEFAULT_ALLOW_ROLES: ToolAllowRoles = ["admin"];
@@ -65,6 +66,8 @@ export interface RegistryFilters {
   /**
    * VIS-1c：人类对话的入口门（spec agents/tool-authorization「营销工具随营销模块与品牌增长入口」）。
    * `marketing: false` 时剔除 marketing_*；不传 = 不限制（数字员工与后台运行）。执行期不读它。
+   * MAIL-1：传了入口门而 `mail` 不是 true 时剔除 mail_*；给模型的列表（toOpenAITools）不传入口门也剔除。
+   * 读信工具执行期按同一个值再判一次。
    */
   entryGate?: ToolEntryGate;
 }
@@ -111,6 +114,12 @@ class ToolRegistry {
     if (filters?.entryGate && !filters.entryGate.marketing) {
       result = result.filter((t) => !t.name.startsWith("marketing_"));
     }
+    // MAIL-1（spec mail/assistant-read）：传了入口门而 mail 不是 true → 剔除 mail_*（工具列表接口走这里）。
+    // 不传入口门的 list() 仍是按其它条件过滤的注册表枚举（策略表打标签、测试枚举用）；
+    // 给模型的列表一律走 toOpenAITools，那里「不传即不给」。
+    if (filters?.entryGate && filters.entryGate.mail !== true) {
+      result = result.filter((t) => !isMailToolName(t.name));
+    }
     if (filters?.role) {
       const role = normalizeRole(filters.role);
       result = result.filter((t) => roleCanCall(t, role));
@@ -128,8 +137,13 @@ class ToolRegistry {
     return result;
   }
 
+  /**
+   * 给模型的工具列表。MAIL-1：读信工具「不传即不给」——入口门的 mail 不是 true（含根本没传入口门）
+   * 一律剔除 mail_*，所以数字员工、技能、外贸对话、提及网关等不传入口门的运行都拿不到。
+   */
   toOpenAITools(filters?: RegistryFilters): OpenAIToolSpec[] {
-    return this.list(filters).map((tool) => ({
+    const mailOpen = filters?.entryGate?.mail === true;
+    return this.list(filters).filter((tool) => mailOpen || !isMailToolName(tool.name)).map((tool) => ({
       type: "function" as const,
       function: {
         name: tool.name,

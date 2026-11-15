@@ -4,8 +4,11 @@ import { db } from "@/lib/db";
 import {
   getEmailProvider,
   hasGmailComposeScope,
+  hasGmailReadScope,
   isGmailDraftEnabled,
+  isMailReadEnabled,
 } from "@/lib/google-email";
+import { withMailReadStatus } from "@/lib/mail-read/pure";
 
 /**
  * GET /api/sales/email-status
@@ -15,6 +18,10 @@ import {
  *  - smtp:  用户手填 SMTP + App Password（兜底）
  *
  * 前端据此显示"当前生效通道"并决定是否展示 SMTP 高级配置。
+ *
+ * MAIL-1（spec mail/assistant-read）：读信开关（MAIL_READ_ENABLED）开启时，已连接的 gmail 多
+ * hasReadScope，顶层多 mailRead: { enabled: true }；开关关闭时响应与之前逐字段相同。
+ * 不返回访问令牌 / 刷新令牌。
  */
 export const GET = withAuth(async (_req, _ctx, user) => {
   const [provider, binding] = await Promise.all([
@@ -67,5 +74,10 @@ export const GET = withAuth(async (_req, _ctx, user) => {
     ? "smtp"
     : null;
 
-  return NextResponse.json({ gmail, smtp, activeChannel });
+  return NextResponse.json(
+    withMailReadStatus(
+      { gmail, smtp, activeChannel },
+      { enabled: isMailReadEnabled(), hasReadScope: hasGmailReadScope(provider?.grantedScopes) },
+    ),
+  );
 });

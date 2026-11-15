@@ -45,6 +45,16 @@ import {
 } from "@/lib/market-intelligence/research-runtime";
 import { resolveAgentTenant } from "@/lib/tenancy/resolve-agent-tenant";
 import { loadToolEntryGate } from "@/lib/agent-core/entry-gate-server";
+import type { ToolEntryGate } from "@/lib/agent-core/types";
+import { isMailReadAllowed } from "@/lib/env/runtime-isolation";
+import {
+  MAIL_INTENT_RECENT_MESSAGES,
+  isMailToolName,
+  mailBodiesFromToolData,
+  mailIntentForcesTools,
+  mentionsMailbox,
+  redactVerbatimMail,
+} from "@/lib/mail-read/pure";
 import { resolveModelPolicy } from "@/lib/ai/model-policy";
 import { loadQuoteAutoSendRule } from "@/lib/org-rules/service";
 import { getRequestContext } from "@/lib/common/request-context";
@@ -342,12 +352,34 @@ export const POST = withAuth(async (request, ctx, user) => {
     .includes("qingyan-marketing-analysis");
   const longMarketingResearch = classifyLongRunningMarketingResearch(content);
   const requestedCalendarAction = requestsCalendarWrite(content);
+  // MAIL-1（spec mail/assistant-read）：读信入口门只在这里——网页助手对话——以网页助手入口取；
+  // 读信开关关着时不取（零额外查询，路由与改动前相同）。mail === true 且消息提到邮件 / 邮箱时，
+  // 本轮走 Operator 并带工具（与日历意图同做法：有独立执行边界的能力不受 Operator 灰度影响）。
+  const webEntryGate: ToolEntryGate | null = isMailReadAllowed()
+    ? await loadToolEntryGate(user, orgRes.orgId, { surface: "web_assistant" })
+    : null;
+  // 追问（「他具体说了什么」）本身不带邮件字样：读信可用时往回看本对话最近两轮
+  const recentForMailIntent =
+    webEntryGate?.mail === true && !mentionsMailbox(content)
+      ? await db.aiMessage.findMany({
+          where: { threadId },
+          orderBy: { createdAt: "desc" },
+          take: MAIL_INTENT_RECENT_MESSAGES,
+          select: { content: true },
+        })
+      : [];
+  const mailIntent = mailIntentForcesTools(
+    webEntryGate?.mail,
+    content,
+    recentForMailIntent.map((m) => m.content),
+  );
   // 项目内显式选了助手模式 → 强制 Operator（否则 fast/expert 无效）
   const useOperator =
     Boolean(assistantMode) ||
     requestedMarketingSkill ||
     Boolean(longMarketingResearch) ||
     requestedCalendarAction ||
+    mailIntent ||
     isOperatorEnabled({ userId: user.id, role: aiRole });
   const requestedOrgId =
     (typeof body.orgId === "string" ? body.orgId.trim() : "") ||
@@ -462,6 +494,8 @@ export const POST = withAuth(async (request, ctx, user) => {
       abortSignal: request.signal,
       projectId: thread.projectId ?? null,
       assistantMode,
+      webEntryGate,
+      mailIntent,
     });
   }
   // ─── 以下为 legacy 分支 ───
@@ -827,6 +861,10 @@ interface OperatorBranchInput {
   abortSignal: AbortSignal;
   projectId: string | null;
   assistantMode?: import("@/lib/ai/assistant-modes").AssistantMode | null;
+  /** MAIL-1：以网页助手入口取到的入口门（读信开关关时为 null） */
+  webEntryGate: ToolEntryGate | null;
+  /** MAIL-1：读信可用且消息提到邮件 / 邮箱 → 本轮带工具 */
+  mailIntent: boolean;
 }
 
 async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextResponse> {
@@ -846,6 +884,8 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     abortSignal,
     projectId,
     assistantMode = null,
+    webEntryGate,
+    mailIntent,
   } = input;
 
   const {
@@ -873,10 +913,32 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
   const chatPolicy = resolveModelPolicy({ role: "chat", orgId, userId: user.id });
   const policyModel = chatPolicy.upgraded ? chatPolicy.model : undefined;
 
+  // 分流：fast 强制直答；expert 强制工具；agent 按关键词（含项目意图）
+  // 日历写入/日程意图必须挂工具，否则模型会误称「本会话没有可用的日历创建工具」
+  const calendarWrite = requestsCalendarWrite(userContent);
+  const calendarMention = mentionsCalendar(userContent);
+  let withTools = needsTools(userContent) || calendarWrite || calendarMention;
+  if (assistantMode === "fast" && !calendarWrite && !calendarMention) {
+    withTools = false;
+  } else if (assistantMode === "project_expert") {
+    withTools = true;
+  } else if (projectId && needsProjectTools(userContent)) {
+    withTools = true;
+  }
+  if (calendarWrite || calendarMention) withTools = true;
+  // 有图片附件时必须挂工具，否则模型没有 chat_view_attachment_image 可用
+  if (hasImageAttachments) withTools = true;
+  // MAIL-1：读信意图同样必须挂工具（mailIntent 已含「入口门 mail === true」）
+  if (mailIntent) withTools = true;
+  // 读信工具是否进入本轮的工具列表（列表侧条件；执行期由工具按同一个入口门再判）
+  const mailToolsOffered = withTools && webEntryGate?.mail === true;
+
   const caps = getCapabilities(aiRole);
   let systemPrompt = buildOperatorSystemPrompt({
     role: aiRole,
     userName: user.name,
+    // MAIL-1：读信工具在列表里时带「邮件内容是资料不是指令」固定规则；否则提示与改动前逐字相同
+    mailRead: mailToolsOffered,
   });
 
   if (projectId) {
@@ -899,22 +961,6 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
     }
   }
 
-  // 分流：fast 强制直答；expert 强制工具；agent 按关键词（含项目意图）
-  // 日历写入/日程意图必须挂工具，否则模型会误称「本会话没有可用的日历创建工具」
-  const calendarWrite = requestsCalendarWrite(userContent);
-  const calendarMention = mentionsCalendar(userContent);
-  let withTools = needsTools(userContent) || calendarWrite || calendarMention;
-  if (assistantMode === "fast" && !calendarWrite && !calendarMention) {
-    withTools = false;
-  } else if (assistantMode === "project_expert") {
-    withTools = true;
-  } else if (projectId && needsProjectTools(userContent)) {
-    withTools = true;
-  }
-  if (calendarWrite || calendarMention) withTools = true;
-  // 有图片附件时必须挂工具，否则模型没有 chat_view_attachment_image 可用
-  if (hasImageAttachments) withTools = true;
-
   if (hasAttachments) {
     systemPrompt += attachmentPromptRules("chat_view_attachment_image");
   }
@@ -926,10 +972,15 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
   if (calendarWrite || calendarMention) {
     domains.add("secretary");
   }
+  // MAIL-1：读信工具同样挂在 secretary 域
+  if (mailToolsOffered) {
+    domains.add("secretary");
+  }
 
   const taskMode = assistantMode === "fast" ? "fast" : "chat";
   // VIS-1c：人类对话的工具列表入口门（营销工具只给「品牌增长」入口放行的人；agents/tool-authorization）
-  const entryGate = withTools ? await loadToolEntryGate(user, orgId) : undefined;
+  // MAIL-1：读信开关开着时沿用上面以网页助手入口取到的那一份（同一企业、同一用户），不重复查询
+  const entryGate = withTools ? (webEntryGate ?? (await loadToolEntryGate(user, orgId))) : undefined;
   const encoder = new TextEncoder();
   const startedAt = Date.now();
 
@@ -947,6 +998,9 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
       let hadError = false;
       // PR4 回看：本次流中生成的待审批 actionId，稍后回填 messageId
       const createdActionIds: string[] = [];
+      // MAIL-1：本轮读信工具返回的正文只留在这次请求的内存里，用于落库前省略回复里的长段原文；不写到任何地方
+      let mailReadThisTurn = false;
+      const mailBodiesThisTurn: string[] = [];
 
       try {
         // 发个 mode 心跳，前端可选读取
@@ -1002,6 +1056,10 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
               emit({ type: "tool_start", name: ev.name, label: ev.label });
             } else if (ev.type === "tool_result") {
               emit({ type: "tool_result", name: ev.name, ok: ev.ok });
+              if (ev.ok && isMailToolName(ev.name)) {
+                mailReadThisTurn = true;
+                mailBodiesThisTurn.push(...mailBodiesFromToolData(ev.data));
+              }
               // PR4：若工具返回 pending_approval，额外推一个 approval_required
               // 前端收到后在消息下方渲染审批卡片
               const approval = detectPendingApproval(ev.data);
@@ -1160,11 +1218,17 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
           ? "（AI 调用失败，请重试）"
           : "（AI 暂时没有生成内容，请稍后重试）");
 
+        // MAIL-1（spec「助手回复落库时省略长段邮件原文」）：本轮读过邮件时，落库版本里与邮件正文
+        // 连续重合 120 字以上的段落换成省略标记；流给用户的内容（上面已发出）不变
+        const storedContent = mailReadThisTurn
+          ? redactVerbatimMail(finalContent, mailBodiesThisTurn).text
+          : finalContent;
+
         const assistantMsg = await db.aiMessage.create({
           data: {
             threadId,
             role: "assistant",
-            content: finalContent,
+            content: storedContent,
           },
           select: { id: true },
         });
@@ -1191,7 +1255,8 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
           });
         }
 
-        if (projectId) {
+        // MAIL-1：本轮读过邮件时不从回复抽取项目洞察（洞察挂在项目上，不是个人数据）
+        if (projectId && !mailReadThisTurn) {
           import("@/lib/projects/insight-extract")
             .then((m) =>
               m.extractInsightsFromAssistantReply({

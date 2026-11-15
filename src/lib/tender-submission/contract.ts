@@ -138,6 +138,21 @@ export function parseStoredRecord(afterData: unknown): StoredSubmissionRecord | 
   return { v: 1, kind: o.kind as SubmissionKind, submittedAt: o.submittedAt, channel: o.channel as SubmissionChannel, receiptRef: str(o.receiptRef), note: str(o.note) };
 }
 
+/**
+ * 与项目当前提交时间对得上的那条记录：rows 按记录时间从新到旧排；取最新的、记的就是这个提交时间的那一条。
+ * 两个人同时第一次记录、填的不一样时，最后写进来的记录不一定对应最终生效的时间——不能把 A 的回执配上 B 的时间。
+ * 项目没有提交时间、或没有对得上的 → null。提交记录卡片与可投标判定都用这一个取法。
+ */
+export function effectiveRecordOf<T extends { afterData: unknown }>(submittedAt: Date | null, rows: readonly T[]): { row: T; record: StoredSubmissionRecord } | null {
+  if (!submittedAt) return null;
+  const iso = submittedAt.toISOString();
+  for (const row of rows) {
+    const record = parseStoredRecord(row.afterData);
+    if (record && record.submittedAt === iso) return { row, record };
+  }
+  return null;
+}
+
 /** 接口返回给页面的内容 */
 export type SubmissionRecordView = {
   /** 项目上的提交时间（没有 = 还没提交） */
