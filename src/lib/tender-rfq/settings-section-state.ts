@@ -20,6 +20,7 @@ import {
   type TenderRfqSettingsForm,
   type TenderRfqSettingsView,
 } from "./settings-form";
+import type { RfqTimingKey } from "./landed-cost";
 
 export type TenderProjectOption = { id: string; name: string };
 
@@ -44,6 +45,7 @@ export type SectionAction =
   | { type: "projectsLoaded"; projects: TenderProjectOption[] }
   | { type: "projectsFailed" }
   | { type: "set"; key: ScalarKey; value: string }
+  | { type: "timing"; key: RfqTimingKey; value: string }
   | { type: "estimate"; key: "freight" | "inland"; patch: Partial<EstimateForm> }
   | { type: "fxAdd" }
   | { type: "fxUpdate"; index: number; patch: Partial<FxRow> }
@@ -96,6 +98,8 @@ export function sectionReducer(state: SectionState, a: SectionAction): SectionSt
       return { ...state, projects: [], projectsError: PROJECTS_FAILED_ZH };
     case "set":
       return edit(state, (f) => ({ ...f, [a.key]: a.value }));
+    case "timing":
+      return edit(state, (f) => ({ ...f, timing: { ...f.timing, [a.key]: a.value } }));
     case "estimate":
       return edit(state, (f) => ({ ...f, [a.key]: { ...f[a.key], ...a.patch } }));
     case "fxAdd":

@@ -657,6 +657,8 @@ run_test "报价表助手 比价矩阵成本来源（FLOW-H2）" "npx tsx src/li
 run_test "报价表助手 比价矩阵成本来源 DB（隔离库执行，否则跳过，FLOW-H2）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts"
 run_test "组织页 询价与落地价设置（W-2）" "npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx"
 run_test "组织页 询价与落地价设置 DB（隔离库执行，否则跳过，W-2）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/settings-form-db.isolated.test.ts"
+run_test "组织页 询价节奏三项（W-2b）" "npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings.test.tsx"
+run_test "组织页 询价节奏三项 DB（隔离库执行，否则跳过，W-2b）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings-db.isolated.test.ts"
 run_test "组织设置的写入：守卫——写入方必须经统一入口或自己锁行（FIX-3）" "npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts"
 run_test "组织设置的并发写入互不覆盖 DB（隔离库执行，否则跳过，FIX-3）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts"
 run_test "组织行锁不与外键检查互斥 DB（隔离库执行，否则跳过，FIX-4）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts"

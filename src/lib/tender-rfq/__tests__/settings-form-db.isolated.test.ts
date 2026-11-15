@@ -99,7 +99,7 @@ async function main() {
     /* ---------- 1. 读 ---------- */
     let g = await get(ORG);
     ok(g.status === 200 && g.body.fromEmail === ENV_FROM && g.body.mailboxEmail === "owner@fixture.test", "管理员读：显示地址没存，按环境变量回退显示；授权邮箱是存的值", g.body);
-    ok(JSON.stringify(g.body.stored) === JSON.stringify({ fromName: true, fromEmail: false, mailboxEmail: true }), "读取说明哪几项是组织自己存的（显示地址没存）", g.body.stored);
+    ok(JSON.stringify(((s) => ({ fromName: s.fromName, fromEmail: s.fromEmail, mailboxEmail: s.mailboxEmail }))(rec(g.body.stored))) === JSON.stringify({ fromName: true, fromEmail: false, mailboxEmail: true }), "读取说明哪几项是组织自己存的（显示地址没存）", g.body.stored);
     const f1 = formFromView(g.body as unknown as View);
     ok(f1.fromEmail === "" && f1.effective.fromEmail === ENV_FROM, "表单里没存的显示地址为空，生效值另记");
 
