@@ -6,7 +6,7 @@ change：`nav-1b-focused-sidebar-task-help`（任务书 `docs/QINGYAN_NAV-1_PLAI
 |---|---|
 | 新能力 | `navigation/focused-sidebar`（6 条要求） |
 | 改的能力 | `navigation/entry-visibility`（改 1 条、加 5 条） |
-| 测试 | `trade-layout.test.ts` 重写为 32 项并注册进 `scripts/test-all.sh:250`「侧栏常用 + 更多两段式（NAV-1b）」（历史欠账基线 68 → 67）；`entry-visibility.test.ts` 73 → 91 |
+| 测试 | `trade-layout.test.ts` 重写为 32 项并注册进 `scripts/test-all.sh:256`「侧栏常用 + 更多两段式（NAV-1b）」（历史欠账基线 68 → 67）；`entry-visibility.test.ts` 73 → 91 |
 | 截图 | `docs/acceptance/nav-1b/01–10`（本机临时库 + `next dev`，虚构企业与账号） |
 | BREAKING | 布局：梦馨持外贸键的成员侧栏变为「常用 + 更多」；文案：19 条入口说明；样式：所有企业的侧栏分组小标题 |
 
@@ -119,9 +119,11 @@ change：`nav-1b-focused-sidebar-task-help`（任务书 `docs/QINGYAN_NAV-1_PLAI
 | `npm run lint:baseline` | PASS，无新增 error fingerprint；本次改动的 8 个文件单独 `eslint` 无输出 |
 | `npm run test:ci` | `CI unit subset PASS`（退出码 0） |
 | `npm test` | 633/646。13 个失败与 NAV-1a 时逐项相同，都是环境类（无数据库连接 / Chromium / Gmail / Agent Trace）；在 main `982527b` 的干净检出上把这 13 项逐个重跑，同样 13 项失败 |
-| `bash scripts/check-test-registry.sh` | 已注册 620 个；基线 67 条（少一行，无新增） |
+| `bash scripts/check-test-registry.sh` | 已注册 626 个（合并 main 之后）；基线 67 条（少一行，无新增） |
 | `git diff --stat main -- prisma vercel.json` | 无输出 |
 | `openspec validate nav-1b-focused-sidebar-task-help --strict` | valid |
+
+上表的 `npm test` / `test:ci` / `lint:baseline` 是在 main `982527b` 之上跑的。开 PR 前 main 又合入 #458（招投标线），已合并进本分支，无冲突（同改的只有 TASKFLOW 与两个测试注册脚本）；合并后重跑 `trade-layout`、`entry-visibility`、`entry-naming`、测试注册校验与 `npm run typecheck`，都通过，其余看 PR 的 CI。
 
 ## 8. 截图（`docs/acceptance/nav-1b/`）
 
