@@ -39,6 +39,7 @@ export interface ProactiveSuggestion {
 
 export type SuggestedActionType =
   | "send_followup_email"
+  | "open_rfq_tracker"
   | "advance_stage"
   | "view_project"
   | "create_task"

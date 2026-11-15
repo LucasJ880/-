@@ -99,7 +99,14 @@ export type LoadedItem = {
   roundCreatorId: string;
 };
 
-async function loadItems(where: { orgId: string; projectId?: string; inquiryId?: string; itemIds?: string[] }, now: Date): Promise<LoadedItem[]> {
+/**
+ * 在途条目（近 90 天发出、sent / replied / quoted、轮次不是已取消 / 已完成），带待批卡状态与催单记录。
+ * T-2：导出给询价追踪页用，多一个可选的 projectIds（可见项目过滤）；Muse 与 cron 不传，行为与原来相同。
+ */
+export async function loadItems(
+  where: { orgId: string; projectId?: string; projectIds?: string[]; inquiryId?: string; itemIds?: string[] },
+  now: Date,
+): Promise<LoadedItem[]> {
   const rows = await db.inquiryItem.findMany({
     where: {
       ...(where.itemIds ? { id: { in: where.itemIds } } : {}),
@@ -110,7 +117,10 @@ async function loadItems(where: { orgId: string; projectId?: string; inquiryId?:
         // 只排除这两种终态：经旧入口逐家标记发出的轮次可能仍是 draft，照旧要催。
         status: { notIn: ["canceled", "completed"] },
         ...(where.inquiryId ? { id: where.inquiryId } : {}),
-        project: { orgId: where.orgId, ...(where.projectId ? { id: where.projectId } : {}) },
+        project: {
+          orgId: where.orgId,
+          ...(where.projectId ? { id: where.projectId } : where.projectIds ? { id: { in: where.projectIds } } : {}),
+        },
       },
     },
     select: {
@@ -387,6 +397,15 @@ function coverageOf(f: FollowUpRoundState, payload: Parameters<typeof decideFoll
  * 按轮次分组决策 → 起草 / 标 no_response。
  * principalUserId：手动 = 发起人；扫描 = 项目 owner（催单天数也按 owner 的偏好）。
  */
+/**
+ * 这一轮的催单间隔（扫描与询价追踪页共用，T-2）：
+ * 跟进授权生效的轮次用批准时定格的天数（之后有人改设置不影响已批准的这一轮），否则负责人偏好 → 组织设置 → 默认。
+ */
+export function chaseDaysForRound(orgSettingsJson: unknown, ownerId: string, followUp: FollowUpRoundState): number {
+  const roundPolicy = roundPolicyInEffect(followUp);
+  return roundPolicy ? roundPolicy.chaseAfterDays : resolveChaseAfterDays(readUserPrefs(orgSettingsJson, ownerId).chaseAfterDays, orgSettingsJson);
+}
+
 export async function runForItems(
   orgId: string,
   items: LoadedItem[],
@@ -413,9 +432,7 @@ export async function runForItems(
     const owner = roundItems[0].ownerId;
     // RFQ-AUTO-1：只有扫描路径看跟进授权；手动起草（Muse chase）照旧逐张待批
     const followUp = !opts.manual && deps.loadFollowUp ? await deps.loadFollowUp(orgId, inquiryId) : NO_FOLLOW_UP;
-    const roundPolicy = roundPolicyInEffect(followUp);
-    // 授权生效的轮次：间隔用批准时定格的天数（之后有人改设置不影响已批准的这一轮）
-    const days = roundPolicy ? roundPolicy.chaseAfterDays : resolveChaseAfterDays(readUserPrefs(orgSettingsJson, owner).chaseAfterDays, orgSettingsJson);
+    const days = chaseDaysForRound(orgSettingsJson, owner, followUp);
     const replyBy = roundItems[0].roundDueDate;
     const decision: ChaseDecision = decideChases({ now, chaseAfterDays: days, replyBy, items: roundItems.map((i) => i.snapshot) }, { manual: opts.manual });
     const nameOf = (id: string) => roundItems.find((i) => i.snapshot.itemId === id)?.snapshot.supplierName ?? "供应商";

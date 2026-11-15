@@ -66,6 +66,7 @@ const KIND_ICONS: Record<TriggerKind, typeof AlertTriangle> = {
 
 const ACTION_ICONS: Record<SuggestedActionType, typeof ArrowRight> = {
   send_followup_email: Mail,
+  open_rfq_tracker: ArrowRight,
   advance_stage: ChevronRight,
   view_project: Eye,
   create_task: ListTodo,
@@ -115,9 +116,9 @@ function SuggestionRow({
 
   function handleAction() {
     if (!action) return;
-    if (action.type === "send_followup_email" && action.params?.projectId) {
-      // W-1：批量直发催促已下线（它走的是绕过审批的单封直发接口）；催单在项目「标书与报价」的询价轮次里处理
-      window.location.href = `/projects/${action.params.projectId}?tab=bid`;
+    if (action.type === "open_rfq_tracker") {
+      // T-2：供应商未回复 → 询价追踪页（按项目定位）
+      window.location.href = action.params?.projectId ? `/bids/rfq?project=${encodeURIComponent(action.params.projectId)}` : "/bids/rfq";
     } else if (action.type === "view_customer" && action.params?.customerId) {
       window.location.href = `/sales/customers/${action.params.customerId}`;
     } else if (action.type === "call_customer" && action.params?.phone) {
@@ -154,7 +155,7 @@ function SuggestionRow({
               )}
             >
               <ActionIcon size={11} />
-              {action.type === "send_followup_email" ? "去询价轮次处理" : action.label}
+              {action.label}
             </button>
           )}
           <Link

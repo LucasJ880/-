@@ -13,6 +13,8 @@ import { db } from "@/lib/db";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { isProjectController } from "@/lib/projects/duty";
 import { getProjectStage } from "@/lib/tender/stage";
+import { resolveChaseAfterDays } from "@/lib/tender-rfq/chase-pure";
+import { readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
 import type {
   ProactiveSuggestion,
   ScanResult,
@@ -193,22 +195,28 @@ async function checkSupplierNoResponse(
 ): Promise<ProactiveSuggestion[]> {
   const results: ProactiveSuggestion[] = [];
 
-  const pendingItems = await db.inquiryItem.findMany({
+  // T-2：真正在等回复的——已发出（sent）且发出时间早于负责人的催单天数（与催单扫描同一来源）；
+  // 已取消 / 已完成的轮次不算。原来查的 pending / contacted 是早已不用的状态。
+  const org = project.orgId
+    ? await db.organization.findUnique({ where: { id: project.orgId }, select: { settingsJson: true } })
+    : null;
+  const days = resolveChaseAfterDays(readUserPrefs(org?.settingsJson ?? null, project.ownerId).chaseAfterDays, org?.settingsJson ?? null);
+  const waitingItems = await db.inquiryItem.findMany({
     where: {
-      inquiry: { projectId: project.id },
-      status: { in: ["pending", "contacted"] },
-      createdAt: { lt: new Date(now.getTime() - 3 * DAY_MS) },
+      inquiry: { projectId: project.id, status: { notIn: ["canceled", "completed"] } },
+      status: "sent",
+      sentAt: { lt: new Date(now.getTime() - days * DAY_MS) },
     },
     include: {
       supplier: { select: { name: true } },
-      inquiry: { select: { roundNumber: true } },
     },
+    orderBy: { sentAt: "asc" },
     take: 5,
   });
 
-  if (pendingItems.length === 0) return results;
+  if (waitingItems.length === 0) return results;
 
-  const names = pendingItems.map((i) => i.supplier.name);
+  const names = waitingItems.map((i) => i.supplier.name);
   const nameList = names.length <= 3
     ? names.join("、")
     : `${names.slice(0, 3).join("、")}等 ${names.length} 家`;
@@ -218,15 +226,15 @@ async function checkSupplierNoResponse(
     projectId: project.id,
     projectName: project.name,
     kind: "supplier_no_response",
-    severity: pendingItems.length >= 3 ? "urgent" : "warning",
-    title: `供应商未回复：${project.name} 有 ${pendingItems.length} 家供应商超过 3 天未回复`,
-    description: `${nameList}尚未回复报价，建议发送催促邮件。`,
+    severity: waitingItems.length >= 3 ? "urgent" : "warning",
+    title: `供应商未回复：${project.name} 有 ${waitingItems.length} 家供应商超过 ${days} 天未回复`,
+    description: `${nameList}还没有回复报价。到询价追踪看系统哪天自动催、要不要现在就催。`,
     suggestedAction: {
-      type: "send_followup_email",
-      label: "批量催促",
+      type: "open_rfq_tracker",
+      label: "去询价追踪",
       params: { projectId: project.id },
     },
-    dedupeKey: `supplier_nr:${project.id}:${pendingItems.length}`,
+    dedupeKey: `supplier_nr:${project.id}:${waitingItems.length}`,
     createdAt: now.toISOString(),
   });
 

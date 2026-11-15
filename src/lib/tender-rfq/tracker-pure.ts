@@ -258,3 +258,22 @@ export function quoteCellView(
     needsCompareLink: false,
   };
 }
+
+/* ---------------------------------- 「现在就催」的跳过原因 ---------------------------------- */
+
+/** 起草时被跳过的原因，说人话（如实说，不声称做了没做的事） */
+export const CHASE_SKIP_ZH: Record<string, string> = {
+  pending_card: "已有一张待批的催单卡",
+  max_reached: "已经催过两次",
+  no_thread: "这家是手工联系的，没有邮件线程可回复",
+  quoted: "已经报价，不用催",
+  complete: "回信齐全，不用催",
+  already_asked: "已经追问过缺的字段",
+  not_open: "这家不在等回复",
+  rejected_card: "这一次的催单被驳回过",
+  not_due: "还没到催的时候",
+};
+
+export function chaseSkipZh(reason: string): string {
+  return CHASE_SKIP_ZH[reason] ?? "这家现在不能催";
+}
