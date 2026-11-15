@@ -6,7 +6,7 @@
 | TASKFLOW | MAIL-2（Phase M「邮箱助手」） |
 | 任务书 | `docs/QINGYAN_MAIL-1_MAILBOX_ASSISTANT_TASKBRIEF.md`（MAIL-2 一节；判断点 1–7 已拍板，判断点 8 未定、按 A 执行） |
 | PR | #470 |
-| 分支 | `claude/mail-watch`（MAIL-1 的 PR #455 已合并；本分支已合入 main `0925ec9d`） |
+| 分支 | `claude/mail-watch`（MAIL-1 的 PR #455 已合并；本分支已合入 main `f857e313`，与 NAV-1c 在客户时间线上的两处冲突已解决：两个入口都保留） |
 | 开关 | 新增环境变量 `MAIL_WATCH_ENABLED`，**默认关**。合并后不设它，线上零变化：`sales-actions` 每轮多记一条「mail-watch：跳过，平台开关未开」 |
 | 性质 | 新能力。零 schema、零出站、零模型调用、不新增定时任务或队列；`vercel.json` 与 Prisma schema 无 diff；不改 `muse-bridge`、`approval-gate.ts`、`pre-execute-guard.ts`、导航注册表 |
 
@@ -135,8 +135,8 @@
 | 项 | 结果 |
 |---|---|
 | `npm run typecheck` | 通过 |
-| `npm run test:ci` | **没有整体通过，原因不在本 change**：脚本共 420 项，419 项通过，停在 `agent-runtime-v2/__tests__/legacy-followup-safety.test.ts`（27 通过 / 3 失败，`createManyAndReturn is not a function`）。这个测试随 main 新合入的 #224 进来，在同一环境的 main 上结果完全相同；本分支没有改 `agent-runtime-v2` 与 `pending-actions`。它之后的 200 项是跳过它单独续跑的，全部通过 |
-| `npm test` | 合并 main `0925ec9d` 之后：分支 644 / 659 通过、15 失败；同一环境的 main 643 / 657 通过、14 失败。两边共有的 14 项逐项相同（见下）。分支多出的 1 项「发信文案按企业设置（VIS-1c）」是本 change 引入的——邮箱绑定页多了一处 `{!isPlatformRelay && …}`，碰到了它对出现次数的断言——**已修**（判断挪进卡片组件，既有断言没有改），该测试与所有读这几个页面源码的测试重跑通过。修复后没有再重跑一遍全量 |
+| `npm run test:ci` | 通过（合并 main `f857e313` 之后，整套 `CI unit subset PASS`）。合并 `0925ec9d` 那一轮曾停在 `agent-runtime-v2/__tests__/legacy-followup-safety.test.ts`——main 自己的失败，已由 #471 修掉，与本 change 无关 |
+| `npm test` | 合并 main `0925ec9d` 之后：分支 644 / 659 通过、15 失败；同一环境的 main 643 / 657 通过、14 失败。两边共有的 14 项逐项相同（见下）。分支多出的 1 项「发信文案按企业设置（VIS-1c）」是本 change 引入的——邮箱绑定页多了一处 `{!isPlatformRelay && …}`，碰到了它对出现次数的断言——**已修**（判断挪进卡片组件，既有断言没有改），该测试与所有读这几个页面源码的测试重跑通过。修复后没有再重跑一遍全量。之后又合了一次 main（`f857e313`，含 #471、#472），那次只重跑了 `test:ci`、类型检查、lint 基线、守卫与受影响的测试，同样没有重跑全量 |
 | 新增测试已注册 | `bash scripts/check-test-registry.sh` 通过（已注册 632 个；历史欠账 67 条，没有增加） |
 | `npm run lint:baseline` | 通过（没有新增 error） |
 | `bash scripts/test-runtime-architecture.sh` | 通过（基线未改） |
@@ -164,10 +164,10 @@
 | `src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts`（本机隔离库） | 88 通过 |
 | `scripts/mail-2-local-acceptance.ts`（本机隔离库） | 61 通过 |
 | 受影响的既有测试：通知类型可见性 / 协作接线 / 组织设置写入守卫 / 驾驶舱岗位、调度、读模型 | 45 / 97 / 34 / 232、209、162，全部通过 |
-| `npm test`（全量；不带数据库环境变量，隔离库测试按约定自动跳过） | 合并 main `0925ec9d` 之后：分支 644 / 659 通过、15 失败；同一环境的 main 643 / 657 通过、14 失败。两边共有的 14 项逐项相同（见下）。分支多出的 1 项「发信文案按企业设置（VIS-1c）」是本 change 引入的——邮箱绑定页多了一处 `{!isPlatformRelay && …}`，碰到了它对出现次数的断言——**已修**（判断挪进卡片组件，既有断言没有改），该测试与所有读这几个页面源码的测试重跑通过。修复后没有再重跑一遍全量 |
-| `npm run test:ci` | **没有整体通过，原因不在本 change**：脚本共 420 项，419 项通过，停在 `agent-runtime-v2/__tests__/legacy-followup-safety.test.ts`（27 通过 / 3 失败，`createManyAndReturn is not a function`）。这个测试随 main 新合入的 #224 进来，在同一环境的 main 上结果完全相同；本分支没有改 `agent-runtime-v2` 与 `pending-actions`。它之后的 200 项是跳过它单独续跑的，全部通过 |
+| `npm test`（全量；不带数据库环境变量，隔离库测试按约定自动跳过） | 合并 main `0925ec9d` 之后：分支 644 / 659 通过、15 失败；同一环境的 main 643 / 657 通过、14 失败。两边共有的 14 项逐项相同（见下）。分支多出的 1 项「发信文案按企业设置（VIS-1c）」是本 change 引入的——邮箱绑定页多了一处 `{!isPlatformRelay && …}`，碰到了它对出现次数的断言——**已修**（判断挪进卡片组件，既有断言没有改），该测试与所有读这几个页面源码的测试重跑通过。修复后没有再重跑一遍全量。之后又合了一次 main（`f857e313`，含 #471、#472），那次只重跑了 `test:ci`、类型检查、lint 基线、守卫与受影响的测试，同样没有重跑全量 |
+| `npm run test:ci` | 通过（合并 main `f857e313` 之后，整套 `CI unit subset PASS`）。合并 `0925ec9d` 那一轮曾停在 `agent-runtime-v2/__tests__/legacy-followup-safety.test.ts`——main 自己的失败，已由 #471 修掉，与本 change 无关 |
 
-main 上同样失败的 14 项（都与本 change 无关；多数需要数据库或本机没有的依赖）：Agent Runtime V2 legacy 跟进写工具安全、Agent Trace 只读查询、Gmail Draft OAuth Compose Scope、Governance Hygiene Gate、Governance Hygiene Concurrency Gate、Phase3A-2 Ledger DB、Phase3A-2 Smoke Access、Phase3A-3 Approvals Smoke、Phase3A-4 Acceptance、Phase3A-4 Governance Smoke、Phase3A-5 Overview Acceptance、Phase3A-5 Settle DB、Quote Operations 客户报价 PDF 分页布局、T4 授标情报真实 Postgres 矩阵。其中第一项也是 `test:ci` 停下的地方，值得单独看一下 main 的 CI 是不是红的。
+main 上同样失败的 14 项（都与本 change 无关；多数需要数据库或本机没有的依赖）：Agent Runtime V2 legacy 跟进写工具安全、Agent Trace 只读查询、Gmail Draft OAuth Compose Scope、Governance Hygiene Gate、Governance Hygiene Concurrency Gate、Phase3A-2 Ledger DB、Phase3A-2 Smoke Access、Phase3A-3 Approvals Smoke、Phase3A-4 Acceptance、Phase3A-4 Governance Smoke、Phase3A-5 Overview Acceptance、Phase3A-5 Settle DB、Quote Operations 客户报价 PDF 分页布局、T4 授标情报真实 Postgres 矩阵。其中第一项当时也让 `test:ci` 停下（main 的 CI 那时也是红的），已由 #471 修掉；这份清单是合并 `0925ec9d` 那一轮的。
 
 改动既有测试的三处都是因为登记了新东西，不是放宽断言：通知类型可见性的期望表加了 `mail_inbound`；驾驶舱「询盘销售」岗位的自动化数量 9 → 10；组织设置写入守卫加了 2 条（`mail-watch` 的写入都经行锁函数）。`collab-wiring` 里对定时任务响应的既有断言没有改，新字段加在它不涉及的位置。
 
