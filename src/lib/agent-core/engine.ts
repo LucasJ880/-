@@ -44,6 +44,7 @@ import type {
 } from "./types";
 import { toolLabel, type AgentStreamEvent } from "./streaming";
 import { fireToolCallHook, fireToolStartHook } from "./run-hooks";
+import { createUntrustedRunGuard, type UntrustedRunGuard } from "./untrusted-run-guard";
 
 // 确保工具已注册
 import "./tools";
@@ -176,6 +177,8 @@ export function buildToolContextBase(
     allowedToolNames,
     scopeGuard: options.scopeGuard,
     runtimeContext: runtime,
+    // MAIL-1：入口门原样带进执行上下文（读信工具执行期按它的 mail 一项判定，与列表一致）
+    entryGate: options.entryGate,
   };
 }
 
@@ -266,16 +269,25 @@ async function executeExtraToolGuarded(
   }
 }
 
-async function executeToolUnified(
+/**
+ * 一轮运行里执行一个工具（流式 / 非流式共用）。
+ * MAIL-1：untrustedGuard 是这一轮的「读信轮次写入封锁」——读信工具成功返回后，本轮非只读工具
+ * 在这里直接被拒绝，不进入授权与审批闸（见 untrusted-run-guard.ts）。
+ */
+export async function executeToolUnified(
   name: string,
   ctx: ToolExecutionContext,
   extraTools: ToolDefinition[] | undefined,
+  untrustedGuard?: UntrustedRunGuard,
 ): Promise<ToolExecutionResult> {
   const extra = extraTools?.find((t) => t.name === name);
-  if (extra) {
-    return executeExtraToolGuarded(extra, ctx);
-  }
-  return registry.execute(name, ctx);
+  const blocked = untrustedGuard?.check(extra ?? registry.get(name));
+  if (blocked) return blocked;
+  const result = extra
+    ? await executeExtraToolGuarded(extra, ctx)
+    : await registry.execute(name, ctx);
+  untrustedGuard?.observe(name, result);
+  return result;
 }
 
 async function withEffectiveRole(options: AgentRunOptions): Promise<AgentRunOptions> {
@@ -319,6 +331,8 @@ export async function runAgent(rawOptions: AgentRunOptions): Promise<AgentRunRes
   // Phase 1.1：流式/非流式共用同一构造函数（含 allowlist / scopeGuard / runtimeContext）
   const toolCtxBase = buildToolContextBase(options);
   const runtimeTelemetry = runtimeContextToTelemetry(toolCtxBase.runtimeContext);
+  // MAIL-1：本轮的读信写入封锁（只活在这一次运行里）
+  const untrustedGuard = createUntrustedRunGuard();
 
   // 构建可用工具列表（PR1：按角色过滤；PR4：按 maxRisk 过滤；A-P1：附加 run 级临时工具）
   const openaiTools = [
@@ -433,6 +447,7 @@ export async function runAgent(rawOptions: AgentRunOptions): Promise<AgentRunRes
             tc.function.name,
             { args, ...toolCtxBase },
             options.extraTools,
+            untrustedGuard,
           );
 
           toolCallLog.push({
@@ -581,6 +596,8 @@ export async function* runAgentStream(
   // Phase 1.1：流式/非流式共用同一构造函数（含 allowlist / scopeGuard / runtimeContext）
   const toolCtxBase = buildToolContextBase(options);
   const runtimeTelemetry = runtimeContextToTelemetry(toolCtxBase.runtimeContext);
+  // MAIL-1：本轮的读信写入封锁（只活在这一次运行里）
+  const untrustedGuard = createUntrustedRunGuard();
 
   const openaiTools = [
     ...registry.toOpenAITools({
@@ -841,6 +858,7 @@ export async function* runAgentStream(
           name,
           { args, ...toolCtxBase },
           options.extraTools,
+          untrustedGuard,
         );
 
         toolCallLog.push({ name, args, result });
