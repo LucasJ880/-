@@ -21,7 +21,7 @@
 ## 5. 文档与全量验证
 
 - [x] 5.1 更新 `docs/QINGYAN_MAIL-1_REPORT.md`（§9 第 1 点与 §11「运维前置」第 4 点各追加一句：已由 change `ai-markdown-image-allowlist` 关闭、关的是什么、没关的是什么——邮件 HTML 预览与全站 CSP）与 `docs/QINGYAN_MAIL-2_REPORT.md` §3.3（同样追加）；原有文字保留，只追加带日期的说明。verify：`git diff main -- docs/QINGYAN_MAIL-1_REPORT.md docs/QINGYAN_MAIL-2_REPORT.md` 只有新增行、没有删除行
-- [ ] 5.2 全量验证。verify：`npm test`、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate ai-markdown-image-allowlist --strict` 全部通过；`git diff --stat main -- src/app/api prisma vercel.json next.config.ts src/proxy.ts package.json package-lock.json` 为空
+- [x] 5.2 全量验证。verify：`npm test`、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate ai-markdown-image-allowlist --strict` 全部通过；`git diff --stat main -- src/app/api prisma vercel.json next.config.ts src/proxy.ts package.json package-lock.json` 为空。实施后的说明（2026-11-15，合并 main `148df620` 之后，Node 22.23.4）：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate … --strict` 全部通过，上面的 `git diff --stat` 为空。`npm test` 是 655/668，**不是全部通过**：13 个失败都与本 change 无关——11 个因为这台机器没有 `DATABASE_URL` 被库安全检查拦下（Agent Trace、Phase3A-2/3/4/5 共 8 个、Governance Hygiene 两个、T4 授标情报矩阵）；另外 2 个（`google-email-oauth.test.ts`、`quotation-pdf-layout-e2e.ts`）在同一台机器上未改动的 main 上以同样的断言失败，前者在 `test:ci`（`NODE_ENV=test`）里通过。本 change 新增的两个测试在两套里都通过（67 项、62 项）。以 PR 上的 CI 结果为准
 
 ## Workflow follow-up
 
