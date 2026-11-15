@@ -470,6 +470,8 @@ npx tsx src/lib/tender/__tests__/stage-auto.test.ts
 NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-auto-db.isolated.test.ts
 npx tsx src/lib/tender-next-step/__tests__/web-progress.test.ts
 npx tsx src/components/tender/__tests__/project-progress-section.test.tsx
+npx tsx src/lib/tender/__tests__/stage-tasks.test.ts
+NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-tasks-db.isolated.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
