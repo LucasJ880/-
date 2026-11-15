@@ -41,6 +41,9 @@ export class FakeMailbox {
   failAll: unknown = null;
   private n = 0;
 
+  /** idPrefix：自动编号的邮件 id 前缀。Gmail 的邮件 id 只在一个邮箱内唯一，多个假邮箱用不同前缀 */
+  constructor(private readonly idPrefix = "m") {}
+
   /** 当前位置（getProfile 的 historyId） */
   get head(): string {
     return String(this.seq);
@@ -48,7 +51,7 @@ export class FakeMailbox {
 
   /** 投递一封信：生成一条历史记录。不给 id 就自动编号；不给 threadId 就是新线程 */
   deliver(mail: Partial<FakeMail> & { from: string; subject: string }): FakeMail {
-    const id = mail.id ?? `m${(++this.n).toString(16).padStart(6, "0")}`;
+    const id = mail.id ?? `${this.idPrefix}${(++this.n).toString(16).padStart(6, "0")}`;
     const full: FakeMail = {
       id,
       threadId: mail.threadId ?? id,

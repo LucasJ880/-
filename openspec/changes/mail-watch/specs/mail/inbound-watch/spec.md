@@ -141,7 +141,7 @@
 - **THEN** 老板收到通知，客户时间线多一条入站互动
 
 ### Requirement: 命中的来信记账本并以邮件 id 幂等
-每封命中的来信 SHALL 写一条账本 `mail.watch.observed`，内容只有 Gmail 邮件 id、线程 id、发件地址、主题（至多 120 字）、客户 id 与命中规则。同一封邮件（同一 Gmail 邮件 id）SHALL 只处理一次：重放、中断后重跑 SHALL NOT 产生第二条账本、互动或通知；两轮运行重叠时每位收件人仍 SHALL 至多一条通知。账本 SHALL NOT 含邮件正文。
+每封命中的来信 SHALL 写一条账本 `mail.watch.observed`，内容只有 Gmail 邮件 id、线程 id、发件地址、主题（至多 120 字）、客户 id 与命中规则。同一个邮箱里的同一封邮件（Gmail 邮件 id 只在一个邮箱内唯一，按邮箱主人加邮件 id 认）SHALL 只处理一次：重放、中断后重跑 SHALL NOT 产生第二条账本、互动或通知；两轮运行重叠时每位收件人仍 SHALL 至多一条通知。账本 SHALL NOT 含邮件正文。
 
 #### Scenario: 重放
 - **WHEN** 运行 `npx tsx src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts`，把同一批来信用旧游标再处理一遍
@@ -150,6 +150,10 @@
 #### Scenario: 建好通知后中断
 - **WHEN** 同一测试中某封信的通知已建好、账本还没写时运行中断，下一轮重跑
 - **THEN** 不新增通知与互动，补写账本，不再推微信
+
+#### Scenario: 两个邮箱里邮件 id 相同的两封信
+- **WHEN** 同一测试中老板的邮箱里出现一封与 Lynn 邮箱里某封已处理的信邮件 id 相同、内容不同的客户来信
+- **THEN** 它不被当成已处理，老板照常收到通知
 
 #### Scenario: 主题截断
 - **WHEN** 运行 `npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts`，主题长 300 字且含换行与控制字符
@@ -230,7 +234,7 @@
 - **THEN** 标题为「客户来信：〈客户名〉」，正文是替换掉邮箱之后的主题，没有发件地址
 
 ### Requirement: 缺读信权限时提醒本人重新授权
-已勾选的成员没有绑定 Gmail、授权不含读信权限或授权已失效时，本轮 SHALL 跳过该邮箱，并给该成员发一条站内提醒「请到邮箱绑定页重新授权」，点开到 `/settings/email`；同一成员 24 小时内 SHALL 至多一条。该提醒 SHALL NOT 推微信。
+已勾选的成员没有绑定 Gmail、授权不含读信权限或授权已失效时，本轮 SHALL 跳过该邮箱，并给该成员发一条站内提醒，文字写明到邮箱绑定页重新授权；同一成员 24 小时内 SHALL 至多一条。该提醒 SHALL NOT 推微信。
 
 #### Scenario: 旧授权
 - **WHEN** 运行 `npx tsx src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts`，一位已勾选的成员只有撰写权限的旧授权，连续跑两轮

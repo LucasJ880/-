@@ -12,7 +12,7 @@
 
 ## 3. 编排
 
-- [ ] 3.1 `src/lib/mail-watch/run.ts`（依赖注入：增量读取、元数据读取、线程成员、时钟、微信推送、截止时刻、组织范围）：按组织读出已勾选的在职成员 → 逐邮箱读增量 → 跳过 / 归类（在途询价线程集合、客户邮箱索引、可见性按邮箱主人的派生角色）→ 命中的按「查账本 → 通知 → 微信 → 互动 → 写账本」处理 → 每邮箱一条 `mail.watch.run` 汇总 → 锁内确认仍勾选后回写游标；游标过期写 `mail.watch.cursor_reset`；单封失败写 `mail.watch.failed`；未绑定 / 缺读信权限 / 授权失效时跳过并按 24 小时一次建重新授权提醒。互动标题固定「客户来信（邮件）」、内容「主题：…」、`analysisStatus: "skipped"`、不挂商机、`analysisResult.sourceRef` 记 `Message-ID`。通知类型 `mail_inbound` 登记进 `notifications/constants.ts`、`type-visibility.ts`、`components/header.tsx`。微信推送用 `pushSalesReminder`，每轮至多 30 条；不发 Muse 事件。扩 `mail-watch-db.isolated.test.ts`（specs 里引用它的全部场景）。verify：本机隔离库下 `mail-watch-db.isolated.test.ts` 通过；`type-visibility`、`notification-href`、`calendar-change-push-pure` 通过数不低于基线；`git diff --stat main -- src/lib/calendar-watch src/lib/tender-rfq src/lib/muse-bridge src/lib/notifications/href.ts` 为空
+- [x] 3.1 `src/lib/mail-watch/run.ts`（依赖注入：增量读取、元数据读取、线程成员、时钟、微信推送、截止时刻、组织范围）：按组织读出已勾选的在职成员 → 逐邮箱读增量 → 跳过 / 归类（在途询价线程集合、客户邮箱索引、可见性按邮箱主人的派生角色）→ 命中的按「查账本 → 通知 → 微信 → 互动 → 写账本」处理 → 每邮箱一条 `mail.watch.run` 汇总 → 锁内确认仍勾选后回写游标；游标过期写 `mail.watch.cursor_reset`；单封失败写 `mail.watch.failed`；未绑定 / 缺读信权限 / 授权失效时跳过并按 24 小时一次建重新授权提醒。互动标题固定「客户来信（邮件）」、内容「主题：…」、`analysisStatus: "skipped"`、不挂商机、`analysisResult.sourceRef` 记 `Message-ID`。通知类型 `mail_inbound` 登记进 `notifications/constants.ts`、`type-visibility.ts`、`components/header.tsx`。微信推送用 `pushSalesReminder`，每轮至多 30 条；不发 Muse 事件。扩 `mail-watch-db.isolated.test.ts`（specs 里引用它的全部场景）。verify：本机隔离库下 `mail-watch-db.isolated.test.ts` 通过；`type-visibility`、`notification-href`、`calendar-change-push-pure` 通过数不低于基线；`git diff --stat main -- src/lib/calendar-watch src/lib/tender-rfq src/lib/muse-bridge src/lib/notifications/href.ts` 为空
 
 ## 4. 挂进定时任务
 

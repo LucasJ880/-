@@ -171,6 +171,8 @@ console.log("全仓扫描");
   // MAIL-2：来信提醒的配置（组织开关、成员勾选）
   const mailSettings = read(join(root, "lib/mail-watch/settings.ts"));
   ok("来信提醒设置：组织开关与成员勾选都经入口，在锁里对最新的设置应用修改，没有直接写 settingsJson", (mailSettings.match(/await mutateOrgSettings\(/g) ?? []).length === 2 && (mailSettings.match(/const latest = readMailWatch\(fresh\);/g) ?? []).length === 2 && !/organization\.update\(|settingsJson:/.test(mailSettings.replace(/select: \{ settingsJson: true \}/g, "")));
+  const mailRun = read(join(root, "lib/mail-watch/run.ts"));
+  ok("来信提醒游标：经入口，且「该成员仍处于勾选状态」的判断在锁里对最新的设置做（已取消勾选就不写）", /await mutateOrgSettings\(orgId, \(latest\) => \{\s*const next = withCursor\(readMailWatch\(latest\), userId, historyId, now\);\s*if \(!next\) return \{ result: null \};/.test(mailRun) && (mailRun.match(/mutateOrgSettings\(/g) ?? []).length === 1 && !/organization\.update\(/.test(mailRun));
   const entry = readFileSync(join(root, "lib/organizations/settings-write.ts"), "utf8");
   ok("入口用的是 FOR NO KEY UPDATE（不与外键检查互斥），不是 FOR UPDATE", /FOR NO KEY UPDATE`/.test(entry) && !/WHERE id = \$\{orgId\} FOR UPDATE/.test(entry));
   ok("入口自己：先锁行、再读、再写，且锁里调用的是同步函数（没有 await fn）", entry.indexOf("await lockOrganizationRow(tx, orgId)") < entry.indexOf("tx.organization.findUnique") && entry.indexOf("tx.organization.findUnique") < entry.indexOf("tx.organization.update") && /const out = fn\(before\);/.test(entry) && !/await fn\(/.test(entry));

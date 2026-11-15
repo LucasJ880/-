@@ -266,6 +266,16 @@ async function main() {
       ok(!/emitMuseEvent|\bdb\b|runSimple|openai/i.test(src), `${p}：不发 Muse 事件、不碰数据库、不调模型`);
     }
     ok(!/from "@\/lib\/(db|google-email|calendar-watch|mail-read|muse-bridge)/.test(read("src/lib/mail-watch/ui-pure.ts")), "ui-pure.ts 不引入服务端模块（客户端组件会引用它）");
+    for (const p of ["src/lib/mail-watch/run.ts", "src/lib/mail-watch/settings.ts"]) {
+      const src = code(p);
+      ok(!/mailboxEmail|fromEmail/.test(src), `${p}：没有 mailboxEmail / fromEmail 的引用`);
+      ok(!/emitMuseEvent|muse-bridge|runSimple|runAgent|openai|createChat/i.test(src), `${p}：不发 Muse 事件、不调模型`);
+      ok(!/requestApproval|pendingAction|sendGmail|createGmailDraft|sendSalesEmail/i.test(src), `${p}：不建 PendingAction、不发信、不建草稿`);
+    }
+    const runSrc = code("src/lib/mail-watch/run.ts");
+    ok((runSrc.match(/console\.\w+\(/g) ?? []).length === 1 && /console\.error\("\[mail-watch\] wechat push failed:", err instanceof Error \? err\.name : "error"\)/.test(runSrc), "编排里唯一的日志是微信推送失败，只打错误类别（不带主题、客户名）");
+    ok(/getMeta\(owner\.id, ref\.messageId\)/.test(runSrc) && /listAdditions\(owner\.id,/.test(runSrc) && /listThread\(owner\.id,/.test(runSrc), "三类 Gmail 读取都以邮箱主人本人的 userId 发起");
+    ok(/userId: owner\.id, action: LEDGER_ACTION, targetType: LEDGER_TARGET_TYPE, targetId: ref\.messageId/.test(runSrc), "账本按「邮箱主人 + 邮件 id」认（邮件 id 只在一个邮箱内唯一）");
     const contract = read("src/lib/muse-bridge/contract.ts");
     const types = contract.slice(contract.indexOf("MUSE_EVENT_TYPES"), contract.indexOf("export type MuseEventType"));
     ok(types.length > 100 && !/mail/i.test(types), "Muse 事件类型清单里没有邮件相关的类型");
