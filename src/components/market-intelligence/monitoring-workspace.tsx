@@ -18,8 +18,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { AiMarkdown } from "@/components/ai-markdown";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { OrgSelectBanner } from "@/components/org-select-banner";
@@ -654,7 +653,7 @@ export function MonitoringWorkspace() {
                   </div>
                   {selectedSignal.analysis?.outputMarkdown ? (
                     <div className="prose-ai max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedSignal.analysis.outputMarkdown}</ReactMarkdown>
+                      <AiMarkdown>{selectedSignal.analysis.outputMarkdown}</AiMarkdown>
                     </div>
                   ) : (
                     <div>

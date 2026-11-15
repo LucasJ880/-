@@ -118,7 +118,7 @@ async function latestEligibleInLineage(client: Tx | typeof db, quoteId: string, 
   return row?.id ?? null;
 }
 
-async function lockProject(tx: Tx, projectId: string): Promise<void> {
+export async function lockProject(tx: Tx, projectId: string): Promise<void> {
   await tx.$queryRaw`SELECT "id" FROM "Project" WHERE "id" = ${projectId} FOR UPDATE`;
 }
 

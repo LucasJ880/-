@@ -115,6 +115,9 @@ interface ReplyTarget {
   lastInbound?: LastInbound | null;
 }
 
+/** NAV-6：只持查看外贸键的成员看到的说明（卡片不出回复按钮、草稿窗口只读、深链不开窗口） */
+const READ_ONLY_NOTICE = "你的岗位只能查看询盘，不能回复";
+
 const hasReplyDraft = (t: Thread) => t.analysis?.status === "done" && Boolean(t.analysis.replyDraft);
 
 const CHANNEL_META: Record<string, { label: string; icon: typeof Mail; cls: string }> = {
@@ -202,6 +205,8 @@ export default function TradeInboxPage() {
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState<string | null>(null);
   const [emailSend, setEmailSend] = useState(false);
+  // NAV-6：能不能回复由接口给出（capabilities.reply）；返回之前按不能处理，回复按钮随卡片一起出现
+  const [canReply, setCanReply] = useState(false);
   const [replyFor, setReplyFor] = useState<ReplyTarget | null>(null);
   const [focusNotice, setFocusNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -222,10 +227,11 @@ export default function TradeInboxPage() {
       `/api/trade/inbox?orgId=${encodeURIComponent(orgId)}&filter=${filter}`,
     );
     if (res.ok) {
-      const data = (await res.json()) as { items: Thread[]; counts: { pending: number; total: number }; capabilities?: { emailSend?: boolean } };
+      const data = (await res.json()) as { items: Thread[]; counts: { pending: number; total: number }; capabilities?: { emailSend?: boolean; reply?: boolean } };
       setThreads(data.items ?? []);
       setCounts(data.counts ?? { pending: 0, total: 0 });
       setEmailSend(Boolean(data.capabilities?.emailSend));
+      setCanReply(Boolean(data.capabilities?.reply));
     } else {
       setThreads([]);
     }
@@ -251,10 +257,17 @@ export default function TradeInboxPage() {
       const res = await apiFetch(`/api/trade/inbox/focus?orgId=${encodeURIComponent(orgId)}&${target}`).catch(() => null);
       if (cancelled) return;
       if (res?.ok) {
-        const data = (await res.json()) as { thread: Thread; lastInbound: LastInbound | null; capabilities?: { emailSend?: boolean } };
+        const data = (await res.json()) as { thread: Thread; lastInbound: LastInbound | null; capabilities?: { emailSend?: boolean; reply?: boolean } };
         if (cancelled) return;
         if (data.capabilities) setEmailSend(Boolean(data.capabilities.emailSend));
-        setReplyFor({ thread: data.thread, useDraft: replyButtonFor({ replied: data.thread.replied, hasDraft: hasReplyDraft(data.thread) }).useDraft, lastInbound: data.lastInbound });
+        const mayReply = Boolean(data.capabilities?.reply);
+        setCanReply(mayReply);
+        // NAV-6：不能回复的成员不开回复窗口，只提示
+        if (mayReply) {
+          setReplyFor({ thread: data.thread, useDraft: replyButtonFor({ replied: data.thread.replied, hasDraft: hasReplyDraft(data.thread) }).useDraft, lastInbound: data.lastInbound });
+        } else {
+          setFocusNotice(READ_ONLY_NOTICE);
+        }
       } else {
         setFocusNotice("没有找到这位买家的询盘会话");
       }
@@ -464,12 +477,12 @@ export default function TradeInboxPage() {
                       {wait ? (
                         <span className={cn("font-medium", wait.urgent ? "text-amber-500" : "text-muted")}>{wait.text}</span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-emerald-500"><CheckCircle2 size={11} /> 已回复</span>
+                        <span className="inline-flex items-center gap-1 text-emerald-500"><CheckCircle2 size={11} /> 我方已回复</span>
                       )}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    {replyButton.kind !== "draft" && (
+                    {canReply && replyButton.kind !== "draft" && (
                       <button
                         type="button"
                         onClick={() => setReplyFor({ thread: t, useDraft: false })}
@@ -495,7 +508,7 @@ export default function TradeInboxPage() {
                     >
                       开寄样单
                     </Link>
-                    {!t.replied && (
+                    {canReply && !t.replied && (
                       <button
                         type="button"
                         disabled={marking === t.prospectId}
@@ -522,6 +535,7 @@ export default function TradeInboxPage() {
           key={`${replyFor.thread.prospectId}:${replyFor.useDraft ? "draft" : "blank"}`}
           target={replyFor}
           emailSend={emailSend}
+          canReply={canReply}
           orgId={orgId}
           onClose={() => setReplyFor(null)}
           onDone={(msg) => {
@@ -602,12 +616,15 @@ function DesignBlock({
 function ReplyModal({
   target,
   emailSend,
+  canReply,
   orgId,
   onClose,
   onDone,
 }: {
   target: ReplyTarget;
   emailSend: boolean;
+  /** NAV-6：为否时窗口只读——不能改、不能发、不能标记，只能看与复制 */
+  canReply: boolean;
   orgId: string;
   onClose: () => void;
   onDone: (msg: string) => void;
@@ -681,7 +698,9 @@ function ReplyModal({
           <div>
             <h2 className="text-base font-semibold text-foreground">{draft ? "回复草稿" : "写回复"} · {thread.companyName}</h2>
             <p className="mt-0.5 text-xs text-muted">
-              {draft
+              {!canReply
+                ? READ_ONLY_NOTICE
+                : draft
                 ? `AI 起草，你改定后再发。${draft.askedQuestions.length ? `已包含追问：${draft.askedQuestions.slice(0, 3).join("；")}` : ""}`
                 : "自己写回复；发出后记入时间线，这位买家还在等审批的 AI 草稿会自动作废。"}
             </p>
@@ -701,14 +720,14 @@ function ReplyModal({
           </div>
         )}
         <div className="mt-3 space-y-2">
-          <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="主题" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-blue-500 focus:outline-none" />
+          <input value={subject} readOnly={!canReply} onChange={(e) => setSubject(e.target.value)} placeholder="主题" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-blue-500 focus:outline-none" />
           {showZh && draft ? (
             <div className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-sm leading-relaxed text-foreground/90">
               {draft.subjectZh && <p className="mb-2 font-medium">{draft.subjectZh}</p>}
               {draft.bodyZh || "（无中文对照）"}
             </div>
           ) : (
-            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={draft ? 14 : 10} placeholder={draft ? undefined : "在这里写给买家的回复…"} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed text-foreground focus:border-blue-500 focus:outline-none" />
+            <textarea value={body} readOnly={!canReply} onChange={(e) => setBody(e.target.value)} rows={draft ? 14 : 10} placeholder={draft ? undefined : "在这里写给买家的回复…"} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed text-foreground focus:border-blue-500 focus:outline-none" />
           )}
         </div>
         {err && <p className="mt-2 text-xs text-red-500">{err}</p>}
@@ -716,18 +735,22 @@ function ReplyModal({
           <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">取消</button>
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => void copy()} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent">{draft ? "复制草稿" : "复制内容"}</button>
-            <button type="button" disabled={sending !== null || !body.trim()} onClick={() => void submit("mark_sent")} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent disabled:opacity-50">
-              {sending === "mark_sent" ? "…" : "已在别处发送，标记"}
-            </button>
-            <button
-              type="button"
-              disabled={sending !== null || !emailSend || !thread.contactEmail || !body.trim()}
-              title={!emailSend ? "邮件发送未配置（RESEND）" : !thread.contactEmail ? "该线索没有邮箱" : ""}
-              onClick={() => void submit("send")}
-              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
-            >
-              {sending === "send" ? "发送中…" : "发送邮件"}
-            </button>
+            {canReply && (
+              <>
+                <button type="button" disabled={sending !== null || !body.trim()} onClick={() => void submit("mark_sent")} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent disabled:opacity-50">
+                  {sending === "mark_sent" ? "…" : "已在别处发送，标记"}
+                </button>
+                <button
+                  type="button"
+                  disabled={sending !== null || !emailSend || !thread.contactEmail || !body.trim()}
+                  title={!emailSend ? "邮件发送未配置（RESEND）" : !thread.contactEmail ? "该线索没有邮箱" : ""}
+                  onClick={() => void submit("send")}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-50"
+                >
+                  {sending === "send" ? "发送中…" : "发送邮件"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
