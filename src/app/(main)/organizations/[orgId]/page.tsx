@@ -9,6 +9,7 @@ import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { isPlatformSuperAdmin, isSuperAdmin } from "@/lib/permissions-client";
 import { PageHeader } from "@/components/page-header";
 import { PositionsSection } from "./positions-section";
+import { TenderRfqSettingsSection } from "@/components/organizations/tender-rfq-settings-section";
 import {
   SELECTED_ORG_STORAGE_KEY,
   readStoredOrgId,
@@ -397,6 +398,9 @@ export default function OrganizationDetailPage() {
       </div>
 
       {canManageMembers && <PositionsSection orgId={orgId} />}
+
+      {/* W-2：询价与落地价设置（org_admin / 平台管理员；接口 tender-rfq-settings 只认 org_admin） */}
+      {canManageOrg && <TenderRfqSettingsSection orgId={orgId} />}
     </div>
   );
 }

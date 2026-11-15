@@ -455,6 +455,8 @@ npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts
 npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/settings-form-db.isolated.test.ts
 npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts

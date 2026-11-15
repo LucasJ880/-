@@ -78,7 +78,7 @@ console.log("落地价逐项");
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const terms = ["EXW", "FCA", "FOB", "CIF", "CIP", "DAP"];
   for (let i = 0; i < 3000; i += 1) {
-    const settings: LandedCostSettings = { ...FULL, freightEstimate: rnd() < 0.5 ? { mode: "per_unit", value: Math.round(rnd() * 1000) / 100 } : { mode: "percent", value: Math.round(rnd() * 900) / 100 }, insurancePct: Math.round(rnd() * 300) / 100, clearanceFlatCad: Math.round(rnd() * 50000) / 100 };
+    const settings: LandedCostSettings = { ...FULL, freightEstimate: rnd() < 0.5 ? { mode: "per_unit", value: Math.round(rnd() * 1000) / 100 } : { mode: "pct_of_goods", value: Math.round(rnd() * 900) / 100 }, insurancePct: Math.round(rnd() * 300) / 100, clearanceFlatCad: Math.round(rnd() * 50000) / 100 };
     const q = normalizeQuote({ unitPrice: Math.round(rnd() * 100000) / 1000, totalPrice: null, currency: rnd() < 0.5 ? "USD" : "CNY", incoterm: terms[Math.floor(rnd() * terms.length)] }, ctx({ settings, dutyRatePct: Math.round(rnd() * 2000) / 100, quantity: 1 + Math.floor(rnd() * 5000) }));
     const bb = q.breakdownCad;
     if (!bb || items(bb).reduce((a, x) => a + cents(x), 0) !== cents(q.landedCad.total!) || bb.goods !== q.goodsCad.total) bad += 1;
