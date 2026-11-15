@@ -627,6 +627,8 @@ run_test "招标询价 自动起草第 1 轮 DB 端到端（隔离库执行，�
 run_test "招标询价 自动起草带跟进授权的个人开关：读写（RFQ-AUTO-3）" "npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts"
 run_test "招标询价 供应商分组：校验、比对与抽屉预选（RFQ-AUTO-5）" "npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts"
 run_test "招标询价 供应商分组 DB（隔离库执行，否则跳过，RFQ-AUTO-5）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts"
+run_test "招标询价 发出之后分析更新过的提示（FLOW-H3）" "npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.ts"
+run_test "招标询价 发出之后分析更新过的提示 DB（隔离库执行，否则跳过，FLOW-H3）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts"
 run_test "组织设置的写入：守卫——写入方必须经统一入口或自己锁行（FIX-3）" "npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts"
 run_test "组织设置的并发写入互不覆盖 DB（隔离库执行，否则跳过，FIX-3）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts"
 run_test "组织行锁不与外键检查互斥 DB（隔离库执行，否则跳过，FIX-4）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts"

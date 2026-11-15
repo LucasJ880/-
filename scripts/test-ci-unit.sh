@@ -437,6 +437,8 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.t
 npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts
 npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.ts
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts
 npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts
