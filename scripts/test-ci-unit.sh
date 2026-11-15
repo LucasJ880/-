@@ -185,6 +185,8 @@ npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge-gate.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-recovery-select.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-recovery-loop.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-exception-envelope.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-a2-closure-matrix.test.ts
 npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts
 npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts
 npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts
@@ -238,6 +240,7 @@ npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate.isolated.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel-static.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel.isolated.test.ts
 npx tsx src/lib/agent-runtime/__tests__/concurrency-slot-release.isolated.test.ts
+npx tsx src/lib/agent-runtime-v2/__tests__/legacy-followup-safety.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2a-identity-policy.test.ts
 # Supplier Intelligence M1-S1（DB 套件无 DATABASE_URL 时自跳过）
@@ -443,6 +446,8 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.t
 npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts
 npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts
 npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts
@@ -470,6 +475,7 @@ npx tsx src/lib/tender-bid-readiness/__tests__/stage-policy.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/workspace-contract.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts
 NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/bid-workspace-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/readiness-submission-db.isolated.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/line-entry.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts

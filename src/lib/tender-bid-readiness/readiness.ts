@@ -27,6 +27,8 @@ export type ReadinessInput = {
   now: Date;
   closingAt: string | null;
   submission?: SubmissionRecord | null;
+  /** 有提交时间、没有回执编号时，能不能在「提交记录」里补（那项功能对这个组织开着）——只影响阻断项的文字 */
+  receiptCanBeAddedInRecord?: boolean;
   lines: readonly PriceScheduleLine[];
   cost?: CostReadinessInput | null;
   dimensionChecks?: ReadonlyArray<{ lineNo: number; verdict: DimensionVerdict; reasonZh?: string }>;
@@ -36,7 +38,8 @@ export type ReadinessInput = {
   conclusions?: readonly DependentConclusion[];
 };
 
-export const READINESS_STATES = ["NOT_READY", "READY_FOR_OWNER_DECISION"] as const;
+/** REVIEW_ONLY：截标已过、有带回执的提交——已经交了标，判定只供复盘（FLOW-H4c），不论有没有阻断项 */
+export const READINESS_STATES = ["NOT_READY", "READY_FOR_OWNER_DECISION", "REVIEW_ONLY"] as const;
 export type ReadinessState = (typeof READINESS_STATES)[number];
 
 export type ReadinessAssessment = {
@@ -47,17 +50,29 @@ export type ReadinessAssessment = {
   summaryZh: string;
 };
 
+/** 已过截标、没有提交时间 */
+export const WINDOW_EXPIRED_ZH = "已过截标，且没有带回执的提交记录";
+/** 已过截标、项目有提交时间但没有回执编号（只有带回执的才算已提交，TI-1）；能在「提交记录」里补时 */
+export const WINDOW_EXPIRED_NO_RECEIPT_ZH = "已过截标；项目有提交时间，但没有回执编号——在「提交」页签的「提交记录」里补上回执编号";
+/** 同上，但「提交记录」对这个组织没开：不指向一个看不到的地方 */
+export const WINDOW_EXPIRED_NO_RECEIPT_PLAIN_ZH = "已过截标；项目有提交时间，但没有回执编号（只有带回执的提交才算已交标）";
+
+/** 已经交了标时判定的名字 */
+export const REVIEW_ONLY_ZH = "已交标（仅供复盘）";
+
 export function assessBidReadiness(input: ReadinessInput): ReadinessAssessment {
   const blockers: ReadinessBlocker[] = [];
   const warnings: ReadinessWarning[] = [];
   const add = (code: ReadinessBlockerCode, lineNo: number | null, messageZh: string) => blockers.push({ code, lineNo, messageZh });
 
   // 1. 截标窗口
+  let reviewOnly = false;
   const closing = parseClosingTime(input.closingAt);
   if (!closing.ok) add("CLOSING_TIME_INVALID", null, `截标时间不可用：${closing.messageZh}`);
   else {
     const window = deriveTenderWindowState({ closingAt: closing.closingAt, now: input.now, submission: input.submission });
-    if (window === "EXPIRED") add("WINDOW_EXPIRED", null, "已过截标，且没有带回执的提交记录");
+    if (window === "EXPIRED") add("WINDOW_EXPIRED", null, !input.submission?.submittedAt ? WINDOW_EXPIRED_ZH : input.receiptCanBeAddedInRecord ? WINDOW_EXPIRED_NO_RECEIPT_ZH : WINDOW_EXPIRED_NO_RECEIPT_PLAIN_ZH);
+    if (window === "SUBMITTED") reviewOnly = true;
     if (window === "SUBMITTED") warnings.push({ code: "ALREADY_SUBMITTED", messageZh: "已有带回执的提交记录；本判定仅供复盘" });
   }
 
@@ -98,6 +113,16 @@ export function assessBidReadiness(input: ReadinessInput): ReadinessAssessment {
   // 6. 补遗后待复核的结论
   for (const s of findStaleConclusions(input.addenda ?? [], input.conclusions ?? []).stale) add("STALE_AFTER_ADDENDUM", s.lineNo, s.reasonZh);
 
+  // 已经交了标（截标已过、有带回执的提交）：判定只供复盘，不说「可提交 Owner 决定」，也不说「不可投标」
+  if (reviewOnly) {
+    return {
+      state: "REVIEW_ONLY",
+      stateZh: REVIEW_ONLY_ZH,
+      blockers,
+      warnings,
+      summaryZh: blockers.length === 0 ? "已交标，判定只供复盘：没有阻断项。" : `已交标，判定只供复盘：${blockers.length} 个阻断项。`,
+    };
+  }
   const ready = blockers.length === 0;
   return {
     state: ready ? "READY_FOR_OWNER_DECISION" : "NOT_READY",

@@ -10,6 +10,7 @@
  * P0-G8 审批拒绝冻结行为回归（2C-1）
  * P0-G9 Handoff 契约回归（missing/poisoned fail-closed 不因 scoping 削弱）
  * P0-G10 Kill-Switch（含 synthesis 零模型调用）
+ * P0-R4 legacy 提醒类写工具无明确时间 fail-closed（执行器路径，不进审批）
  *
  * 运行：DATABASE_URL=<隔离分支> DIRECT_URL=<同> NODE_ENV=test \
  *       DATABASE_ENVIRONMENT=isolated npx tsx <本文件>
@@ -750,10 +751,14 @@ async function main() {
 
   // ══ P0-G8：审批拒绝冻结行为回归（2C-1）══
   console.log("\n[P0-G8 审批拒绝回归]");
+  // 写任务用 gmail_create_draft 产生真实 PendingAction：legacy 提醒类写工具
+  // 无用户明确时间已恒 fail-closed 跳过（见 P0-R4），不再能驱动审批链
+  const prevGmailDraft = process.env.GMAIL_DRAFT_ENABLED;
+  process.env.GMAIL_DRAFT_ENABLED = "1";
   const g8RunId = await createJobWithPlan("P0-G8 审批拒绝计划", [
     stepOf("pick", { preferredTool: "sales_prioritize_followups" }),
     stepOf("write_b", {
-      preferredTool: "grader_create_followup_task",
+      preferredTool: "gmail_create_draft",
       dependsOn: ["pick"],
       executionMode: "write",
       riskLevel: "HIGH",
@@ -773,8 +778,9 @@ async function main() {
           {
             customerId: salesA.customers[0].id,
             customerName: salesA.customers[0].name,
+            email: "p0_A_1@test.qingyan.local",
             opportunityId: salesA.opportunities[0].id,
-            reasons: ["G8 测试"],
+            reasons: ["跟进逾期 12 天(+30)"],
           },
         ],
         summary: "选出 1 个优先客户",
@@ -792,6 +798,24 @@ async function main() {
     const paIds =
       (metaOf(writeB.evidenceJson).pendingActionIds as string[]) ?? [];
     ok(paIds.length > 0, "G8: PendingAction 已创建");
+    const g8Drafts = await db.pendingAction.findMany({
+      where: { id: { in: paIds }, orgId: fx.orgId },
+      select: { type: true, payload: true },
+    });
+    ok(
+      g8Drafts.length === paIds.length &&
+        g8Drafts.every((d) => {
+          const body = String(metaOf(d.payload).body ?? "");
+          return (
+            d.type === "grader.email_draft" &&
+            body.includes(salesA.customers[0].name) &&
+            !body.includes("(+30)") &&
+            !body.includes("逾期")
+          );
+        }),
+      "G8/R5: 客户邮件草稿正文为中性模板（不含内部评分理由）",
+      g8Drafts.map((d) => metaOf(d.payload).body),
+    );
     await db.pendingAction.updateMany({
       where: { id: { in: paIds } },
       data: { status: "rejected" },
@@ -824,6 +848,8 @@ async function main() {
       afterC.status,
     );
   }
+  if (prevGmailDraft === undefined) delete process.env.GMAIL_DRAFT_ENABLED;
+  else process.env.GMAIL_DRAFT_ENABLED = prevGmailDraft;
 
   // ══ P0-G9：Handoff 契约回归（scoping 不削弱 fail-closed）══
   console.log("\n[P0-G9 Handoff 契约回归]");
@@ -960,6 +986,101 @@ async function main() {
       g10End === "completed" && synthCalls.length === 1,
       "G10: 开关恢复 → 正常执行至 completed（synthesis 恢复）",
       { end: g10End, calls: synthCalls.length },
+    );
+  }
+
+  // ══ P0-R4：legacy 提醒类写工具无明确时间 fail-closed（执行器路径）══
+  console.log("\n[P0-R4 legacy 提醒时间 fail-closed]");
+  {
+    const { REMINDER_TIME_REQUIRED } = await import(
+      "@/lib/agent-runtime-v2/adapters"
+    );
+    const oppB = salesB.opportunities[0];
+    const oppBefore = await db.salesOpportunity.findUniqueOrThrow({
+      where: { id: oppB.id },
+      select: { nextFollowupAt: true },
+    });
+    const reminderTools = [
+      ["remind_task", "grader_create_followup_task", "HIGH"],
+      ["remind_date", "sales_update_followup", "HIGH"],
+      ["remind_cal", "calendar_create_event_draft", "MEDIUM"],
+    ] as const;
+    // fxB org：分摊 org 级 DAILY_AGENT_RUNS 配额
+    const r4RunId = await createJobWithPlan(
+      "P0-R4 legacy 提醒时间计划",
+      [
+        stepOf("pick", { preferredTool: "sales_prioritize_followups" }),
+        ...reminderTools.map(([id, tool, risk]) =>
+          stepOf(id, {
+            preferredTool: tool,
+            dependsOn: ["pick"],
+            executionMode: "write",
+            riskLevel: risk,
+            requiresApproval: true,
+          }),
+        ),
+        stepOf("after_d", {
+          preferredTool: "sales_get_pipeline",
+          dependsOn: reminderTools.map(([id]) => id),
+        }),
+      ],
+      fxB,
+    );
+    await fabricateContractCompletedStep({
+      runId: r4RunId,
+      stepKey: "pick",
+      businessOutput: {
+        prioritized: [
+          {
+            customerId: oppB.customerId,
+            customerName: salesB.customers[0].name,
+            opportunityId: oppB.id,
+            reasons: ["跟进逾期 12 天(+30)"],
+          },
+        ],
+        summary: "选出 1 个优先客户",
+      },
+    });
+    const r4End = await driveUntil(r4RunId, (s) =>
+      ["completed", "needs_human", "failed", "awaiting_approval"].includes(s),
+    );
+    const steps = await db.agentRunStep.findMany({ where: { runId: r4RunId } });
+    for (const [id, tool] of reminderTools) {
+      const st = steps.find((x) => x.stepKey === id);
+      const out = metaOf(st?.outputJson);
+      ok(
+        st?.status === "skipped" &&
+          typeof out.reason === "string" &&
+          out.reason.startsWith(`${REMINDER_TIME_REQUIRED}:`) &&
+          st.pendingActionId === null,
+        `R4: ${tool} 无明确时间 → step skipped（${REMINDER_TIME_REQUIRED}）`,
+        { status: st?.status, reason: out.reason },
+      );
+    }
+    const r4Drafts = await db.pendingAction.count({
+      where: { agentRunId: r4RunId },
+    });
+    const r4Approvals = await db.agentRunEvent.count({
+      where: { runId: r4RunId, eventType: "approval.required" },
+    });
+    ok(
+      r4Drafts === 0 && r4Approvals === 0,
+      "R4: 零 PendingAction、从未进入审批",
+      { drafts: r4Drafts, approvals: r4Approvals },
+    );
+    const oppAfter = await db.salesOpportunity.findUniqueOrThrow({
+      where: { id: oppB.id },
+      select: { nextFollowupAt: true },
+    });
+    ok(
+      oppAfter.nextFollowupAt?.getTime() === oppBefore.nextFollowupAt?.getTime(),
+      "R4: 商机下次跟进时间未被改写",
+    );
+    ok(
+      steps.find((x) => x.stepKey === "after_d")?.status === "completed" &&
+        r4End === "completed",
+      "R4: skipped 为合法终态，下游继续、Job completed",
+      { end: r4End, after: steps.find((x) => x.stepKey === "after_d")?.status },
     );
   }
 

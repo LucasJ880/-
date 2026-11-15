@@ -10,6 +10,8 @@ import { db } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { BID_WORKSPACE_KEY, blocksIn, mergeWorkspace, readStoredWorkspace, type SaveWorkspaceRequest, type StoredWorkspace } from "./contract";
 import type { WorkspaceContext } from "./workspace-view";
+import { isSubmissionRecordEnabledForOrg } from "@/lib/tender-submission/flags";
+import { loadSubmissionForReadiness } from "@/lib/tender-submission/read";
 
 export const BID_WORKSPACE_AUDIT_ACTION = "tender.bid_workspace.update" as const;
 export const BID_WORKSPACE_AUDIT_TARGET = "tender_bid_workspace" as const;
@@ -19,21 +21,26 @@ export async function loadWorkspace(projectId: string): Promise<StoredWorkspace 
   return readStoredWorkspace(room?.summaryJson);
 }
 
-/** 读取结果要用到的项目事实：截标时间、我方名称、文件数、已报价的供应商行数。 */
+/** 读取结果要用到的项目事实：截标时间、我方名称、文件数、已报价的供应商行数、提交记录（FLOW-H4c）。 */
 export async function loadWorkspaceContext(projectId: string, orgId: string, now: Date): Promise<WorkspaceContext> {
   const [project, org, documentCount, quotedSupplierCount] = await Promise.all([
-    db.project.findUnique({ where: { id: projectId }, select: { closeDate: true, dueDate: true } }),
+    db.project.findUnique({ where: { id: projectId }, select: { closeDate: true, dueDate: true, submittedAt: true } }),
     db.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
     db.projectDocument.count({ where: { projectId } }),
     db.inquiryItem.count({ where: { inquiry: { projectId }, status: "quoted" } }),
   ]);
   const closing = project?.closeDate ?? project?.dueDate ?? null;
+  // FLOW-H4c：截标之后，可投标判定要看提交记录（与项目当前提交时间对得上的那条的回执编号）；截标之前用不到，不查
+  const afterClosing = !!closing && now.getTime() >= closing.getTime();
+  const submission = afterClosing ? await loadSubmissionForReadiness({ projectId, orgId, submittedAt: project?.submittedAt ?? null }) : null;
   return {
     now,
     closingAtIso: closing ? closing.toISOString() : null,
     ownNames: org?.name ? [org.name] : [],
     documentCount,
     quotedSupplierCount,
+    submission,
+    submissionRecordEnabled: isSubmissionRecordEnabledForOrg(orgId),
   };
 }
 
