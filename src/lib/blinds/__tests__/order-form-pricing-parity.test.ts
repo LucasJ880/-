@@ -20,6 +20,7 @@ import {
   readOrderPricingRev,
   shadeLinePricingFabric,
   shutterPricingFabric,
+  woodRepriceNoticeText,
 } from "@/lib/blinds/order-form-pricing";
 import { mapQuoteFormToProcessOrder } from "@/lib/sunny-process/quote-mapping";
 import { DEFAULT_CORDLESS_POLICY, DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
@@ -31,6 +32,8 @@ import {
   sumShadeTotals,
 } from "@/app/(main)/sales/quote-sheet/pricing-helpers";
 import { buildOrderFormItems } from "@/app/(main)/sales/quote-sheet/order-items";
+import { loadDraft, saveDraft, type QuoteDraftV1 } from "@/app/(main)/sales/quote-sheet/quote-draft";
+import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { DrapeOrderLine, ShadeOrderLine, ShutterOrderLine } from "@/app/(main)/sales/quote-sheet/types";
 
 let pass = 0, fail = 0;
@@ -307,6 +310,10 @@ console.log("⑥ 源码断言");
   const missing = shadeCalls.filter((c) => !/(valanceType|shadeValanceType)\s*,?\s*\)$/.test(c));
   ok(shadeCalls.length === 5 && missing.length === 0, "SRC-05: 页面 2 处、Shades 表 1 处、PDF 2 处计价调用的最后一个实参都是表底部罩型", { count: shadeCalls.length, missing });
   ok(mapping.includes("effectiveShadeValance(") && !mapping.includes("s(l.valance) || formValance"), "SRC-06: 工艺单罩型取值调用同一个函数");
+  const shutters = read(`${dir}/order-shutters.tsx`);
+  ok(!shutters.includes("set price manually in Part B") && !shutters.includes("pricing data is not available"), "SRC-07: Shutters 表不再有「去 Part B 手填」横幅");
+  ok(page.includes("orderPricingRev: ORDER_PRICING_REV") && page.includes("orderPricingRev: loadedPricingRev") && page.includes("readOrderPricingRev(d.orderPricingRev)"), "SRC-08: 保存写当前口径标记、草稿带载入时的标记、载入时读标记");
+  ok(page.includes("needsWoodRepriceNotice(") && page.includes("woodRepriceNoticeText(") && page.includes("知道了"), "SRC-09: 页面按判定渲染提醒，带「知道了」");
 }
 
 // ── ④ 定价 ⇔ 工艺单罩盒 ───────────────────────────────────
@@ -347,6 +354,42 @@ console.log("⑤ 口径标记与实木旧报价提醒");
   ok(!needsWoodRepriceNotice({ loadedRev: 2, shutterMaterial: "Wooden", shutterMerch: 1172.22 }), "REV-05: 已按本口径保存 / 新建（标记 2）→ 不提醒");
   ok(!needsWoodRepriceNotice({ loadedRev: 1, shutterMaterial: "Vinyl", shutterMerch: 701.29 }), "REV-06: Vinyl → 不提醒");
   ok(!needsWoodRepriceNotice({ loadedRev: 1, shutterMaterial: "Wooden", shutterMerch: 0 }), "REV-07: Wooden 但没有能算出价的百叶窗行 → 不提醒");
+
+  // 提醒文案：含本单百叶窗金额与「Part B」
+  const wooden = computeShutterLinePrice(shutterLine({}), "Wooden", "default", DEFAULT_DISCOUNTS)!;
+  const text = woodRepriceNoticeText(formatCAD(wooden.merch));
+  ok(text.includes("$1,172.22") && text.includes("Part B") && text.includes("自动计价") && text.includes("重复计价"), "REV-08: 提醒文案含 $1,172.22、Part B、自动计价、避免重复计价", text);
+
+  // 表单数据往返：保存写出的 formDataJson 带标记 2；旧表单（无字段）读成 1
+  ok(readOrderPricingRev(JSON.parse(JSON.stringify({ orderPricingRev: ORDER_PRICING_REV })).orderPricingRev) === 2
+    && readOrderPricingRev(JSON.parse(JSON.stringify({ shutterMaterial: "Wooden" })).orderPricingRev) === 1, "REV-09: formDataJson 往返——有标记读 2，旧表单读 1");
+
+  // 本地草稿往返：草稿原样带着载入时的标记（真实的 saveDraft / loadDraft + 内存版 localStorage）
+  const store = new Map<string, string>();
+  (globalThis as unknown as { window: unknown }).window = {
+    localStorage: {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    },
+  };
+  const draftBody = (rev?: number): Omit<QuoteDraftV1, "v" | "savedAt"> => ({
+    customerId: "c1", customerName: "Test", customerPhone: "", customerEmail: "", customerAddress: "", heardUsOn: "", opportunityId: "",
+    date: "2026-11-15", salesRep: "LJ", measureSequence: 1, partALines: [], partBAddons: [], partBNotes: "",
+    paymentMethod: "direct" as QuoteDraftV1["paymentMethod"], depositAmount: "", balanceAmount: "", financeEligible: "", financeApproved: "", financeDifference: "",
+    partCServices: [], partCAddOns: [], shadeOrders: [], shutterOrders: [shutterLine({})], drapeOrders: [],
+    shutterMaterial: "Wooden", shutterLouverSize: "", shadeValanceType: "Cassette", shadeBracketType: "", installMode: "default",
+    ...(rev === undefined ? {} : { orderPricingRev: rev }),
+  });
+  saveDraft(draftBody(1), "org1", "u1");
+  const d1 = loadDraft("org1", "u1");
+  saveDraft(draftBody(ORDER_PRICING_REV), "org1", "u1");
+  const d2 = loadDraft("org1", "u1");
+  saveDraft(draftBody(), "org1", "u1");
+  const d0 = loadDraft("org1", "u1");
+  ok(!!d1 && readOrderPricingRev(d1.orderPricingRev) === 1 && !!d2 && readOrderPricingRev(d2.orderPricingRev) === 2 && !!d0 && readOrderPricingRev(d0.orderPricingRev) === 1,
+    "REV-10: 本地草稿往返——带 1 读 1、带 2 读 2、改动前的旧草稿（无字段）读 1", [d1?.orderPricingRev, d2?.orderPricingRev, d0?.orderPricingRev]);
+  delete (globalThis as unknown as { window?: unknown }).window;
 }
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);

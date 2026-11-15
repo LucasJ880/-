@@ -45,6 +45,15 @@ export function shutterPricingFabric(material: string): string {
   return material === "Wooden" ? "Wood" : material;
 }
 
+/** 提醒文案（amountLabel 为本单百叶窗商品金额，如 "$1,172.22"） */
+export function woodRepriceNoticeText(amountLabel: string): string {
+  return (
+    `实木百叶窗现已按价表自动计价（本单百叶窗 ${amountLabel}）。` +
+    "这份报价内容保存于本次调整之前，此前实木百叶窗的价格需在 Part B 手填——" +
+    "请检查 Part B，删除手填的百叶窗价格，避免重复计价。"
+  );
+}
+
 /** 表单数据 / 草稿里的口径标记 → 数字；缺失或非法视为 1（改动前保存的） */
 export function readOrderPricingRev(raw: unknown): number {
   return typeof raw === "number" && Number.isFinite(raw) && raw >= 1 ? raw : 1;

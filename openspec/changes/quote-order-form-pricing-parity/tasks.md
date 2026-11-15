@@ -8,7 +8,7 @@
 
 ## 2. 口径标记与提醒
 
-- [ ] 2.1 `types.ts` 的 `QuoteFormState` 与 `quote-draft.ts` 的 `QuoteDraftV1` 加可选 `orderPricingRev`；`page.tsx` 持有「载入时的标记」（新建 = 2，`applyFormState` 载入时取值、缺省 1），保存写 2、保存成功后置 2，草稿原样带；按 `needsWoodRepriceNotice` 在表单顶部渲染提醒（文案见 design D6，含本单百叶窗金额与「知道了」按钮，不拦保存）；删除 `order-shutters.tsx` 的「set price manually in Part B」横幅；对照测试补「草稿 / 表单数据带标记往返」与「横幅文案已不在源码」两条；verify：对照测试全过，typecheck 退出 0，`git diff --stat origin/main -- prisma/` 为空
+- [x] 2.1 `types.ts` 的 `QuoteFormState` 与 `quote-draft.ts` 的 `QuoteDraftV1` 加可选 `orderPricingRev`；`page.tsx` 持有「载入时的标记」（新建 = 2，`applyFormState` 载入时取值、缺省 1），保存写 2、保存成功后置 2，草稿原样带；按 `needsWoodRepriceNotice` 在表单顶部渲染提醒（文案见 design D6，含本单百叶窗金额与「知道了」按钮，不拦保存）；删除 `order-shutters.tsx` 的「set price manually in Part B」横幅；对照测试补「草稿 / 表单数据带标记往返」与「横幅文案已不在源码」两条；verify：对照测试全过，typecheck 退出 0，`git diff --stat origin/main -- prisma/` 为空
 
 ## 3. 收口
 

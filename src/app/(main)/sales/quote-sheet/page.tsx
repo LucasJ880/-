@@ -70,6 +70,12 @@ import {
   type DiscountsOverride,
 } from "./pricing-helpers";
 import { buildOrderFormItems } from "./order-items";
+import {
+  ORDER_PRICING_REV,
+  needsWoodRepriceNotice,
+  readOrderPricingRev,
+  woodRepriceNoticeText,
+} from "@/lib/blinds/order-form-pricing";
 import { exportQuotePdf, loadLogoAsDataUrl } from "./quote-pdf";
 import {
   loadDraft,
@@ -315,6 +321,9 @@ function QuoteSheetPageInner() {
   // ── localStorage 草稿（防丢失）───────────────────────────────────
   // 发现待恢复草稿时，在页面顶部显示横幅由用户决定"恢复 / 丢弃"
   const [pendingDraft, setPendingDraft] = useState<QuoteDraftV1 | null>(null);
+  // QUOTE-1a：载入内容的定价口径标记（新建 = 当前口径；载入已存报价 / 草稿时取其值，缺省 1）
+  const [loadedPricingRev, setLoadedPricingRev] = useState<number>(ORDER_PRICING_REV);
+  const [woodNoticeDismissed, setWoodNoticeDismissed] = useState(false);
   // 首屏检查完成前不允许自动保存，避免把刚挂载的空表覆盖掉尚未恢复的草稿
   const [draftReady, setDraftReady] = useState(false);
 
@@ -541,6 +550,13 @@ function QuoteSheetPageInner() {
     () => sumDrapeTotals(drapeOrders, installMode, discounts),
     [drapeOrders, installMode, discounts]
   );
+  const showWoodRepriceNotice =
+    !woodNoticeDismissed &&
+    needsWoodRepriceNotice({
+      loadedRev: loadedPricingRev,
+      shutterMaterial,
+      shutterMerch: shutterTotals.merch,
+    });
   const productsSubtotal =
     shadeTotals.total + shutterTotals.total + drapeTotals.total;
   const productInstallSubtotal =
@@ -662,6 +678,8 @@ function QuoteSheetPageInner() {
           taxRate,
           sunnyMotorPrice,
           specialPromotion,
+          // 草稿原样带着载入时的口径标记：恢复后仍能判断要不要提醒
+          orderPricingRev: loadedPricingRev,
         },
         orgId,
         currentUser.id,
@@ -679,7 +697,7 @@ function QuoteSheetPageInner() {
     partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders,
     shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-    installMode, taxRate, sunnyMotorPrice, specialPromotion,
+    installMode, taxRate, sunnyMotorPrice, specialPromotion, loadedPricingRev,
   ]);
 
   // 当 customerId 或 customers 变化时派生候选地址列表
@@ -756,6 +774,9 @@ function QuoteSheetPageInner() {
     if (typeof (d as QuoteDraftV1).specialPromotion === "string") {
       setSpecialPromotion((d as QuoteDraftV1).specialPromotion as string);
     }
+    // QUOTE-1a：改动前保存的内容没有口径标记 → 1；据此决定是否提醒检查 Part B
+    setLoadedPricingRev(readOrderPricingRev(d.orderPricingRev));
+    setWoodNoticeDismissed(false);
   }, []);
 
   const handleRestoreDraft = useCallback(() => {
@@ -909,6 +930,8 @@ function QuoteSheetPageInner() {
         drapeOrders: drapeOrders.filter((l) => l.location || l.drapeFabricSku || l.sheerFabricSku),
         shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
         installMode, taxRate, sunnyMotorPrice,
+        // QUOTE-1a：本次保存按当前定价口径构造报价行
+        orderPricingRev: ORDER_PRICING_REV,
       };
 
       // PRICE-3：Part B 已选且数量 > 0 的行作为附加项目提交，库里报价金额从此含 Part B（design D4）
@@ -990,6 +1013,8 @@ function QuoteSheetPageInner() {
       });
       // 真正保存成功 → 本地草稿使命完成
       if (orgId && currentUser?.id) clearDraft(orgId, currentUser.id);
+      // QUOTE-1a：库里已是当前口径，不再提醒
+      setLoadedPricingRev(ORDER_PRICING_REV);
 
       // 兜底模式（partial / shell）时提示销售："数据已保存，但定价未完全算出"
       const saveMode: "full" | "partial" | "shell" | undefined = res.saveMode;
@@ -1588,6 +1613,33 @@ function QuoteSheetPageInner() {
               >
                 <X className="mr-1 h-3 w-3" />
                 丢弃草稿
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUOTE-1a：改动前保存的实木百叶窗报价 / 草稿——提醒检查 Part B，避免与手填价重复计价（不拦保存） */}
+      {workspaceMode === "order" && showWoodRepriceNotice && (
+        <div
+          role="alert"
+          data-testid="wood-reprice-notice"
+          className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm"
+        >
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <div className="font-semibold text-amber-900">实木百叶窗现已自动计价</div>
+            <div className="mt-0.5 text-xs text-amber-800">
+              {woodRepriceNoticeText(formatCAD(shutterTotals.merch))}
+            </div>
+            <div className="mt-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setWoodNoticeDismissed(true)}
+                className="h-7 text-xs"
+              >
+                知道了
               </Button>
             </div>
           </div>
