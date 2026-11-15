@@ -134,4 +134,14 @@ console.log("开关");
   ok("自动触发器：模型清单已被取代时不算「缺清单」，不为它去触发生成", runner.includes("const hasChecklist = !!checklistRes?.checklist || checklistRes?.replaced === true;") && runner.includes("if (hasSummary && hasChecklist) {"));
 }
 
+console.log("挂到页面");
+{
+  const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+  const tab = read("src/components/project-detail/tabs/submission-tab.tsx");
+  ok("「提交」页签的「提交就绪」里挂着交付前检查清单，「去确认」由上层传入", tab.includes("<SubmissionChecklistCard") && tab.includes("onGoConfirm={onGoRequirements}") && tab.indexOf("<SubmissionChecklistCard") > tab.indexOf("提交就绪") && tab.indexOf("<SubmissionChecklistCard") < tab.indexOf("<TenderAnalysisPanel"));
+  ok("模型生成的那份清单只在确定性清单不可用时显示（没查完之前两份都不显示）", tab.includes('{checklistState === "off" ? <BidChecklist projectId={projectId} /> : null}') && tab.includes('useState<"unknown" | "on" | "off">("unknown")') && !/^\s*<BidChecklist projectId=\{projectId\} \/>\s*$/m.test(tab));
+  ok("可用回调是稳定引用（清单的取数函数依赖它，不稳定会反复取数）", tab.includes('const onChecklistAvailable = useCallback((available: boolean) => setChecklistState(available ? "on" : "off"), []);') && tab.includes("onAvailable={onChecklistAvailable}"));
+  ok("项目页把「去确认」接到「要求」页签", read("src/app/(main)/projects/[id]/page.tsx").includes('onGoRequirements={() => openProjectArea("requirements")}'));
+}
+
 console.log(`\n✓ submission-checklist: ${passed} 项断言全部通过`);
