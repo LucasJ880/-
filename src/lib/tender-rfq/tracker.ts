@@ -1,7 +1,7 @@
 /**
  * T-2 询价追踪页（服务端取数，只读）
  *
- * - 可见项目：buildProjectVisibilityWhere(user) + 组织 + workDomain=tender；组织由调用方按登录者解析后传入。
+ * - 可见项目：与 requireProjectReadAccess 同一规则（projectReadWhere）+ 组织 + workDomain=tender + 有在途询价；组织由调用方按登录者解析后传入。
  * - 在途条目：chase-service.loadItems（与催单扫描同一口径）+ 近 14 天标为未响应的（只显示）。
  * - 下一步：tracker-pure.nextChaseOutlook，间隔用 chaseDaysForRound（与扫描同一来源）。
  * - 待批催单卡：审批信息与正文复用 W-1 的 loadRfqApprovalInfo / loadRfqSendEmails。
@@ -12,7 +12,8 @@ import type { NextRequest } from "next/server";
 import type { AuthUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { resolveOrgTimezone } from "@/lib/automation/registry";
-import { buildProjectVisibilityWhere } from "@/lib/projects/visibility";
+import { hasOrgRole, isSuperAdmin } from "@/lib/rbac/roles";
+import { listEffectiveMemberships } from "@/lib/preview/server";
 import { chaseDaysForRound, loadFollowUpRoundState, loadItems, type LoadedItem } from "./chase-service";
 import { currentMissingFields } from "./chase-pure";
 import { loadCompareMatrix } from "./compare-service";
@@ -74,7 +75,56 @@ export type TrackerPayload = {
   truncated: boolean;
 };
 
-type ExtraFields = { currency: string | null; repliedAt: Date | null; deliveryDays: number | null; validUntil: Date | null; unitPrice: number | null; totalPrice: number | null };
+type ExtraFields = { currency: string | null; repliedAt: Date | null };
+
+/**
+ * 与 requireProjectReadAccess 同一条规则（价格的可见范围 = 项目里的询价明细，独立审查 H1）：
+ * 平台超管全部；否则已派发、且（负责人 / 该组织 org_admin / 项目 active 成员）。普通组织成员不因同组织就能看。
+ */
+export async function projectReadWhere(user: AuthUser, orgId: string): Promise<Record<string, unknown>> {
+  if (isSuperAdmin(user.role)) return { orgId };
+  const memberships = await listEffectiveMemberships(user.id);
+  const isOrgAdmin = memberships.some((m) => m.orgId === orgId && hasOrgRole(m.role, "org_admin"));
+  return {
+    orgId,
+    intakeStatus: "dispatched",
+    OR: [{ ownerId: user.id }, ...(isOrgAdmin ? [{ orgId }] : []), { members: { some: { userId: user.id, status: "active" } } }],
+  };
+}
+
+/** 有在途询价的项目（截断上限之前先筛，避免没有询价的老项目挤掉有在途询价的，审查 M2） */
+function inFlightWhere(now: Date): Record<string, unknown> {
+  return {
+    inquiries: {
+      some: {
+        status: { notIn: ["canceled", "completed"] },
+        items: {
+          some: {
+            OR: [
+              { status: { in: ["sent", "replied", "quoted"] }, sentAt: { gte: new Date(now.getTime() - 90 * DAY) } },
+              { status: "no_response", updatedAt: { gte: new Date(now.getTime() - NO_RESPONSE_WINDOW_DAYS * DAY) } },
+            ],
+          },
+        },
+      },
+    },
+  };
+}
+
+/** 有界并发 */
+async function mapLimit<T, R>(xs: T[], limit: number, f: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(xs.length);
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, xs.length) }, async () => {
+      while (i < xs.length) {
+        const k = i++;
+        out[k] = await f(xs[k]);
+      }
+    }),
+  );
+  return out;
+}
 
 /** 只读；不建卡、不发信、不改任何状态 */
 export async function loadTracker(input: {
@@ -83,16 +133,20 @@ export async function loadTracker(input: {
   orgId: string;
   now?: Date;
   projectId?: string | null;
-  /** /bids 汇总卡：只要计数——不取比价矩阵、不取审批信息（计数与这两样无关，和整页的计数相同） */
+  /** /bids 汇总卡：只要计数——不取比价矩阵、不取审批信息、不算催单间隔（计数与这三样无关，和整页的计数相同） */
   summaryOnly?: boolean;
+  /** 测试用：覆盖上限 */
+  limits?: { matrixRounds?: number; rows?: number };
 }): Promise<TrackerPayload> {
+  const matrixRoundLimit = input.limits?.matrixRounds ?? TRACKER_MATRIX_ROUND_LIMIT;
+  const rowLimit = input.limits?.rows ?? TRACKER_ROW_LIMIT;
   const now = input.now ?? new Date();
   const org = await db.organization.findUnique({ where: { id: input.orgId }, select: { settingsJson: true } });
   const timeZone = resolveOrgTimezone(org?.settingsJson ?? null);
 
-  const vis = await buildProjectVisibilityWhere(input.user);
+  const readable = await projectReadWhere(input.user, input.orgId);
   const projects = await db.project.findMany({
-    where: { AND: [vis ?? {}, { orgId: input.orgId, workDomain: "tender" }, ...(input.projectId ? [{ id: input.projectId }] : [])] },
+    where: { AND: [readable, { workDomain: "tender" }, inFlightWhere(now), ...(input.projectId ? [{ id: input.projectId }] : [])] },
     select: { id: true, name: true, ownerId: true },
     orderBy: { updatedAt: "desc" },
     take: TRACKER_PROJECT_LIMIT + 1,
@@ -126,19 +180,20 @@ export async function loadTracker(input: {
     (
       await db.inquiryItem.findMany({
         where: { id: { in: allIds } },
-        select: { id: true, currency: true, repliedAt: true, deliveryDays: true, validUntil: true, unitPrice: true, totalPrice: true },
+        select: { id: true, currency: true, repliedAt: true },
       })
-    ).map((r) => [r.id, { currency: r.currency, repliedAt: r.repliedAt, deliveryDays: r.deliveryDays, validUntil: r.validUntil, unitPrice: toNum(r.unitPrice), totalPrice: toNum(r.totalPrice) }]),
+    ).map((r) => [r.id, { currency: r.currency, repliedAt: r.repliedAt }]),
   );
 
-  // 待批的催单卡（未过期）：按条目 id 归类
+  // 还活着的催单卡（与 loadItems 同一口径：待批未过期，或已批准正在执行）：按条目 id 归类
   const liveCards = await db.pendingAction.findMany({
     where: {
       orgId: input.orgId,
       type: TENDER_SEND_CHASE_TYPE,
-      status: "pending",
-      expiresAt: { gt: now },
-      OR: items.map((i) => ({ idempotencyKey: { startsWith: `${TENDER_SEND_CHASE_TYPE}:${i.snapshot.itemId}:` } })),
+      AND: [
+        { OR: [{ status: "approved" }, { status: "pending", expiresAt: { gt: now } }] },
+        { OR: items.map((i) => ({ idempotencyKey: { startsWith: `${TENDER_SEND_CHASE_TYPE}:${i.snapshot.itemId}:` } })) },
+      ],
     },
     select: { id: true, idempotencyKey: true },
     orderBy: { createdAt: "asc" },
@@ -158,10 +213,13 @@ export async function loadTracker(input: {
   const ownerOf = new Map(visible.map((p) => [p.id, p.ownerId]));
   const roundIds = [...new Set([...items.map((i) => i.inquiryId), ...noResp.map((n) => n.inquiry.id)])];
   const daysByRound = new Map<string, number>();
-  for (const it of items) {
-    if (daysByRound.has(it.inquiryId)) continue;
-    const followUp = await loadFollowUpRoundState(input.orgId, it.inquiryId);
-    daysByRound.set(it.inquiryId, chaseDaysForRound(org?.settingsJson ?? null, ownerOf.get(it.snapshot.projectId) ?? it.ownerId, followUp));
+  if (!input.summaryOnly) {
+    const firstOfRound = [...new Map(items.map((it) => [it.inquiryId, it])).values()];
+    const days = await mapLimit(firstOfRound, 5, async (it) => {
+      const followUp = await loadFollowUpRoundState(input.orgId, it.inquiryId);
+      return chaseDaysForRound(org?.settingsJson ?? null, ownerOf.get(it.snapshot.projectId) ?? it.ownerId, followUp);
+    });
+    firstOfRound.forEach((it, k) => daysByRound.set(it.inquiryId, days[k]));
   }
 
   // 比价矩阵：至少一家已报价的轮次，按最近报价时间取前 50 轮
@@ -172,12 +230,10 @@ export async function loadTracker(input: {
     const prev = quotedRounds.get(it.inquiryId);
     if (!prev || t > prev.latest) quotedRounds.set(it.inquiryId, { projectId: it.snapshot.projectId, latest: t });
   }
-  const matrixRounds = input.summaryOnly ? [] : [...quotedRounds.entries()].sort((a, b) => b[1].latest - a[1].latest).slice(0, TRACKER_MATRIX_ROUND_LIMIT);
-  const matrixLoaded = new Set<string>();
+  const matrixRounds = input.summaryOnly ? [] : [...quotedRounds.entries()].sort((a, b) => b[1].latest - a[1].latest).slice(0, matrixRoundLimit);
   const matrixRowByItem = new Map<string, Pick<CompareRow, "landedCad" | "flags" | "blockers">>();
-  for (const [inquiryId, r] of matrixRounds) {
-    const m = await loadCompareMatrix({ projectId: r.projectId, orgId: input.orgId, inquiryId, now });
-    matrixLoaded.add(inquiryId);
+  const matrices = await mapLimit(matrixRounds, 5, ([inquiryId, r]) => loadCompareMatrix({ projectId: r.projectId, orgId: input.orgId, inquiryId, now }));
+  for (const m of matrices) {
     if (!m.ok) continue;
     for (const row of m.matrix.rows) matrixRowByItem.set(row.itemId, { landedCad: row.landedCad, flags: row.flags, blockers: row.blockers });
   }
@@ -185,14 +241,18 @@ export async function loadTracker(input: {
   // 组装行（白名单）
   type Built = TrackerRow & { inquiryId: string; projectId: string; roundNumber: number; replyBy: Date | null; repliedAt: Date | null };
   const built: Built[] = [];
-  const quoteOf = (itemId: string, status: string, inquiryId: string): QuoteCell | null => {
-    if (status !== "quoted" && status !== "replied") return null;
-    const x = extras.get(itemId);
-    if (!x || (x.unitPrice == null && x.totalPrice == null)) return null;
+  const quoteOf = (s: LoadedItem["snapshot"]): QuoteCell | null => {
+    if (s.status !== "quoted" && s.status !== "replied") return null;
+    const unitPrice = toNum(s.quote.unitPrice);
+    const totalPrice = toNum(s.quote.totalPrice);
+    if (unitPrice == null && totalPrice == null) return null;
+    const vu = s.quote.validUntil;
+    const row = matrixRowByItem.get(s.itemId) ?? null;
+    // 已报价却没有矩阵行（超过上限没算、或矩阵算不出来）：写「请到比价面板查看」，不悄悄空着（审查 L4）
     return quoteCellView(
-      { unitPrice: x.unitPrice, totalPrice: x.totalPrice, currency: x.currency, deliveryDays: x.deliveryDays, validUntil: x.validUntil },
-      matrixRowByItem.get(itemId) ?? null,
-      { matrixLoaded: status !== "quoted" || matrixLoaded.has(inquiryId), timeZone },
+      { unitPrice, totalPrice, currency: extras.get(s.itemId)?.currency ?? null, deliveryDays: s.quote.deliveryDays, validUntil: vu ? new Date(vu) : null },
+      row,
+      { matrixLoaded: s.status !== "quoted" || row != null, timeZone },
     );
   };
 
@@ -214,7 +274,7 @@ export async function loadTracker(input: {
       needsAction,
       needsActionLabel: needsAction ? NEEDS_ACTION_LABELS[needsAction] : null,
       outlookKind: outlook.kind,
-      quote: quoteOf(s.itemId, s.status, it.inquiryId),
+      quote: quoteOf(s),
       cards,
       canChaseNow: !!s.threadId && (outlook.kind === "chase_on" || outlook.kind === "no_response_on" || outlook.kind === "rejected_wait"),
       inquiryId: it.inquiryId,
@@ -262,10 +322,10 @@ export async function loadTracker(input: {
   const summary = trackerSummary(built, now);
   if (input.summaryOnly) return { summary, groups: [], timeZone, truncated };
   let rows = built;
-  if (rows.length > TRACKER_ROW_LIMIT) {
+  if (rows.length > rowLimit) {
     truncated = true;
     // 需要我处理的优先留下
-    rows = [...rows].sort((a, b) => Number(b.needsAction != null) - Number(a.needsAction != null)).slice(0, TRACKER_ROW_LIMIT);
+    rows = [...rows].sort((a, b) => Number(b.needsAction != null) - Number(a.needsAction != null)).slice(0, rowLimit);
   }
 
   const nameOf = new Map(visible.map((p) => [p.id, p.name]));

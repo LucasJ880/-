@@ -13,6 +13,7 @@ import { buildCompareMatrix, type CompareInput } from "../compare";
 import { normalizeQuote, type LandedCostSettings } from "../landed-cost";
 import {
   CHASE_SKIP_ZH,
+  firstTabWithRows,
   TRACKER_TABS,
   approvableCards,
   chaseSkipZh,
@@ -112,6 +113,10 @@ console.log("与 decideChases 的一致性");
   // 有待批卡
   const pend = snap({ cards: [{ slot: chaseSlot("it1", "no_reply", 1), state: "live" }] });
   consistent("有待批卡", pend, null, at(4), "card_pending");
+  const pendDl = snap({ cards: [{ slot: chaseSlot("it1", "no_reply", 1), state: "live" }] });
+  const dl = new Date("2026-11-06T00:00:00Z");
+  const op = nextChaseOutlook(pendDl, { now: at(3, 1), chaseAfterDays: days, replyBy: dl });
+  ok("有待批卡且有回复截止：写出不批时哪天标未响应，并与判定一致（待批卡挡不住标未响应）", op.kind === "card_pending" && op.noResponseAt != null && markedNoResp(pendDl, op.noResponseAt, dl) && !markedNoResp(pendDl, minus1(op.noResponseAt), dl), op);
   ok("有待批卡：扫描也不再起草（pending_card）", decide(pend, at(4), null).skipped.some((s) => s.reason === "pending_card"));
   // 被驳回过：扫描不再自动催这一次
   const rej = snap({ cards: [{ slot: chaseSlot("it1", "no_reply", 1), state: "rejected" }] });
@@ -147,7 +152,8 @@ console.log("文案与日期");
   ok("下次自动催（按组织时区的月-日）", t({ kind: "chase_on", at: new Date("2026-11-09T03:00:00Z"), chaseKind: "no_reply" }) === "下次自动催 11-08");
   ok("已经到期还没扫描：写「今天」", t({ kind: "chase_on", at: minus1(now), chaseKind: "no_reply" }) === "下次自动催 今天");
   ok("将于某天标未响应", t({ kind: "no_response_on", at: new Date("2026-11-12T15:00:00Z") }) === "将于 11-12 标未响应");
-  ok("催单卡待批 / 手工联系 / 已追问 / 已催满", t({ kind: "card_pending" }) === "催单卡待批" && t({ kind: "manual_only", noResponseAt: null }) === "手工联系，系统不会自动催" && t({ kind: "asked_wait" }) === "已追问过缺的字段，等供应商回复" && (t({ kind: "max_reached_wait", at: new Date("2026-11-12T15:00:00Z") }) ?? "").startsWith("已催满 2 次"));
+  ok("待批卡带未响应日期：写出来", t({ kind: "card_pending", noResponseAt: new Date("2026-11-12T15:00:00Z") }) === "催单卡待批；若一直不批，将于 11-12 标未响应");
+  ok("催单卡待批 / 手工联系 / 已追问 / 已催满", t({ kind: "card_pending", noResponseAt: null }) === "催单卡待批" && t({ kind: "manual_only", noResponseAt: null }) === "手工联系，系统不会自动催" && t({ kind: "asked_wait" }) === "已追问过缺的字段，等供应商回复" && (t({ kind: "max_reached_wait", at: new Date("2026-11-12T15:00:00Z") }) ?? "").startsWith("已催满 2 次"));
   ok("done：没有下一步文案", t({ kind: "done" }) === null);
   ok("时间点按时区：多伦多 11-09 23:30（UTC 11-10 04:30）记 11-09", zonedMonthDay(new Date("2026-11-10T04:30:00Z"), TZ) === "11-09");
   ok("时间点恰好 UTC 零点也按时区（多伦多是前一天晚上）", zonedMonthDay(new Date("2026-11-10T00:00:00Z"), TZ) === "11-09");
@@ -161,13 +167,14 @@ console.log("需要我处理");
 {
   const now = at(10);
   const base = { now, replyBy: null as Date | null };
-  ok("催单卡待批", classifyNeedsAction({ ...base, status: "sent", outlook: { kind: "card_pending" }, missing: [] }) === "chase_card_pending");
+  ok("催单卡待批", classifyNeedsAction({ ...base, status: "sent", outlook: { kind: "card_pending", noResponseAt: null }, missing: [] }) === "chase_card_pending");
   ok("回信没报价", classifyNeedsAction({ ...base, status: "replied", outlook: { kind: "chase_on", at: now, chaseKind: "missing_fields" }, missing: ["price"] }) === "reply_no_quote");
   ok("报价缺字段", classifyNeedsAction({ ...base, status: "quoted", outlook: { kind: "asked_wait" }, missing: ["validUntil"] }) === "missing_fields");
   ok("过了回复截止还没回", classifyNeedsAction({ now, replyBy: new Date("2026-11-05T00:00:00Z"), status: "sent", outlook: { kind: "no_response_on", at: now }, missing: [] }) === "past_reply_by");
+  ok("过了回复截止但已报价（不缺）：不是「过了截止没回」", classifyNeedsAction({ now, replyBy: new Date("2026-11-05T00:00:00Z"), status: "quoted", outlook: { kind: "done" }, missing: [] }) === null);
   ok("回复截止当天还不算过", classifyNeedsAction({ now: new Date("2026-11-05T20:00:00Z"), replyBy: new Date("2026-11-05T00:00:00Z"), status: "sent", outlook: { kind: "chase_on", at: now, chaseKind: "no_reply" }, missing: [] }) === null);
   ok("在等回复、已报价齐全、未响应：都不是", classifyNeedsAction({ ...base, status: "sent", outlook: { kind: "chase_on", at: now, chaseKind: "no_reply" }, missing: [] }) === null && classifyNeedsAction({ ...base, status: "quoted", outlook: { kind: "done" }, missing: [] }) === null && classifyNeedsAction({ ...base, status: "no_response", outlook: { kind: "done" }, missing: [] }) === null);
-  ok("待批卡优先于缺字段", classifyNeedsAction({ ...base, status: "quoted", outlook: { kind: "card_pending" }, missing: ["validUntil"] }) === "chase_card_pending");
+  ok("待批卡优先于缺字段", classifyNeedsAction({ ...base, status: "quoted", outlook: { kind: "card_pending", noResponseAt: null }, missing: ["validUntil"] }) === "chase_card_pending");
 }
 
 console.log("计数与汇总卡");
@@ -187,6 +194,8 @@ console.log("计数与汇总卡");
   const card = summaryCardText(s);
   ok("汇总卡文案只有计数", card === "询价追踪：3 家等回复 · 1 张催单待批 · 本周 1 家已报价" && !/\$|CAD|USD|元/.test(card), card);
   ok("没有在途询价", summaryCardText(trackerSummary([], now)) === "询价追踪：没有在途询价" && EMPTY_TRACKER_ZH.includes("问供应商要价"));
+  ok("只有需要我处理的（没有等回复、待批卡、本周报价）：不说「没有在途询价」", summaryCardText({ needsAction: 2, waiting: 0, quoted: 1, noResponse: 0, pendingCards: 0, quotedThisWeek: 0 }) === "询价追踪：2 项需要我处理");
+  ok("只有较早的报价 / 只有未响应：照实写", summaryCardText({ needsAction: 0, waiting: 0, quoted: 3, noResponse: 0, pendingCards: 0, quotedThisWeek: 0 }) === "询价追踪：3 家已报价" && summaryCardText({ needsAction: 0, waiting: 0, quoted: 0, noResponse: 2, pendingCards: 0, quotedThisWeek: 0 }) === "询价追踪：2 家未响应");
 }
 
 console.log("报价列（与比价矩阵对照）");
@@ -207,7 +216,7 @@ console.log("报价列（与比价矩阵对照）");
   const row = (id: string) => m.rows.find((r) => r.itemId === id)!;
   const cell = (id: string, q: { unitPrice: number | null; totalPrice: number | null; currency: string }) => quoteCellView({ ...q, deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, row(id), { matrixLoaded: true, timeZone: TZ });
   const a = cell("a", { unitPrice: 89.5, totalPrice: 17900, currency: "USD" });
-  ok("齐全：原币种单价 / 总价 / 交期 / 有效期；落地价取矩阵（四舍五入到元）", a.quoteText === "报价 USD 89.5 / 件 · 总价 USD 17,900 · 交期 21 天 · 有效至 12-31" && a.landedText === `落地价 CAD ${Math.round(row("a").landedCad.total!).toLocaleString("en-US")}`, a);
+  ok("齐全：原币种单价 / 总价 / 交期 / 有效期；落地价取矩阵（四舍五入到元）", a.quoteText === "报价 USD 89.50 / 件 · 总价 USD 17,900 · 交期 21 天 · 有效至 12-31" && a.landedText === `落地价 CAD ${Math.round(row("a").landedCad.total!).toLocaleString("en-US")}`, a);
   const c = cell("c", { unitPrice: 80, totalPrice: null, currency: "USD" });
   ok("缺落地价参数：写矩阵给的原因，给去比价链接", c.landedText === `落地价未换算（${row("c").blockers[0]}）` && c.needsCompareLink && !c.cheapest, c);
   const cheapestId = m.cheapestItemId!;
@@ -216,12 +225,14 @@ console.log("报价列（与比价矩阵对照）");
   const d = cells.find((x) => x.id === "d")!.c;
   ok("只有总价：写「报价总价」", (d.quoteText ?? "").startsWith("报价总价 USD 16,000"));
   const b = cells.find((x) => x.id === "b")!.c;
-  ok("只有单价：写单价，不写总价", (b.quoteText ?? "").startsWith("报价 USD 95 / 件") && !(b.quoteText ?? "").includes("总价"));
+  ok("只有单价：写单价，不写总价", (b.quoteText ?? "").startsWith("报价 USD 95.00 / 件") && !(b.quoteText ?? "").includes("总价"));
   ok("每一家的落地价与矩阵逐家一致", ["a", "b", "d"].every((id) => cells.find((x) => x.id === id)!.c.landedText === `落地价 CAD ${Math.round(row(id).landedCad.total!).toLocaleString("en-US")}`));
   const capped = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "usd", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ });
-  ok("超过上限没算矩阵：写「请到比价面板查看」；币种转大写", capped.landedText === "落地价请到比价面板查看" && capped.needsCompareLink && (capped.quoteText ?? "").startsWith("报价 USD 1 / 件"));
+  ok("超过上限没算矩阵：写「请到比价面板查看」；币种转大写", capped.landedText === "落地价请到比价面板查看" && capped.needsCompareLink && (capped.quoteText ?? "").startsWith("报价 USD 1.00 / 件"));
   ok("没有报价字段：quoteText 为空", quoteCellView({ unitPrice: null, totalPrice: null, currency: null, deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ }).quoteText === null);
   ok("有效期是 UTC 零点日期：按字面月日，不差一天", (a.quoteText ?? "").includes("有效至 12-31"));
+  const two = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, { landedCad: { unit: null, total: null }, flags: [], blockers: ["缺运费估算参数", "缺关税率"] }, { matrixLoaded: true, timeZone: TZ });
+  ok("换算不出有几条原因：写第一条（矩阵的主要原因）", two.landedText === "落地价未换算（缺运费估算参数）");
 }
 
 console.log("页签、全部批准、催单卡、跳过原因");
@@ -236,6 +247,7 @@ console.log("页签、全部批准、催单卡、跳过原因");
   const needs = filterTrackerGroups(groups, "needs");
   ok("按页签过滤：没有行的轮次与项目去掉", needs.length === 1 && needs[0].rounds.length === 1 && needs[0].rounds[0].rows.length === 1 && filterTrackerGroups(groups, "quoted").length === 2 && filterTrackerGroups(groups, "no_response").length === 0);
   const card = (canApprove: boolean, status = "PENDING") => ({ approval: { canApprove, status } });
+  ok("按项目进来：默认第一个有内容的页签；都没有就「需要我处理」", firstTabWithRows([{ rounds: [{ rows: [{ status: "sent", needsAction: null }] }] }]) === "waiting" && firstTabWithRows([{ rounds: [{ rows: [{ status: "sent", needsAction: "past_reply_by" }] }] }]) === "needs" && firstTabWithRows([]) === "needs");
   ok("全部批准只收能批、还在待批的卡", approvableCards([{ cards: [card(true), card(false)] }, { cards: [card(true, "EXPIRED"), card(true)] }]).length === 2);
   ok("催单卡键：第 1 次、第 2 次、追问、重起草后缀", JSON.stringify(parseChaseCardKey("tender.send_chase:it1:1")) === JSON.stringify({ itemId: "it1", chaseKind: "no_reply", chaseIndex: 1 }) && parseChaseCardKey("tender.send_chase:it1:2:r1")?.chaseIndex === 2 && parseChaseCardKey("tender.send_chase:it9:missing_fields")?.chaseKind === "missing_fields");
   ok("别的类型或格式不对：不认", parseChaseCardKey("tender.send_rfq:it1:1") === null && parseChaseCardKey(null) === null && parseChaseCardKey("tender.send_chase:it1:3") === null);
@@ -258,12 +270,14 @@ console.log("接线");
   const shell = read("src/components/bids/bids-workspace-shell.tsx");
   const cs = read("src/lib/tender-rfq/chase-service.ts");
   ok("追踪接口：组织按登录者解析，不取别的", api.includes("resolveRequestOrgIdForUser(user, searchParams.get(\"orgId\"))") && api.includes("orgId: orgRes.orgId"));
-  ok("取数：可见项目规则 + 组织 + 招投标；条目复用 loadItems（带 projectIds）", svc.includes("buildProjectVisibilityWhere(input.user)") && svc.includes('{ orgId: input.orgId, workDomain: "tender" }') && svc.includes("loadItems({ orgId: input.orgId, projectIds }, now)"));
+  ok("取数：与项目读权限同一规则 + 招投标 + 有在途询价；条目复用 loadItems（带 projectIds）", svc.includes("projectReadWhere(input.user, input.orgId)") && svc.includes('{ workDomain: "tender" }, inFlightWhere(now)') && svc.includes("loadItems({ orgId: input.orgId, projectIds }, now)"));
   ok("间隔与扫描同一来源（chaseDaysForRound + 跟进授权状态）", svc.includes("chaseDaysForRound(") && svc.includes("loadFollowUpRoundState(input.orgId, it.inquiryId)") && cs.includes("const days = chaseDaysForRound(orgSettingsJson, owner, followUp);"));
   ok("价格只取比价矩阵（loadCompareMatrix），不自己换汇", svc.includes("loadCompareMatrix({ projectId: r.projectId, orgId: input.orgId, inquiryId, now })") && !/fxRates|normalizeQuote/.test(svc));
   ok("白名单：页面行只有这些字段；不带估值、我方报价、毛利", svc.includes("const publicRow = (b: Built): TrackerRow => ({") && !/estimatedValue|ourBidPrice|winningBidPrice|margin/i.test(svc));
   ok("现在就催：项目写权限、1–8 家、复用 draftChasesForProject（只起草）", chase.includes("requireProjectWriteAccess(request, projectId)") && chase.includes(".min(1).max(8)") && chase.includes("draftChasesForProject({") && !/chase-execute|sendEmail\(|sendGmail|gmail\.users/i.test(chase));
-  ok("页面：全部批准逐张顺序调用既有 approve 接口；单张用 RfqApprovalPanel", /for \(const c of cards\) \{[\s\S]*?\/approve\?orgId=/.test(page) && page.includes('variant="chase"'));
+  ok("页面：全部批准逐张顺序调用既有 approve 接口；单张用 RfqApprovalPanel；全部批准进行中那一轮不显示单张面板", /for \(const c of cards\) \{[\s\S]*?\/approve\?orgId=/.test(page) && page.includes('variant="chase"') && page.includes("{busyRound === r.inquiryId ? null : cards.map((c) => ("));
+  ok("页面：只认最后一次读取；已有数据时读取失败不清空页面", page.includes("if (seq !== loadSeq.current) return;") && page.includes("if (error && !data) return"));
+  ok("页面：按项目进来时默认第一个有内容的页签，并可看全部", page.includes("setTab(firstTabWithRows(payload.groups));") && page.includes('data-testid="rfq-tracker-project-filter"'));
   ok("/bids 顶部挂汇总卡", shell.includes("<RfqTrackerSummaryCard />"));
 }
 

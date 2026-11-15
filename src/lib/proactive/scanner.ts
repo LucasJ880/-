@@ -203,7 +203,8 @@ async function checkSupplierNoResponse(
   const days = resolveChaseAfterDays(readUserPrefs(org?.settingsJson ?? null, project.ownerId).chaseAfterDays, org?.settingsJson ?? null);
   const waitingItems = await db.inquiryItem.findMany({
     where: {
-      inquiry: { projectId: project.id, status: { notIn: ["canceled", "completed"] } },
+      // 只算招投标项目（追踪页只列招投标；别的项目原来就没有这条口径，审查 M5）
+      inquiry: { projectId: project.id, status: { notIn: ["canceled", "completed"] }, project: { workDomain: "tender" } },
       status: "sent",
       sentAt: { lt: new Date(now.getTime() - days * DAY_MS) },
     },

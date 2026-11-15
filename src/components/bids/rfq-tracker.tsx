@@ -8,7 +8,7 @@
  * 「全部批准」前端逐张顺序调用同一个 approve 接口；「现在就催」调 POST /api/projects/[id]/tender-rfq/chase（只起草审批卡）。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -17,7 +17,7 @@ import { RfqApprovalPanel, type RfqDecisionOutcome } from "@/components/inquiry/
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 import type { TrackerCard, TrackerPayload, TrackerRow } from "@/lib/tender-rfq/tracker";
-import { EMPTY_TRACKER_ZH, TRACKER_TABS, approvableCards, filterTrackerGroups, type TrackerTab } from "@/lib/tender-rfq/tracker-pure";
+import { EMPTY_TRACKER_ZH, TRACKER_TABS, approvableCards, filterTrackerGroups, firstTabWithRows, type TrackerTab } from "@/lib/tender-rfq/tracker-pure";
 import { chaseOutcomeFromMessage, chaseErrorText, friendlyExecutionError } from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
 
@@ -38,20 +38,31 @@ export function RfqTracker() {
   const [extraCards, setExtraCards] = useState<Record<string, TrackerCard[]>>({});
   const [busyRow, setBusyRow] = useState<string | null>(null);
   const [busyRound, setBusyRound] = useState<string | null>(null);
+  const loadSeq = useRef(0);
+  const tabChosen = useRef(false);
 
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     apiFetch(`/api/org/tender-rfq/tracker${project ? `?project=${encodeURIComponent(project)}` : ""}`)
       .then(async (res) => {
+        if (seq !== loadSeq.current) return; // 只认最后一次读取（审查 L5）
         if (!res.ok) {
           const j = (await res.json().catch(() => ({}))) as { error?: string };
           setError(j.error || "询价追踪读取失败，请刷新重试。");
           return;
         }
+        const payload = (await res.json()) as TrackerPayload;
+        if (seq !== loadSeq.current) return;
         setError(null);
-        setData((await res.json()) as TrackerPayload);
+        setData(payload);
         setExtraCards({});
+        // 从首页建议按项目进来：默认停在第一个有内容的页签（审查 M5）
+        if (project && !tabChosen.current) {
+          tabChosen.current = true;
+          setTab(firstTabWithRows(payload.groups));
+        }
       })
-      .catch(() => setError("询价追踪读取失败，请刷新重试。"));
+      .catch(() => seq === loadSeq.current && setError("询价追踪读取失败，请刷新重试。"));
   }, [project]);
   useEffect(() => {
     load();
@@ -110,7 +121,8 @@ export function RfqTracker() {
     load();
   }
 
-  if (error) return <p className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger" data-testid="rfq-tracker-error">{error}</p>;
+  // 已经有数据时读取失败：保留页面与结果文字，只在上面提示（审查 L5）
+  if (error && !data) return <p className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger" data-testid="rfq-tracker-error">{error}</p>;
   if (!data) {
     return (
       <p className="flex items-center gap-2 text-xs text-muted">
@@ -121,6 +133,15 @@ export function RfqTracker() {
 
   return (
     <div className="space-y-4" data-testid="rfq-tracker">
+      {error ? <p className="rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-xs text-danger" data-testid="rfq-tracker-error">{error}</p> : null}
+      {project ? (
+        <p className="flex items-center gap-2 text-[11px] text-muted" data-testid="rfq-tracker-project-filter">
+          只看这个项目
+          <Link href="/bids/rfq" className="text-accent hover:underline">
+            看全部
+          </Link>
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2" role="tablist">
         {TRACKER_TABS.map((t) => (
           <button
@@ -129,7 +150,10 @@ export function RfqTracker() {
             role="tab"
             aria-selected={tab === t.key}
             data-testid={`rfq-tracker-tab-${t.key}`}
-            onClick={() => setTab(t.key)}
+            onClick={() => {
+              tabChosen.current = true;
+              setTab(t.key);
+            }}
             className={cn("rounded-full border px-3 py-1 text-xs", tab === t.key ? "border-accent bg-accent/10 text-accent" : "border-border text-foreground/80 hover:bg-accent/5")}
           >
             {t.label} <span className="font-mono">{t.count(data.summary)}</span>
@@ -186,7 +210,8 @@ export function RfqTracker() {
                             ) : null}
                           </p>
                         ) : null}
-                        {cards.map((c) => (
+                        {busyRound === r.inquiryId && cards.length ? <p className="mt-2 text-[11px] text-muted">正在逐张发出这一轮的催单卡…</p> : null}
+                        {busyRound === r.inquiryId ? null : cards.map((c) => (
                           <RfqApprovalPanel
                             key={c.actionId}
                             className="mt-2"

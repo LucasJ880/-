@@ -119,7 +119,8 @@ function SuggestionRow({
     if (action.type === "open_rfq_tracker") {
       // T-2：供应商未回复 → 询价追踪页（按项目定位）
       window.location.href = action.params?.projectId ? `/bids/rfq?project=${encodeURIComponent(action.params.projectId)}` : "/bids/rfq";
-    } else if (action.type === "view_customer" && action.params?.customerId) {
+    } else if ((action.type === "view_customer" || action.type === "send_followup_email") && action.params?.customerId) {
+      // 销售「发送跟进邮件」：到客户页跟进（原来这个按钮什么都不做，审查 L6）
       window.location.href = `/sales/customers/${action.params.customerId}`;
     } else if (action.type === "call_customer" && action.params?.phone) {
       window.location.href = `tel:${action.params.phone}`;

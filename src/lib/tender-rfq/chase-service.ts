@@ -394,10 +394,6 @@ function coverageOf(f: FollowUpRoundState, payload: Parameters<typeof decideFoll
 }
 
 /**
- * 按轮次分组决策 → 起草 / 标 no_response。
- * principalUserId：手动 = 发起人；扫描 = 项目 owner（催单天数也按 owner 的偏好）。
- */
-/**
  * 这一轮的催单间隔（扫描与询价追踪页共用，T-2）：
  * 跟进授权生效的轮次用批准时定格的天数（之后有人改设置不影响已批准的这一轮），否则负责人偏好 → 组织设置 → 默认。
  */
@@ -406,6 +402,10 @@ export function chaseDaysForRound(orgSettingsJson: unknown, ownerId: string, fol
   return roundPolicy ? roundPolicy.chaseAfterDays : resolveChaseAfterDays(readUserPrefs(orgSettingsJson, ownerId).chaseAfterDays, orgSettingsJson);
 }
 
+/**
+ * 按轮次分组决策 → 起草 / 标 no_response。
+ * principalUserId：手动 = 发起人；扫描 = 项目 owner（催单天数也按 owner 的偏好）。
+ */
 export async function runForItems(
   orgId: string,
   items: LoadedItem[],

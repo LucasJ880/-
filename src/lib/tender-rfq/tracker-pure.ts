@@ -18,7 +18,8 @@ const DAY = 86_400_000;
 export type ChaseOutlook =
   | { kind: "chase_on"; at: Date; chaseKind: "no_reply" | "missing_fields" }
   | { kind: "no_response_on"; at: Date }
-  | { kind: "card_pending" }
+  /** noResponseAt：卡不批的话，扫描哪天会标未响应（扫描先判未响应、再看卡，待批卡挡不住，审查 M1） */
+  | { kind: "card_pending"; noResponseAt: Date | null }
   | { kind: "rejected_wait"; noResponseAt: Date | null }
   | { kind: "max_reached_wait"; at: Date }
   | { kind: "asked_wait" }
@@ -53,7 +54,7 @@ export function nextChaseOutlook(item: OutlookInput, ctx: { now: Date; chaseAfte
     if (!item.threadId) return { kind: "manual_only", noResponseAt: nra };
     if (nudges.length >= CHASE_MAX) return { kind: "max_reached_wait", at: nra! };
     const slot = slotState(item.cards, chaseSlot(item.itemId, "no_reply", nudges.length + 1));
-    if (slot === "live") return { kind: "card_pending" };
+    if (slot === "live") return { kind: "card_pending", noResponseAt: nra };
     if (slot === "rejected") return { kind: "rejected_wait", noResponseAt: nra };
     const chaseAt = new Date(last.getTime() + days * DAY);
     // 下一次扫描真正发生的时刻：已经到期但还没扫描到时，就是现在
@@ -69,7 +70,7 @@ export function nextChaseOutlook(item: OutlookInput, ctx: { now: Date; chaseAfte
     if (item.chases.some((c) => c.kind === "missing_fields")) return { kind: "asked_wait" };
     if (!item.threadId) return { kind: "manual_only", noResponseAt: null };
     const slot = slotState(item.cards, chaseSlot(item.itemId, "missing_fields", 1));
-    if (slot === "live") return { kind: "card_pending" };
+    if (slot === "live") return { kind: "card_pending", noResponseAt: null };
     if (slot === "rejected") return { kind: "rejected_wait", noResponseAt: null };
     // 追问缺字段不看天数：下一次扫描就起草
     return { kind: "chase_on", at: now, chaseKind: "missing_fields" };
@@ -111,7 +112,7 @@ export function outlookText(o: ChaseOutlook, timeZone: string, now: Date): strin
     case "no_response_on":
       return `将于 ${day(o.at)} 标未响应`;
     case "card_pending":
-      return "催单卡待批";
+      return o.noResponseAt ? `催单卡待批；若一直不批，将于 ${day(o.noResponseAt)} 标未响应` : "催单卡待批";
     case "rejected_wait":
       return o.noResponseAt ? `催单被驳回，系统不再自动催；将于 ${day(o.noResponseAt)} 标未响应` : "催单被驳回，系统不再自动催";
     case "max_reached_wait":
@@ -207,7 +208,12 @@ export function summaryCardText(s: TrackerSummary): string {
   if (s.waiting) parts.push(`${s.waiting} 家等回复`);
   if (s.pendingCards) parts.push(`${s.pendingCards} 张催单待批`);
   if (s.quotedThisWeek) parts.push(`本周 ${s.quotedThisWeek} 家已报价`);
-  return parts.length ? `询价追踪：${parts.join(" · ")}` : "询价追踪：没有在途询价";
+  if (parts.length) return `询价追踪：${parts.join(" · ")}`;
+  // 上面三项都为 0 时，用其余计数说清楚，别和「需要我处理 N」自相矛盾（审查 L1）
+  if (s.needsAction) return `询价追踪：${s.needsAction} 项需要我处理`;
+  if (s.quoted) return `询价追踪：${s.quoted} 家已报价`;
+  if (s.noResponse) return `询价追踪：${s.noResponse} 家未响应`;
+  return "询价追踪：没有在途询价";
 }
 
 export const EMPTY_TRACKER_ZH = "没有在途询价。去项目里点「问供应商要价」。";
@@ -243,7 +249,7 @@ export function quoteCellView(
 ): QuoteCell {
   const cur = (q.currency ?? "").trim().toUpperCase() || "币种未注明";
   const parts: string[] = [];
-  if (q.unitPrice != null) parts.push(`报价 ${cur} ${money(q.unitPrice, 2)} / 件`);
+  if (q.unitPrice != null) parts.push(`报价 ${cur} ${q.unitPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / 件`);
   if (q.totalPrice != null) parts.push(`${q.unitPrice != null ? "总价" : "报价总价"} ${cur} ${money(q.totalPrice, 2)}`);
   if (q.deliveryDays != null) parts.push(`交期 ${q.deliveryDays} 天`);
   if (q.validUntil) parts.push(`有效至 ${monthDay(q.validUntil, opts.timeZone)}`);
@@ -320,4 +326,10 @@ export function parseChaseCardKey(key: string | null): { itemId: string; chaseKi
   const m = key.slice(prefix.length).match(/^([^:]+):(1|2|missing_fields)(?::r\d+)?$/);
   if (!m) return null;
   return m[2] === "missing_fields" ? { itemId: m[1], chaseKind: "missing_fields", chaseIndex: 1 } : { itemId: m[1], chaseKind: "no_reply", chaseIndex: Number(m[2]) };
+}
+
+/** 按项目进来时默认停的页签：第一个有行的（都没有就「需要我处理」） */
+export function firstTabWithRows<R extends TabRow>(groups: Array<{ rounds: Array<{ rows: R[] }> }>): TrackerTab {
+  for (const t of TRACKER_TABS) if (filterTrackerGroups(groups, t.key).length > 0) return t.key;
+  return "needs";
 }
