@@ -42,12 +42,8 @@ async function main() {
   process.env.TENDER_RFQ_ANALYSIS_UPDATE_NOTE_ENABLED = "1";
   delete process.env.TENDER_RFQ_ANALYSIS_UPDATE_NOTE_ORG_ALLOWLIST;
 
-  for (const id of users) await db.user.create({ data: { id, email: email(id), name: `Fixture ${id}`, role: "user" } });
-  await db.organization.create({ data: { id: ORG, name: "Fixture Bidder Inc.", code: `h3-${stamp}`, ownerId: OWNER } });
-  await db.organization.create({ data: { id: ORG_B, name: "Other Fixture Org", code: `h3b-${stamp}`, ownerId: OUTSIDER } });
-  await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER, role: "org_admin", status: "active" } });
-  await db.organizationMember.create({ data: { orgId: ORG_B, userId: OUTSIDER, role: "org_admin", status: "active" } });
-  const supplier = await db.supplier.create({ data: { orgId: ORG, name: "Fixture Supplier Ltd.", contactEmail: "supplier@fixture.test", status: "active", createdById: OWNER } as never });
+  let supplierId = "";
+  const _supplierCreate = () => db.supplier.create({ data: { orgId: ORG, name: "Fixture Supplier Ltd.", contactEmail: "supplier@fixture.test", status: "active", createdById: OWNER } as never });
 
   const projectIds: string[] = [];
   let seq = 0;
@@ -60,19 +56,19 @@ async function main() {
     return id;
   }
   /** 一轮由询价引擎发出的询价：轮次 + 一家已发出 + 已执行的发送卡（创建时间 = 起草时间） */
-  async function mkEngineRound(projectId: string, roundNumber: number, draftedDaysAgo: number) {
+  async function mkEngineRound(projectId: string, roundNumber: number, draftedDaysAgo: number, executedDaysAgo = draftedDaysAgo - 0.5) {
     const inquiry = await db.projectInquiry.create({ data: { projectId, roundNumber, status: "in_progress", createdById: OWNER } });
-    await db.inquiryItem.create({ data: { inquiryId: inquiry.id, supplierId: supplier.id, status: "sent", sentAt: ago(draftedDaysAgo - 0.5), createdById: OWNER } as never });
-    await db.pendingAction.create({ data: { type: "tender.send_rfq", title: `第 ${roundNumber} 轮询价`, preview: "fixture", payload: { inquiryId: inquiry.id, projectId, roundNumber, items: [{ supplierId: supplier.id, body: "1. 【强制】R-001 须提交样品（p.3）" }] }, status: "executed", createdById: OWNER, orgId: ORG, projectId, decidedById: OWNER, decidedAt: ago(draftedDaysAgo - 0.4), executedAt: ago(draftedDaysAgo - 0.5), createdAt: ago(draftedDaysAgo), expiresAt: new Date(Date.now() + 3 * DAY), idempotencyKey: `h3-${stamp}-${projectId}-${roundNumber}` } });
+    await db.inquiryItem.create({ data: { inquiryId: inquiry.id, supplierId, status: "sent", sentAt: ago(executedDaysAgo), createdById: OWNER } as never });
+    await db.pendingAction.create({ data: { type: "tender.send_rfq", title: `第 ${roundNumber} 轮询价`, preview: "fixture", payload: { inquiryId: inquiry.id, projectId, roundNumber, items: [{ supplierId, body: "1. 【强制】R-001 须提交样品（p.3）" }] }, status: "executed", createdById: OWNER, orgId: ORG, projectId, decidedById: OWNER, decidedAt: ago(executedDaysAgo + 0.1), executedAt: ago(executedDaysAgo), createdAt: ago(draftedDaysAgo), expiresAt: new Date(Date.now() + 3 * DAY), idempotencyKey: `h3-${stamp}-${projectId}-${roundNumber}` } });
     return inquiry.id;
   }
   let runSeq = 0;
-  const mkRun = (projectId: string, status: string, o: { completedDaysAgo?: number | null; createdDaysAgo?: number; orgId?: string } = {}) =>
-    db.tenderAnalysisRun.create({ data: { orgId: o.orgId ?? ORG, projectId, status, idempotencyKey: `h3-${stamp}-run-${(runSeq += 1)}`, sourceHashFingerprint: "fixture", createdById: OWNER, createdAt: ago(o.createdDaysAgo ?? 20), completedAt: o.completedDaysAgo === null ? null : ago(o.completedDaysAgo ?? 19) } });
+  const mkRun = (projectId: string, status: string, o: { completedDaysAgo?: number | null; createdDaysAgo?: number; approvedDaysAgo?: number; orgId?: string } = {}) =>
+    db.tenderAnalysisRun.create({ data: { orgId: o.orgId ?? ORG, projectId, status, idempotencyKey: `h3-${stamp}-run-${(runSeq += 1)}`, sourceHashFingerprint: "fixture", createdById: OWNER, createdAt: ago(o.createdDaysAgo ?? 20), completedAt: o.completedDaysAgo === null ? null : ago(o.completedDaysAgo ?? 19), approvedAt: o.approvedDaysAgo === undefined ? null : ago(o.approvedDaysAgo) } });
 
   const cookie = async (uid: string) => `qy_session=${await createSession({ sub: uid, email: email(uid), role: "user" })}`;
-  const entry = async (projectId: string) => {
-    const res = await route.GET(new NextRequest(`http://localhost/api/projects/${projectId}/tender-rfq/entry`, { headers: { cookie: await cookie(OWNER) } }), { params: Promise.resolve({ id: projectId }) });
+  const entry = async (projectId: string, userId: string = OWNER) => {
+    const res = await route.GET(new NextRequest(`http://localhost/api/projects/${projectId}/tender-rfq/entry`, { headers: { cookie: await cookie(userId) } }), { params: Promise.resolve({ id: projectId }) });
     return { status: res.status, body: rec(await res.json().catch(() => null)) };
   };
   const notes = async (projectId: string) => (await entry(projectId)).body.analysisUpdateNotes as Record<string, { noteZh: string }> | undefined;
@@ -85,28 +81,67 @@ async function main() {
   });
 
   try {
-    /* ---------- 1. 起草之后分析更新过 ---------- */
+    for (const id of users) await db.user.create({ data: { id, email: email(id), name: `Fixture ${id}`, role: "user" } });
+    await db.organization.create({ data: { id: ORG, name: "Fixture Bidder Inc.", code: `h3-${stamp}`, ownerId: OWNER } });
+    await db.organization.create({ data: { id: ORG_B, name: "Other Fixture Org", code: `h3b-${stamp}`, ownerId: OUTSIDER } });
+    await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER, role: "org_admin", status: "active" } });
+    await db.organizationMember.create({ data: { orgId: ORG_B, userId: OUTSIDER, role: "org_admin", status: "active" } });
+    supplierId = (await _supplierCreate()).id;
+    /* ---------- 1. 起草之后分析更新过；之后又发了一轮就不再提示 ---------- */
     const P = await mkProject();
     await mkRun(P, "APPROVED", { createdDaysAgo: 20, completedDaysAgo: 19 });
     const r1 = await mkEngineRound(P, 1, 10);
-    const r2 = await mkEngineRound(P, 2, 2);
     let n = await notes(P);
-    ok(!!n && Object.keys(n).length === 0, "分析在两轮起草之前就完成了：两轮都没有提示", n);
+    ok(!!n && Object.keys(n).length === 0, "分析在这一轮起草之前就完成了：没有提示", n);
     await mkRun(P, "REVIEW_REQUIRED", { createdDaysAgo: 6, completedDaysAgo: 5 });
     const before = await snapshot(P);
     const e = await entry(P);
     n = e.body.analysisUpdateNotes as Record<string, { noteZh: string }>;
-    ok(e.status === 200 && Object.keys(n).join() === r1 && n[r1].noteZh.includes("起草的；之后招标分析在") && n[r1].noteZh.includes("可能已经变了"), "第 1 轮起草之后有一份新的分析完成（等待审核）：第 1 轮有提示；第 2 轮在那之后才起草，没有", n);
+    ok(e.status === 200 && Object.keys(n).join() === r1 && n[r1].noteZh.includes("起草的；之后招标分析在") && n[r1].noteZh.includes("可能已经变了"), "这一轮起草之后有一份新的分析完成（等待审核）：有提示", n);
     ok(!n[r1].noteZh.includes("R-001") && !n[r1].noteZh.includes("须提交样品"), "提示里没有要求编号与原文");
     ok((await snapshot(P)) === before, "读取前后：审批卡、轮次、条目、分析、审计都没有变化");
-    ok(!(r2 in n), "第 2 轮没有提示");
+    ok((await entry(P, OUTSIDER)).status === 403, "别的组织的人读这个项目的询价入口：403");
+    await mkEngineRound(P, 2, 2);
+    n = await notes(P);
+    ok(!!n && Object.keys(n).length === 0, "分析更新之后又起草了一轮：两轮都没有提示（「另发一轮」已经做了）", n);
 
-    /* ---------- 2. 完成时间缺失时按创建时间 ---------- */
+    /* ---------- 1b. 起草时分析还在进行，之后才完成 ---------- */
+    const PI = await mkProject();
+    await mkRun(PI, "APPROVED", { createdDaysAgo: 30, completedDaysAgo: 29 });
+    const pir = await mkEngineRound(PI, 1, 10);
+    await mkRun(PI, "REVIEW_REQUIRED", { createdDaysAgo: 12, completedDaysAgo: 9 });
+    n = await notes(PI);
+    ok(!!n && Object.keys(n).join() === pir, "新的一份在这一轮起草之前就开始、之后才完成：有提示（按完成时间，不按创建时间）", n);
+
+    /* ---------- 1c. 起草很久之后才发出：按起草时间 ---------- */
+    const PX = await mkProject();
+    await mkRun(PX, "APPROVED", { createdDaysAgo: 30, completedDaysAgo: 29 });
+    const pxr = await mkEngineRound(PX, 1, 10, 4);
+    await mkRun(PX, "REVIEW_REQUIRED", { createdDaysAgo: 7, completedDaysAgo: 6 });
+    n = await notes(PX);
+    ok(!!n && Object.keys(n).join() === pxr, "起草（10 天前）之后、发出（4 天前）之前分析更新了：有提示（正文在起草时就定下了）", n);
+
+    /* ---------- 1d. 同一份分析在起草之后才批准 ---------- */
+    const PA = await mkProject();
+    await mkRun(PA, "APPROVED", { createdDaysAgo: 20, completedDaysAgo: 19, approvedDaysAgo: 3 });
+    const par = await mkEngineRound(PA, 1, 10);
+    n = await notes(PA);
+    ok(!!n && Object.keys(n).join() === par, "询价单用的那一份在这一轮起草之后才批准（批准时可能一并确认了更多要求）：有提示", n);
+
+    /* ---------- 1e. 一份更早创建的分析之后才重试完成：不是询价单用的那一份，不算 ---------- */
+    const PR = await mkProject();
+    await mkRun(PR, "REVIEW_REQUIRED", { createdDaysAgo: 14, completedDaysAgo: 2 }); // 更早创建、失败后重试、最近才完成
+    await mkRun(PR, "APPROVED", { createdDaysAgo: 12, completedDaysAgo: 11 }); // 询价单用的那一份（最新创建）
+    await mkEngineRound(PR, 1, 10);
+    n = await notes(PR);
+    ok(!!n && Object.keys(n).length === 0, "更早创建的一份最近才完成，但询价单用的是最新创建的那一份（起草之前完成）：没有提示", n);
+
+    /* ---------- 2. 完成时间缺失时按创建时间（生产上不会出现，防御） ---------- */
     const P2 = await mkProject();
     const p2r = await mkEngineRound(P2, 1, 10);
     await mkRun(P2, "REVIEW_REQUIRED", { createdDaysAgo: 3, completedDaysAgo: null });
     n = await notes(P2);
-    ok(!!n && Object.keys(n).join() === p2r, "完成时间缺失的分析按创建时间算（起草之后创建）：有提示", n);
+    ok(!!n && Object.keys(n).join() === p2r, "完成时间缺失（防御）的分析按创建时间算（起草之后创建）：有提示", n);
 
     /* ---------- 3. 失败的、进行中的、已被取代的、别的项目的、别的组织名下的 ---------- */
     const P3 = await mkProject();

@@ -351,7 +351,7 @@ async function loadEntryFollowUp(input: {
 
 /**
  * FLOW-H3：询价引擎发出的轮次里，起草（发送卡创建）之后招标分析更新过的那些。
- * 「更新过」= 项目最新一份等待审核或已批准的分析，在发送卡创建之后才可用。只读，不改任何东西。
+ * 「更新过」= 询价单取要求用的那一份分析（最新创建的等待审核或已批准的），在发送卡创建之后才完成或才批准。只读，不改任何东西。
  */
 async function loadAnalysisUpdateNotes(
   orgId: string,
@@ -364,13 +364,12 @@ async function loadAnalysisUpdateNotes(
     return inquiryId ? [{ inquiryId, draftedAt: a.createdAt }] : [];
   });
   if (rounds.length === 0) return {};
-  const runs = await db.tenderAnalysisRun.findMany({
+  // 与询价单取要求时同一份（最新创建的可用分析，loadRfqRequirementInputs），再加上组织
+  const run = await db.tenderAnalysisRun.findFirst({
     where: { orgId, projectId, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
-    select: { completedAt: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    select: { completedAt: true, createdAt: true, approvedAt: true },
   });
-  const latest = runs.reduce<Date | null>((acc, r) => {
-    const at = analysisAvailableAt(r);
-    return !acc || at.getTime() > acc.getTime() ? at : acc;
-  }, null);
+  const latest = run ? analysisAvailableAt(run) : null;
   return analysisUpdateNotes({ rounds, latestAnalysisAt: latest, timeZone });
 }
