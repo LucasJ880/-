@@ -90,7 +90,7 @@ specs、tasks 与下面的 D8、硬纪律第 4 条已按 D2 改写。以下保�
 
 ### D1 模块与挂载
 
-新目录 `src/lib/mail-watch/`，结构照 `calendar-watch`：`types.ts`、`pure.ts`（开关、跳过、归类、文案、收件人、页面状态）、`settings.ts`（读写配置与两个接口的服务层）、`run.ts`（编排，依赖注入）。`sales-actions` 路由在 `calendar-watch` 之后、`notify-email-escalation` 之前加 `runTrackedAutomation("mail-watch", …)`，截止时刻为请求开始后 265 秒（日历观察 240 秒、升级邮件 285 秒之间），并像升级邮件那一步一样自带收错。每个邮箱开始前检查截止时刻，过了就不再开始新的邮箱。
+新目录 `src/lib/mail-watch/`，结构照 `calendar-watch`：`types.ts`、`pure.ts`（开关、跳过、归类、文案、收件人）、`ui-pure.ts`（页面状态与时间线入口的纯函数；客户端组件会引用它，所以单独一个不引服务端模块的文件）、`settings.ts`（读写配置与两个接口的服务层）、`run.ts`（编排，依赖注入）。`sales-actions` 路由在 `calendar-watch` 之后、`notify-email-escalation` 之前加 `runTrackedAutomation("mail-watch", …)`，截止时刻为请求开始后 265 秒（日历观察 240 秒、升级邮件 285 秒之间），并像升级邮件那一步一样自带收错。每个邮箱开始前检查截止时刻，过了就不再开始新的邮箱。
 
 `mail-watch` 作为一个被记录的自动化步骤，要在三处登记（实施时补充；与 `calendar-watch` 同样的三处）：`src/lib/automation/registry.ts`（名称「客户来信观察与提醒」）、`src/lib/cockpit/schedule.ts`（挂 `sales-actions`，每 15 分钟）、`src/lib/cockpit/posts.ts`（归「询盘销售」岗位）。这只是让运行记录在组织驾驶舱里有名字和归属，不是新的调度。
 
@@ -163,7 +163,7 @@ specs、tasks 与下面的 D8、硬纪律第 4 条已按 D2 改写。以下保�
 
 ### D10 页面
 
-`/settings/email`：在 MAIL-1 的「读信权限」一项下面加「客户来信提醒」勾选（调成员勾选接口）；企业管理员另见组织开关（调组织开关接口）。显示哪种状态由 `pure.ts` 的一个函数决定（平台关 → 不显示；组织关 → 勾选项置灰并说明；缺读信权限 → 可勾选但提示先重新授权）。
+`/settings/email`：在 MAIL-1 的「读信权限」一项下面加「客户来信提醒」勾选（调成员勾选接口）；企业管理员另见组织开关（调组织开关接口）。显示哪种状态由 `ui-pure.ts` 的 `mailWatchPanelState` 决定（平台关 → 不显示；组织关 → 勾选项置灰并说明；缺读信权限 → 可勾选但提示先重新授权）。
 
 客户时间线：`interaction-timeline.tsx` 对 `analysisResult.sourceRef.kind === "mail_watch"` 的条目显示「让助手读这封信」，链接到 `/assistant?prompt=…`。预填文字由纯函数生成，只含客户名与日期（「帮我读一下〈客户名〉在 11 月 12 日发来的邮件」）。是否显示取决于 MAIL-1 状态接口的 `mailRead.enabled`，以及助手页对本人是否放行（`useNavigationAccess().canOpen("/assistant")`，与路由门同一套判定）——实施截图时发现：VIS-1 判断点 5 之后，岗位模式下只有销售岗位的成员打不开 `/assistant`（路由门重定向到销售首页），入口对他们点了也到不了，所以不显示。这同时意味着这类成员目前在网页上用不了 MAIL-1 的读信（见报告「需要拍板」）。日期取互动 `analysisResult.sourceRef.receivedAt`（Gmail 的 `internalDate`，实施时加进来源标记；没有时退回互动的创建时间）。勾选卡片是独立组件 `settings/email/mail-watch-card.tsx`，挂在 Google 连接卡片下面；平台代发的企业不显示 Google 连接卡片，也不显示它。
 
