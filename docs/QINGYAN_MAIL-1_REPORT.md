@@ -180,7 +180,7 @@ A1 的比较方式：两边都去掉空白与行首引用符（`>`）之后比�
 3. **写入封锁只管同一轮。** 助手上一轮的摘要文字会进入下一轮上下文，里面可能转述了邮件里的要求。下一轮由用户的新消息触发，外发动作仍须审批卡，但上面第 2 点的三个工具在下一轮不受限。
 4. **梦馨用平台代发时没有 Google 卡片。** `/settings/email` 在平台代发模式下不显示 Google 连接区，「读信权限」一项也随之不显示；这类账号没有绑定个人 Gmail，助手会回 `MAIL_NOT_CONNECTED`。Sunny 不受影响。
 5. **读信开关开着时，每条助手消息多一次导航判定的读取**（算入口门），追问时再多一次取 4 条消息。开关关着时没有。
-6. **状态漂移。** `tender-web-progress-from-facts`、`tender-stage-auto-advance`、`org-row-lock-no-key-update`、`next16-proxy-rename` 四个 change 已合并但还没 archive；前三个在 TASKFLOW 里原来写的是「PR 待审」，已按合并记录改正（单独一个提交）。
+6. **状态漂移，没有在本分支改。** `tender-web-progress-from-facts`、`tender-stage-auto-advance`、`org-row-lock-no-key-update` 等几个 change 已合并但 TASKFLOW 里仍写「PR 待审」。开工时按 CLAUDE.md 改过这几行，后来发现归档 PR #445 正在改同样的行，为避免冲突已把那两个提交撤回（分支历史里各有一对提交与撤回）；本分支对 TASKFLOW 的改动只有 Phase M 一节。
 
 ## 10. 与八条硬纪律的关系
 
