@@ -223,20 +223,22 @@ async function main() {
     const prevGmail = process.env.GMAIL_DRAFT_ENABLED;
     process.env.GMAIL_DRAFT_ENABLED = "1";
     const created: Array<Record<string, unknown>> = [];
+    const insert = (data: Record<string, unknown>) => {
+      created.push(data);
+      return {
+        id: `pa_${created.length}`,
+        type: data.type,
+        title: data.title,
+        preview: data.preview,
+        agentRunId: data.agentRunId ?? null,
+      };
+    };
     const fakeTx = {
       pendingAction: {
         findFirst: async () => null,
-        create: async (args: unknown) => {
-          const data = (args as { data: Record<string, unknown> }).data;
-          created.push(data);
-          return {
-            id: `pa_${created.length}`,
-            type: data.type,
-            title: data.title,
-            preview: data.preview,
-            agentRunId: data.agentRunId ?? null,
-          };
-        },
+        create: async (args: unknown) => insert((args as { data: Record<string, unknown> }).data),
+        // FIX-5（#448）起，带幂等键的建卡走 createManyAndReturn（遇唯一冲突什么都不做）；替身里没有冲突，逐行照常插入
+        createManyAndReturn: async (args: unknown) => (args as { data: Array<Record<string, unknown>> }).data.map(insert),
       },
     };
     stub("", "$transaction", async (fn) =>

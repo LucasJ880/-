@@ -30,6 +30,8 @@ import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
 import { getOpportunityStageLabel } from "@/lib/revenue-spine/opportunity-stage";
 import { formatWaitZh } from "@/lib/revenue-spine/source-labels";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
+import { inboxReplyHref } from "@/lib/trade/reply-target";
 
 interface Card {
   opportunityId: string;
@@ -201,10 +203,13 @@ function OpportunityRow({ card, trailing }: { card: Card; trailing: React.ReactN
 function ApprovalRow({
   item,
   busy,
+  canWriteInInbox,
   onDecide,
 }: {
   item: Approval;
   busy: string | null;
+  /** 询盘收件箱对当前用户放行（NAV-1c：放行才显示「去询盘收件箱自己写」） */
+  canWriteInInbox: boolean;
   onDecide: (id: string, decision: "approve" | "reject") => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -262,6 +267,12 @@ function ApprovalRow({
         </button>
       </div>
       {!open ? <div className="mt-1 text-[11px] text-muted">展开看完草稿后才能批准或拒绝</div> : null}
+      {/* NAV-1c：不想用这份草稿的出路。发出后同商机的待批草稿由系统作废（既有行为） */}
+      {canWriteInInbox && o ? (
+        <Link href={inboxReplyHref({ opportunityId: o.opportunityId })} className="mt-1 inline-flex min-h-11 items-center text-xs text-muted underline">
+          不想用这份？去询盘收件箱自己写（发出后这份草稿自动作废）
+        </Link>
+      ) : null}
     </li>
   );
 }
@@ -355,6 +366,8 @@ function DueRow({ item, generatedAt, timeZone }: { item: DueItem; generatedAt: s
 }
 
 export default function OwnerTodayPage() {
+  // NAV-1c：「去询盘收件箱自己写」只在收件箱对当前用户放行时出现（与路由门同一判定；未就绪时为 false）
+  const canWriteInInbox = useNavigationAccess().canOpen("/trade/inbox");
   const [data, setData] = useState<OwnerToday | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -488,7 +501,7 @@ export default function OwnerTodayPage() {
 
           <Section id="approvals" icon={<ShieldCheck className="h-4 w-4 text-emerald-400" />} title="待审批回复" count={data.counts.approvals} empty="没有等你审批的回复草稿">
             {data.approvals.map((a) => (
-              <ApprovalRow key={a.pendingActionId} item={a} busy={busy} onDecide={(id, d) => void decide(id, d)} />
+              <ApprovalRow key={a.pendingActionId} item={a} busy={busy} canWriteInInbox={canWriteInInbox} onDecide={(id, d) => void decide(id, d)} />
             ))}
           </Section>
 
