@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { isStageAutoAdvanceSwitchedOn } from "@/lib/tender/stage-auto-flags";
 import { db } from "@/lib/db";
 import {
   WORKER_STEPS,
@@ -655,6 +656,12 @@ async function stepFinalize(run: ClaimedRun): Promise<void> {
 
   // 业务阶段推进（FB-7）：AI 解读产出（REVIEW_REQUIRED）即代表项目进入「项目解读」，
   // 不要求先做项目分发（默认使用者即项目负责人）。幂等：已有 interpretedAt 不覆盖。
+  // FLOW-H1c：开关打开时先由自动前进写入并收建阶段任务（关闭时不加载、不查库）；下面原有的写入照旧（已不为空时什么也不改）
+  if (isStageAutoAdvanceSwitchedOn()) {
+    await import("@/lib/tender/stage-auto")
+      .then((m) => m.recordStageReached({ projectId: run.projectId, trigger: "analysis_ready", actorId: run.createdById ?? null, now }))
+      .catch((err) => console.error("[StageAuto] analysis_ready failed:", err));
+  }
   await db.project
     .updateMany({
       where: { id: run.projectId, interpretedAt: null },

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { isStageAutoAdvanceSwitchedOn } from "@/lib/tender/stage-auto-flags";
 import {
   INQUIRY_STATUS,
   ITEM_STATUS,
@@ -242,13 +243,18 @@ export async function removeInquiryItem(scope: ItemScope) {
 
 // ── mark-sent ─────────────────────────────────────────────────
 
-export async function markItemSent(scope: ItemScope, input: MarkSentInput) {
-  const { item } = await resolveItem(scope);
+export async function markItemSent(
+  scope: ItemScope,
+  input: MarkSentInput,
+  /** autoAdvanceActorId（FLOW-H1c）：人工标记已发送时传标记的人 → 阶段记录到达「供应商询价」；不传则不触发（询价发出的执行器自己触发） */
+  opts: { autoAdvanceActorId?: string } = {},
+) {
+  const { inquiry, item } = await resolveItem(scope);
   if (!canTransitionItem(item.status as ItemStatus, ITEM_STATUS.SENT)) {
     throw new BusinessError(`当前状态「${item.status}」不允许标记为已发送`);
   }
 
-  return db.inquiryItem.update({
+  const updated = await db.inquiryItem.update({
     where: { id: scope.itemId },
     data: {
       status: ITEM_STATUS.SENT,
@@ -257,6 +263,12 @@ export async function markItemSent(scope: ItemScope, input: MarkSentInput) {
     },
     include: { supplier: true },
   });
+  if (opts.autoAdvanceActorId && inquiry.status !== INQUIRY_STATUS.CANCELED && isStageAutoAdvanceSwitchedOn()) {
+    await import("@/lib/tender/stage-auto")
+      .then((m) => m.recordStageReached({ projectId: scope.projectId, trigger: "rfq_marked_sent", actorId: opts.autoAdvanceActorId! }))
+      .catch((err) => console.error("[StageAuto] rfq_marked_sent failed:", err));
+  }
+  return updated;
 }
 
 // ── mark-replied ──────────────────────────────────────────────
@@ -286,9 +298,10 @@ export async function markItemReplied(scope: ItemScope, notes?: string) {
 export async function recordQuote(
   scope: ItemScope,
   input: RecordQuoteInput,
-  opts: { skipMuseHook?: boolean } = {},
+  /** actorId（FLOW-H1c）：录入报价的人；回信自动解析不传，自动前进记在项目负责人名下 */
+  opts: { skipMuseHook?: boolean; actorId?: string | null } = {},
 ) {
-  const { item } = await resolveItem(scope);
+  const { inquiry, item } = await resolveItem(scope);
 
   const current = item.status as ItemStatus;
   if (
@@ -324,6 +337,12 @@ export async function recordQuote(
     data,
     include: { supplier: true },
   });
+  // FLOW-H1c：第一次录入报价 → 阶段记录到达「供应商报价」（开关关闭时不加载、不查库；已取消的轮次不算；失败不影响录入）
+  if (current !== ITEM_STATUS.QUOTED && inquiry.status !== INQUIRY_STATUS.CANCELED && isStageAutoAdvanceSwitchedOn()) {
+    await import("@/lib/tender/stage-auto")
+      .then((m) => m.recordStageReached({ projectId: scope.projectId, trigger: "quote_recorded", actorId: opts.actorId ?? null }))
+      .catch((err) => console.error("[StageAuto] quote_recorded failed:", err));
+  }
   // Muse Bridge（P0-8）：best-effort 推 quote.parsed / missing_fields（缺字段如实列出）。
   // skipMuseHook：调用方自己推（如 P1-4 入站，缺字段以解析结果为准），避免重复事件。
   if (opts.skipMuseHook) return updated;

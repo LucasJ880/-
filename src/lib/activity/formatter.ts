@@ -34,6 +34,8 @@ const ACTION_LABELS: Record<string, string> = {
   project_supplier_link_updated: "更新了项目供应商关联",
   project_supplier_unlinked: "解除了项目供应商关联",
   bid_fact_saved: "保存了调查事实",
+  // FLOW-H1c：由事实触发、系统写入（挂名的是触发的人或项目负责人）
+  "tender.stage.auto_advance": "（系统）自动推进了阶段记录：",
 };
 
 const TARGET_LABELS: Record<string, string> = {
