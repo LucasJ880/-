@@ -205,7 +205,11 @@ async function main() {
     ok(passes(await send("POST", "/api/auth/logout", both)) && passes(await send("POST", "/api/auth/login", both)), "登出、登录：放行");
     ok(passes(await send("GET", "/api/sales/customers", both)), "GET：放行");
     ok(passes(await send("POST", "/api/sales/customers", `qy_session=${session}; qy_preview=${foreign}`)), "别人的预览 cookie：不拒写");
-    ok(passes(await send("POST", "/api/sales/customers", `qy_session=${session}; qy_preview=${pv.slice(0, -2)}xx`)), "被篡改的预览 cookie：不拒写");
+    // 篡改签名中间的一个完整字符（必然改变签名字节）。原来把末尾两个字符换成 xx：原签名末尾恰好已是能解出同样字节的写法时
+    // 等于没改（偶发失败，2026-11-15 本机复现过一次）
+    const tampered = (() => { const i = pv.length - 10; return pv.slice(0, i) + (pv[i] === "A" ? "B" : "A") + pv.slice(i + 1); })();
+    ok(tampered !== pv && tampered.split(".").length === 3, "前提：篡改后的令牌与原来不同、仍是三段");
+    ok(passes(await send("POST", "/api/sales/customers", `qy_session=${session}; qy_preview=${tampered}`)), "被篡改的预览 cookie：不拒写");
     ok((await send("POST", "/api/sales/customers", `qy_preview=${pv}`)).status === 401, "没有会话：照旧 401，不按预览拒写");
     ok(loaderCalls.n === 0, "拒写与 API 请求不调路由门加载器");
   }
