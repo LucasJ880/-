@@ -14,6 +14,14 @@ import type {
   PricingResult,
   ScoringModel,
 } from "@/lib/tender-pricing/calc";
+import {
+  MARGIN_ON_PRICE_ZH,
+  TARGET_MARGIN_ON_PRICE_ZH,
+  fillFromSuggestion,
+  type CompareCostView,
+  type OurCostSourceClaim,
+} from "@/lib/tender-pricing/compare-cost-source";
+import { CompareCostSourceBlock, MarkupHint } from "./pricing-compare-source";
 
 type Payload = {
   runId: string | null;
@@ -31,6 +39,8 @@ type Payload = {
   inputs: PricingInputs;
   result: PricingResult | null;
   note: string | null;
+  /** FLOW-H2：开关开启时才有 */
+  compareCost?: CompareCostView;
 };
 
 const ORIGIN_LABEL: Record<Payload["modelOrigin"], string> = {
@@ -63,6 +73,8 @@ export function PricingHelperCard({
     cost: "",
     margin: "",
   });
+  // FLOW-H2：按钮填入之后、人改动成本之前，保存时声明用的是哪一条报价（服务端会重新核对）
+  const [costClaim, setCostClaim] = useState<OurCostSourceClaim | null>(null);
 
   const load = useCallback(() => {
     apiJson<Payload>(`/api/projects/${projectId}/pricing-helper`)
@@ -73,6 +85,7 @@ export function PricingHelperCard({
           cost: res.inputs.ourCostCad?.toString() ?? "",
           margin: res.inputs.targetMarginPct?.toString() ?? "",
         });
+        setCostClaim(null);
       })
       .catch(() => setData(null));
   }, [projectId]);
@@ -117,6 +130,7 @@ export function PricingHelperCard({
           ourCostCad: n(form.cost),
           targetMarginPct: n(form.margin),
         },
+        ...(costClaim ? { ourCostSource: costClaim } : {}),
       },
       "save",
     );
@@ -124,6 +138,15 @@ export function PricingHelperCard({
 
   const m = data.model;
   const r = data.result;
+  const cc = data.compareCost;
+  // 按钮只填输入框，不保存
+  const fill = () => {
+    if (!cc) return;
+    const filled = fillFromSuggestion(form, cc.suggestion);
+    if (!filled) return;
+    setForm(filled.form);
+    setCostClaim(filled.claim);
+  };
 
   return (
     <div className="rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid="pricing-helper">
@@ -200,7 +223,7 @@ export function PricingHelperCard({
               [
                 ["competitor", "对手价"],
                 ["cost", "我方成本"],
-                ["margin", "目标毛利 %"],
+                ["margin", cc ? TARGET_MARGIN_ON_PRICE_ZH : "目标毛利 %"],
               ] as const
             ).map(([k, label]) => (
               <label key={k} className="text-[10px] text-muted">
@@ -210,12 +233,16 @@ export function PricingHelperCard({
                   min={0}
                   value={form[k]}
                   disabled={!canManage}
-                  onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, [k]: e.target.value }));
+                    if (k === "cost") setCostClaim(null);
+                  }}
                   className="mt-0.5 w-full rounded border border-border bg-transparent px-1.5 py-1 text-[11px] text-foreground"
                 />
               </label>
             ))}
           </div>
+          <MarkupHint enabled={!!cc} margin={form.margin} />
           {canManage ? (
             <button
               type="button"
@@ -230,6 +257,8 @@ export function PricingHelperCard({
           {msg ? <span className="ml-2 text-[10px] text-muted">{msg}</span> : null}
         </div>
       </div>
+
+      {cc ? <CompareCostSourceBlock view={cc} canManage={canManage} onFill={fill} /> : null}
 
       {/* 情景表 */}
       {r && r.scenarios.length > 0 ? (
@@ -249,7 +278,7 @@ export function PricingHelperCard({
                 <th className="py-1 pr-2">价格分 我/对</th>
                 <th className="py-1 pr-2">总分 我/对</th>
                 <th className="py-1 pr-2">差</th>
-                <th className="py-1 pr-2">毛利</th>
+                <th className="py-1 pr-2">{cc ? MARGIN_ON_PRICE_ZH : "毛利"}</th>
               </tr>
             </thead>
             <tbody>
