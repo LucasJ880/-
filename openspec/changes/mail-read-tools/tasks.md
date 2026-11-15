@@ -4,7 +4,7 @@
 
 ## 1. 读接口、纯函数与开关
 
-- [ ] 1.1 扩 `src/lib/google-email.ts`（`GmailReadApi` 补 `messages.list` 与 `threads.get` 的完整邮件返回类型；新增邮箱搜索与线程读取两个函数，入口校验读信权限，不调用附件下载接口，不改 `EMAIL_SCOPES` 与既有函数）；新增 `src/lib/mail-read/` 纯函数（查询拼装、单封 6,000 / 整线程 20,000 字截断、错误码映射、回复原文省略）；在 `src/lib/env/runtime-isolation.ts` 加读信开关解析；新增并在 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 注册 `src/lib/mail-read/__tests__/mail-read-pure.test.ts`。verify：`npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts` 与 `npx tsx src/lib/__tests__/google-email-oauth.test.ts` 通过；`git grep -nE "gmail\.modify|mail\.google\.com" -- src` 结果与 main 相同
+- [x] 1.1 扩 `src/lib/google-email.ts`（`GmailReadApi` 补 `messages.list` 与 `threads.get` 的完整邮件返回类型；新增邮箱搜索与线程读取两个函数，入口校验读信权限，不调用附件下载接口，不改 `EMAIL_SCOPES` 与既有函数）；新增 `src/lib/mail-read/` 纯函数（查询拼装、单封 6,000 / 整线程 20,000 字截断、错误码映射、回复原文省略）；在 `src/lib/env/runtime-isolation.ts` 加读信开关解析；新增并在 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 注册 `src/lib/mail-read/__tests__/mail-read-pure.test.ts`。verify：`npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts` 与 `npx tsx src/lib/__tests__/google-email-oauth.test.ts` 通过；`git grep -nE "gmail\.modify|mail\.google\.com" -- src` 结果与 main 相同
 
 ## 2. 入口门与可见性
 

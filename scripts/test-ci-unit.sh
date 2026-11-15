@@ -406,6 +406,7 @@ npx tsx src/lib/notifications/__tests__/notification-href.test.ts
 npx tsx src/lib/notifications/__tests__/type-visibility.test.ts
 npx tsx src/lib/settings/__tests__/sender-copy.test.ts
 npx tsx src/lib/agent-core/__tests__/tool-list-modules.test.ts
+npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
 npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
