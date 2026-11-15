@@ -15,6 +15,7 @@
  * 纯函数，不做 I/O；所有默认推导写 MappingNote。
  */
 
+import { effectiveShadeValance } from "@/lib/blinds/order-form-pricing";
 import { DEFAULT_DRAPE_VERSION } from "./drapes-calc";
 import {
   PROCESS_SPEC_SCHEMA,
@@ -195,7 +196,8 @@ export function mapQuoteFormToProcessOrder(formDataJson: string | null | undefin
     const lift = s(l.lift);
     const mount = s(l.mount);
     const bracket = bracketOf(s(l.bracket), formBracket);
-    const valance = s(l.valance) || formValance;
+    // 生效罩型与报价定价同一个取值（行上 → 表底部 Valance Type → 无）
+    const valance = effectiveShadeValance(l.valance, formValance);
     const noteText = s(l.note);
 
     if (IN_HOUSE[product]) {

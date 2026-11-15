@@ -102,6 +102,8 @@ const TOOL_LABELS: Record<string, string> = {
   marketing_request_data_sync: "同步营销渠道数据",
   marketing_ingest_channel_metrics: "写入渠道周指标",
   org_search_knowledge: "检索组织知识库",
+  mail_search: "搜索邮箱",
+  mail_read_thread: "读取邮件",
   knowledge_search_org: "检索组织知识库",
   knowledge_search_project: "检索项目知识",
   project_get_tender_summary: "查询招投标摘要",

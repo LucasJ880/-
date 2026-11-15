@@ -10,6 +10,7 @@ import { generateDailyBriefing } from "@/lib/secretary/briefing";
 import { scanFollowups, suggestionsToItems, generateFollowupSuggestions } from "@/lib/secretary/followup-engine";
 import { executeAction } from "@/lib/secretary/actions";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types";
+import { createMailTools } from "./mail";
 
 function ok(data: unknown): ToolExecutionResult {
   return { success: true, data };
@@ -115,3 +116,8 @@ registry.register({
   },
   riskLevel: "medium",
 });
+
+// ── MAIL-1：助手只读读信（mail_search / mail_read_thread，secretary 域）──
+// 实现与三条边界见 ./mail；在这里登记进既有注册表，不新增工具登记面。
+// 只在入口门 mail === true（网页助手对话 ∧ 读信开关 ∧ 邮箱绑定页放行）时可用。
+for (const tool of createMailTools()) registry.register(tool);

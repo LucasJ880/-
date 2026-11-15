@@ -488,6 +488,18 @@ export function isGmailDraftAllowed(
   return envFlag("QINGYAN_ALLOW_GMAIL_DRAFT_NON_PROD", env);
 }
 
+/**
+ * MAIL-1 助手读信开关（MAIL_READ_ENABLED，默认关）。
+ * 与 Gmail Draft 同一处解析、同样先评估隔离；读信不写任何外部系统，所以不设非生产环境的第二个开关。
+ */
+export function isMailReadAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const a = assessRuntimeIsolation(env);
+  if (!a.ok) return false;
+  return envFlag("MAIL_READ_ENABLED", env);
+}
+
 export function isRealWechatSendAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {

@@ -145,6 +145,11 @@ export interface ToolExecutionContext {
    * 权限决策仍以本类型的既有安全字段为准，不读取此字段。
    */
   runtimeContext?: AIRuntimeContext;
+  /**
+   * MAIL-1：本次运行的工具入口门，由 engine 从服务端 AgentRunOptions.entryGate 原样带入（模型 / 客户端不可提供）。
+   * 目前只有读信工具读它的 mail 一项，使执行期判定与工具列表一致。
+   */
+  entryGate?: ToolEntryGate;
 }
 
 export interface ToolExecutionResult {
@@ -191,6 +196,12 @@ export interface CoreToolCall {
 export type ToolEntryGate = {
   /** 「品牌增长」入口对当前用户放行（平台 super_admin 视为放行）；false 时列表剔除 marketing_* */
   marketing: boolean;
+  /**
+   * MAIL-1（spec mail/assistant-read）：读信工具（mail_*）对本次运行可用——只有网页助手对话入口在
+   * 「读信开关开 ∧ 邮箱绑定页对当前用户放行」时为 true。与 marketing 相反，不传 / 非 true 即不可用：
+   * 列表剔除 mail_*，执行期由工具自己按同一个值拒绝。
+   */
+  mail?: boolean;
 };
 
 export interface AgentRunOptions {

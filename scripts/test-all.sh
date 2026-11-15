@@ -176,6 +176,10 @@ run_test "Tender/Project 安全P0 AgentTask execute/cancel 路由级授权" "npx
 run_test "Phase2A 规则/Pack/工具权限" "npx tsx src/lib/tenancy/__tests__/phase2a-rules-tools.test.ts"
 run_test "AI收敛P0 pre-execute守卫/审批闸" "npx tsx src/lib/agent-core/__tests__/pre-execute-guard.test.ts"
 run_test "工具列表按模块过滤与营销入口门（VIS-1c）" "npx tsx src/lib/agent-core/__tests__/tool-list-modules.test.ts"
+run_test "读信纯函数与读接口（MAIL-1）" "npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts"
+run_test "读信工具可见性：入口×受众×开关×模块（MAIL-1）" "npx tsx src/lib/agent-core/__tests__/mail-tool-visibility.test.ts"
+run_test "读信工具：作用域/错误码/审计/不落库（MAIL-1）" "npx tsx src/lib/agent-core/tools/__tests__/mail-tools.test.ts"
+run_test "邮件内容不可信：固定提示/写入封锁/清单冻结（MAIL-1）" "npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts"
 run_test "AI收敛P0 AgentScope/Context隔离" "npx tsx src/lib/agent-scope/__tests__/agent-scope.test.ts"
 # Mention Gateway M0/M1（Mock PoC：flag 默认关、只读 allowlist、fail-closed；纯逻辑，无 DB）
 run_test "Mention Gateway M0 Safety Gate" "NODE_ENV=test npx tsx src/lib/mention-gateway/__tests__/m0-safety-gate.test.ts"
@@ -191,6 +195,8 @@ run_test "Phase1.1 AIRuntimeContext契约" "npx tsx src/lib/ai/__tests__/runtime
 run_test "Phase1.1 Context传播/安全/审批correlation" "npx tsx src/lib/agent-core/__tests__/phase1-1-context-propagation.test.ts"
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
 run_test "Blinds Valance 选项与定价联动（None/Cassette/Fascia + Zebra 无 None）" "npx tsx src/lib/blinds/__tests__/valance-options.test.ts"
+# QUOTE-1a（openspec change quote-order-form-pricing-parity）：详细订单「表单行 → 行构造 → 企业默认折扣 → 引擎」完整路径——纯逻辑 + 源码断言，无 DB
+run_test "详细订单定价口径对照（Roller 罩型 / 实木百叶窗 / 预览 = 保存 / 定价 ⇔ 工艺单罩盒；QUOTE-1a）" "npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts"
 run_test "价格表 2026-10-28 黄金对照（Fauxwood / Allusion / 回归；与上传工具 price() 原函数逐条比）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts"
 run_test "价格表 2026-10-28 附加项目目录（36 项对照价表文件 / Excel 40 行归类 / 按英尺 / 企业价；PRICE-3）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts"
 # Sunny 工艺单（sunny-process-order-autogen）：引擎 × Excel 原件逐值对照（夹具由 scripts/sunny-process-oracle 生成）+ 签字自动生成
@@ -656,6 +662,7 @@ run_test "可投标判定 阶段策略表（只读阶段不询问）" "npx tsx s
 run_test "投标工作区 契约与开关" "npx tsx src/lib/tender-bid-workspace/__tests__/workspace-contract.test.ts"
 run_test "投标工作区 读取结果与成本核算" "npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts"
 run_test "投标工作区 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/bid-workspace-db.isolated.test.ts"
+run_test "FLOW-H4c 提交记录接进可投标判定 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/readiness-submission-db.isolated.test.ts"
 run_test "投标工作区 面板粘贴导入与成本输入组装" "npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts"
 run_test "投标工作区 行明细与补遗录入" "npx tsx src/lib/tender-bid-workspace/__tests__/line-entry.test.ts"
 run_test "FIX-2 价格表从招标分析带入（纯逻辑 + 接线）" "npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts"

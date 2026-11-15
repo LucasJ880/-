@@ -86,6 +86,10 @@ export function toolRequiredModules(toolName: string, domain: string): OrgModule
   if (toolName.startsWith("marketing_")) {
     return ["marketing"];
   }
+  // MAIL-1：读信工具随销售 / 招投标 / 外贸任一模块（与邮箱绑定页的受众对应；spec mail/assistant-read）
+  if (toolName.startsWith("mail_")) {
+    return ["sales", "bids", "trade"];
+  }
   return DOMAIN_MODULES[domain] ?? ["operations"];
 }
 

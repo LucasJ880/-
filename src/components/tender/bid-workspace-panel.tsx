@@ -100,6 +100,8 @@ export function BidWorkspacePanel({ projectId, canManage }: { projectId: string;
 
 function VerdictCard({ readiness, withCost }: { readiness: Readiness; withCost: boolean }) {
   const ready = readiness.state === "READY_FOR_OWNER_DECISION";
+  // 已交标、判定只供复盘：不用绿（像是可以投）也不用红（像是投不了）
+  const reviewOnly = readiness.state === "REVIEW_ONLY";
   return (
     <div className={CARD} data-testid="bw-verdict">
       <div className="flex flex-wrap items-center gap-2">
@@ -107,7 +109,7 @@ function VerdictCard({ readiness, withCost }: { readiness: Readiness; withCost: 
           <ShieldAlert size={16} className="text-accent/60" />
           投标工作区
         </h3>
-        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${ready ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-300 bg-red-50 text-red-700"}`}>
+        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${reviewOnly ? "border-border bg-background text-muted" : ready ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-300 bg-red-50 text-red-700"}`}>
           {readiness.stateZh}
         </span>
         <span className="text-xs text-muted">{readiness.summaryZh}</span>
