@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { resolveTradeOrgId, TRADE_READ_KEYS, requireTradePermission } from "@/lib/trade/access";
+import { holdsTradePermission, resolveTradeOrgId, TRADE_MANAGE_KEYS, TRADE_READ_KEYS, requireTradePermission } from "@/lib/trade/access";
 import { loadInquiryThreadFocus } from "@/lib/trade/inbox-service";
 
 export async function GET(request: NextRequest) {
@@ -30,6 +30,10 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     thread: focus.thread,
     lastInbound: focus.lastInbound,
-    capabilities: { emailSend: Boolean(process.env.RESEND_API_KEY) },
+    capabilities: {
+      emailSend: Boolean(process.env.RESEND_API_KEY),
+      // NAV-6：同列表接口——当前成员能不能回复
+      reply: await holdsTradePermission(auth.user, orgRes.orgId, TRADE_MANAGE_KEYS),
+    },
   });
 }

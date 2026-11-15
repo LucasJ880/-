@@ -5,7 +5,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
+  holdsTradePermission,
   resolveTradeOrgId,
+  TRADE_MANAGE_KEYS,
   TRADE_READ_KEYS,
   requireTradePermission,
 } from "@/lib/trade/access";
@@ -33,6 +35,8 @@ export async function GET(request: NextRequest) {
     },
     capabilities: {
       emailSend: Boolean(process.env.RESEND_API_KEY),
+      // NAV-6：当前成员能不能回复（持处理外贸的键）。只管界面显隐，回复接口自己照常校验
+      reply: await holdsTradePermission(auth.user, orgRes.orgId, TRADE_MANAGE_KEYS),
     },
   });
 }

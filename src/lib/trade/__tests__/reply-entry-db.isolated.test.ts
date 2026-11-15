@@ -45,7 +45,8 @@ const id = (p: string) => `fx_nav1c_${p}_${stamp}`;
 const CATHY = id("cathy");
 const LYNN = id("lynn");
 const OTHER = id("other");
-const USERS = [CATHY, LYNN, OTHER];
+const VIEWER = id("viewer"); // NAV-6：只持查看外贸键的成员（测试岗位只建在本测试的夹具里）
+const USERS = [CATHY, LYNN, OTHER, VIEWER];
 const HT = id("orght"); // 家纺外贸（岗位模式）
 const WC = id("orgwc"); // 窗饰
 const HT2 = id("orght2"); // 另一家外贸企业
@@ -95,11 +96,13 @@ async function main() {
         { orgId: HT, userId: CATHY, role: "org_admin", status: "active" },
         { orgId: WC, userId: LYNN, role: "org_member", status: "active" },
         { orgId: HT2, userId: OTHER, role: "org_admin", status: "active" },
+        { orgId: HT, userId: VIEWER, role: "org_member", status: "active" },
       ],
     });
     await db.user.update({ where: { id: CATHY }, data: { activeOrgId: HT } });
     await db.user.update({ where: { id: LYNN }, data: { activeOrgId: WC } });
     await db.user.update({ where: { id: OTHER }, data: { activeOrgId: HT2 } });
+    await db.user.update({ where: { id: VIEWER }, data: { activeOrgId: HT } });
     for (const o of ORGS) await seedOrgAuthorizationProfiles(o);
     const bind = async (orgId: string, userId: string, key: string) => {
       const profile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId, key } } });
@@ -111,6 +114,10 @@ async function main() {
     await bind(WC, LYNN, "sales_rep");
     await bind(HT2, OTHER, "owner");
     await bind(HT2, OTHER, "trade_rep");
+    // NAV-6：系统里没有只读的外贸岗位模板，这里在夹具企业里建一个只含 trade.read 的测试岗位
+    const viewerProfile = await db.roleProfile.create({ data: { orgId: HT, key: "fx_trade_viewer", name: "外贸查看（测试）", principalType: "HUMAN", isSystem: false, status: "active" } });
+    await db.rolePermissionBinding.create({ data: { orgId: HT, roleProfileId: viewerProfile.id, permissionKey: "trade.read", dataScope: "ORG", effect: "ALLOW" } });
+    await bind(HT, VIEWER, "fx_trade_viewer");
 
     // ───────── [1] 回复目标 ─────────
     console.log("\n[1] 客户互动的回复目标");
@@ -243,6 +250,28 @@ async function main() {
       { params: Promise.resolve({ prospectId }) },
     );
     ok(lynnReply.status === 403 || lynnReply.status === 404, "没有外贸键的成员不能经回复接口提交（权限没有放宽）", lynnReply.status);
+
+    // ───────── [4] 回复能力标记（NAV-6）─────────
+    console.log("\n[4] 回复能力标记：能回复与只能查看的成员");
+    type Caps = { emailSend?: unknown; reply?: unknown };
+    const listAs = async (userId: string) => {
+      const res = await inboxRoute.GET(await req(userId, `/api/trade/inbox?orgId=${HT}&filter=all`));
+      return { status: res.status, body: (await res.json()) as { items?: Array<{ prospectId: string }>; counts?: Json; capabilities?: Caps } };
+    };
+    const [cathyList, viewerList] = [await listAs(CATHY), await listAs(VIEWER)];
+    ok(cathyList.status === 200 && cathyList.body.capabilities?.reply === true, "列表接口：持处理外贸键的成员 capabilities.reply 为真", cathyList.body.capabilities);
+    ok(viewerList.status === 200 && viewerList.body.capabilities?.reply === false, "列表接口：只持查看外贸键的成员 capabilities.reply 为假", { status: viewerList.status, caps: viewerList.body.capabilities });
+    ok(typeof cathyList.body.capabilities?.emailSend === "boolean" && cathyList.body.capabilities?.emailSend === viewerList.body.capabilities?.emailSend, "列表接口：原有的 emailSend 仍在，两人相同");
+    ok(JSON.stringify(cathyList.body.items) === JSON.stringify(viewerList.body.items) && JSON.stringify(cathyList.body.counts) === JSON.stringify(viewerList.body.counts) && (cathyList.body.items ?? []).length >= 1, "列表接口：两人读到的会话与计数相同（读权限没有收窄）");
+    const [cathyFocus, viewerFocus] = [await focus(CATHY, HT, `prospectId=${prospectId}`), await focus(VIEWER, HT, `prospectId=${prospectId}`)];
+    ok(cathyFocus.status === 200 && (cathyFocus.body.capabilities as Caps | undefined)?.reply === true && viewerFocus.status === 200 && (viewerFocus.body.capabilities as Caps | undefined)?.reply === false, "单会话接口：同样的真与假", { c: cathyFocus.body.capabilities, v: viewerFocus.body.capabilities });
+    ok(JSON.stringify(cathyFocus.body.thread) === JSON.stringify(viewerFocus.body.thread) && JSON.stringify(cathyFocus.body.lastInbound) === JSON.stringify(viewerFocus.body.lastInbound), "单会话接口：两人读到的会话与来信全文相同");
+    const messagesBefore = await db.tradeMessage.count({ where: { prospectId } });
+    const viewerReply = await replyRoute.POST(
+      await req(VIEWER, `/api/trade/inbox/${prospectId}/reply`, { method: "POST", body: { orgId: HT, subject: "x", body: "y", mode: "mark_sent" } }),
+      { params: Promise.resolve({ prospectId }) },
+    );
+    ok(viewerReply.status === 403 && (await db.tradeMessage.count({ where: { prospectId } })) === messagesBefore, "只持查看外贸键的成员提交回复仍是 403，没有留底（标记不代替服务端校验）", viewerReply.status);
   } finally {
     // ── 清理（只删本次夹具）──
     const { db: d } = await import("@/lib/db");
