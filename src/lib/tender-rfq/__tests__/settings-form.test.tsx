@@ -260,7 +260,7 @@ console.log("接线");
   const page = read("src/app/(main)/organizations/[orgId]/page.tsx");
   const sec = read("src/components/organizations/tender-rfq-settings-section.tsx");
   const route = read("src/app/api/organizations/[orgId]/tender-rfq-settings/route.ts");
-  ok("组织页：只对 canManageOrg（org_admin / 平台管理员）且组织在用时渲染", page.includes('{canManageOrg && org.status === "active" && <TenderRfqSettingsSection key={orgId} orgId={orgId} />}') && /const canManageOrg =\s*org\?\.myRole === "org_admin" \|\| isSuperAdmin\(platformRole\);/.test(page));
+  ok("组织页：只对 canManageOrg（org_admin / 平台管理员）且组织在用时渲染", page.includes("{canEditTenderRfqSettings && <TenderRfqSettingsSection key={orgId} orgId={orgId} />}") && page.includes('const canEditTenderRfqSettings = canManageOrg && org?.status === "active";') && /const canManageOrg =\s*org\?\.myRole === "org_admin" \|\| isSuperAdmin\(platformRole\);/.test(page));
   ok("读与存走现有接口（GET / PUT tender-rfq-settings），请求体来自 prepareSave", sec.includes("`/api/organizations/${orgId}/tender-rfq-settings`") && sec.includes('method: "PUT"') && sec.includes("const p = prepareSave(state);") && sec.includes("body: JSON.stringify(p.body)"));
   ok("读失败按状态码交给 reducer（403 才隐藏）", sec.includes('if (!res.ok) dispatch({ type: "loadFailed", status: res.status });'));
   ok("保存成功用接口返回的设置，失败带上逐项说明", sec.includes('dispatch({ type: "saveSucceeded", view: json as unknown as TenderRfqSettingsView })') && sec.includes("issues: Array.isArray(json.issues)"));

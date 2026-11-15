@@ -61,6 +61,8 @@ export default function OrganizationDetailPage() {
   // 平台 admin / super_admin 均可管理（与 requireOrgRole / isSuperAdmin 对齐）
   const canManageOrg =
     org?.myRole === "org_admin" || isSuperAdmin(platformRole);
+  // W-2：询价与落地价设置——组织管理员 / 平台管理员（与接口 requireOrgRole(org_admin) 一致），组织在用时
+  const canEditTenderRfqSettings = canManageOrg && org?.status === "active";
   // PERM-7：成员增删改与岗位绑定只认平台 super_admin（与接口一致）
   const canManageMembers = isPlatformSuperAdmin(platformRole);
   // 恢复状态仅平台管理员可写（PUT status）
@@ -400,7 +402,7 @@ export default function OrganizationDetailPage() {
       {canManageMembers && <PositionsSection orgId={orgId} />}
 
       {/* W-2：询价与落地价设置（org_admin / 平台管理员、组织在用时；接口 tender-rfq-settings 只认 org_admin） */}
-      {canManageOrg && org.status === "active" && <TenderRfqSettingsSection key={orgId} orgId={orgId} />}
+      {canEditTenderRfqSettings && <TenderRfqSettingsSection key={orgId} orgId={orgId} />}
     </div>
   );
 }
