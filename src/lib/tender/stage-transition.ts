@@ -385,6 +385,9 @@ async function catchUpLaggingTenderStatus(args: {
   const { project, currentStage, targetStage, input } = args;
   const { projectId, actor, reason, source, humanConfirmed, confidence, evidence } = input;
   if (humanConfirmed !== true || project.status !== "active") return null;
+  // 调用方要的是「写入这一阶段的时间」（带了发生时间或预期状态，如 FLOW-H4a 的记录提交）：不替它补状态，
+  // 照原来返回「无需重复推进」，由调用方按自己的规则处理
+  if (input.occurredAt !== undefined || input.expected !== undefined) return null;
   if ((project.workDomain ?? "").toLowerCase() !== "tender") return null;
   const newTenderStatus = STAGE_TO_TENDER_STATUS[targetStage];
   if (!newTenderStatus || !tenderStatusLagsBehind(project.tenderStatus, targetStage)) return null;
