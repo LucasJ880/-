@@ -1,4 +1,6 @@
 export * from "./contract";
-export { gatherBidDraftInputs } from "./gather";
+export { gatherBidDraftInputs, gatherBidDraftInputsWithBasis, type BidDraftBasis } from "./gather";
 export { synthesizeBidDraft } from "./synthesize";
 export { renderBidDraftHtml } from "./render";
+export { bidDraftMetaOf } from "./meta";
+export { buildBidDraftDocument } from "./generate";

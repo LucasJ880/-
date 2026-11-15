@@ -567,6 +567,8 @@ run_test "报价表助手 计算与推导" "npx tsx src/lib/tender-pricing/__tes
 run_test "FIX-8 报价表助手保存保留报价引擎镜像的我方报价 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-save-db.isolated.test.ts"
 run_test "RFI 问题清单导出" "npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts"
 run_test "投标文件起草" "npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts"
+run_test "两道闸：No-Go 提醒与未批准分析起草的标注（FLOW-H5）" "npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx"
+run_test "两道闸 DB（隔离库执行，否则跳过，FLOW-H5）" "NODE_ENV=test npx tsx src/lib/tender-decision-gates/__tests__/decision-gates-db.isolated.test.ts"
 run_test "合规记忆" "npx tsx src/lib/tender-compliance-memory/__tests__/compliance-memory.test.ts"
 run_test "投标业务档案" "npx tsx src/lib/tender-profile/__tests__/tender-profile.test.ts"
 run_test "Quote Engine 计算" "npx tsx src/lib/quote-engine/__tests__/quote-calc.test.ts"

@@ -50,11 +50,28 @@ export async function gatherVerifiedOrgMemoryClaims(
   }
 }
 
-export async function gatherBidDraftInputs(params: {
+/** FLOW-H5：起草所用的那一份分析与它当时是否已批准（不进模型的输入） */
+export type BidDraftBasis = { runId: string; approved: boolean };
+
+export async function gatherBidDraftInputs(params: { projectId: string; orgId: string | null; userId: string }): Promise<BidDraftInputs | null> {
+  return gatherInto(params, { current: null });
+}
+
+/** 与 gatherBidDraftInputs 相同，另外返回起草所用的那一份分析（同一次查询取得，不会是另一份） */
+export async function gatherBidDraftInputsWithBasis(params: {
   projectId: string;
   orgId: string | null;
   userId: string;
-}): Promise<BidDraftInputs | null> {
+}): Promise<{ inputs: BidDraftInputs; basis: BidDraftBasis } | null> {
+  const basisOut: { current: BidDraftBasis | null } = { current: null };
+  const inputs = await gatherInto(params, basisOut);
+  return inputs && basisOut.current ? { inputs, basis: basisOut.current } : null;
+}
+
+async function gatherInto(
+  params: { projectId: string; orgId: string | null; userId: string },
+  basisOut: { current: BidDraftBasis | null },
+): Promise<BidDraftInputs | null> {
   const project = await db.project.findUnique({
     where: { id: params.projectId },
     select: { id: true, name: true, clientOrganization: true, closeDate: true },
@@ -63,9 +80,10 @@ export async function gatherBidDraftInputs(params: {
   const run = await db.tenderAnalysisRun.findFirst({
     where: { projectId: project.id, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
     orderBy: { createdAt: "desc" },
-    select: { id: true, summaryJson: true },
+    select: { id: true, status: true, summaryJson: true },
   });
   if (!run) return null;
+  basisOut.current = { runId: run.id, approved: run.status === "APPROVED" };
   const sj = ((run.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
   const matrix = ((sj.bidFitMatrix as Record<string, { fit?: string; noteZh?: string | null }>) ?? {});
   const reqRows = await db.tenderExtractedRequirement.findMany({

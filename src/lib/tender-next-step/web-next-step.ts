@@ -82,7 +82,8 @@ export type WebNextStepInput = {
   /** 投标工作区的现算结果；该组织没有开启为 null */
   workspace: { hasPriceSchedule: boolean; blockers: Array<{ code: string; messageZh: string }> } | null;
   /** 页面上「问供应商要价」现在能不能用、不能用的原因。只在要指向询价入口时才取；没取为 null */
-  rfqEntry?: { enabled: boolean; messageZh: string } | null;
+  /** noGoZh：FLOW-H5，投标决定是不投时询价入口自己的那条提醒（开关开着时才有） */
+  rfqEntry?: { enabled: boolean; messageZh: string; noGoZh?: string | null } | null;
   /** FLOW-H4a：这个组织开了「提交记录」——页面上有地方记提交时间与回执。不传 = 没开，与原来相同 */
   submissionRecordEnabled?: boolean;
 };
@@ -134,11 +135,12 @@ function toSnapshot(input: WebNextStepInput): NextStepSnapshot {
 }
 
 /** 指向询价入口时的原因：入口现在能不能用，以页面上那个入口自己的判断为准 */
-function rfqEntryReasons(input: WebNextStepInput): string[] {
+export function rfqEntryReasons(input: Pick<WebNextStepInput, "rfqEntry">): string[] {
   const entry = input.rfqEntry;
   if (!entry) return ["到供应商询价：能直接发就点「问供应商要价」；不能发时那里会写明原因"];
-  if (entry.enabled) return ["点「问供应商要价」：按已确认的要求起草，发出前要你批准"];
-  return [`「问供应商要价」现在还不能用：${withoutMoney(entry.messageZh, "原因写在供应商询价那里")}`, "那里也可以手工建一轮"];
+  const noGo = entry.noGoZh ? [entry.noGoZh] : [];
+  if (entry.enabled) return [...noGo, "点「问供应商要价」：按已确认的要求起草，发出前要你批准"];
+  return [...noGo, `「问供应商要价」现在还不能用：${withoutMoney(entry.messageZh, "原因写在供应商询价那里")}`, "那里也可以手工建一轮"];
 }
 
 function prepareSubmission(input: WebNextStepInput): Core {
