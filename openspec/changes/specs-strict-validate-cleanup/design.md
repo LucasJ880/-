@@ -88,7 +88,7 @@ delta 改不了已有规格的 Purpose（见 Context），所以这两处没有"
 ### 验证方式
 
 1. `openspec validate specs-strict-validate-cleanup --strict` → `Change 'specs-strict-validate-cleanup' is valid`，退出码 0。
-2. 模拟归档（在临时目录，不动仓库）：把 `openspec/` 整个复制到临时目录，在那里执行 `openspec archive specs-strict-validate-cleanup --yes`，再把 D3 两行 Purpose 换成上表原文，每步后跑 `openspec validate --specs --strict`。期望逐步为 4 失败 → 2 失败 → `0 failed`。合入 2026-11-15 的 main 后实测：119 项，115 / 117 / 119 通过。（提案阶段在 2026-11-11 的 main 上另含 `vis-1c-notify-settings-search` 的归档一步，结果为 94 项 0 失败。）
+2. 模拟归档（在临时目录，不动仓库）：把 `openspec/` 整个复制到临时目录，在那里执行 `openspec archive specs-strict-validate-cleanup --yes`，再把 D3 两行 Purpose 换成上表原文，每步后跑 `openspec validate --specs --strict`。期望逐步为 4 失败 → 2 失败 → `0 failed`。合入 2026-11-15 的 main 后实测：120 项，116 / 118 / 120 通过。（提案阶段在 2026-11-11 的 main 上另含 `vis-1c-notify-settings-search` 的归档一步，结果为 94 项 0 失败。）
 3. 行为不变核对：对比模拟归档前后的两份主规格——`authorization/position-catalog` 只有「新增权限键登记」正文一行不同，Requirement 25 条、场景 53 个不变；`sunny/process-order-autogen` Requirement 17 → 18 条、场景 30 个不变，新两条的正文与场景除 D2 列明的两处外与原条逐字相同。
 4. `npx tsx src/lib/sunny-process/__tests__/zebra-ratios.test.ts` 与 `npx tsx src/lib/authorization/__tests__/authorize.test.ts` 通过（证明场景里写的测试命令可直接执行）。
 

@@ -46,4 +46,4 @@ TASKFLOW：无（基础设施）。不触碰 muse-bridge，无受影响的 Muse 
 
 - 规格：归档后 `authorization/position-catalog` 一条 Requirement 改一句（25 条不变）；`sunny/process-order-autogen` 移除一条、新增两条（17 → 18 条）。归档 PR 里另有两份规格各改一行 Purpose（D3）。
 - 代码、测试、依赖、schema、环境变量、部署：不变。
-- 归零条件：本 change 归档并按 D3 换掉两行 Purpose 后，`openspec validate --specs --strict` 为 0 失败。design「验证方式」的模拟归档已得到这个结果（合入 2026-11-15 的 main 后：119 项，4 失败 → 2 失败 → 0 失败）。
+- 归零条件：本 change 归档并按 D3 换掉两行 Purpose 后，`openspec validate --specs --strict` 为 0 失败。design「验证方式」的模拟归档已得到这个结果（合入 2026-11-15 的 main 后：120 项，4 失败 → 2 失败 → 0 失败）。
