@@ -6,7 +6,7 @@
  * 复盘卡、转执行 / 放弃（含既有 Dialog 与业务规则）。不新建第二套提交流程。
  */
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { Ban, CheckSquare, ClipboardList, Flag, Loader2, Send } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
@@ -16,6 +16,7 @@ import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel
 import { ProjectReviewCard } from "@/components/project-review/project-review-card";
 import { AbandonProjectDialog } from "@/components/tender/abandon-project-dialog";
 import { SubmissionRecordCard } from "@/components/tender/submission-record-card";
+import { SubmissionChecklistCard } from "@/components/tender/submission-checklist-card";
 import { toDatetimeLocal } from "@/lib/tender-submission/contract";
 import { HandoffDialog } from "@/components/projects/handoff-dialog";
 import { getProjectStage } from "@/lib/tender/stage";
@@ -55,6 +56,8 @@ interface SubmissionTabProps {
   handoffInfo: ProjectHandoffInfo | null;
   onReload: () => void;
   onReviewConfirmed: () => void;
+  /** FLOW-H4b：清单里「去确认」切到「要求」页签（不传则不显示那个按钮） */
+  onGoRequirements?: () => void;
 }
 
 export function SubmissionTab({
@@ -64,7 +67,12 @@ export function SubmissionTab({
   handoffInfo,
   onReload,
   onReviewConfirmed,
+  onGoRequirements,
 }: SubmissionTabProps) {
+  // FLOW-H4b：确定性的交付前检查清单可用时（开关开着）不再显示模型生成的那份；没查完之前两份都不显示，免得闪一下
+  const [checklistState, setChecklistState] = useState<"unknown" | "on" | "off">("unknown");
+  // 必须是稳定的引用：清单组件的取数函数依赖它，每次渲染换一个会反复取数
+  const onChecklistAvailable = useCallback((available: boolean) => setChecklistState(available ? "on" : "off"), []);
   // FLOW-H4a：提交记录的接口可用时（开关开着），换掉下面那句过时的提示
   const [recordAvailable, setRecordAvailable] = useState(false);
   const [showAbandonDialog, setShowAbandonDialog] = useState(false);
@@ -129,7 +137,12 @@ export function SubmissionTab({
           <CheckSquare size={16} className="text-accent/60" />
           提交就绪
         </h3>
-        <BidChecklist projectId={projectId} />
+        <SubmissionChecklistCard
+          projectId={projectId}
+          onAvailable={onChecklistAvailable}
+          onGoConfirm={onGoRequirements}
+        />
+        {checklistState === "off" ? <BidChecklist projectId={projectId} /> : null}
         <div className="rounded-lg border border-border/60 p-4">
           <h4 className="mb-3 flex items-center gap-2 text-xs font-semibold text-muted">
             <ClipboardList size={14} />

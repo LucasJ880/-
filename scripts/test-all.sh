@@ -668,6 +668,9 @@ run_test "FIX-7 阶段推进之后的自动任务（纯逻辑 + 接线）" "npx 
 run_test "FIX-7 阶段推进之后的自动任务 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-tasks-db.isolated.test.ts"
 run_test "FLOW-H4a 投标提交记录（纯逻辑 + 接线）" "npx tsx src/lib/tender-submission/__tests__/submission-record.test.ts"
 run_test "FLOW-H4a 投标提交记录 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-submission/__tests__/submission-record-db.isolated.test.ts"
+run_test "FLOW-H4b 交付前检查清单（纯逻辑）" "npx tsx src/lib/tender-submission-checklist/__tests__/checklist.test.ts"
+run_test "FLOW-H4b 交付前检查清单 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-submission-checklist/__tests__/checklist-db.isolated.test.ts"
+run_test "FLOW-H4b 交付前检查清单渲染" "npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
