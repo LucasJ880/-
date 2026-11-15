@@ -62,7 +62,7 @@ const MODULE_CARDS: Array<{
   {
     module: "operations",
     title: "运营",
-    description: "客服收件箱与发布运营",
+    description: "微信客服与发布运营",
     href: "/service-inbox",
   },
 ];

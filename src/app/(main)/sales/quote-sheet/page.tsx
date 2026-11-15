@@ -35,8 +35,6 @@ import { useVisualViewport } from "@/lib/mobile/use-visual-viewport";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput, CordlessPolicy } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
-import { allowsManualSellingPrice, fullnessFromPercent } from "@/lib/blinds/pricing-engine";
-import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import {
   DEFAULT_SUNNY_MOTOR_PRICE,
   DEFAULT_MIN_INSTALL_FEE,
@@ -71,7 +69,13 @@ import {
   sumAllMsrp,
   type DiscountsOverride,
 } from "./pricing-helpers";
-import { fractionToInches } from "./types";
+import { buildOrderFormItems } from "./order-items";
+import {
+  ORDER_PRICING_REV,
+  needsWoodRepriceNotice,
+  readOrderPricingRev,
+  woodRepriceNoticeText,
+} from "@/lib/blinds/order-form-pricing";
 import { exportQuotePdf, loadLogoAsDataUrl } from "./quote-pdf";
 import {
   loadDraft,
@@ -317,6 +321,9 @@ function QuoteSheetPageInner() {
   // ── localStorage 草稿（防丢失）───────────────────────────────────
   // 发现待恢复草稿时，在页面顶部显示横幅由用户决定"恢复 / 丢弃"
   const [pendingDraft, setPendingDraft] = useState<QuoteDraftV1 | null>(null);
+  // QUOTE-1a：载入内容的定价口径标记（新建 = 当前口径；载入已存报价 / 草稿时取其值，缺省 1）
+  const [loadedPricingRev, setLoadedPricingRev] = useState<number>(ORDER_PRICING_REV);
+  const [woodNoticeDismissed, setWoodNoticeDismissed] = useState(false);
   // 首屏检查完成前不允许自动保存，避免把刚挂载的空表覆盖掉尚未恢复的草稿
   const [draftReady, setDraftReady] = useState(false);
 
@@ -531,8 +538,9 @@ function QuoteSheetPageInner() {
         discounts,
         sunnyMotorPrice,
         cordlessPolicy,
+        shadeValanceType,
       ),
-    [shadeOrders, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
+    [shadeOrders, shadeValanceType, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
   );
   const shutterTotals = useMemo(
     () => sumShutterTotals(shutterOrders, shutterMaterial, installMode, discounts),
@@ -542,6 +550,13 @@ function QuoteSheetPageInner() {
     () => sumDrapeTotals(drapeOrders, installMode, discounts),
     [drapeOrders, installMode, discounts]
   );
+  const showWoodRepriceNotice =
+    !woodNoticeDismissed &&
+    needsWoodRepriceNotice({
+      loadedRev: loadedPricingRev,
+      shutterMaterial,
+      shutterMerch: shutterTotals.merch,
+    });
   const productsSubtotal =
     shadeTotals.total + shutterTotals.total + drapeTotals.total;
   const productInstallSubtotal =
@@ -564,8 +579,9 @@ function QuoteSheetPageInner() {
         shutterMaterial,
         drapeOrders,
         sunnyMotorPrice,
+        shadeValanceType,
       ),
-    [shadeOrders, shutterOrders, shutterMaterial, drapeOrders, sunnyMotorPrice],
+    [shadeOrders, shadeValanceType, shutterOrders, shutterMaterial, drapeOrders, sunnyMotorPrice],
   );
 
   // Special Promotion 硬门槛：ratio > promoMaxPct 时，非 admin 禁止保存/生成
@@ -662,6 +678,8 @@ function QuoteSheetPageInner() {
           taxRate,
           sunnyMotorPrice,
           specialPromotion,
+          // 草稿原样带着载入时的口径标记：恢复后仍能判断要不要提醒
+          orderPricingRev: loadedPricingRev,
         },
         orgId,
         currentUser.id,
@@ -679,7 +697,7 @@ function QuoteSheetPageInner() {
     partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders,
     shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-    installMode, taxRate, sunnyMotorPrice, specialPromotion,
+    installMode, taxRate, sunnyMotorPrice, specialPromotion, loadedPricingRev,
   ]);
 
   // 当 customerId 或 customers 变化时派生候选地址列表
@@ -756,6 +774,9 @@ function QuoteSheetPageInner() {
     if (typeof (d as QuoteDraftV1).specialPromotion === "string") {
       setSpecialPromotion((d as QuoteDraftV1).specialPromotion as string);
     }
+    // QUOTE-1a：改动前保存的内容没有口径标记 → 1；据此决定是否提醒检查 Part B
+    setLoadedPricingRev(readOrderPricingRev(d.orderPricingRev));
+    setWoodNoticeDismissed(false);
   }, []);
 
   const handleRestoreDraft = useCallback(() => {
@@ -866,106 +887,10 @@ function QuoteSheetPageInner() {
     }
     setSaving(true);
     try {
-      // 从三个电子订单表构造报价单 items（代替原来的 Part A 行）
-      const items: QuoteItemInput[] = [];
-
-      // Shades
-      for (const l of shadeOrders) {
-        // Roman：手填价分支，不要求价格表 SKU，只要宽高 + manualPrice（Allusion 2026-10-28 起走查表 + 可选覆盖）
-        if (isManualPriceShadeProduct(l.product)) {
-          if (!l.widthWhole || !l.heightWhole) continue;
-          const w = fractionToInches(l.widthWhole, l.widthFrac);
-          const h = fractionToInches(l.heightWhole, l.heightFrac);
-          if (!w || !h) continue;
-          const manual = parseFloat(l.manualPrice ?? "");
-          if (!Number.isFinite(manual) || manual <= 0) continue;
-          items.push({
-            product: l.product,
-            fabric: l.sku || l.product,
-            widthIn: w,
-            heightIn: h,
-            location: l.location,
-            sku: l.sku || l.product,
-            manualPrice: manual,
-            motorized: l.lift === "M",
-          });
-          continue;
-        }
-        if (!l.sku || !l.widthWhole || !l.heightWhole) continue;
-        const w = fractionToInches(l.widthWhole, l.widthFrac);
-        const h = fractionToInches(l.heightWhole, l.heightFrac);
-        if (!w || !h) continue;
-        // 把具体 SKU（例如 RL-AQUAWIDE3-BEIGE-LF）映射为定价表认的 fabric key
-        // （例如 "Light Filtering (Open Roll)"），否则后端 priceFor 会报
-        // "Pricing for this Roller fabric is not set yet"，导致整行价格丢失。
-        const pricingFabric = skuToPricingFabric(l.sku, l.product);
-        const manualOverride = allowsManualSellingPrice(l.product) ? parseFloat(l.manualPrice ?? "") : NaN;
-        items.push({
-          product: l.product,
-          fabric: pricingFabric,
-          widthIn: w,
-          heightIn: h,
-          // PRICE-2（Q4 = A）：无绳只来自 Cordless 开关；Lift L/R 只表示拉杆位置
-          cordless: l.cordless === true,
-          motorized: l.lift === "M",
-          location: l.location,
-          sku: l.sku,
-          // Allusion：手动成交单价覆盖随行上传，服务端用同一纯函数套用
-          ...(Number.isFinite(manualOverride) && manualOverride > 0 ? { manualPrice: manualOverride } : {}),
-        });
-      }
-
-      // Shutters
-      for (const l of shutterOrders) {
-        if (!l.widthWhole || !l.heightWhole) continue;
-        const w = fractionToInches(l.widthWhole, l.widthFrac);
-        const h = fractionToInches(l.heightWhole, l.heightFrac);
-        if (!w || !h) continue;
-        const qty = Math.max(1, l.panelCount ?? 1);
-        const base: QuoteItemInput = {
-          product: "Shutters",
-          fabric: shutterMaterial,
-          widthIn: w,
-          heightIn: h,
-          location: l.location,
-          sku: shutterMaterial,
-        };
-        for (let i = 0; i < qty; i++) items.push({ ...base });
-      }
-
-      // Drapes（每行可能包含 Drape 和/或 Sheer，分别作为 item）
-      for (const l of drapeOrders) {
-        if (l.drapeFabricSku && l.drapeWidthWhole && l.drapeHeightWhole) {
-          const w = fractionToInches(l.drapeWidthWhole, l.drapeWidthFrac);
-          const h = fractionToInches(l.drapeHeightWhole, l.drapeHeightFrac);
-          if (w && h) {
-            items.push({
-              product: "Drapery",
-              fabric: l.drapeFabricSku,
-              widthIn: w,
-              heightIn: h,
-              location: l.location,
-              sku: l.drapeFabricSku,
-              ...(fullnessFromPercent(l.drapeFullness) != null ? { fullness: fullnessFromPercent(l.drapeFullness)! } : {}),
-            });
-          }
-        }
-        if (l.sheerFabricSku && l.sheerWidthWhole && l.sheerHeightWhole) {
-          const w = fractionToInches(l.sheerWidthWhole, l.sheerWidthFrac);
-          const h = fractionToInches(l.sheerHeightWhole, l.sheerHeightFrac);
-          if (w && h) {
-            items.push({
-              product: "Sheer",
-              fabric: l.sheerFabricSku,
-              widthIn: w,
-              heightIn: h,
-              location: l.location,
-              sku: l.sheerFabricSku,
-              ...(fullnessFromPercent(l.sheerFullness) != null ? { fullness: fullnessFromPercent(l.sheerFullness)! } : {}),
-            });
-          }
-        }
-      }
+      // 从三个电子订单表构造报价单 items（代替原来的 Part A 行）——纯函数，见 ./order-items.ts
+      const items: QuoteItemInput[] = buildOrderFormItems({
+        shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shadeValanceType,
+      });
 
       // 注意：items 为空也允许提交，由后端以 shell 模式保存（仅存 formDataJson）
       // 这样即使 pricing 全部对不上，销售填写的内容也绝不会丢。
@@ -1005,6 +930,8 @@ function QuoteSheetPageInner() {
         drapeOrders: drapeOrders.filter((l) => l.location || l.drapeFabricSku || l.sheerFabricSku),
         shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
         installMode, taxRate, sunnyMotorPrice,
+        // QUOTE-1a：本次保存按当前定价口径构造报价行
+        orderPricingRev: ORDER_PRICING_REV,
       };
 
       // PRICE-3：Part B 已选且数量 > 0 的行作为附加项目提交，库里报价金额从此含 Part B（design D4）
@@ -1086,6 +1013,8 @@ function QuoteSheetPageInner() {
       });
       // 真正保存成功 → 本地草稿使命完成
       if (orgId && currentUser?.id) clearDraft(orgId, currentUser.id);
+      // QUOTE-1a：库里已是当前口径，不再提醒
+      setLoadedPricingRev(ORDER_PRICING_REV);
 
       // 兜底模式（partial / shell）时提示销售："数据已保存，但定价未完全算出"
       const saveMode: "full" | "partial" | "shell" | undefined = res.saveMode;
@@ -1211,6 +1140,7 @@ function QuoteSheetPageInner() {
       salesRep,
       installMode,
       shadeOrders,
+      shadeValanceType,
       shutterOrders,
       shutterMaterial,
       shutterLouverSize,
@@ -1245,7 +1175,7 @@ function QuoteSheetPageInner() {
     orderNumber, date, customerName, customerPhone, customerEmail, customerAddress,
     salesRep, partBAddons, subtotalB, paymentMethod, depositAmount,
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
-    shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
+    shadeOrders, shadeValanceType, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
     discounts, sunnyMotorPrice, cordlessPolicy, minInstallFee, deliveryFee,
     specialPromotionNum, totalMsrp, finalDiscountPct, taxRate,
@@ -1603,13 +1533,13 @@ function QuoteSheetPageInner() {
         title={
           editingQuoteId
             ? `编辑报价单${editingQuoteVersion ? ` · v${editingQuoteVersion}` : ""}`
-            : "电子报价单"
+            : "报价"
         }
         description={
           editingQuoteId
             ? "正在修改已保存的报价单；保存后会覆盖原报价单（不会新建版本）"
             : workspaceMode === "rough"
-              ? "快速报价（October Rough Quote）· 保存后可在「全部报价」查看，或切换到详细订单"
+              ? "快速报价（October Rough Quote）· 保存后可在「报价记录」查看，或切换到详细订单"
               : "Sunny Shutter Inc. — Digital Quote & Order Form"
         }
       />
@@ -1683,6 +1613,33 @@ function QuoteSheetPageInner() {
               >
                 <X className="mr-1 h-3 w-3" />
                 丢弃草稿
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUOTE-1a：改动前保存的实木百叶窗报价 / 草稿——提醒检查 Part B，避免与手填价重复计价（不拦保存） */}
+      {workspaceMode === "order" && showWoodRepriceNotice && (
+        <div
+          role="alert"
+          data-testid="wood-reprice-notice"
+          className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm"
+        >
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <div className="font-semibold text-amber-900">实木百叶窗现已自动计价</div>
+            <div className="mt-0.5 text-xs text-amber-800">
+              {woodRepriceNoticeText(formatCAD(shutterTotals.merch))}
+            </div>
+            <div className="mt-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setWoodNoticeDismissed(true)}
+                className="h-7 text-xs"
+              >
+                知道了
               </Button>
             </div>
           </div>

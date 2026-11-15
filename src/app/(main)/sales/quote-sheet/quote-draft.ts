@@ -91,6 +91,9 @@ export interface QuoteDraftV1 {
 
   // Step 4：销售手填的 Special Promotion
   specialPromotion?: string;
+
+  /** 载入这份内容时的定价口径标记（QUOTE-1a）；旧草稿没有 → 视为 1 */
+  orderPricingRev?: number;
 }
 
 export function loadDraft(orgId?: string, userId?: string): QuoteDraftV1 | null {

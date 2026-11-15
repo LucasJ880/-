@@ -198,7 +198,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   },
   {
     key: "work-inbox",
-    label: "收件箱",
+    label: "微信客服",
     description: "客户在各渠道发来的消息，统一回复",
     labelKey: "nav_service_inbox",
     href: "/service-inbox",
@@ -219,7 +219,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   },
   {
     key: "work-calendar",
-    label: "日历",
+    label: "预约日历",
     description: "量房、安装与会议日程",
     labelKey: "nav_appointment_calendar",
     href: "/sales/calendar",
@@ -561,7 +561,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   // ── 业务运营：外贸 ──
   {
     key: "biz-trade",
-    label: "外贸",
+    label: "外贸获客",
     description: "外贸业务的总览",
     labelKey: "nav_trade_dashboard",
     href: "/trade",
@@ -652,7 +652,7 @@ export const NAVIGATION_REGISTRY: NavigationItem[] = [
   },
   {
     key: "biz-trade-intel",
-    label: "企业情报",
+    label: "竞品溯源",
     description: "目标企业的背景情报",
     labelKey: "nav_trade_intelligence",
     href: "/trade/intelligence",

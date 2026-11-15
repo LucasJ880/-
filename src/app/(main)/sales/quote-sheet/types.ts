@@ -247,6 +247,11 @@ export interface QuoteFormState {
   sunnyMotorPrice?: number;
   /** 表单实算总价（含税，减让利后）— 对客展示的权威金额，服务端不可重算 */
   displayGrandTotal?: number;
+  /**
+   * 详细订单定价口径标记（QUOTE-1a）：按「Roller 罩型进定价 / 实木百叶窗按 Wood 表计价」保存的为 2；
+   * 旧表单没有该字段 → 视为 1，打开时按需提醒检查 Part B。只落 formDataJson，零 schema。
+   */
+  orderPricingRev?: number;
 }
 
 // ── Order number generation ──

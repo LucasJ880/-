@@ -56,7 +56,7 @@ export default function MarketingAutomationsPage() {
   }
 
   return <div className="mx-auto max-w-5xl space-y-5 pb-10">
-    <div><Link href="/operations/growth" className="text-sm text-accent">← 返回增长中心</Link><h1 className="mt-2 flex items-center gap-2 text-2xl font-bold"><Workflow size={24}/>智能自动流</h1><p className="mt-1 text-sm text-muted">青砚保存业务事实和审批，Activepieces 只负责连接、调度、重试和外部执行。</p></div>
+    <div><Link href="/operations/growth" className="text-sm text-accent">← 返回品牌增长</Link><h1 className="mt-2 flex items-center gap-2 text-2xl font-bold"><Workflow size={24}/>智能自动流</h1><p className="mt-1 text-sm text-muted">青砚保存业务事实和审批，Activepieces 只负责连接、调度、重试和外部执行。</p></div>
     {error && <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
     {message && <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</div>}
     {loading && !data ? <div className="flex justify-center py-20"><Loader2 className="animate-spin"/></div> : data && <>

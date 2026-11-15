@@ -149,7 +149,7 @@ export default function OrgKnowledgePage() {
   return (
     <div className="mx-auto max-w-5xl space-y-5 pb-10">
       <PageHeader
-        title="组织知识库"
+        title="知识库"
         description="平台级真相源：支持 Markdown/Obsidian ZIP 导入与向量检索。数字员工从此读取；不反向同步本地笔记软件。"
       />
 

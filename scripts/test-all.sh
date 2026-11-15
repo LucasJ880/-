@@ -195,6 +195,8 @@ run_test "Phase1.1 AIRuntimeContext契约" "npx tsx src/lib/ai/__tests__/runtime
 run_test "Phase1.1 Context传播/安全/审批correlation" "npx tsx src/lib/agent-core/__tests__/phase1-1-context-propagation.test.ts"
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
 run_test "Blinds Valance 选项与定价联动（None/Cassette/Fascia + Zebra 无 None）" "npx tsx src/lib/blinds/__tests__/valance-options.test.ts"
+# QUOTE-1a（openspec change quote-order-form-pricing-parity）：详细订单「表单行 → 行构造 → 企业默认折扣 → 引擎」完整路径——纯逻辑 + 源码断言，无 DB
+run_test "详细订单定价口径对照（Roller 罩型 / 实木百叶窗 / 预览 = 保存 / 定价 ⇔ 工艺单罩盒；QUOTE-1a）" "npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts"
 run_test "价格表 2026-10-28 黄金对照（Fauxwood / Allusion / 回归；与上传工具 price() 原函数逐条比）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts"
 run_test "价格表 2026-10-28 附加项目目录（36 项对照价表文件 / Excel 40 行归类 / 按英尺 / 企业价；PRICE-3）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts"
 # Sunny 工艺单（sunny-process-order-autogen）：引擎 × Excel 原件逐值对照（夹具由 scripts/sunny-process-oracle 生成）+ 签字自动生成
@@ -248,6 +250,8 @@ run_test "Navigation Workspace" "npx tsx src/lib/navigation/__tests__/navigation
 run_test "Navigation Position Mode (PERM-4c2)" "npx tsx src/lib/navigation/__tests__/position-nav.test.ts"
 run_test "路由级可见性门（VIS-1a）" "npx tsx src/lib/navigation/__tests__/route-gate.test.ts"
 run_test "入口判定与路由门同源（VIS-1b）" "npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts"
+# NAV-1a（openspec change nav-1a-single-name）：一个入口一个名字——注册表名称与翻译表一致、三处共用取名函数、页面大标题与站内文字，纯函数 + 源码断言，无 DB
+run_test "入口名称单一来源（NAV-1a）" "npx tsx src/lib/navigation/__tests__/entry-naming.test.ts"
 run_test "审批的可见集合（VIS-1d）" "npx tsx src/lib/approval/__tests__/audience.test.ts"
 run_test "审批的可见集合 DB 端到端（VIS-1d；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/approval/__tests__/audience-db.isolated.test.ts"
 run_test "以岗位预览（VIS-1e）" "npx tsx src/lib/preview/__tests__/preview.test.ts"
@@ -670,6 +674,9 @@ run_test "FIX-7 阶段推进之后的自动任务（纯逻辑 + 接线）" "npx 
 run_test "FIX-7 阶段推进之后的自动任务 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-tasks-db.isolated.test.ts"
 run_test "FLOW-H4a 投标提交记录（纯逻辑 + 接线）" "npx tsx src/lib/tender-submission/__tests__/submission-record.test.ts"
 run_test "FLOW-H4a 投标提交记录 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-submission/__tests__/submission-record-db.isolated.test.ts"
+run_test "FLOW-H4b 交付前检查清单（纯逻辑）" "npx tsx src/lib/tender-submission-checklist/__tests__/checklist.test.ts"
+run_test "FLOW-H4b 交付前检查清单 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-submission-checklist/__tests__/checklist-db.isolated.test.ts"
+run_test "FLOW-H4b 交付前检查清单渲染" "npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"

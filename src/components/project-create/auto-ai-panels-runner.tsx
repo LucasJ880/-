@@ -28,17 +28,17 @@ export function AutoAiPanelsRunner({
       if (running.current) return;
       running.current = true;
       try {
+        // FLOW-H4b：先看模型清单是否已被确定性清单取代——取代了就不为它发生成请求（含强制刷新）
+        const checklistRes = await apiFetch(`/api/projects/${projectId}/checklist`).then((r) =>
+          r.json().catch(() => ({})),
+        );
+        const checklistReplaced = checklistRes?.replaced === true;
         if (!force) {
-          const [summaryRes, checklistRes] = await Promise.all([
-            apiFetch(`/api/projects/${projectId}/progress-summary`).then((r) =>
-              r.json().catch(() => ({})),
-            ),
-            apiFetch(`/api/projects/${projectId}/checklist`).then((r) =>
-              r.json().catch(() => ({})),
-            ),
-          ]);
+          const summaryRes = await apiFetch(`/api/projects/${projectId}/progress-summary`).then((r) =>
+            r.json().catch(() => ({})),
+          );
           const hasSummary = !!summaryRes?.summary;
-          const hasChecklist = !!checklistRes?.checklist;
+          const hasChecklist = !!checklistRes?.checklist || checklistReplaced;
           if (hasSummary && hasChecklist) {
             // 通知面板刷新已有数据
             window.dispatchEvent(
@@ -56,9 +56,13 @@ export function AutoAiPanelsRunner({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ trigger: "auto" }),
           }),
-          apiFetch(`/api/projects/${projectId}/checklist`, {
-            method: "POST",
-          }),
+          ...(checklistReplaced
+            ? []
+            : [
+                apiFetch(`/api/projects/${projectId}/checklist`, {
+                  method: "POST",
+                }),
+              ]),
         ]);
 
         window.dispatchEvent(

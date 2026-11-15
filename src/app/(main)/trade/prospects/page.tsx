@@ -405,7 +405,7 @@ export default function TradeProspectsListPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader
-          title="外贸全部线索"
+          title="线索资产"
           description="按公司、国家、活动与分数筛选线索，进入详情执行研究、外联与报价。"
         />
         <div className="flex shrink-0 flex-wrap gap-2">

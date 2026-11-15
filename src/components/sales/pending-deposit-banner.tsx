@@ -94,7 +94,7 @@ export function PendingDepositBanner() {
             href="/sales/quotes?status=signed"
             className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-orange-300 bg-card-bg/70 px-3 py-1.5 text-xs font-medium text-orange-800 hover:bg-accent-soft transition-colors"
           >
-            全部报价
+            报价记录
             <ChevronRight className="h-3 w-3" />
           </Link>
         </div>

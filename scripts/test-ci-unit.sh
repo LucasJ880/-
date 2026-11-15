@@ -153,6 +153,8 @@ npx tsx src/lib/navigation/__tests__/navigation-workspace.test.ts
 npx tsx src/lib/navigation/__tests__/position-nav.test.ts
 npx tsx src/lib/navigation/__tests__/route-gate.test.ts
 npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts
+# NAV-1a（openspec change nav-1a-single-name）：入口名称单一来源——纯函数 + 源码断言，无 DB
+npx tsx src/lib/navigation/__tests__/entry-naming.test.ts
 npx tsx src/lib/approval/__tests__/audience.test.ts
 npx tsx src/lib/preview/__tests__/preview.test.ts
 npx tsx src/lib/search/__tests__/search-where.test.ts
@@ -199,6 +201,7 @@ npx tsx src/lib/notifications/__tests__/mark-all-read.test.ts
 npx tsx src/lib/blinds/__tests__/quote-fees.test.ts
 npx tsx src/lib/blinds/__tests__/cost-rates.test.ts
 npx tsx src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts
+npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts
 npx tsx src/lib/sunny-process/__tests__/blinds-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/domestic-oracle.test.ts
 npx tsx src/lib/sunny-process/__tests__/drapes-oracle.test.ts
@@ -480,6 +483,9 @@ npx tsx src/lib/tender/__tests__/stage-tasks.test.ts
 NODE_ENV=test npx tsx src/lib/tender/__tests__/stage-tasks-db.isolated.test.ts
 npx tsx src/lib/tender-submission/__tests__/submission-record.test.ts
 NODE_ENV=test npx tsx src/lib/tender-submission/__tests__/submission-record-db.isolated.test.ts
+npx tsx src/lib/tender-submission-checklist/__tests__/checklist.test.ts
+NODE_ENV=test npx tsx src/lib/tender-submission-checklist/__tests__/checklist-db.isolated.test.ts
+npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

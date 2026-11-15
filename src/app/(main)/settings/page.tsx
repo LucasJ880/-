@@ -116,7 +116,7 @@ function SettingsContent() {
     <div className="mx-auto max-w-2xl">
       <div className="mb-6">
         <PageHeader
-          title="设置"
+          title="企业设置"
           description="管理外观、外部服务连接、通知偏好与企业账号。"
         />
       </div>

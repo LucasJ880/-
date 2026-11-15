@@ -79,7 +79,7 @@ export default function TradeImportPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="展会/名片导入"
+        title="展会导入"
         description="上传 CSV 或 Excel 文件，批量创建线索"
       />
       <p className="text-xs text-muted">

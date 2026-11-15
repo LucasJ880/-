@@ -165,12 +165,12 @@ async function main() {
   await gotoReady(page, "/");
   await page.waitForFunction(() => {
     const t = document.querySelector("aside.bg-\\[\\#111b1d\\]")?.textContent || "";
-    return t.includes("商机中心") && !t.includes("海外业务");
+    return t.includes("商机中心") && !t.includes("外贸获客");
   }, { timeout: 15000 });
   await assertSidebarText(
     page,
     ["企业能力中台", "业务运营", "商机中心"],
-    ["海外业务", "线索资产", "展会导入"],
+    ["外贸获客", "线索资产", "展会导入"],
   );
   // 滚到底确认品牌增长/企业管理
   await sidebar(page).locator("nav").evaluate((el) => {
@@ -185,11 +185,11 @@ async function main() {
   await gotoReady(page, "/");
   await page.waitForFunction(() => {
     const t = document.querySelector("aside.bg-\\[\\#111b1d\\]")?.textContent || "";
-    return t.includes("海外业务") && t.includes("梦馨");
+    return t.includes("外贸获客") && t.includes("梦馨");
   }, { timeout: 15000 });
   await assertSidebarText(
     page,
-    ["企业能力中台", "业务运营", "海外业务", "线索资产"],
+    ["企业能力中台", "业务运营", "外贸获客", "线索资产"],
     [],
   );
   await shot(page, "09-mengxin-nav");

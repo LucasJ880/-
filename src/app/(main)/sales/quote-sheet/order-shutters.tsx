@@ -325,12 +325,6 @@ export function OrderShuttersForm({
         </table>
       </div>
 
-      {material === "Wooden" && pricings.some((p) => p?.error) && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-          Wooden shutters pricing data is not available in current catalog. Switch to Vinyl for automatic pricing, or set price manually in Part B.
-        </div>
-      )}
-
     </div>
   );
 }

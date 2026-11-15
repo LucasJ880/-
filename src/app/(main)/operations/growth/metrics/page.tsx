@@ -351,7 +351,7 @@ export default function MarketingMetricsPage() {
     <div className="mx-auto max-w-5xl space-y-5 pb-10">
       <div>
         <Link href="/operations/growth" className="text-sm text-accent">
-          ← 返回增长中心
+          ← 返回品牌增长
         </Link>
         <h1 className="mt-2 text-2xl font-bold">渠道数据接入</h1>
         <p className="mt-1 text-sm text-muted">

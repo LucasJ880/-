@@ -163,7 +163,7 @@ export default function MarketingMmmPage() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <Link href="/operations/growth" className="text-sm text-accent">
-            ← 返回增长中心
+            ← 返回品牌增长
           </Link>
           <h1 className="mt-2 flex items-center gap-2 text-2xl font-bold">
             <BrainCircuit size={24} />
