@@ -654,6 +654,7 @@ run_test "可投标判定 阶段策略表（只读阶段不询问）" "npx tsx s
 run_test "投标工作区 契约与开关" "npx tsx src/lib/tender-bid-workspace/__tests__/workspace-contract.test.ts"
 run_test "投标工作区 读取结果与成本核算" "npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts"
 run_test "投标工作区 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/bid-workspace-db.isolated.test.ts"
+run_test "FLOW-H4c 提交记录接进可投标判定 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/readiness-submission-db.isolated.test.ts"
 run_test "投标工作区 面板粘贴导入与成本输入组装" "npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts"
 run_test "投标工作区 行明细与补遗录入" "npx tsx src/lib/tender-bid-workspace/__tests__/line-entry.test.ts"
 run_test "FIX-2 价格表从招标分析带入（纯逻辑 + 接线）" "npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts"

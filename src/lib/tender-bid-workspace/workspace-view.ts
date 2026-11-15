@@ -15,6 +15,7 @@ import { decideStages, type MaterialKey, type StagePolicyResult } from "@/lib/te
 import type { DependentConclusion } from "@/lib/tender-bid-readiness/staleness";
 import { summarizeDocumentHolders, type DocumentHolderSummary } from "@/lib/tender-competition/document-holders";
 import { validatePriceSchedule, type PriceScheduleLine, type ScheduleValidation } from "@/lib/tender-price-schedule/contract";
+import type { SubmissionRecord } from "@/lib/tender-price-schedule/closing-time";
 import { matchDimensions, type DimensionMatch } from "@/lib/tender-price-schedule/dimension-match";
 import type { CostSheetRequest, StoredWorkspace } from "./contract";
 
@@ -28,6 +29,8 @@ export type WorkspaceContext = {
   documentCount: number;
   /** 该项目询价里「已报价」的供应商行数 */
   quotedSupplierCount: number;
+  /** FLOW-H4c：项目的提交时间与对得上的那条提交记录的回执编号；没有提交时间为 null */
+  submission?: SubmissionRecord | null;
 };
 
 export type LineCheck = {
@@ -101,6 +104,7 @@ function readinessOf(stored: StoredWorkspace | null, ctx: WorkspaceContext, chec
   return assessBidReadiness({
     now: ctx.now,
     closingAt: ctx.closingAtIso,
+    submission: ctx.submission ?? null,
     lines: linesOf(stored),
     cost,
     dimensionChecks: checks.filter((c) => c.dimension).map((c) => ({ lineNo: c.lineNo, verdict: c.dimension!.verdict, reasonZh: c.dimension!.reasonZh })),

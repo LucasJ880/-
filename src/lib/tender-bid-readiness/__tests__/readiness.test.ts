@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { matchDimensions } from "@/lib/tender-price-schedule/dimension-match";
 import { OTTAWA_18026, OTTAWA_18026_LINES } from "@/lib/tender-price-schedule/__tests__/fixtures/ottawa-18026";
 import type { CertificateEvidence } from "../certification-gate";
-import { assessBidReadiness, type CostReadinessInput, type ReadinessInput } from "../readiness";
+import { WINDOW_EXPIRED_NO_RECEIPT_ZH, WINDOW_EXPIRED_ZH, assessBidReadiness, type CostReadinessInput, type ReadinessInput } from "../readiness";
 
 let passed = 0;
 function ok(name: string, cond: boolean) { assert.equal(cond, true, name); passed += 1; console.log(`  ✓ ${name}`); }
@@ -75,6 +75,14 @@ console.log("tender-bid-readiness readiness");
   ok("截标时间不带时区 → 阻断", codes(assessBidReadiness(base({ closingAt: "2026-11-10T15:00:00" }))).join() === "CLOSING_TIME_INVALID");
   const submitted = assessBidReadiness(base({ now: AFTER_CLOSE, submission: { receiptRef: "MERX-RCPT-1" } }));
   ok("已过截标但有带回执的提交 → 不算过期，提示仅供复盘", !codes(submitted).includes("WINDOW_EXPIRED") && submitted.warnings.some((w) => w.code === "ALREADY_SUBMITTED"));
+  // FLOW-H4c：有提交时间但没有回执编号 → 仍是「已过截标」（只有带回执的才算已提交），文字写明去补回执编号
+  const noReceipt = assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: null } }));
+  const expiredMsg = (r: ReturnType<typeof assessBidReadiness>) => r.blockers.find((b) => b.code === "WINDOW_EXPIRED")?.messageZh;
+  ok("已过截标、有提交时间、没有回执编号 → 仍阻断，文字写明去「提交记录」里补上回执编号", expiredMsg(noReceipt) === WINDOW_EXPIRED_NO_RECEIPT_ZH && WINDOW_EXPIRED_NO_RECEIPT_ZH.includes("「提交记录」里补上回执编号") && !noReceipt.warnings.some((w) => w.code === "ALREADY_SUBMITTED"));
+  ok("回执编号是空白的也一样", expiredMsg(assessBidReadiness(base({ now: AFTER_CLOSE, submission: { submittedAt: "2026-11-10T14:00:00.000Z", receiptRef: "   " } }))) === WINDOW_EXPIRED_NO_RECEIPT_ZH);
+  ok("已过截标、没有提交时间（没有记录或记录里没时间）→ 文字与原来相同", [undefined, null, {}, { receiptRef: null }, { submittedAt: null, receiptRef: null }].every((sub) => expiredMsg(assessBidReadiness(base({ now: AFTER_CLOSE, submission: sub as never }))) === WINDOW_EXPIRED_ZH) && WINDOW_EXPIRED_ZH === "已过截标，且没有带回执的提交记录");
+  ok("截标还没到：有没有提交时间都没有「已过截标」", [null, { submittedAt: "2026-11-07T14:00:00.000Z", receiptRef: null }].every((sub) => !codes(assessBidReadiness(base({ now: BEFORE_CLOSE, submission: sub }))).includes("WINDOW_EXPIRED")));
+  ok("判定的文字里不带出回执编号", !JSON.stringify(submitted).includes("MERX-RCPT-1"));
 }
 {
   const r = assessBidReadiness(base());

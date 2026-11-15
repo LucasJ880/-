@@ -19,7 +19,7 @@ import {
   SUBMISSION_AUDIT_TARGET,
   blockedReasonZh,
   classifySubmission,
-  parseStoredRecord,
+  effectiveRecordOf,
   toStoredRecord,
   type SubmissionInput,
   type SubmissionKind,
@@ -46,18 +46,15 @@ export async function loadSubmissionRecordView(input: { projectId: string; orgId
   ]);
   if (!project) return null;
   const blockedZh = blockedReasonZh(project);
-  // 显示的那条记录必须与项目上的提交时间对得上：取最新的、记的就是这个提交时间的那一条。
-  // 两个人同时第一次记录、填的不一样时，后写进来的记录不一定是最后生效的那个时间——不能把 A 的回执配上 B 的时间。
-  const submittedIso = project.submittedAt ? project.submittedAt.toISOString() : null;
-  const latest = submittedIso ? recent.find((r) => parseStoredRecord(r.afterData)?.submittedAt === submittedIso) : undefined;
-  const stored = parseStoredRecord(latest?.afterData);
+  // 显示的那条记录必须与项目上的提交时间对得上（取法见 effectiveRecordOf）
+  const effective = effectiveRecordOf(project.submittedAt, recent);
   return {
     submittedAt: project.submittedAt ? project.submittedAt.toISOString() : null,
     nextKind: blockedZh ? null : classifySubmission({ recordedStage: recordedStageOf(project), submittedAt: project.submittedAt, tenderStatus: project.tenderStatus }),
     blockedZh,
     canRecord: input.canRecord,
     syncsToSource: !!project.sourceSystem,
-    record: stored && latest ? { ...stored, recordedAt: latest.createdAt.toISOString(), recordedByName: latest.user?.name ?? null } : null,
+    record: effective ? { ...effective.record, recordedAt: effective.row.createdAt.toISOString(), recordedByName: effective.row.user?.name ?? null } : null,
     count,
   };
 }
@@ -121,4 +118,20 @@ export async function recordSubmission(input: { projectId: string; orgId: string
     await writeAuditLog(tx, { ...audit(kind), beforeData: { submittedAt: fresh.submittedAt ? fresh.submittedAt.toISOString() : null } });
     return { ok: true, kind, submittedAt: value.submittedAt.toISOString() };
   }, { timeout: 15000 });
+}
+
+/**
+ * FLOW-H4c：给可投标判定用的提交记录——项目当前的提交时间，加上与它对得上的那条记录里的回执编号。
+ * 只带这两样（判定只看「有没有回执编号」），不带方式与备注。项目没有提交时间 → null。不看提交记录的开关（D2）。
+ */
+export async function loadSubmissionForReadiness(input: { projectId: string; orgId: string; submittedAt: Date | null }): Promise<{ submittedAt: string; receiptRef: string | null } | null> {
+  if (!input.submittedAt) return null;
+  const rows = await db.auditLog.findMany({
+    where: { orgId: input.orgId, projectId: input.projectId, action: SUBMISSION_AUDIT_ACTION, targetType: SUBMISSION_AUDIT_TARGET, targetId: input.projectId },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: RECENT_RECORDS,
+    select: { afterData: true },
+  });
+  const effective = effectiveRecordOf(input.submittedAt, rows);
+  return { submittedAt: input.submittedAt.toISOString(), receiptRef: effective?.record.receiptRef ?? null };
 }

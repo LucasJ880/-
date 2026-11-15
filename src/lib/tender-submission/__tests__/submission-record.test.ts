@@ -13,7 +13,7 @@ import type { TenderStage } from "@/lib/tender/types";
 import { NEXT_STEP_ANCHORS } from "@/lib/tender-next-step/targets";
 import { decideWebNextStep, type WebNextStepInput } from "@/lib/tender-next-step/web-next-step";
 import {
-  AFTER_SUBMISSION_STATUSES, FUTURE_TOLERANCE_MS, NO_SUBMISSION_STATUS_ZH, RECEIPT_REF_MAX, SUBMISSION_AUDIT_ACTION, SUBMISSION_CHANNELS, SUBMISSION_CHANNEL_ZH, SUBMISSION_NOTE_MAX,
+  effectiveRecordOf, AFTER_SUBMISSION_STATUSES, FUTURE_TOLERANCE_MS, NO_SUBMISSION_STATUS_ZH, RECEIPT_REF_MAX, SUBMISSION_AUDIT_ACTION, SUBMISSION_CHANNELS, SUBMISSION_CHANNEL_ZH, SUBMISSION_NOTE_MAX,
   blockedReasonZh, classifySubmission, confirmTextZh, fromDatetimeLocal, openButtonZh, parseStoredRecord, parseSubmissionInput, statusLineZh, submittedAtToSend, toDatetimeLocal, toStoredRecord,
   type SubmissionRecordView,
 } from "../contract";
@@ -171,7 +171,14 @@ console.log("接线");
   ok("接口：先校验、校验不过就返回 400，之后才写", postBody.indexOf("parseSubmissionInput(body, new Date())") > 0 && postBody.indexOf("parseSubmissionInput(body, new Date())") < postBody.indexOf("{ status: 400 }") && postBody.indexOf("{ status: 400 }") < postBody.indexOf("recordSubmission({"));
   ok("写入：第一次走既有的阶段推进——时间用人填的、不建新阶段的任务、标明是人确认过的", /advanceProjectStage\(\{\s*projectId, targetStage: "submission", reason: "在项目页上记录提交", source: "manual", actor, humanConfirmed: true,\s*occurredAt: value\.submittedAt, skipStageTasks: true,/.test(service));
   ok("写入：第一次记录带着读到的项目状态与招投标状态去推进——这期间别人记了投标结果或放弃了项目，就不推进", code(service).includes("expected: { status: project.status, tenderStatus: project.tenderStatus },") && /where: \{ id: projectId, \[timestampField\]: null, \.\.\.\(expected \? \{ status: expected\.status, tenderStatus: expected\.tenderStatus \} : \{\}\) \},/.test(transition));
-  ok("读取：显示的那条记录是「最新的、记的就是项目上这个提交时间」的那一条", service.includes("const latest = submittedIso ? recent.find((r) => parseStoredRecord(r.afterData)?.submittedAt === submittedIso) : undefined;") && /orderBy: \[\{ createdAt: "desc" \}, \{ id: "desc" \}\], take: RECENT_RECORDS/.test(service));
+  ok("读取：显示的那条记录用「与项目当前提交时间对得上的那条」的取法（卡片与可投标判定共用），记录按新到旧取", service.includes("const effective = effectiveRecordOf(project.submittedAt, recent);") && service.includes("const effective = effectiveRecordOf(input.submittedAt, rows);") && (service.match(/orderBy: \[\{ createdAt: "desc" \}, \{ id: "desc" \}\],\s*take: RECENT_RECORDS/g) ?? []).length === 2);
+  {
+    const rec = (submittedAt: string, receiptRef: string | null, kind = "first") => ({ afterData: JSON.stringify({ v: 1, kind, submittedAt, channel: "portal", receiptRef, note: null }) });
+    const t1 = "2026-11-10T19:00:00.000Z", t2 = "2026-11-10T18:00:00.000Z";
+    const rows = [rec(t2, null, "correction"), rec(t1, "B-2"), rec(t1, "A-1")];
+    ok("取法：最新的、记的就是项目当前提交时间的那一条（对不上的跳过；同一时间的取最新的）", effectiveRecordOf(new Date(t1), rows)?.record.receiptRef === "B-2" && effectiveRecordOf(new Date(t2), rows)?.record.receiptRef === null && effectiveRecordOf(new Date(t2), rows)?.row === rows[0]);
+    ok("取法：项目没有提交时间、没有对得上的、记录形状不对的 → 没有", effectiveRecordOf(null, rows) === null && effectiveRecordOf(new Date("2026-11-09T00:00:00Z"), rows) === null && effectiveRecordOf(new Date(t1), [{ afterData: "{bad" }, { afterData: { v: 2, submittedAt: t1 } }, { afterData: null }]) === null);
+  }
   ok("写入：事务里重读之后再判一次「能不能记录」与「是哪种情形」（读与写之间项目可能刚变）", (() => { const tx = service.slice(service.indexOf("return db.$transaction(")); return tx.indexOf("const blockedNow = blockedReasonZh(fresh);") > tx.indexOf("tx.project.findFirst") && tx.includes("if (blockedNow) return { ok: false, status: 409, error: blockedNow };") && tx.includes('if (kind === "first") return { ok: false, status: 409,') && tx.indexOf('if (kind === "first")') < tx.indexOf("tx.project.update("); })());
   ok("写入：阶段推进不放行时（比如不允许的阶段变化）原样返回它的理由，不往下走、不留记录", /if \(!advanced\.success\) return \{ ok: false, status: 409, error: advanced\.reason \};\s*if \(advanced\.decision !== "no_op"\) \{/.test(service));
   ok("写入：更正与补记在一个事务里——先锁项目行、重读、只改提交时间、追加记录；不动招投标状态", (() => { const tx = service.slice(service.indexOf("return db.$transaction(")); const lock = tx.indexOf('FROM "Project" WHERE id = ${projectId} FOR NO KEY UPDATE'); const reread = tx.indexOf("tx.project.findFirst"); const upd = tx.indexOf("tx.project.update({ where: { id: projectId }, data: { submittedAt: value.submittedAt } })"); const audit = tx.indexOf("writeAuditLog(tx,"); return lock > 0 && lock < reread && reread < upd && upd < audit && !/data: \{[^}]*tenderStatus/.test(tx) && (tx.match(/tx\.project\.update\(/g) ?? []).length === 1; })());

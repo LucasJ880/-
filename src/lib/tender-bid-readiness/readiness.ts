@@ -47,6 +47,11 @@ export type ReadinessAssessment = {
   summaryZh: string;
 };
 
+/** 已过截标、没有提交时间 */
+export const WINDOW_EXPIRED_ZH = "已过截标，且没有带回执的提交记录";
+/** 已过截标、项目有提交时间但没有回执编号（只有带回执的才算已提交，TI-1） */
+export const WINDOW_EXPIRED_NO_RECEIPT_ZH = "已过截标；项目有提交时间，但没有回执编号——在「提交」页签的「提交记录」里补上回执编号";
+
 export function assessBidReadiness(input: ReadinessInput): ReadinessAssessment {
   const blockers: ReadinessBlocker[] = [];
   const warnings: ReadinessWarning[] = [];
@@ -57,7 +62,7 @@ export function assessBidReadiness(input: ReadinessInput): ReadinessAssessment {
   if (!closing.ok) add("CLOSING_TIME_INVALID", null, `截标时间不可用：${closing.messageZh}`);
   else {
     const window = deriveTenderWindowState({ closingAt: closing.closingAt, now: input.now, submission: input.submission });
-    if (window === "EXPIRED") add("WINDOW_EXPIRED", null, "已过截标，且没有带回执的提交记录");
+    if (window === "EXPIRED") add("WINDOW_EXPIRED", null, input.submission?.submittedAt ? WINDOW_EXPIRED_NO_RECEIPT_ZH : WINDOW_EXPIRED_ZH);
     if (window === "SUBMITTED") warnings.push({ code: "ALREADY_SUBMITTED", messageZh: "已有带回执的提交记录；本判定仅供复盘" });
   }
 

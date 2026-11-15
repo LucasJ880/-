@@ -464,6 +464,7 @@ npx tsx src/lib/tender-bid-readiness/__tests__/stage-policy.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/workspace-contract.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts
 NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/bid-workspace-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-bid-workspace/__tests__/readiness-submission-db.isolated.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/panel-helpers.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/line-entry.test.ts
 npx tsx src/lib/tender-bid-workspace/__tests__/schedule-prefill.test.ts
