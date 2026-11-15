@@ -76,12 +76,12 @@
 
 | 门禁 | 结果 |
 |---|---|
-| `npm run test:ci` | 见 PR（推送前本机跑完整子集） |
+| `npm run test:ci` | `CI unit subset PASS`（本机，CI 的环境变量） |
 | `npm run typecheck` | 通过 |
-| `npm run lint:baseline` | 见 PR |
-| `bash scripts/check-test-registry.sh` | 见 PR |
-| `bash scripts/test-runtime-architecture.sh` | 见 PR |
-| `npx tsx scripts/check-swc-nullish-logical.test.ts` | 见 PR |
+| `npm run lint:baseline` | PASS（无新增 error fingerprint；比基线少 15 处） |
+| `bash scripts/check-test-registry.sh` | OK（已注册 618 个） |
+| `bash scripts/test-runtime-architecture.sh` | PASS |
+| `npx tsx scripts/check-swc-nullish-logical.test.ts` | PASS |
 | `openspec validate tender-submission-checklist --strict` | valid |
 
 ## 5. 独立审查
