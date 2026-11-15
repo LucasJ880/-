@@ -24,6 +24,8 @@ export const AUTOMATION_REGISTRY = [
   { key: "sales-action-sync", name: "销售行动自动同步", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "muse-reminder-scan", name: "Muse 跟进与询问提醒扫描", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
   { key: "calendar-watch", name: "Google 日历变更观察与归因", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
+  // MAIL-2：成员本人邮箱的客户来信观察，随 sales-actions 定时任务执行；MAIL_WATCH_ENABLED 关闭时每次记为跳过
+  { key: "mail-watch", name: "客户来信观察与提醒", category: "sales", cadence: "每 15 分钟", timezone: AUTOMATION_TIMEZONE },
   // COLLAB-2：站内通知的邮件补位，随 sales-actions 定时任务执行
   { key: "notify-email-escalation", name: "未读升级邮件", category: "operations", cadence: "每 15 分钟", timezone: "UTC", requiredEnv: ["RESEND_API_KEY", "NEXT_PUBLIC_APP_URL"] },
   // COLLAB-2：随 daily-brief 定时任务执行，同一批当地 7 点的组织

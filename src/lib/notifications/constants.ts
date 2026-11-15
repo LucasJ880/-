@@ -37,6 +37,8 @@ export const NOTIFICATION_TYPE_KEYS = [
   "rfq_reply_received",
   "rfq_chase_ready",
   "rfq_no_response",
+  // MAIL-2：已建档客户的来信（只发给勾选了「客户来信提醒」的邮箱主人）
+  "mail_inbound",
 ] as const;
 
 export type NotificationTypeKey = (typeof NOTIFICATION_TYPE_KEYS)[number];
@@ -72,6 +74,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   rfq_reply_received: "供应商回信（无报价）",
   rfq_chase_ready: "催单待批",
   rfq_no_response: "供应商未响应",
+  mail_inbound: "客户来信",
 };
 
 /** 类型名称；没有登记名称的类型统一叫「其他通知」 */
