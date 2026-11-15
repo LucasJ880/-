@@ -113,6 +113,7 @@ run_test "Agent Runtime V2 Durable State" "npx tsx src/lib/agent-runtime-v2/__te
 run_test "Agent Runtime V2 Verifier/Security" "npx tsx src/lib/agent-runtime-v2/__tests__/verifier-security.test.ts"
 run_test "Agent Runtime V2 Golden Flow" "npx tsx src/lib/agent-runtime-v2/__tests__/golden-flow.test.ts"
 run_test "Agent Runtime V2 Preview Gate P0" "npx tsx src/lib/agent-runtime-v2/__tests__/preview-gate-p0.test.ts"
+run_test "Agent Runtime V2 legacy 跟进写工具安全（提醒时间 fail-closed / 中性邮件模板）" "npx tsx src/lib/agent-runtime-v2/__tests__/legacy-followup-safety.test.ts"
 # Workforce Phase 2A（DB 测试：仅 NODE_ENV=test + 隔离测试库时真正执行，否则自动跳过）
 run_test "Workforce 2A Job Identity/Restore/Metadata" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-job-identity.test.ts"
 run_test "Workforce 2A Lease/Reclaim/Exhaustion" "npx tsx src/lib/workforce-runtime/__tests__/phase2a-lease.test.ts"
@@ -252,6 +253,8 @@ run_test "路由级可见性门（VIS-1a）" "npx tsx src/lib/navigation/__tests
 run_test "入口判定与路由门同源（VIS-1b）" "npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts"
 # NAV-1a（openspec change nav-1a-single-name）：一个入口一个名字——注册表名称与翻译表一致、三处共用取名函数、页面大标题与站内文字，纯函数 + 源码断言，无 DB
 run_test "入口名称单一来源（NAV-1a）" "npx tsx src/lib/navigation/__tests__/entry-naming.test.ts"
+# NAV-1b（openspec change nav-1b-focused-sidebar-task-help）：侧栏「常用 + 更多」两段式——判定真值表、常用顺序、更多分组、入口集合不变，纯函数 + 源码断言，无 DB
+run_test "侧栏常用 + 更多两段式（NAV-1b）" "npx tsx src/lib/navigation/__tests__/trade-layout.test.ts"
 run_test "审批的可见集合（VIS-1d）" "npx tsx src/lib/approval/__tests__/audience.test.ts"
 run_test "审批的可见集合 DB 端到端（VIS-1d；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/approval/__tests__/audience-db.isolated.test.ts"
 run_test "以岗位预览（VIS-1e）" "npx tsx src/lib/preview/__tests__/preview.test.ts"
@@ -292,6 +295,8 @@ run_test "Autopilot A2-P2.2 Semantic Judge Gate" "npx tsx src/lib/autopilot/__te
 run_test "Autopilot A2-P2.2 Grounded Semantic Judge" "npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge.test.ts"
 run_test "Autopilot A2-P2.3 Recovery Planner" "npx tsx src/lib/autopilot/__tests__/a2p2-recovery-select.test.ts"
 run_test "Autopilot A2-P2.3 Auto Recovery Loop" "npx tsx src/lib/autopilot/__tests__/a2p2-recovery-loop.test.ts"
+run_test "Autopilot A2-P2.4 Exception Envelope" "npx tsx src/lib/autopilot/__tests__/a2p2-exception-envelope.test.ts"
+run_test "Autopilot A2-P2.4 A2 Closure Matrix" "npx tsx src/lib/autopilot/__tests__/a2p2-a2-closure-matrix.test.ts"
 run_test "Autopilot A2-P0 Isolated E2E" "npx tsx src/lib/autopilot/__tests__/evaluate-e2e.isolated.test.ts"
 run_test "Navigation Active Matcher" "npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts"
 run_test "Workspace Policy" "npx tsx src/lib/rbac/__tests__/workspace-policy.test.ts"
@@ -635,6 +640,8 @@ run_test "招标询价 自动起草第 1 轮 DB 端到端（隔离库执行，�
 run_test "招标询价 自动起草带跟进授权的个人开关：读写（RFQ-AUTO-3）" "npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts"
 run_test "招标询价 供应商分组：校验、比对与抽屉预选（RFQ-AUTO-5）" "npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts"
 run_test "招标询价 供应商分组 DB（隔离库执行，否则跳过，RFQ-AUTO-5）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts"
+run_test "招标询价 发出之后分析更新过的提示（FLOW-H3）" "npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx"
+run_test "招标询价 发出之后分析更新过的提示 DB（隔离库执行，否则跳过，FLOW-H3）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts"
 run_test "组织设置的写入：守卫——写入方必须经统一入口或自己锁行（FIX-3）" "npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts"
 run_test "组织设置的并发写入互不覆盖 DB（隔离库执行，否则跳过，FIX-3）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts"
 run_test "组织行锁不与外键检查互斥 DB（隔离库执行，否则跳过，FIX-4）" "NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts"

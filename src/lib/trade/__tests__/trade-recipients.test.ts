@@ -149,7 +149,8 @@ for (const key of ["biz-revenue", "biz-revenue-today"]) {
 // ── 压扁纳入 trade 与剩余读点 ──
 ok((COLLAPSIBLE_PLATFORM_ROLES as readonly string[]).includes("trade"), "压扁范围含 trade");
 ok(!(COLLAPSIBLE_PLATFORM_ROLES as readonly string[]).some((r) => ["super_admin", "user"].includes(r)), "压扁范围不含 super_admin / user（PERM-7b 起含 admin）");
-ok(src("src/components/sidebar.tsx").includes("usesTradeLayout(user?.effectiveRole ?? platformRole)"), "侧栏外贸布局按派生角色");
+// NAV-1b：侧栏两段式布局改为按判定输入（模块 + 岗位键），不再读派生角色（spec navigation/focused-sidebar）
+ok(src("src/components/sidebar.tsx").includes("usesFocusedLayout(filterCtx)") && !src("src/components/sidebar.tsx").includes("effectiveRole"), "侧栏两段式布局按判定输入，不读派生角色");
 {
   const onb = src("src/lib/organizations/onboarding.ts");
   ok(onb.includes('const SALES_WORK_KEYS = ["sales.quote.create", "sales.quote.pricing_close", "trade.manage"];'), "入职清单业务员认 trade.manage");

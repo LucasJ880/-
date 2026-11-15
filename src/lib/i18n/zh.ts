@@ -81,7 +81,7 @@ export const zh: Messages = {
   nav_trade_products: "货号",
   nav_trade_chat: "外贸 AI 对话",
   nav_trade_more: "更多",
-  nav_trade_primary: "外贸工作",
+  nav_trade_primary: "常用",
   nav_product_content: "产品内容",
   nav_organizations: "成员与组织",
   nav_projects: "项目列表",

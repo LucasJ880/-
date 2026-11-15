@@ -32,10 +32,15 @@ import {
   type ResolvedNavItem,
 } from "@/lib/navigation";
 import { navEntryLabel } from "@/lib/navigation/entry-label";
-import { partitionTradeNav, usesTradeLayout } from "@/lib/navigation/trade-layout";
+import { partitionFocusedNav, resolveMoreExpanded, usesFocusedLayout } from "@/lib/navigation/trade-layout";
 import { useWechatEntryEnabled } from "@/components/wechat-entry/context";
 
 const TRADE_MORE_STORAGE_KEY = "qingyan-sidebar-trade-more";
+
+/** 分组小标题：12px + 侧栏弱化色（DESIGN.md「侧栏弱化：分组标题」；NAV-1b spec navigation/focused-sidebar「分组小标题清晰可读」） */
+const GROUP_HEADING_CLASS = "px-3 pb-1 pt-1 text-xs font-medium tracking-wide text-sidebar-muted";
+
+type SidebarSection = { key: string; label: string; items: ResolvedNavItem[] };
 
 function subscribeOrgStorage(cb: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -146,15 +151,8 @@ function CollapsibleNav({
   if (collapsed) {
     return (
       <Link
-        href={item.href || (item.key === "trade-more" ? "#" : "/capabilities")}
-        onClick={(e) => {
-          if (!item.href && item.key === "trade-more") {
-            e.preventDefault();
-            onToggle();
-            return;
-          }
-          onNavigate?.();
-        }}
+        href={item.href || "/capabilities"}
+        onClick={onNavigate}
         className={cn(
           "flex min-h-9 items-center justify-center rounded-md px-0 py-2 transition-colors",
           // 折叠态父级：有活跃后代时仅中性强调，不用叶子绿色
@@ -173,15 +171,8 @@ function CollapsibleNav({
     <div className="space-y-px">
       <div className="flex items-center gap-0.5">
         <Link
-          href={item.href || (item.key === "trade-more" ? "#" : "/capabilities")}
-          onClick={(e) => {
-            if (!item.href && item.key === "trade-more") {
-              e.preventDefault();
-              onToggle();
-              return;
-            }
-            onNavigate?.();
-          }}
+          href={item.href || "/capabilities"}
+          onClick={onNavigate}
           className={cn(
             "flex min-h-9 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
             // 父级分组：永不使用叶子绿色 active；仅中性色 + chevron 展开
@@ -221,6 +212,46 @@ function CollapsibleNav({
   );
 }
 
+/** 两段式布局里的「更多」开关行；侧栏收窄为图标栏时只显示图标 */
+function MoreToggle({
+  collapsed,
+  expanded,
+  label,
+  onToggle,
+}: {
+  collapsed: boolean;
+  expanded: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      title={collapsed ? label : undefined}
+      data-nav-more-toggle
+      className={cn(
+        "flex min-h-9 w-full items-center gap-2.5 rounded-md text-[13px] font-medium text-white/60 transition-colors hover:bg-sidebar-hover hover:text-white/85",
+        collapsed
+          ? "mt-2 justify-center border-t border-white/[0.06] px-0 pb-2 pt-3"
+          : "mt-3 px-2.5 py-2",
+      )}
+    >
+      <MoreHorizontal size={16} className="shrink-0" />
+      {!collapsed && (
+        <>
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+          <ChevronDown
+            size={14}
+            className={cn("shrink-0 text-white/35 transition-transform", expanded && "rotate-180")}
+          />
+        </>
+      )}
+    </button>
+  );
+}
+
 const GROUP_RENDER_ORDER: NavigationGroup[] = [
   "WORK",
   "OPERATIONS",
@@ -256,8 +287,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   // PERM-4c2：岗位模式（窗饰企业导航按岗位键）
   const [positionMode, setPositionMode] = useState(false);
   const [capExpanded, setCapExpanded] = useState<boolean | null>(null);
-  // 外贸员「更多」默认折叠，展开状态按浏览器记忆
+  // 「更多」默认折叠，展开状态按浏览器记住
   const [tradeMoreExpanded, setTradeMoreExpanded] = useState(false);
+  // 用户在某个页面手动点过「更多」开关后的结果；换页面即失效（spec「当前页面在更多里时自动展开」）
+  const [moreManual, setMoreManual] = useState<{ path: string; value: boolean } | null>(null);
   useEffect(() => {
     try {
       setTradeMoreExpanded(window.localStorage.getItem(TRADE_MORE_STORAGE_KEY) === "1");
@@ -265,17 +298,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       /* ignore */
     }
   }, []);
-  const toggleTradeMore = () => {
-    setTradeMoreExpanded((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(TRADE_MORE_STORAGE_KEY, next ? "1" : "0");
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
 
   const storedOrgId = useSyncExternalStore(
     subscribeOrgStorage,
@@ -400,41 +422,91 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     })).filter((g) => g.items.length > 0);
   }, [resolved]);
 
-  // PERM-6c：外贸两段式布局按岗位派生平台角色（压扁后外贸业务员的 role 是 user、effectiveRole 是 trade）
-  const tradeLayout = usesTradeLayout(user?.effectiveRole ?? platformRole);
-  const tradePartition = useMemo(
-    () => (tradeLayout ? partitionTradeNav(resolved) : null),
-    [tradeLayout, resolved],
+  // NAV-1b：两段式布局只看判定输入（spec navigation/focused-sidebar），与 /help 共用同一条判定
+  const focusedLayout = usesFocusedLayout(filterCtx);
+  const focusedPartition = useMemo(
+    () => (focusedLayout ? partitionFocusedNav(resolved) : null),
+    [focusedLayout, resolved],
+  );
+  const activeInMore = useMemo(
+    () =>
+      focusedPartition?.moreGroups.some((g) =>
+        g.items.some((i) => i.active || i.children?.some((c) => c.active)),
+      ) ?? false,
+    [focusedPartition],
+  );
+  const moreExpanded = resolveMoreExpanded({
+    remembered: tradeMoreExpanded,
+    activeInMore,
+    manualOnThisPage: moreManual?.path === pathname ? moreManual.value : null,
+  });
+  const toggleMore = () => {
+    const next = !moreExpanded;
+    setMoreManual({ path: pathname, value: next });
+    setTradeMoreExpanded(next);
+    try {
+      window.localStorage.setItem(TRADE_MORE_STORAGE_KEY, next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // 全量布局：按分组；两段式：第一段「常用」，其余分组收在「更多」里
+  const sections = useMemo<SidebarSection[]>(() => {
+    if (focusedPartition) {
+      return [{ key: "focused-primary", label: m.nav_trade_primary, items: focusedPartition.primary }];
+    }
+    return grouped.map((g) => ({ key: g.group, label: g.label, items: g.items }));
+  }, [grouped, focusedPartition, m]);
+  const moreSections = useMemo<SidebarSection[]>(
+    () =>
+      focusedPartition?.moreGroups.map((g) => ({
+        key: `more-${g.group}`,
+        label: g.label,
+        items: g.items,
+      })) ?? [],
+    [focusedPartition],
   );
 
-  const sections = useMemo(() => {
-    if (tradePartition) {
-      // 外贸员：核心动作面 + 一个可折叠「更多」（配置/通用工作区项）
-      const moreItem: ResolvedNavItem = {
-        key: "trade-more",
-        label: "更多",
-        labelKey: "nav_trade_more",
-        icon: MoreHorizontal,
-        group: "BUSINESS",
-        collapsible: true,
-        displayOrder: 999,
-        expanded: false,
-        active: false,
-        children: tradePartition.secondary,
-      };
-      const groups = [
-        { group: "BUSINESS" as NavigationGroup, items: tradePartition.primary, label: m.nav_trade_primary },
-      ];
-      if (tradePartition.secondary.length > 0) {
-        groups.push({ group: "BUSINESS" as NavigationGroup, items: [moreItem], label: m.nav_trade_more });
-      }
-      return [{ label: m.nav_trade_primary, groups }];
-    }
-    return grouped.map((g) => ({
-      label: g.label,
-      groups: [g],
-    }));
-  }, [grouped, tradePartition, m]);
+  const renderSection = (section: SidebarSection, withTopGap: boolean) =>
+    section.items.length === 0 ? null : (
+      <div
+        key={section.key}
+        className={cn(
+          "space-y-px",
+          withTopGap &&
+            (collapsed ? "mt-2 border-t border-white/[0.06] pt-2" : "mt-4"),
+        )}
+      >
+        {!collapsed && <p className={GROUP_HEADING_CLASS}>{section.label}</p>}
+        {section.items.map((item) =>
+          item.collapsible && item.children?.length ? (
+            <CollapsibleNav
+              key={item.key}
+              item={item}
+              collapsed={collapsed}
+              onNavigate={onNavigate}
+              pendingCount={pendingCount}
+              manualExpanded={item.key === "capabilities" ? capExpanded : null}
+              onToggle={() => {
+                setCapExpanded((prev) => {
+                  const current = prev ?? item.expanded;
+                  return !current;
+                });
+              }}
+            />
+          ) : (
+            <NavLink
+              key={item.key}
+              item={item}
+              collapsed={collapsed}
+              onNavigate={onNavigate}
+              pendingCount={pendingCount}
+            />
+          ),
+        )}
+      </div>
+    );
 
   return (
     <aside
@@ -464,67 +536,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-2 py-1.5">
-        {sections.map((section, si) => (
-          <div
-            key={section.label + si}
-            className={cn(
-              "space-y-px",
-              si > 0 &&
-                (collapsed
-                  ? "mt-2 border-t border-white/[0.06] pt-2"
-                  : "mt-4"),
-            )}
-          >
-            {!collapsed && (
-              <p className="px-3 pb-1 pt-1 text-[10px] font-medium tracking-wide text-white/30">
-                {section.label}
-              </p>
-            )}
-            {section.groups.map((g) =>
-              g.items.map((item) =>
-                item.collapsible && item.children?.length ? (
-                  <CollapsibleNav
-                    key={item.key}
-                    item={item}
-                    collapsed={collapsed}
-                    onNavigate={onNavigate}
-                    pendingCount={pendingCount}
-                    manualExpanded={
-                      item.key === "trade-more"
-                        ? tradeMoreExpanded
-                        : item.key === "capabilities"
-                          ? capExpanded
-                          : null
-                    }
-                    onToggle={() => {
-                      if (item.key === "trade-more") {
-                        toggleTradeMore();
-                        return;
-                      }
-                      setCapExpanded((prev) => {
-                        const current = prev ?? item.expanded;
-                        return !current;
-                      });
-                    }}
-                  />
-                ) : (
-                  <NavLink
-                    key={item.key}
-                    item={item}
-                    collapsed={collapsed}
-                    onNavigate={onNavigate}
-                    pendingCount={pendingCount}
-                  />
-                ),
-              ),
-            )}
-          </div>
-        ))}
+        {sections.map((section, si) => renderSection(section, si > 0))}
+        {moreSections.length > 0 && (
+          <>
+            <MoreToggle
+              collapsed={collapsed}
+              expanded={moreExpanded}
+              label={m.nav_trade_more}
+              onToggle={toggleMore}
+            />
+            {moreExpanded && moreSections.map((section, si) => renderSection(section, si > 0 || collapsed))}
+          </>
+        )}
       </nav>
 
       <div className="border-t border-white/[0.06] px-2 py-2">
         {!collapsed && (
-          <p className="px-2.5 pb-1 text-[10px] font-medium text-white/25">
+          <p className="px-2.5 pb-1 text-xs font-medium text-sidebar-muted">
             {m.nav_group_system}
           </p>
         )}

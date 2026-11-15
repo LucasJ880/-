@@ -424,6 +424,7 @@ export function ProjectInquirySection({ projectId, orgId, canManage }: Props) {
                     timeZone={ready.timeZone}
                     elapsed={engine.elapsed}
                     autoIngest={ready.autoIngest}
+                    analysisUpdateNote={ready.analysisUpdateNotes?.[r.id]?.noteZh ?? null}
                   />
                 )}
                 {isOpen && (

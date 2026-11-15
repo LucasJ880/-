@@ -14,9 +14,11 @@ type Props = {
   timeZone: string;
   elapsed: string | null;
   autoIngest: UserMessage;
+  /** FLOW-H3：起草之后招标分析更新过时的提示；没有为 null / 不传 */
+  analysisUpdateNote?: string | null;
 };
 
-export function RfqRoundStatusLine({ items, dueDate, timeZone, elapsed, autoIngest }: Props) {
+export function RfqRoundStatusLine({ items, dueDate, timeZone, elapsed, autoIngest, analysisUpdateNote }: Props) {
   const line = roundStatusLine(items, dueDate, timeZone);
   const waiting = items.some((i) => i.status === "sent");
   return (
@@ -41,6 +43,11 @@ export function RfqRoundStatusLine({ items, dueDate, timeZone, elapsed, autoInge
               </Link>
             </>
           ) : null}
+        </p>
+      ) : null}
+      {analysisUpdateNote ? (
+        <p className="text-amber-800" data-testid="rfq-analysis-update-note">
+          {analysisUpdateNote}
         </p>
       ) : null}
     </div>
