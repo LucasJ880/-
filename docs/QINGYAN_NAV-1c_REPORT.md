@@ -78,7 +78,9 @@ change：`nav-1c-reply-entry`（任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TA
 | `git diff --stat main -- prisma vercel.json ci/test-registry-baseline.txt` | 无输出 |
 | `openspec validate nav-1c-reply-entry --strict` | valid |
 
-写这份报告时 main 的 `test:ci` 本身是红的：`legacy-followup-safety.test.ts` 的假事务缺 `createManyAndReturn`（#224 的测试遇上 FIX-5 #448 的实现），与本 change 无关，修复在 #471。上表的 `test:ci` 与 `npm test` 是在「本分支 + #471 的修复」上跑的。
+写这份报告时 main 的 `test:ci` 本身是红的：`legacy-followup-safety.test.ts` 的假事务缺 `createManyAndReturn`（#224 的测试遇上 FIX-5 #448 的实现），与本 change 无关，修复在 #471（#469 修的是同一处，合其一即可）。上表的 `test:ci` 与 `npm test` 是在「本分支 + #471 的修复」上跑的；修复合进 main 之前，本 PR 的 CI 会在那一个测试处红。
+
+本 PR 的分支从 main `8c20824a` 起（不含尚未合并的 NAV-1b 归档 #466）。搬过来之后重跑了 `reply-entry`、`entry-visibility`、`trade-recipients`、`inbox-service`、`trade-access`、`trade-layout`、`entry-naming`、测试注册校验、`npm run typecheck` 与 `openspec validate --strict`，都通过。
 
 specs 的 11 条要求与 `entry-visibility` 的 1 条修改，每个场景都有对应的断言（`/opsx:verify` 逐条对过）：解析规则、时间线文字、主题预填、按钮三选一、原文块在输入框之前、打开不等于发送、审批面链接——在 `reply-entry.test.ts`；跨企业不泄露、超出窗口也能取到、找不到统一 404、权限与只读、手写回复的留底与草稿作废、窗饰销售看不到目标——在隔离库测试里用真实的进线、回复接口与外发同步跑通。
 
@@ -104,6 +106,7 @@ specs 的 11 条要求与 `entry-visibility` 的 1 条修改，每个场景都�
 ## 7. 上线注意
 
 - 合并即生效，没有开关，没有数据迁移；回滚 = revert。
+- **归档要等 #466（NAV-1b 归档）先合并**：本 change 改的那条要求「『我想做什么』的外贸内容」是 NAV-1b 归档时才进主规格的，`openspec validate` 已提示在那之前归档会被拒。合并本 PR 本身不受影响。
 - **没有在真实发信环境里验过「发送邮件」**。本机没有配置发信，隔离库测试走的是「已在别处发送，标记」那条分支（同一个接口、同一套留底与外发同步）。建议在 staging 用内部邮箱走一遍：
   1. 用梦馨「老板 + 外贸业务员」的测试账号，从官网表单提交一条测试询盘（收件邮箱填内部邮箱）。
   2. 客户与商机 → 打开这位客户 → 互动时间线 → 点「回复」。确认到了询盘收件箱、窗口上方是刚才的留言。
