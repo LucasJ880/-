@@ -564,6 +564,7 @@ run_test "情报运维 价格带对标+公告盯梢" "npx tsx src/lib/tender-int
 run_test "批次二 抽取分类学扩容" "npx tsx src/lib/tender-understanding/__tests__/taxonomy-p2.test.ts"
 run_test "合规矩阵可用性批次" "npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts"
 run_test "报价表助手 计算与推导" "npx tsx src/lib/tender-pricing/__tests__/pricing-helper.test.ts"
+run_test "FIX-8 报价表助手保存保留报价引擎镜像的我方报价 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-save-db.isolated.test.ts"
 run_test "RFI 问题清单导出" "npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts"
 run_test "投标文件起草" "npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts"
 run_test "合规记忆" "npx tsx src/lib/tender-compliance-memory/__tests__/compliance-memory.test.ts"
