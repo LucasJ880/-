@@ -103,6 +103,11 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 - 否决：必填的第二个参数——见上。否决：为此改黄金测试文件的调用——违反「158 条黄金用例与其测试文件不改」。否决：改成单个 `ctx` 对象入参——同样要改黄金测试文件，且六个调用点全部重写。
 - 代价：漏传不再是编译错误，改由源码断言（SRC-05）兜住；新增调用点时断言里的计数会失败，提醒补上。
 
+### D4a 报价 PDF 的 Valance 列显示生效罩型（apply 走查后追加，Lucas 2026-11-15 拍板）
+- 起因：走查 ⑤ 发现行上留空、靠表底部 Valance Type 加价的 Roller 行，PDF 上 Valance 列是「—」而金额含罩盒加价——客户看到的罩型与收的钱对不上。
+- 做法：`quote-pdf.ts` Shades 表该列由 `l.valance || "—"` 改为 `effectiveShadeValance(l.valance, input.shadeValanceType) || "—"`，对所有 Shades 产品一致（Zebra 等的罩型不进定价，但工艺单同样按生效罩型做）。页面表格的行上 Valance 按钮不变。
+- 否决：只对 Roller 行显示生效罩型——同一张 PDF 里两种规则，且 Zebra 行的工艺单也是按表底部取的。否决：在 PDF 另加一行打印表底部的 Valance Type——逐行对不上，客户仍要自己推。
+
 ### D5 行构造抽成 `src/app/(main)/sales/quote-sheet/order-items.ts` 的纯函数
 - 做法：把 `handleSave` 里 `// Shades` 到 `// Drapes` 三段原样搬进 `buildOrderFormItems({ shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shadeValanceType })`，返回 `QuoteItemInput[]`；只改两处取键（`shadeLinePricingFabric(l, effectiveShadeValance(l.valance, shadeValanceType))`、`shutterPricingFabric(shutterMaterial)`）。百叶窗行 `fabric` 为定价键（`Wood` / `Vinyl`），`sku` 仍是表单材质（`Wooden` / `Vinyl`）——与 Roller 行「`fabric` 是定价键、`sku` 是销售选的值」一致。其余字段、跳过规则、Drapes 两段逐字不变。`page.tsx` 改为调用它，并删掉对 `skuToPricingFabric` 的直接引用。
 - 放在页面目录而不是 `src/lib`：它消费的是页面的表单行类型（`ShadeOrderLine` 等定义在同目录 `types.ts`）；`src/lib` 下的测试引用页面目录代码已有先例（`src/lib/sales/__tests__/*-db.isolated.test.ts`）。

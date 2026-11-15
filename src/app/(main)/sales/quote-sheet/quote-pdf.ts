@@ -44,6 +44,7 @@ import {
   type DiscountsOverride,
 } from "./pricing-helpers";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
+import { effectiveShadeValance } from "@/lib/blinds/order-form-pricing";
 import {
   DEFAULT_MIN_INSTALL_FEE,
   DEFAULT_DELIVERY_FEE,
@@ -868,7 +869,8 @@ export async function exportQuotePdf(
           ]
             .filter(Boolean)
             .join("/"),
-          l.valance || "—",
+          // 生效罩型（行上 → 表底部 Valance Type），与该行计价、工艺单同一个取值
+          effectiveShadeValance(l.valance, input.shadeValanceType) || "—",
           `$${p!.merch.toFixed(2)}`,
           `$${p!.install.toFixed(2)}`,
           `$${p!.total.toFixed(2)}`,

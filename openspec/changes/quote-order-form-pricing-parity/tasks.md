@@ -10,6 +10,8 @@
 
 - [x] 2.1 `types.ts` 的 `QuoteFormState` 与 `quote-draft.ts` 的 `QuoteDraftV1` 加可选 `orderPricingRev`；`page.tsx` 持有「载入时的标记」（新建 = 2，`applyFormState` 载入时取值、缺省 1），保存写 2、保存成功后置 2，草稿原样带；按 `needsWoodRepriceNotice` 在表单顶部渲染提醒（文案见 design D6，含本单百叶窗金额与「知道了」按钮，不拦保存）；删除 `order-shutters.tsx` 的「set price manually in Part B」横幅；对照测试补「草稿 / 表单数据带标记往返」与「横幅文案已不在源码」两条；verify：对照测试全过，typecheck 退出 0，`git diff --stat origin/main -- prisma/` 为空
 
+- [x] 2.2 报价 PDF 的 Shades 表 Valance 列显示生效罩型（design D4a；走查后追加）：`quote-pdf.ts` 该列改用 `effectiveShadeValance(l.valance, input.shadeValanceType)`，两处都空显示「—」；对照测试加源码断言 SRC-10；verify：对照测试全过，typecheck 退出 0；用页面的同一个 PDF 模块生成三份 PDF（行上留空 + 表底部 Cassette / 行上 None + 表底部 Cassette / 两处都空），`pdftotext` 抽出的 Roller 行 Valance 列分别为 `Cassette` / `None` / `—`，Merch 为 `$271.88` / `$221.88` / `$221.88`
+
 ## 3. 收口
 
 - [x] 3.1 全量门禁与页面走查。命令：`npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`bash scripts/check-test-registry.sh`、`npm test`（依赖数据库的失败项逐个与 origin/main 对照）、`openspec validate quote-order-form-pricing-parity --strict`、`git diff --stat origin/main -- prisma/ vercel.json` 为空。走查（隔离库 + `next start` + Playwright，截图存 `docs/acceptance/quote-1a/`）：① Roller `CABO-WHITE-BO` 55" × 72"，行上 None → $221.88、Cassette → $271.88、Fascia → $271.88；② 行上留空、表底部选 Cassette → $271.88，保存后库里该行 `fabric` 为 `Blackout w Cassette`，生成的工艺单草稿罩盒为「亮白插片圆盒」；③ 材质 Wooden 72" × 60" → $1,172.22、无旧横幅，保存后有一条 `fabric = Wood` 的 Shutters 报价行；切 Vinyl → $701.29；④ 用改动前的代码存一张 Wooden + Part B 自定义行的报价，换到本分支打开 → 顶部出现提醒且含百叶窗金额，库里金额未变；保存后 `formDataJson.orderPricingRev` 为 2、再打开无提醒；⑤ 导出 PDF，带罩 Roller 行与实木行金额与页面一致；⑥ 已签约报价再次保存仍进入签约后改金额的审批；verify：以上命令退出 0，六项走查的截图与数字齐全（实际：`npm test` 629 / 642，13 项失败与 main 同环境逐项对照均同样失败；走查用 `next dev`，④⑤⑥ 的做法与出入见报告 §5）

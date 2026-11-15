@@ -12,6 +12,7 @@ TASKFLOW：QUOTE-1a（`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase Q）。
 - **BREAKING（金额）** 定生效罩型为「行上 Valance，行上为空时取 Shades 表底部的 Valance Type」，与工艺单取罩盒的口径相同（Lucas 2026-11-15 拍板「同口径」）；定价与工艺单读同一个取值。
 - **BREAKING（金额）** 让表单材质 `Wooden` 的百叶窗行按价表键 `Wood` 计价；表单、PDF、工艺单上的 `Wooden` 字样不改。
 - 把「表单行 → 定价键」收进一个纯函数，把保存时的行构造从页面组件里抽成一个纯函数；页面预览、报价 PDF、保存提交三处只经这两个函数取键，不再各写一份。
+- 让报价 PDF 的 Shades 表 Valance 列显示生效罩型（行上为空时显示表底部的 Valance Type），不再只显示行上的值（Lucas 2026-11-15 走查后拍板）。
 - 删除 Shutters 表下方「Wooden shutters pricing data is not available … set price manually in Part B」横幅。
 - 给按新口径保存的表单数据写标记 `formDataJson.orderPricingRev: 2`；打开没有该标记、材质为 Wooden 且有可计价百叶窗行的已存报价或本地草稿时，页面顶部提示「实木百叶窗现已自动计价，请检查 Part B 并删除手填的百叶窗价格」（Lucas 2026-11-15 拍板取 B）。
 - 新增对照测试 `src/lib/blinds/__tests__/order-form-pricing-parity.test.ts`，走「表单行 → 行构造 → 企业默认折扣 → 引擎」完整路径，并断言预览金额 = 保存金额；与实现同一个 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
@@ -23,7 +24,7 @@ TASKFLOW：QUOTE-1a（`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase Q）。
 （无）
 
 ### Modified Capabilities
-- `sales/price-list`：新增六条要求——详细订单 Roller 行罩型计价、定价罩型与工艺单同一取值、详细订单实木百叶窗计价、预览 / PDF / 保存金额一致、口径标记与实木旧报价提醒、已存报价不重算。既有要求（含「老产品定价不变」「黄金用例对照」）不改。
+- `sales/price-list`：新增七条要求——详细订单 Roller 行罩型计价、定价罩型与工艺单同一取值、报价 PDF 显示生效罩型、详细订单实木百叶窗计价、预览 / PDF / 保存金额一致、口径标记与实木旧报价提醒、已存报价不重算。既有要求（含「老产品定价不变」「黄金用例对照」）不改。
 
 ## Impact
 

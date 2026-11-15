@@ -1,7 +1,7 @@
 # QUOTE-1a 报告 — 详细订单定价口径对齐（Roller 罩型进定价 / 实木百叶窗能算价）
 
-change：`openspec/changes/quote-order-form-pricing-parity/`。规格增量：`sales/price-list` 新增 6 条；design D1–D7；tasks 6 / 6。
-任务书：`docs/QINGYAN_QUOTE-1_QUOTE_FILE_IMPORT_TASKBRIEF.md`（Why 表 a、c；判断点 3）。拍板：判断点 3「做」；罩型「与工艺单同口径」、实木旧报价「取 B（提醒）」（Lucas 2026-11-15）；判断点 1（Door Screen Sheer）未拍板，本次未做。
+change：`openspec/changes/quote-order-form-pricing-parity/`。规格增量：`sales/price-list` 新增 7 条；design D1–D7（含 D4a）；tasks 7 / 7。
+任务书：`docs/QINGYAN_QUOTE-1_QUOTE_FILE_IMPORT_TASKBRIEF.md`（Why 表 a、c；判断点 3）。拍板：判断点 3「做」；罩型「与工艺单同口径」、实木旧报价「取 B（提醒）」、PDF 显示生效罩型（Lucas 2026-11-15）；判断点 1（Door Screen Sheer）未拍板，本次未做。
 零 schema：新数据只有 `formDataJson.orderPricingRev`；`git diff --stat origin/main -- prisma/ vercel.json` 为空。无出站、无 LLM、无新 cron / 队列。
 
 ## 1. 做了什么
@@ -11,6 +11,7 @@ change：`openspec/changes/quote-order-form-pricing-parity/`。规格增量：`s
 | 详细订单 Roller 行，行上 Valance = Cassette / Fascia | 定价键只按 SKU 后缀取，按 Open Roll 计价（55" × 72" 遮光 $221.88） | 定价键 = 基础面料 + 罩型，带罩加 25（宽 < 50"）/ 50（宽 ≥ 50"）（$271.88） |
 | 行上 Valance 留空、表底部 Valance Type 选了 Cassette / Fascia | 工艺单做罩盒，报价按无罩 | 定价与工艺单读同一个取值（行上 → 表底部 → 无），同样加价 |
 | 百叶窗材质 Wooden | 表单材质原样当价表键，报「Pricing … is not set yet」，该行不计价、不落库；页面提示「去 Part B 手填」 | 按价表 `Wood` 表计价（72" × 60" 为 $1,172.22 + 安装 $54）；提示横幅已删；表单 / PDF / 工艺单仍写 Wooden |
+| 报价 PDF 的 Shades 表 Valance 列 | 只显示行上的值；行上留空、靠表底部加价的行显示「—」而金额含罩盒加价 | 显示生效罩型（行上 → 表底部），两处都空才是「—」 |
 | 取键的地方 | 页面保存（组件里内联）、页面预览、PDF 各自从 SKU / 材质推 | 一个纯函数模块取键；保存时的行构造抽成一个纯函数；预览、PDF、保存都经它们 |
 | 打开改动前保存的实木报价 / 草稿 | — | 表单顶部提醒「实木百叶窗现已自动计价（本单百叶窗 $X）…请检查 Part B，删除手填的百叶窗价格」，不拦保存；按新口径保存一次后不再提醒 |
 | 已存报价 | — | 不重算、不回填；打开时预览按新口径，库里金额在再次保存前不变 |
@@ -24,11 +25,11 @@ change：`openspec/changes/quote-order-form-pricing-parity/`。规格增量：`s
 | `src/app/(main)/sales/quote-sheet/order-items.ts`（新） | `buildOrderFormItems`：从 `page.tsx` `handleSave` 原样搬出的行构造，只改两处取键 |
 | `quote-sheet/pricing-helpers.ts` | Shades / Shutters 预览经同一取值；`computeShadeLinePrice` / `sumShadeTotals` / `sumAllMsrp` 加末位参数 `formValance`；改掉过时注释 |
 | `quote-sheet/page.tsx` | 保存改为调 `buildOrderFormItems`；小计 / MSRP / PDF 输入带表底部罩型；口径标记读写；提醒横幅 |
-| `quote-sheet/order-shades.tsx`、`quote-pdf.ts` | 计价调用带表底部罩型 |
+| `quote-sheet/order-shades.tsx`、`quote-pdf.ts` | 计价调用带表底部罩型；PDF 的 Valance 列显示生效罩型 |
 | `quote-sheet/order-shutters.tsx` | 删除「set price manually in Part B」横幅 |
 | `quote-sheet/types.ts`、`quote-draft.ts` | 可选字段 `orderPricingRev` |
 | `src/lib/sunny-process/quote-mapping.ts` | 罩型取值改为调 `effectiveShadeValance`（输出不变） |
-| `src/lib/blinds/__tests__/order-form-pricing-parity.test.ts`（新） | 71 条断言；已注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh` |
+| `src/lib/blinds/__tests__/order-form-pricing-parity.test.ts`（新） | 72 条断言；已注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh` |
 
 未动（`git diff --stat origin/main` 为空）：`config/pricelist/**`、`pricelist-2026-10-golden.test.ts`、`pricing-engine.ts`、`pricing-data.ts`、`discount-settings.ts`、`sku-catalog.ts`、`quotes/route.ts`、`quote-update.ts`、`part-a.tsx`、`rough-quote-panel.tsx`、`prisma/`、`vercel.json`。
 
@@ -63,7 +64,7 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 
 | 命令 | 基线 | 结果 |
 |---|---|---|
-| `npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts` | （新） | `结果：71 通过，0 失败` |
+| `npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts` | （新） | `结果：72 通过，0 失败` |
 | `npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts` | `MUST_MATCH 158 条（断言 787，失败 0）；DEFERRED 0 条` | 相同 |
 | `npx tsx src/lib/blinds/__tests__/valance-options.test.ts` | 13 通过 | 13 通过 |
 | `npx tsx src/lib/blinds/__tests__/quote-fees.test.ts` / `cost-rates.test.ts` | 通过 | 通过 |
@@ -74,13 +75,13 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 | `bash scripts/check-test-registry.sh` | — | `OK 测试注册校验通过：已注册 617 个；历史欠账基线剩余 68 条（只减不增）` |
 | `openspec validate quote-order-form-pricing-parity --strict` | — | `Change 'quote-order-form-pricing-parity' is valid` |
 | `git diff --stat origin/main -- prisma/ vercel.json config/pricelist/ src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts src/lib/blinds/pricing-engine.ts src/lib/blinds/discount-settings.ts` | — | 空 |
-| `npm test`（无数据库，依赖库的项自行跳过） | — | `测试结果: 629/642 通过, 13 失败`；新测试在其中通过（71 / 0）。13 项失败逐项在 main `a747467` 的工作树里用同样的环境重跑，**全部同样失败**，都不涉及本次改动的文件（清单见下） |
+| `npm test`（无数据库，依赖库的项自行跳过） | — | `测试结果: 629/642 通过, 13 失败`；新测试在其中通过（当时 71 / 0；PDF 罩型一条是之后加的，单独重跑 72 / 0）。13 项失败逐项在 main `a747467` 的工作树里用同样的环境重跑，**全部同样失败**，都不涉及本次改动的文件（清单见下） |
 | 隔离库（本机 Postgres 16）`signed-quote-amount-db.isolated.test.ts` | — | 23 通过，0 失败 |
 | 隔离库 `quote-settings-db.isolated.test.ts` | — | 54 通过，0 失败 |
 
 `npm test` 的 13 项失败（本机无 `DATABASE_URL`、无 OAuth 配置；main 上同样失败）：Agent Trace 只读查询；Gmail Draft OAuth Compose Scope；Governance Hygiene Gate / Concurrency Gate；Phase3A-2 Ledger DB / Smoke Access；Phase3A-3 Approvals Smoke；Phase3A-4 Governance Smoke / Acceptance；Phase3A-5 Settle DB / Overview Acceptance；T4 授标情报真实 Postgres 矩阵；Quote Operations 客户报价 PDF 分页布局（`scripts/quotation-pdf-layout-e2e.ts`，页脚断言 S-4 / M-2，是另一套对客报价 PDF，不是详细订单的 `quote-pdf.ts`）。
 
-对照测试的六组：① 定价键（Roller 两个真实 SKU × 行上 4 种 × 表底部 3 种 = 24 键；SKU 本身是完整键；非 Roller 不随罩型变；Wooden → Wood）；② 预览金额（宽 49 / 50 / 55 × 行上 4 种 × 有无无绳 24 行字面量；实木 / Vinyl × Panel 数 1 / 2；超范围仍报错；MSRP 合计）；③ 表单行 → `buildOrderFormItems` → `applyOrgDiscountDefaults` → `calculateQuoteTotal` 与预览逐行比，缺省折扣与 Roller 40% / Shutters 30% 各一轮、每轮 158 行；④ 行上 4 种 × 表底部 3 种 12 组合「含罩盒加价 ⇔ 工艺单罩盒不是单轨无盒」；⑤ 口径标记、提醒判定与文案、草稿往返；⑥ 源码断言 9 条。
+对照测试的六组：① 定价键（Roller 两个真实 SKU × 行上 4 种 × 表底部 3 种 = 24 键；SKU 本身是完整键；非 Roller 不随罩型变；Wooden → Wood）；② 预览金额（宽 49 / 50 / 55 × 行上 4 种 × 有无无绳 24 行字面量；实木 / Vinyl × Panel 数 1 / 2；超范围仍报错；MSRP 合计）；③ 表单行 → `buildOrderFormItems` → `applyOrgDiscountDefaults` → `calculateQuoteTotal` 与预览逐行比，缺省折扣与 Roller 40% / Shutters 30% 各一轮、每轮 158 行；④ 行上 4 种 × 表底部 3 种 12 组合「含罩盒加价 ⇔ 工艺单罩盒不是单轨无盒」；⑤ 口径标记、提醒判定与文案、草稿往返；⑥ 源码断言 10 条。
 
 没有跑：`npm run build`（`next build`）。类型检查通过，页面在 `next dev` 下实际跑过（见下节）。
 
@@ -95,7 +96,7 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 | ③ | 材质 Wooden，72" × 60" | $1,172.22，安装 $54.00；旧横幅不在；新建报价不出现实木提醒。保存后库里有 `Shutters / Wood / Wooden / 1172.22`。切 Vinyl → $701.29 | `03-shutters-wooden.png`、`03b-shutters-vinyl.png` |
 | ④ | 一张改动前口径的实木报价（Part B 自定义行「Wood shutters (manual price)」$1,200） | 存下时：`shell`，报错「Pricing for fabric "Wooden" under "Shutters" is not set yet.」，库里商品 0.00、附加 1200.00、合计 1356.00、无口径标记、无报价行。打开：顶部出现提醒，含「$1,172.22」与「Part B」；库里未变。点「知道了」本次不再显示；不保存重新打开再次提醒。不删 Part B 直接保存：库里商品 1172.22 + 附加 1200.00、合计 2991.35（**这就是 B5 说的重复计价**），标记为 2；本页提醒消失，重新打开不再提醒 | `04-old-wooden-quote-notice.png`、`04b-after-resave-no-notice.png` |
 | ④′ | 一张改动前口径的带罩 Roller 报价（库里 `Blackout (Open Roll)` 221.88） | 打开：页面预览 $271.88，库里未变，不出现实木提醒。保存后库里 `Blackout w Cassette` 271.88，合计 561.47 → 617.97 | — |
-| ⑤ | 用 Q1 落库的 `formDataJson` 生成报价 PDF | Roller 行 `Merch $271.88 / Install $18.00 / Line $289.88`；Shutters（WOODEN）行 `$1172.22 / $54.00 / $1226.22` | — |
+| ⑤ | 用 Q1 落库的 `formDataJson` 生成报价 PDF | Roller 行 `Merch $271.88 / Install $18.00 / Line $289.88`（当时 Valance 列是「—」，已按 §7 改为显示 `Cassette`）；Shutters（WOODEN）行 `$1172.22 / $54.00 / $1226.22` | — |
 | ⑥ | 把一张改动前口径的带罩 Roller 报价标成已签约，打开后直接保存 | 页面发出的 PUT 带 `Roller / Blackout w Cassette`；交给真实路由：`202 {"pending":true,"message":"改价已提交审批，批准后生效"}`，库里仍是 signed / 221.88，生成审批卡 `sales.update_signed_quote / pending` | — |
 
 与 tasks 3.1 字面的出入：
@@ -126,11 +127,17 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 - 生效罩型 = 行上 → 表底部 Valance Type → 无（任务书只写了行上）。
 - 实木旧报价提醒 + 口径标记 `orderPricingRev`（任务书没有）。
 - Door Screen Sheer 不套企业折扣：未做，等判断点 1。对照测试里只断言它的预览 = 保存，不钉口径。
+- 报价 PDF 的 Valance 列显示生效罩型（走查后追加，design D4a、tasks 2.2）。走查 ⑤ 时该列对「行上留空 + 表底部 Cassette」的行显示「—」而金额含罩盒加价；拍板后改为显示生效罩型。用页面的同一个 PDF 模块生成三份 PDF、`pdftotext` 抽出的 Roller 行：
+
+  ```
+  [行上留空 + 表底部 Cassette]  1 Living Roller CABO-WHITE-BO 55 72 Cassette $271.88 $18.00 $289.88
+  [行上 None + 表底部 Cassette] 1 Living Roller CABO-WHITE-BO 55 72 None $221.88 $18.00 $239.88
+  [两处都空]                    1 Living Roller CABO-WHITE-BO 55 72 — $221.88 $18.00 $239.88
+  ```
 - design D4 在 apply 中更正：表底部罩型由「必填的第二个参数」改为末位参数。原因是 `pricelist-2026-10-golden.test.ts` 末尾的本地用例按旧参数顺序调 `computeShadeLinePrice` / `sumAllMsrp`，而测试目录不参加类型检查——插在第二位会让它运行时错位（实测 `sumAllMsrp` 抛错）。黄金测试文件不许动，所以改为末位参数，5 个调用点由源码断言 SRC-05 守住。
 
 ## 8. 已知限制与待定
 
-- **PDF 的 Valance 列只显示行上的值。** 行上留空、靠表底部 Valance Type 加价的行，PDF 上 Valance 是「—」而金额含罩盒加价（走查 ⑤ 的 Roller 行即如此）。金额三处一致，规格没有覆盖这一列的显示；要不要让 PDF 显示生效罩型，请拍板（改动很小，但属于新的对客显示）。
 - SKU 本身是完整定价键且两处 Valance 都空的 Roller 行（只在 SKU 目录加载失败时出现）：定价带罩、工艺单是单轨无盒，保留现状（design D3）。
 - 百叶窗默认材质仍是 Wooden：忘了切 Vinyl 时现在会按更贵的 Wood 表出价而不再报错。
 - 打开旧报价时预览已是新金额，期间看板在该报价再次保存前按旧金额统计。

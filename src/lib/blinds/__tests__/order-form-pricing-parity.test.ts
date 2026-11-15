@@ -310,6 +310,7 @@ console.log("⑥ 源码断言");
   const missing = shadeCalls.filter((c) => !/(valanceType|shadeValanceType)\s*,?\s*\)$/.test(c));
   ok(shadeCalls.length === 5 && missing.length === 0, "SRC-05: 页面 2 处、Shades 表 1 处、PDF 2 处计价调用的最后一个实参都是表底部罩型", { count: shadeCalls.length, missing });
   ok(mapping.includes("effectiveShadeValance(") && !mapping.includes("s(l.valance) || formValance"), "SRC-06: 工艺单罩型取值调用同一个函数");
+  ok(pdf.includes('effectiveShadeValance(l.valance, input.shadeValanceType) || "—"') && !/^\s*l\.valance \|\| "—",/m.test(pdf), "SRC-10: PDF 的 Valance 列显示生效罩型，不再只读行上的值");
   const shutters = read(`${dir}/order-shutters.tsx`);
   ok(!shutters.includes("set price manually in Part B") && !shutters.includes("pricing data is not available"), "SRC-07: Shutters 表不再有「去 Part B 手填」横幅");
   ok(page.includes("orderPricingRev: ORDER_PRICING_REV") && page.includes("orderPricingRev: loadedPricingRev") && page.includes("readOrderPricingRev(d.orderPricingRev)"), "SRC-08: 保存写当前口径标记、草稿带载入时的标记、载入时读标记");

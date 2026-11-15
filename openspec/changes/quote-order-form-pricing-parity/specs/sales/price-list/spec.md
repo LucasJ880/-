@@ -44,6 +44,25 @@
 - **WHEN** 运行 `npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts`，对行上 Valance（空 / None / Cassette / Fascia）× 表底部 Valance Type（空 / Cassette / Fascia）的 12 种组合逐一计价并生成工艺单
 - **THEN** 每种组合都满足「含罩盒加价 ⇔ 工艺单罩盒不是单轨无盒」
 
+### Requirement: 报价 PDF 显示生效罩型
+详细订单导出的报价 PDF 中，Shades 表每一行的 Valance 列 SHALL 显示该行的生效罩型（行上 Valance，行上为空时取表底部的 Valance Type），与该行计价、工艺单取罩盒用的是同一个取值；两处都为空时 SHALL 显示「—」。
+
+#### Scenario: 行上留空、表底部选了 Cassette
+- **WHEN** Roller 行 SKU `CABO-WHITE-BO`、55" × 72"、行上 Valance 为空，表底部 Valance Type = Cassette，导出报价 PDF
+- **THEN** PDF 该行的 Valance 列为 `Cassette`，Merch 为 `$271.88`
+
+#### Scenario: 行上明确选 None
+- **WHEN** 同一行行上 Valance = None，表底部 Valance Type = Cassette
+- **THEN** PDF 该行的 Valance 列为 `None`，Merch 为 `$221.88`
+
+#### Scenario: 两处都没选
+- **WHEN** 一行 Shades 行上 Valance 为空，表底部 Valance Type 未选
+- **THEN** PDF 该行的 Valance 列为「—」
+
+#### Scenario: PDF 的罩型取值与计价同源
+- **WHEN** 运行 `npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts` 的源码断言
+- **THEN** PDF 的 Valance 列由生效罩型取值给出，源码中不再出现只读行上 Valance 的写法
+
 ### Requirement: 详细订单实木百叶窗按价表计价
 详细订单的百叶窗材质为 `Wooden` 时，系统 SHALL 按价表的 `Wood` 表计价并把定价面料 `Wood` 提交给服务端；材质为 `Vinyl` 时的金额 SHALL NOT 变化。表单、报价 PDF 与工艺单上显示的材质 SHALL 仍为 `Wooden`。系统 SHALL NOT 再显示「Wooden shutters pricing data is not available … set price manually in Part B」提示。
 
