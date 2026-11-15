@@ -252,6 +252,8 @@ run_test "路由级可见性门（VIS-1a）" "npx tsx src/lib/navigation/__tests
 run_test "入口判定与路由门同源（VIS-1b）" "npx tsx src/lib/navigation/__tests__/entry-visibility.test.ts"
 # NAV-1a（openspec change nav-1a-single-name）：一个入口一个名字——注册表名称与翻译表一致、三处共用取名函数、页面大标题与站内文字，纯函数 + 源码断言，无 DB
 run_test "入口名称单一来源（NAV-1a）" "npx tsx src/lib/navigation/__tests__/entry-naming.test.ts"
+# NAV-1b（openspec change nav-1b-focused-sidebar-task-help）：侧栏「常用 + 更多」两段式——判定真值表、常用顺序、更多分组、入口集合不变，纯函数 + 源码断言，无 DB
+run_test "侧栏常用 + 更多两段式（NAV-1b）" "npx tsx src/lib/navigation/__tests__/trade-layout.test.ts"
 run_test "审批的可见集合（VIS-1d）" "npx tsx src/lib/approval/__tests__/audience.test.ts"
 run_test "审批的可见集合 DB 端到端（VIS-1d；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/approval/__tests__/audience-db.isolated.test.ts"
 run_test "以岗位预览（VIS-1e）" "npx tsx src/lib/preview/__tests__/preview.test.ts"

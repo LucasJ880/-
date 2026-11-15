@@ -140,10 +140,10 @@ const sidebarItems = (name: IdentityName) => flat(resolveNavigationTree([...NAVI
   ok(/from "@\/lib\/navigation\/entry-label"/.test(drawer) && /navEntryLabel\(/.test(drawer) && !/item\.labelKey\s*&&/.test(drawer), "手机导航抽屉：调取名函数，不再内联拼名称");
   const helpPage = read("src/app/(main)/help/page.tsx");
   const helpName = read("src/app/(main)/help/entry-name.tsx");
-  // 条目的 label 只能作为名称组件的入参出现，不能直接渲染
-  const labelUses = (helpPage.match(/\be\.label\b/g) ?? []).length;
-  const labelProps = (helpPage.match(/label=\{e\.label\}/g) ?? []).length;
-  ok(/<HelpEntryName\b/.test(helpPage) && labelUses === 1 && labelProps === 1, "/help 页面：名称交给名称组件，不直接渲染条目的 label", { labelUses, labelProps });
+  // 入口的 label 只能作为名称组件的入参出现，不能直接渲染（NAV-1b 起页面有两处：「我想做什么」的「点哪里」、「全部入口」）
+  const labelUses = (helpPage.match(/\.label\b(?!Key)/g) ?? []).length;
+  const labelProps = (helpPage.match(/<HelpEntryName label=\{[\w.]+\.label\}/g) ?? []).length;
+  ok(labelProps >= 1 && labelUses - labelProps === (helpPage.match(/g\.label\b/g) ?? []).length, "/help 页面：每一处入口名称都交给名称组件，不直接渲染入口的 label", { labelUses, labelProps });
   ok(/^"use client";/.test(helpName) && /useLocale\(\)/.test(helpName) && /navEntryLabel\(/.test(helpName), "/help 名称组件：客户端组件，按当前界面语言调取名函数");
 
   for (const name of ["mx_cathy", "mx_trade_rep", "sales_rep", "owner", "super_admin"] as const) {

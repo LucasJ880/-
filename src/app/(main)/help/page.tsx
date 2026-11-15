@@ -1,63 +1,84 @@
 import { redirect } from "next/navigation";
-import { buildHelpMap } from "@/lib/navigation/help-map";
+import { buildHelpMap, buildHelpTasks } from "@/lib/navigation/help-map";
 import { loadPageNavigationContext } from "@/lib/navigation/page-context-server";
 import { HelpEntryName } from "./entry-name";
 
 /**
- * 使用说明 · 功能地图（VIS-1b：从当前用户侧栏可见的导航树生成，spec navigation/entry-visibility）
- * 一句说明取自导航注册表；名称经 HelpEntryName 按当前界面语言取，与侧栏同名（NAV-1a，spec navigation/entry-naming）。
+ * 使用说明（VIS-1b：从当前用户侧栏可见的导航生成；NAV-1b：先指路再列全部入口）
+ * spec navigation/entry-visibility：
+ *   - 「我想做什么」：每行绑定一个入口，入口不可见的行不出现，一行都没有时整节不出现；
+ *   - 「全部入口」：分段与顺序同该用户的侧栏（两段式用户先「常用」再「更多」里的各分组）；
+ *   - 入口名称经 HelpEntryName 按当前界面语言取，与侧栏同名（NAV-1a，spec navigation/entry-naming）。
  * 侧栏看不到的入口不在这里出现。
  */
 export default async function HelpPage() {
   const ctx = await loadPageNavigationContext();
   if (!ctx) redirect("/login");
   const groups = buildHelpMap(ctx);
+  const tasks = buildHelpTasks(ctx);
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div>
         <h1 className="text-2xl font-bold">使用说明</h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted">你在侧栏能看到的全部入口，以及每个入口是做什么的。</p>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          {tasks.length > 0 ? "先看『我想做什么』；找不到再看下面的全部入口。" : "你在侧栏能看到的全部入口，以及每个入口是做什么的。"}
+        </p>
       </div>
 
-      <div className="space-y-5">
-        {groups.map((g) => (
-          <section key={g.group} className="overflow-hidden rounded-xl border border-border bg-card-bg">
-            <h2 className="border-b border-border bg-background/50 px-4 py-2 text-xs font-medium text-muted">{g.label}</h2>
+      {tasks.length > 0 && (
+        <section className="space-y-3" aria-labelledby="help-tasks-heading">
+          <h2 id="help-tasks-heading" className="text-base font-semibold">
+            我想做什么
+          </h2>
+          <div className="overflow-hidden rounded-xl border border-border bg-card-bg">
+            <div className="hidden border-b border-border bg-background/50 px-4 py-2 text-xs font-medium text-muted sm:grid sm:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,8fr)] sm:gap-4">
+              <span>我想…</span>
+              <span>点哪里</span>
+              <span>进去后</span>
+            </div>
             <ul className="divide-y divide-border/80">
-              {g.entries.map((e) => (
-                <li key={e.key} className="flex flex-col gap-0.5 px-4 py-2.5 text-sm sm:flex-row sm:items-baseline sm:gap-4">
-                  <span className={e.depth > 0 ? "shrink-0 pl-4 font-medium sm:w-40" : "shrink-0 font-medium sm:w-40"}>
-                    <HelpEntryName label={e.label} labelKey={e.labelKey} href={e.href} />
+              {tasks.map((t) => (
+                <li
+                  key={`${t.entryKey}:${t.want}`}
+                  className="flex flex-col gap-1 px-4 py-2.5 text-sm sm:grid sm:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,8fr)] sm:items-baseline sm:gap-4"
+                >
+                  <span className="font-medium">{t.want}</span>
+                  <span className="font-medium">
+                    <HelpEntryName label={t.entry.label} labelKey={t.entry.labelKey} href={t.entry.href} />
                   </span>
-                  <span className="text-muted">{e.description}</span>
+                  <span className="text-muted">{t.then}</span>
                 </li>
               ))}
             </ul>
-          </section>
-        ))}
-      </div>
+          </div>
+        </section>
+      )}
 
-      <div className="space-y-3 rounded-xl border border-border bg-card-bg px-5 py-4 text-sm">
-        <h2 className="font-semibold">组织与项目</h2>
-        <p className="leading-relaxed text-muted">
-          <strong className="text-foreground">组织</strong>是一级边界：成员与配额在此管理。
-          <strong className="text-foreground">项目</strong>归属在组织下，承载任务、环境、Prompt 与知识库。
-          新建项目前请先在「组织」中创建或加入组织。
-        </p>
-      </div>
-
-      <div className="space-y-2 text-sm text-muted">
-        <p>
-          <span className="font-medium text-foreground">部署：</span>
-          见仓库内{" "}
-          <code className="rounded bg-background px-1 text-[11px]">docs/DEPLOY_VERCEL.md</code>
-        </p>
-        <p>
-          <span className="font-medium text-foreground">发布前手工回归：</span>
-          <code className="rounded bg-background px-1 text-[11px]">docs/QA_P0_CHECKLIST.md</code>
-        </p>
-      </div>
+      <section className="space-y-3" aria-labelledby="help-all-heading">
+        <h2 id="help-all-heading" className="text-base font-semibold">
+          全部入口
+        </h2>
+        <div className="space-y-5">
+          {groups.map((g) => (
+            <section key={g.group} className="overflow-hidden rounded-xl border border-border bg-card-bg">
+              <h3 className="border-b border-border bg-background/50 px-4 py-2 text-xs font-medium text-muted">
+                {g.section === "more" ? `更多 · ${g.label}` : g.label}
+              </h3>
+              <ul className="divide-y divide-border/80">
+                {g.entries.map((e) => (
+                  <li key={e.key} className="flex flex-col gap-0.5 px-4 py-2.5 text-sm sm:flex-row sm:items-baseline sm:gap-4">
+                    <span className={e.depth > 0 ? "shrink-0 pl-4 font-medium sm:w-40" : "shrink-0 font-medium sm:w-40"}>
+                      <HelpEntryName label={e.label} labelKey={e.labelKey} href={e.href} />
+                    </span>
+                    <span className="text-muted">{e.description}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

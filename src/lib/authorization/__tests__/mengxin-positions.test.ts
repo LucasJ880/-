@@ -16,7 +16,7 @@ import {
 import { parseBindingFile } from "../position-binding";
 import { deriveEffectivePlatformRole } from "@/lib/rbac/effective-platform-role";
 import { getDefaultWorkspace, isManagementWorkspaceUser, resolveHomeRedirect } from "@/lib/rbac/workspace-policy";
-import { usesTradeLayout } from "@/lib/navigation/trade-layout";
+import { usesFocusedLayout } from "@/lib/navigation/trade-layout";
 import { isTradeManager, isTradeWorker, pickDefaultInquiryOwner, type TradeMemberSignal } from "@/lib/trade/recipients";
 
 let pass = 0;
@@ -74,7 +74,8 @@ for (const platformRole of ["trade", "user"]) {
   const tag = platformRole === "trade" ? "压扁前" : "压扁后";
   const role = deriveEffectivePlatformRole({ platformRole, positionMode: true, permissionKeys: tradeRepKeys });
   ok(role === "trade", `业务员（${tag}）派生角色 trade`);
-  ok(usesTradeLayout(role), `业务员（${tag}）侧栏外贸布局`);
+  // NAV-1b：两段式布局看判定输入（外贸模块 + trade.read + 未开窗饰），不看派生角色
+  ok(usesFocusedLayout({ platformRole, positionMode: true, permissionKeys: tradeRepKeys, modules: { enabled: ["trade"] } }), `业务员（${tag}）侧栏两段式（常用 + 更多）`);
   const ctx = { platformRole, orgRole: "org_member", positionMode: true, permissionKeys: tradeRepKeys, enabledModules: ["trade"], hasMembership: true };
   ok(getDefaultWorkspace(ctx) === "/" && resolveHomeRedirect(ctx) === "/tasks", `业务员（${tag}）首页落 /tasks（与旧模式相同）`);
   ok(!isManagementWorkspaceUser(ctx), `业务员（${tag}）不是管理层`);
@@ -85,12 +86,13 @@ for (const platformRole of ["trade", "user"]) {
   const lucas = { platformRole: "admin", orgRole: "org_owner", positionMode: true, permissionKeys: [...sys("org_owner"), ...ownerKeys], enabledModules: ["trade"], hasMembership: true };
   ok(isManagementWorkspaceUser(lucas) && resolveHomeRedirect(lucas) === null, "Lucas 绑 owner：管理层，首页停在 /");
   ok(deriveEffectivePlatformRole({ platformRole: "user", positionMode: true, permissionKeys: ownerKeys }) === "boss", "owner 压扁后派生 boss");
-  // Cathy 生产实情：平台 boss + trade_rep + owner（压扁前后）——管理层、首页停在 /、非外贸布局，与旧模式平台 boss 相同
+  // Cathy 生产实情：平台 boss + trade_rep + owner（压扁前后）——管理层、首页停在 /；NAV-1b 起侧栏为两段式（常用 + 更多），不再因派生 boss 而走全量布局
   for (const platformRole of ["boss", "user"]) {
     const keys = [...new Set([...tradeRepKeys, ...ownerKeys])];
     const ctx = { platformRole, orgRole: "org_member", positionMode: true, permissionKeys: keys, enabledModules: ["trade"], hasMembership: true };
     const r = deriveEffectivePlatformRole({ platformRole, positionMode: true, permissionKeys: keys });
-    ok(r === "boss" && !usesTradeLayout(r) && isManagementWorkspaceUser(ctx) && resolveHomeRedirect(ctx) === null, `Cathy（平台 ${platformRole} + trade_rep + owner）：派生 boss、管理层、首页停在 /`);
+    ok(r === "boss" && isManagementWorkspaceUser(ctx) && resolveHomeRedirect(ctx) === null, `Cathy（平台 ${platformRole} + trade_rep + owner）：派生 boss、管理层、首页停在 /`);
+    ok(usesFocusedLayout({ platformRole, positionMode: true, permissionKeys: keys, modules: { enabled: ["trade"] } }), `Cathy（平台 ${platformRole} + trade_rep + owner）：侧栏两段式（常用 + 更多）`);
   }
   const legacyCathy = { platformRole: "boss", orgRole: "org_member", positionMode: false, permissionKeys: tradeRepKeys, enabledModules: ["trade"], hasMembership: true };
   ok(isManagementWorkspaceUser(legacyCathy) && resolveHomeRedirect(legacyCathy) === null, "对照：旧模式 Cathy（平台 boss）同样是管理层、首页停在 /");

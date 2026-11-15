@@ -81,7 +81,7 @@ export const en: Messages = {
   nav_trade_products: "SKUs",
   nav_trade_chat: "Trade AI Chat",
   nav_trade_more: "More",
-  nav_trade_primary: "Trade Work",
+  nav_trade_primary: "Frequently Used",
   nav_product_content: "Product Content",
   nav_organizations: "Members & Organization",
   nav_projects: "Project List",
