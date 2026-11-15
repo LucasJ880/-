@@ -13,12 +13,22 @@ import { BellRing, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { mailWatchPanelState, type MailWatchOptInStatus } from "@/lib/mail-watch/ui-pure";
 
-export function MailWatchCard({ orgId, onReauth }: { orgId: string | null; onReauth: () => void }) {
+export function MailWatchCard({
+  orgId,
+  platformRelay,
+  onReauth,
+}: {
+  orgId: string | null;
+  /** 企业发信方式为平台代发：页面不显示 Google 连接，这里也不显示、不请求 */
+  platformRelay: boolean;
+  onReauth: () => void;
+}) {
   const [status, setStatus] = useState<MailWatchOptInStatus | null>(null);
   const [saving, setSaving] = useState<"opt_in" | "org" | null>(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
+    if (platformRelay) return setStatus(null);
     try {
       const res = await apiFetch("/api/sales/mail-watch/opt-in");
       // 平台开关关闭（404）或邮箱绑定页不对本人放行（403）：整块不显示
@@ -28,7 +38,7 @@ export function MailWatchCard({ orgId, onReauth }: { orgId: string | null; onRea
     } catch {
       setStatus(null);
     }
-  }, []);
+  }, [platformRelay]);
 
   useEffect(() => {
     load();

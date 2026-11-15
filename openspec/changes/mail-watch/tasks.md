@@ -24,8 +24,9 @@
 
 ## 6. 验证与报告
 
-- [ ] 6.1 全量验证，并写本地验收脚本 `scripts/mail-2-local-acceptance.ts`（真实的定时任务路由与两个接口 + 本机隔离库，Gmail 与微信推送用假实现）覆盖任务书 MAIL-2 验收的各条，输出存 `docs/acceptance/mail-2/`。verify：`npm test`（与 main 的失败集合逐项对照）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`openspec validate mail-watch --strict` 通过；`git diff --stat main -- vercel.json prisma/` 为空；`git grep -n "mailboxEmail" -- src/lib/mail-watch/pure.ts src/lib/mail-watch/run.ts src/lib/mail-watch/settings.ts` 无结果
-- [ ] 6.2 写 `docs/QINGYAN_MAIL-2_REPORT.md`（三处拍板 / 确认的最终取值、与任务书对不上的地方、任务书 MAIL-2 验收逐条的验证方式与结果、没能验证的条目单列、测试通过数与基线对比、「最近互动时间」的影响、上线顺序与运维前置）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的 MAIL-2 状态列。verify：报告文件存在且各节齐全；TASKFLOW 的 MAIL-2 行状态为 `[G]`
+- [x] 6.1 全量验证，并写本地验收脚本 `scripts/mail-2-local-acceptance.ts`（真实的定时任务路由与两个接口 + 本机隔离库，Gmail 与微信推送用假实现）覆盖任务书 MAIL-2 验收的各条，输出存 `docs/acceptance/mail-2/`。verify：`npm test`（与 main 的失败集合逐项对照）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`openspec validate mail-watch --strict` 通过；`git diff --stat main -- vercel.json prisma/` 为空；`git grep -n "mailboxEmail" -- src/lib/mail-watch/pure.ts src/lib/mail-watch/run.ts src/lib/mail-watch/settings.ts` 无结果
+  - 实施备注：`npm run test:ci` 没有整体通过——停在 main 上同样失败的 `legacy-followup-safety.test.ts`（随 #224 进入 main，与本 change 无关），其余 419 项通过；`npm test` 的失败集合与 main 逐项相同（14 项）。详见报告 §6「工程」与 §8。
+- [x] 6.2 写 `docs/QINGYAN_MAIL-2_REPORT.md`（三处拍板 / 确认的最终取值、与任务书对不上的地方、任务书 MAIL-2 验收逐条的验证方式与结果、没能验证的条目单列、测试通过数与基线对比、「最近互动时间」的影响、上线顺序与运维前置）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的 MAIL-2 状态列。verify：报告文件存在且各节齐全；TASKFLOW 的 MAIL-2 行状态为 `[G]`
 
 ## Workflow follow-up
 

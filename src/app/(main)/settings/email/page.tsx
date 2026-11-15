@@ -396,7 +396,7 @@ export default function EmailBindingPage() {
       )}
 
       {/* MAIL-2：客户来信提醒（平台开关关闭时组件自己不渲染；平台代发的企业不显示 Google 连接，这里也不显示） */}
-      {!isPlatformRelay && <MailWatchCard orgId={orgId} onReauth={() => handleConnectGoogle(true)} />}
+      <MailWatchCard orgId={orgId} platformRelay={isPlatformRelay} onReauth={() => handleConnectGoogle(true)} />
 
       {msg && (
         <p className={`text-sm ${msg.includes("成功") || msg.includes("已保存") || msg.includes("已断开") ? "text-emerald-600" : "text-red-500"}`}>

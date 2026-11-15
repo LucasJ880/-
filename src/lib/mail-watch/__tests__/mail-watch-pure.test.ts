@@ -321,7 +321,8 @@ async function main() {
     ok(["只读取你本人的邮箱", "只提醒已建档客户的来信", "不读取正文"].every((t) => card.includes(t)), "勾选卡片：写明只读本人邮箱、只提醒已建档客户、不读正文");
     ok(!/userId|mailboxEmail/.test(card), "勾选卡片：源码里没有用户标识或组织授权邮箱");
     const page = code("src/app/(main)/settings/email/page.tsx");
-    ok(/\{!isPlatformRelay && <MailWatchCard orgId=\{orgId\} onReauth=\{\(\) => handleConnectGoogle\(true\)\} \/>\}/.test(page), "邮箱绑定页挂了勾选卡片（平台代发的企业不显示 Google 连接，也不显示它）");
+    ok(/<MailWatchCard orgId=\{orgId\} platformRelay=\{isPlatformRelay\} onReauth=\{\(\) => handleConnectGoogle\(true\)\} \/>/.test(page), "邮箱绑定页挂了勾选卡片，并把企业是否平台代发传给它");
+    ok(/if \(platformRelay\) return setStatus\(null\);/.test(card), "勾选卡片：平台代发的企业不请求、不显示（页面也不显示 Google 连接）");
 
     const timeline = code("src/app/(main)/sales/customers/[id]/interaction-timeline.tsx");
     ok(/showReadMailEntry\(\{ mailReadEnabled, assistantOpen, interaction: item \}\) && \(/.test(timeline), "时间线：入口是否显示由 showReadMailEntry 决定（读信开关 + 助手页放行 + 来信观察的条目）");
