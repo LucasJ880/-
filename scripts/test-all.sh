@@ -565,6 +565,7 @@ run_test "批次二 抽取分类学扩容" "npx tsx src/lib/tender-understanding
 run_test "合规矩阵可用性批次" "npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts"
 run_test "报价表助手 计算与推导" "npx tsx src/lib/tender-pricing/__tests__/pricing-helper.test.ts"
 run_test "FIX-8 报价表助手保存保留报价引擎镜像的我方报价 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-save-db.isolated.test.ts"
+run_test "FIX-9 报价表助手写入与报价同步串行（强制交错）DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-lock-db.isolated.test.ts"
 run_test "RFI 问题清单导出" "npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts"
 run_test "投标文件起草" "npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts"
 run_test "两道闸：No-Go 提醒与未批准分析起草的标注（FLOW-H5）" "npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx"

@@ -30,6 +30,7 @@ import {
   type CompareCostView,
 } from "@/lib/tender-pricing/compare-cost-source";
 import { loadCompareCostSuggestionSafe } from "@/lib/tender-pricing/compare-cost-source-load";
+import { lockProject } from "@/lib/quote-engine/tender-bid";
 
 /**
  * 报价表助手（tender-pricing/v1）
@@ -98,60 +99,34 @@ export async function GET(
   });
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id: projectId } = await params;
-  const access = await requireProjectWriteAccess(request, projectId);
-  if (access instanceof NextResponse) return access;
+type PricingPostBody = {
+  action?: "save" | "derive";
+  inputs?: Partial<PricingInputs>;
+  model?: Partial<ScoringModel>;
+  ourCostSource?: unknown;
+};
+type JsonRec = Record<string, unknown>;
+type CostSource = ReturnType<typeof nextCostSource>;
+type CompareCtx = {
+  compareEnabled: boolean;
+  claim: ReturnType<typeof readCostClaim>;
+  /** 有来源声明时在锁外取好的比价建议；只在本次成本不为空时交给 nextCostSource（与 FLOW-H2 原条件相同） */
+  suggestion: Awaited<ReturnType<typeof loadCompareCostSuggestionSafe>> | null;
+};
+const asRec = (v: unknown): JsonRec => (v && typeof v === "object" && !Array.isArray(v) ? (v as JsonRec) : {});
+const NO_ROOM_ERROR = "项目尚未创建投标调查室（分析完成后自动创建）";
 
-  const body = (await request.json().catch(() => ({}))) as {
-    action?: "save" | "derive";
-    inputs?: Partial<PricingInputs>;
-    model?: Partial<ScoringModel>;
-    ourCostSource?: unknown;
-  };
-  const room = await db.bidIntelligenceRoom.findUnique({
-    where: { projectId },
-    select: { id: true, summaryJson: true },
-  });
-  if (!room) {
-    return NextResponse.json({ error: "项目尚未创建投标调查室（分析完成后自动创建）" }, { status: 409 });
-  }
-  const sj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-
-  if (body.action === "derive") {
-    const lastAt = Date.parse(String(sj[PRICING_DERIVE_AT_KEY] ?? "")) || 0;
-    if (Date.now() - lastAt < PRICING_DERIVE_RATE_WINDOW_MS) {
-      return NextResponse.json({ error: "刚推导过，请稍候再试" }, { status: 429 });
-    }
-    const run = await latestPricingRun(projectId);
-    if (!run) return NextResponse.json({ error: "尚无已完成的分析" }, { status: 404 });
-    const texts = await pricingEvalTexts(run.id, run.summaryJson);
-    const derived = await deriveScoringModel(texts);
-    // 人工覆盖的模型不被自动推导覆盖
-    const existing = isScoringModel(sj[PRICING_MODEL_KEY]) ? (sj[PRICING_MODEL_KEY] as ScoringModel) : null;
-    const next: Record<string, unknown> = { ...sj, [PRICING_DERIVE_AT_KEY]: new Date().toISOString() };
-    if (derived.model && existing?.source !== "HUMAN") next[PRICING_MODEL_KEY] = derived.model;
-    await db.bidIntelligenceRoom.update({
-      where: { id: room.id },
-      data: { summaryJson: JSON.parse(JSON.stringify(next)) },
-    });
-    return NextResponse.json({
-      ok: true,
-      via: derived.via,
-      model: (existing?.source === "HUMAN" ? existing : derived.model) ?? null,
-      keptHumanOverride: existing?.source === "HUMAN",
-    });
-  }
-
-  // save：输入与/或人工模型覆盖
-  // pricingInputs 里还有报价引擎镜像的权威报价（ourPriceCad / ourPrice / ourPriceCurrency / ourPriceSource /
-  // ourPriceStatus / ourPriceSupersededSource，见 quote-engine/tender-bid.ts），这里只改三项人工输入，其余键原样保留。
-  const prevRaw = sj[PRICING_INPUTS_KEY];
-  const prevPi: Record<string, unknown> =
-    prevRaw && typeof prevRaw === "object" && !Array.isArray(prevRaw) ? (prevRaw as Record<string, unknown>) : {};
+/**
+ * save：在库里最新的 summaryJson 上算出要写的整块（纯函数，在加锁的事务里调用）。
+ * pricingInputs 里还有报价引擎镜像的权威报价（ourPriceCad / ourPrice / ourPriceCurrency / ourPriceSource /
+ * ourPriceStatus / ourPriceSupersededSource，见 quote-engine/tender-bid.ts），这里只改三项人工输入与成本来源，其余键原样保留。
+ */
+function buildSave(
+  sj: JsonRec,
+  body: PricingPostBody,
+  ctx: CompareCtx,
+): { error: string; status: number } | { next: JsonRec; inputs: PricingInputs; source: CostSource } {
+  const prevPi = asRec(sj[PRICING_INPUTS_KEY]);
   const prevInputs = prevPi as Partial<PricingInputs>;
   const num = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : v === null ? null : undefined as never;
@@ -170,37 +145,30 @@ export async function POST(
         : prevInputs.targetMarginPct ?? null,
   };
   if (inputs.targetMarginPct != null && inputs.targetMarginPct >= 100) {
-    return NextResponse.json({ error: "目标毛利须小于 100%" }, { status: 400 });
+    return { error: "目标毛利须小于 100%", status: 400 };
   }
   // FLOW-H2：成本来源。请求只能声明用的是哪一条报价；金额与轮次由服务端重新取数核对
-  const orgId = access.project.orgId;
-  const compareEnabled = !!orgId && isPricingCompareSourceEnabledForOrg(orgId);
-  const claim = compareEnabled ? readCostClaim(body.ourCostSource) : null;
-  const suggestion =
-    compareEnabled && orgId && claim && inputs.ourCostCad != null
-      ? await loadCompareCostSuggestionSafe({ projectId, orgId })
-      : null;
   const prevSource = readCostSource((prevInputs as Record<string, unknown>).ourCostSource);
   const source = nextCostSource({
-    enabled: compareEnabled,
+    enabled: ctx.compareEnabled,
     costInBody: !!body.inputs && "ourCostCad" in body.inputs,
     ourCostCad: inputs.ourCostCad,
     prevCostCad: prevInputs.ourCostCad ?? null,
     prevSource,
-    claim,
-    suggestion,
+    claim: ctx.claim,
+    suggestion: inputs.ourCostCad != null ? ctx.suggestion : null,
     now: new Date(),
   });
   // FIX-8：保留 pricingInputs 里的其它键（报价引擎镜像的我方报价）；来源这一键按本次结果设或去掉
-  const stored: Record<string, unknown> = { ...prevPi, ...inputs };
+  const stored: JsonRec = { ...prevPi, ...inputs };
   if (source) stored.ourCostSource = source;
   else delete stored.ourCostSource;
-  const next: Record<string, unknown> = { ...sj, [PRICING_INPUTS_KEY]: stored };
+  const next: JsonRec = { ...sj, [PRICING_INPUTS_KEY]: stored };
   if (body.model) {
     const base = isScoringModel(sj[PRICING_MODEL_KEY]) ? (sj[PRICING_MODEL_KEY] as ScoringModel) : null;
     const pw = body.model.priceWeightPct ?? base?.priceWeightPct;
     if (typeof pw !== "number" || pw < 0 || pw > 100) {
-      return NextResponse.json({ error: "价格权重须为 0-100 的数字" }, { status: 400 });
+      return { error: "价格权重须为 0-100 的数字", status: 400 };
     }
     const human: ScoringModel = {
       version: PRICING_MODEL_VERSION,
@@ -221,10 +189,91 @@ export async function POST(
     };
     next[PRICING_MODEL_KEY] = human;
   }
-  await db.bidIntelligenceRoom.update({
-    where: { id: room.id },
-    data: { summaryJson: JSON.parse(JSON.stringify(next)) },
+  return { next, inputs, source };
+}
+
+/**
+ * FIX-9：写 room.summaryJson 的读改写与报价引擎（selectQuoteAsTenderBid / syncTenderBidPointerTx）拿同一把项目行锁：
+ * 锁住之后再读库里最新的 summaryJson，改完在同一事务里写回——报价同步不会被旧值盖掉，也不会盖掉这里的写入。
+ * 锁里只有读与写，不调模型、不取别的数。
+ */
+async function writeRoomLocked<T>(
+  projectId: string,
+  roomId: string,
+  apply: (sj: JsonRec) => { error: string; status: number } | { next: JsonRec; result: T },
+): Promise<{ error: string; status: number } | { result: T }> {
+  return db.$transaction(async (tx) => {
+    await lockProject(tx, projectId);
+    const fresh = await tx.bidIntelligenceRoom.findUnique({ where: { id: roomId }, select: { summaryJson: true } });
+    if (!fresh) return { error: NO_ROOM_ERROR, status: 409 };
+    const out = apply(asRec(fresh.summaryJson));
+    if ("error" in out) return out;
+    await tx.bidIntelligenceRoom.update({
+      where: { id: roomId },
+      data: { summaryJson: JSON.parse(JSON.stringify(out.next)) },
+    });
+    return { result: out.result };
   });
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id: projectId } = await params;
+  const access = await requireProjectWriteAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
+
+  const body = (await request.json().catch(() => ({}))) as PricingPostBody;
+  const room = await db.bidIntelligenceRoom.findUnique({
+    where: { projectId },
+    select: { id: true, summaryJson: true },
+  });
+  if (!room) {
+    return NextResponse.json({ error: NO_ROOM_ERROR }, { status: 409 });
+  }
+  const sj = asRec(room.summaryJson);
+
+  if (body.action === "derive") {
+    const lastAt = Date.parse(String(sj[PRICING_DERIVE_AT_KEY] ?? "")) || 0;
+    if (Date.now() - lastAt < PRICING_DERIVE_RATE_WINDOW_MS) {
+      return NextResponse.json({ error: "刚推导过，请稍候再试" }, { status: 429 });
+    }
+    const run = await latestPricingRun(projectId);
+    if (!run) return NextResponse.json({ error: "尚无已完成的分析" }, { status: 404 });
+    const texts = await pricingEvalTexts(run.id, run.summaryJson);
+    // 模型调用在锁外；写入时按库里最新的 summaryJson 只改推导时间与（非人工的）模型
+    const derived = await deriveScoringModel(texts);
+    const out = await writeRoomLocked(projectId, room.id, (latest) => {
+      // 人工覆盖的模型不被自动推导覆盖
+      const existing = isScoringModel(latest[PRICING_MODEL_KEY]) ? (latest[PRICING_MODEL_KEY] as ScoringModel) : null;
+      const next: JsonRec = { ...latest, [PRICING_DERIVE_AT_KEY]: new Date().toISOString() };
+      if (derived.model && existing?.source !== "HUMAN") next[PRICING_MODEL_KEY] = derived.model;
+      return { next, result: existing };
+    });
+    if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+    const existing = out.result;
+    return NextResponse.json({
+      ok: true,
+      via: derived.via,
+      model: (existing?.source === "HUMAN" ? existing : derived.model) ?? null,
+      keptHumanOverride: existing?.source === "HUMAN",
+    });
+  }
+
+  // save：输入与/或人工模型覆盖
+  // FLOW-H2：组织只用服务端鉴权得到的项目组织；比价建议是一次取数，在锁外取
+  const orgId = access.project.orgId;
+  const compareEnabled = !!orgId && isPricingCompareSourceEnabledForOrg(orgId);
+  const claim = compareEnabled ? readCostClaim(body.ourCostSource) : null;
+  const suggestion =
+    compareEnabled && orgId && claim ? await loadCompareCostSuggestionSafe({ projectId, orgId }) : null;
+  const out = await writeRoomLocked(projectId, room.id, (latest) => {
+    const built = buildSave(latest, body, { compareEnabled, claim, suggestion });
+    return "error" in built ? built : { next: built.next, result: built };
+  });
+  if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+  const { next, inputs, source } = out.result;
   return NextResponse.json({
     ok: true,
     inputs,
