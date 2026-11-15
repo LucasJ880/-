@@ -38,8 +38,12 @@ const MAIL_TOOLS = ["mail_search", "mail_read_thread"] as const;
 const SUNNY = { enabled: [...DEFAULT_SUNNY_MODULES] };
 const hasMail = (names: string[]) => MAIL_TOOLS.every((n) => names.includes(n));
 const noMail = (names: string[]) => names.every((n) => !n.startsWith("mail_"));
+/** 给模型的工具列表（引擎两条运行路径都只经 toOpenAITools 取列表） */
 const listNames = (entryGate: ToolEntryGate | undefined, modulesJson: unknown = SUNNY) =>
-  registry.list({ role: "user", modulesJson, ...(entryGate ? { entryGate } : {}) }).map((t) => t.name);
+  registry.toOpenAITools({ role: "user", modulesJson, ...(entryGate ? { entryGate } : {}) }).map((t) => t.function.name);
+/** 工具列表接口（GET /api/agent-core/tools）：registry.list + 入口门 */
+const apiListNames = (entryGate: ToolEntryGate, modulesJson: unknown = SUNNY) =>
+  registry.list({ role: "user", modulesJson, entryGate }).map((t) => t.name);
 
 /** 注入假依赖的读信工具：只数 Gmail 与客户查询被调用了几次 */
 function instrumented(flagOn: boolean) {
@@ -109,8 +113,11 @@ async function main() {
   ok(cells.filter((c) => hasMail(listNames(gateOf(c)))).length === 1, "只有「开 × 网页助手 × 放行」一格含读信工具");
   ok(!("mail" in toolEntryGate(gateCtx("sales_rep"))) && !("mail" in toolEntryGate(gateCtx("sales_rep"), { surface: "web_assistant", mailReadEnabled: false })), "非网页助手入口 / 开关关：入口门里没有 mail 键（返回与改动前相同）");
   ok(JSON.stringify(toolEntryGate(gateCtx("sales_rep"))) === JSON.stringify({ marketing: canOpenHref("/marketing", gateCtx("sales_rep")) }), "不带入口声明：入口门只有 marketing 一项");
-  ok(noMail(listNames(undefined)) && noMail(registry.list({ modulesJson: SUNNY }).map((t) => t.name)) && noMail(registry.list({}).map((t) => t.name)), "不传入口门（数字员工 / 后台运行 / 技能 / 外贸对话）：不给读信工具");
+  ok(noMail(listNames(undefined)) && noMail(registry.toOpenAITools({ modulesJson: SUNNY }).map((t) => t.function.name)) && noMail(registry.toOpenAITools().map((t) => t.function.name)) && noMail(registry.toOpenAITools({ names: undefined, domains: ["secretary"] }).map((t) => t.function.name)), "给模型的列表不传入口门（数字员工 / 后台运行 / 技能 / 外贸对话）：不给读信工具");
   ok(noMail(listNames({ marketing: true })) && noMail(listNames({ marketing: true, mail: false })), "入口门没有 mail 或 mail=false：不给");
+  ok(noMail(apiListNames({ marketing: true })) && noMail(apiListNames(toolEntryGate(gateCtx("sales_rep")))) && noMail(apiListNames(toolEntryGate(gateCtx("super_admin")))), "工具列表接口（带入口门、不声明网页助手）：不含读信工具");
+  ok(hasMail(apiListNames({ marketing: false, mail: true })), "带 mail=true 的入口门：registry.list 与给模型的列表结论相同");
+  ok(hasMail(registry.list().map((t) => t.name)) && hasMail(registry.list({ names: undefined }).map((t) => t.name)), "不传入口门的 registry.list 是注册表枚举（策略打标签 / 测试用），不给模型");
   ok(toolEntryGate(null, { surface: "web_assistant", mailReadEnabled: true }).mail === false, "判定输入缺失：不放行");
 
   console.log("\n入口 × 受众 × 开关（8 格）：执行期逐格相同");
@@ -225,7 +232,9 @@ async function main() {
     const engine = code("src/lib/agent-core/engine.ts");
     ok(/entryGate: options\.entryGate,\s*\};\s*\}/.test(engine.slice(engine.indexOf("export function buildToolContextBase"))), "引擎把入口门原样带进执行上下文");
     const reg = code("src/lib/agent-core/tool-registry.ts");
-    ok(/filters !== undefined && filters\.entryGate\?\.mail !== true/.test(reg), "registry.list：带过滤条件且 mail 不是 true 时剔除 mail_*");
+    ok(/const mailOpen = filters\?\.entryGate\?\.mail === true;\s*return this\.list\(filters\)\.filter\(\(tool\) => mailOpen \|\| !isMailToolName\(tool\.name\)\)/.test(reg), "给模型的列表（toOpenAITools）：mail 不是 true 一律剔除 mail_*");
+    ok(/if \(filters\?\.entryGate && filters\.entryGate\.mail !== true\)/.test(reg), "registry.list：传了入口门而 mail 不是 true 时剔除 mail_*");
+    ok((engine.match(/registry\.toOpenAITools\(/g) ?? []).length === 2 && !/registry\.list\(/.test(engine), "引擎两条运行路径都只经 toOpenAITools 取列表");
     ok(/isMailReadAllowed\(\)/.test(code("src/lib/agent-core/entry-gate-server.ts")), "入口门加载函数从服务端开关取读信是否开启");
   }
 

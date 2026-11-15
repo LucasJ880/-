@@ -178,6 +178,7 @@ run_test "工具列表按模块过滤与营销入口门（VIS-1c）" "npx tsx sr
 run_test "读信纯函数与读接口（MAIL-1）" "npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts"
 run_test "读信工具可见性：入口×受众×开关×模块（MAIL-1）" "npx tsx src/lib/agent-core/__tests__/mail-tool-visibility.test.ts"
 run_test "读信工具：作用域/错误码/审计/不落库（MAIL-1）" "npx tsx src/lib/agent-core/tools/__tests__/mail-tools.test.ts"
+run_test "邮件内容不可信：固定提示/写入封锁/清单冻结（MAIL-1）" "npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts"
 run_test "AI收敛P0 AgentScope/Context隔离" "npx tsx src/lib/agent-scope/__tests__/agent-scope.test.ts"
 # Mention Gateway M0/M1（Mock PoC：flag 默认关、只读 allowlist、fail-closed；纯逻辑，无 DB）
 run_test "Mention Gateway M0 Safety Gate" "NODE_ENV=test npx tsx src/lib/mention-gateway/__tests__/m0-safety-gate.test.ts"

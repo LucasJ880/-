@@ -16,7 +16,7 @@
 
 ## 4. 不可信内容
 
-- [ ] 4.1 `buildOperatorSystemPrompt` 加可选入参，读信可用时追加固定规则一节、不可用时输出与现在逐字相同（`prompts/operator-system.ts`）；引擎的流式与非流式两条运行路径加「读信工具成功返回后，本轮拒绝非只读工具，返回 `UNTRUSTED_CONTENT_WRITE_BLOCKED`」（`engine.ts`，不改 `approval-gate.ts`、`pre-execute-guard.ts`）；新增并注册 `src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts`（固定提示、写入封锁三个场景、中高风险工具清单与平台默认强制审批清单冻结）。verify：`npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts`、`npx tsx src/lib/agent-core/__tests__/pre-execute-guard.test.ts`、`npx tsx src/lib/agent-core/__tests__/phase1-1-context-propagation.test.ts`、`npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts` 通过；`git diff --stat main -- src/lib/agent-core/approval-gate.ts src/lib/agent-core/pre-execute-guard.ts` 为空
+- [x] 4.1 `buildOperatorSystemPrompt` 加可选入参，读信可用时追加固定规则一节、不可用时输出与现在逐字相同（`prompts/operator-system.ts`）；引擎的流式与非流式两条运行路径加「读信工具成功返回后，本轮拒绝非只读工具，返回 `UNTRUSTED_CONTENT_WRITE_BLOCKED`」（`engine.ts`，不改 `approval-gate.ts`、`pre-execute-guard.ts`）；新增并注册 `src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts`（固定提示、写入封锁三个场景、中高风险工具清单与平台默认强制审批清单冻结）。verify：`npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts`、`npx tsx src/lib/agent-core/__tests__/pre-execute-guard.test.ts`、`npx tsx src/lib/agent-core/__tests__/phase1-1-context-propagation.test.ts`、`npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts` 通过；`git diff --stat main -- src/lib/agent-core/approval-gate.ts src/lib/agent-core/pre-execute-guard.ts` 为空
 
 ## 5. 网页助手接线
 
