@@ -1,12 +1,24 @@
 /**
  * T-2 询价追踪页——纯逻辑（与 decideChases 的一致性、分类、汇总、报价列）
- * 运行：npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.ts
+ * 运行：npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { RfqTrackerSummaryCardView } from "@/components/bids/rfq-tracker-summary-card";
 import { chaseSlot, decideChases, type ChaseItemSnapshot } from "../chase-pure";
 import { buildCompareMatrix, type CompareInput } from "../compare";
 import { normalizeQuote, type LandedCostSettings } from "../landed-cost";
 import {
+  CHASE_SKIP_ZH,
+  TRACKER_TABS,
+  approvableCards,
+  chaseSkipZh,
+  filterTrackerGroups,
+  parseChaseCardKey,
+  rowInTab,
   EMPTY_TRACKER_ZH,
   classifyNeedsAction,
   nextChaseOutlook,
@@ -203,6 +215,49 @@ console.log("报价列（与比价矩阵对照）");
   ok("超过上限没算矩阵：写「请到比价面板查看」；币种转大写", capped.landedText === "落地价请到比价面板查看" && capped.needsCompareLink && (capped.quoteText ?? "").startsWith("报价 USD 1 / 件"));
   ok("没有报价字段：quoteText 为空", quoteCellView({ unitPrice: null, totalPrice: null, currency: null, deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ }).quoteText === null);
   ok("有效期是 UTC 零点日期：按字面月日，不差一天", (a.quoteText ?? "").includes("有效至 12-31"));
+}
+
+console.log("页签、全部批准、催单卡、跳过原因");
+{
+  const sum = { needsAction: 2, waiting: 3, quoted: 1, noResponse: 1, pendingCards: 1, quotedThisWeek: 1 };
+  ok("页签与计数：需要我处理 / 等回复 / 已报价 / 未响应", TRACKER_TABS.map((t) => `${t.label}${t.count(sum)}`).join("|") === "需要我处理2|等回复3|已报价1|未响应1");
+  ok("每个页签收哪些行", rowInTab({ status: "sent", needsAction: null }, "waiting") && !rowInTab({ status: "sent", needsAction: null }, "needs") && rowInTab({ status: "quoted", needsAction: "missing_fields" }, "needs") && rowInTab({ status: "quoted", needsAction: null }, "quoted") && rowInTab({ status: "no_response", needsAction: null }, "no_response"));
+  const groups = [
+    { project: "A", rounds: [{ rows: [{ status: "sent", needsAction: null }, { status: "quoted", needsAction: null }] }, { rows: [{ status: "sent", needsAction: "past_reply_by" }] }] },
+    { project: "B", rounds: [{ rows: [{ status: "quoted", needsAction: null }] }] },
+  ];
+  const needs = filterTrackerGroups(groups, "needs");
+  ok("按页签过滤：没有行的轮次与项目去掉", needs.length === 1 && needs[0].rounds.length === 1 && needs[0].rounds[0].rows.length === 1 && filterTrackerGroups(groups, "quoted").length === 2 && filterTrackerGroups(groups, "no_response").length === 0);
+  const card = (canApprove: boolean, status = "PENDING") => ({ approval: { canApprove, status } });
+  ok("全部批准只收能批、还在待批的卡", approvableCards([{ cards: [card(true), card(false)] }, { cards: [card(true, "EXPIRED"), card(true)] }]).length === 2);
+  ok("催单卡键：第 1 次、第 2 次、追问、重起草后缀", JSON.stringify(parseChaseCardKey("tender.send_chase:it1:1")) === JSON.stringify({ itemId: "it1", chaseKind: "no_reply", chaseIndex: 1 }) && parseChaseCardKey("tender.send_chase:it1:2:r1")?.chaseIndex === 2 && parseChaseCardKey("tender.send_chase:it9:missing_fields")?.chaseKind === "missing_fields");
+  ok("别的类型或格式不对：不认", parseChaseCardKey("tender.send_rfq:it1:1") === null && parseChaseCardKey(null) === null && parseChaseCardKey("tender.send_chase:it1:3") === null);
+  ok("跳过原因说人话（任务书列的几种）", chaseSkipZh("pending_card") === "已有一张待批的催单卡" && chaseSkipZh("max_reached") === "已经催过两次" && chaseSkipZh("no_thread") === "这家是手工联系的，没有邮件线程可回复" && chaseSkipZh("quoted") === "已经报价，不用催" && chaseSkipZh("whatever") === "这家现在不能催" && Object.values(CHASE_SKIP_ZH).every((t) => !/[a-z_]{4,}/.test(t)));
+}
+
+console.log("汇总卡呈现");
+{
+  const html = renderToStaticMarkup(<RfqTrackerSummaryCardView summary={{ needsAction: 3, waiting: 6, quoted: 2, noResponse: 0, pendingCards: 2, quotedThisWeek: 3 }} />);
+  ok("汇总卡：计数文案、链到 /bids/rfq、写需要我处理几项；没有金额", html.includes("询价追踪：6 家等回复 · 2 张催单待批 · 本周 3 家已报价") && html.includes('href="/bids/rfq"') && html.includes("需要我处理 3") && !/\$|CAD|USD/.test(html));
+}
+
+console.log("接线");
+{
+  const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+  const svc = read("src/lib/tender-rfq/tracker.ts");
+  const api = read("src/app/api/org/tender-rfq/tracker/route.ts");
+  const chase = read("src/app/api/projects/[id]/tender-rfq/chase/route.ts");
+  const page = read("src/components/bids/rfq-tracker.tsx");
+  const shell = read("src/components/bids/bids-workspace-shell.tsx");
+  const cs = read("src/lib/tender-rfq/chase-service.ts");
+  ok("追踪接口：组织按登录者解析，不取别的", api.includes("resolveRequestOrgIdForUser(user, searchParams.get(\"orgId\"))") && api.includes("orgId: orgRes.orgId"));
+  ok("取数：可见项目规则 + 组织 + 招投标；条目复用 loadItems（带 projectIds）", svc.includes("buildProjectVisibilityWhere(input.user)") && svc.includes('{ orgId: input.orgId, workDomain: "tender" }') && svc.includes("loadItems({ orgId: input.orgId, projectIds }, now)"));
+  ok("间隔与扫描同一来源（chaseDaysForRound + 跟进授权状态）", svc.includes("chaseDaysForRound(") && svc.includes("loadFollowUpRoundState(input.orgId, it.inquiryId)") && cs.includes("const days = chaseDaysForRound(orgSettingsJson, owner, followUp);"));
+  ok("价格只取比价矩阵（loadCompareMatrix），不自己换汇", svc.includes("loadCompareMatrix({ projectId: r.projectId, orgId: input.orgId, inquiryId, now })") && !/fxRates|normalizeQuote/.test(svc));
+  ok("白名单：页面行只有这些字段；不带估值、我方报价、毛利", svc.includes("const publicRow = (b: Built): TrackerRow => ({") && !/estimatedValue|ourBidPrice|winningBidPrice|margin/i.test(svc));
+  ok("现在就催：项目写权限、1–8 家、复用 draftChasesForProject（只起草）", chase.includes("requireProjectWriteAccess(request, projectId)") && chase.includes(".min(1).max(8)") && chase.includes("draftChasesForProject({") && !/chase-execute|sendEmail\(|sendGmail|gmail\.users/i.test(chase));
+  ok("页面：全部批准逐张顺序调用既有 approve 接口；单张用 RfqApprovalPanel", /for \(const c of cards\) \{[\s\S]*?\/approve\?orgId=/.test(page) && page.includes('variant="chase"'));
+  ok("/bids 顶部挂汇总卡", shell.includes("<RfqTrackerSummaryCard />"));
 }
 
 console.log(`\ntracker-pure: ${passed} passed`);

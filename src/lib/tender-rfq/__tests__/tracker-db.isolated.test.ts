@@ -1,0 +1,251 @@
+/**
+ * T-2 询价追踪页——真实 DB（隔离库）+ 真实路由
+ *
+ * 运行（隔离库）：
+ *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated JWT_SECRET=… \
+ *   npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
+ * 无隔离库时自动跳过。全部数据为 fixture。不调任何模型，不发任何邮件。
+ */
+import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+
+function skip(reason: string): never {
+  console.log(`⏭  跳过 T-2 询价追踪 DB 测试（${reason}）`);
+  process.exit(0);
+}
+if (!process.env.DATABASE_URL?.trim()) skip("未提供 DATABASE_URL");
+if (process.env.NODE_ENV !== "test") skip("需 NODE_ENV=test");
+if ((process.env.DATABASE_ENVIRONMENT || "").toLowerCase() !== "isolated") skip("需 DATABASE_ENVIRONMENT=isolated");
+assertSafeTestDatabase({ scriptName: "T-2 rfq tracker DB test" });
+
+let pass = 0;
+let fail = 0;
+function ok(cond: boolean, name: string, detail?: unknown) {
+  if (cond) { pass++; console.log(`  ✓ ${name}`); }
+  else { fail++; console.error(`  ✗ ${name}`, detail !== undefined ? JSON.stringify(detail).slice(0, 1500) : ""); }
+}
+type Rec = Record<string, unknown>;
+const rec = (v: unknown): Rec => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : {});
+
+async function main() {
+  const { NextRequest } = await import("next/server");
+  const { db } = await import("@/lib/db");
+  const { createSession } = await import("@/lib/auth/session");
+  const trackerRoute = await import("@/app/api/org/tender-rfq/tracker/route");
+  const chaseRoute = await import("@/app/api/projects/[id]/tender-rfq/chase/route");
+  const batchRoute = await import("@/app/api/projects/[id]/inquiries/batch-followup/route");
+  const { loadItems, chaseDaysForRound } = await import("../chase-service");
+  const { resolveChaseAfterDays } = await import("../chase-pure");
+  const { loadCompareMatrix } = await import("../compare-service");
+  const { zonedMonthDay } = await import("../tracker-pure");
+  const { scanProjectsForUser } = await import("@/lib/proactive/scanner");
+
+  console.log("T-2 rfq tracker — isolated DB");
+  const stamp = Date.now().toString(36);
+  const OWNER = `t2owner_${stamp}`, OUTSIDER = `t2out_${stamp}`, VIEWER = `t2view_${stamp}`;
+  const ORG = `t2org_${stamp}`, ORG_B = `t2orgb_${stamp}`;
+  const users = [OWNER, OUTSIDER, VIEWER];
+  const email = (id: string) => `${id}@fixture.test`;
+  const DAY = 86_400_000;
+  const now = new Date();
+  const ago = (d: number) => new Date(now.getTime() - d * DAY);
+  const ymdAfter = (d: number) => new Date(new Date(now.getTime() + d * DAY).toISOString().slice(0, 10) + "T00:00:00Z");
+  const projectIds: string[] = [];
+  const supplierIds: string[] = [];
+  let seq = 0;
+
+  const cookie = async (uid: string) => `qy_session=${await createSession({ sub: uid, email: email(uid), role: "user" })}`;
+  const getTracker = async (uid = OWNER, qs = "") => {
+    const res = await trackerRoute.GET(new NextRequest(`http://localhost/api/org/tender-rfq/tracker${qs}`, { headers: { cookie: await cookie(uid) } }), { params: Promise.resolve({}) });
+    const text = await res.text();
+    return { status: res.status, body: rec(JSON.parse(text || "null")), text };
+  };
+  const postChase = async (projectId: string, body: unknown, uid = OWNER) => {
+    const res = await chaseRoute.POST(new NextRequest(`http://localhost/api/projects/${projectId}/tender-rfq/chase`, { method: "POST", headers: { cookie: await cookie(uid), "content-type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ id: projectId }) });
+    return { status: res.status, body: rec(await res.json().catch(() => null)) };
+  };
+  type Row = { itemId: string; supplierName: string; status: string; view: Rec; needsAction: string | null; quote: Rec | null; cards: Rec[]; canChaseNow: boolean; outlookKind: string };
+  const rowsOf = (b: Rec): Row[] => ((b.groups as Rec[]) ?? []).flatMap((g) => ((g.rounds as Rec[]) ?? []).flatMap((r) => (r.rows as Row[]) ?? []));
+  const rowBy = (b: Rec, name: string) => rowsOf(b).find((r) => r.supplierName === name);
+
+  try {
+    for (const id of users) await db.user.create({ data: { id, email: email(id), name: `Fixture ${id}`, role: "user" } });
+    await db.organization.create({
+      data: {
+        id: ORG, name: "Fixture Bidder", code: `t2-${stamp}`, ownerId: OWNER,
+        settingsJson: { tenderRfq: { landedCost: { fxRates: { USD: 1.36 }, fxAsOf: now.toISOString().slice(0, 10), fxSource: "MANUAL", freightEstimate: { mode: "per_unit", value: 6 }, insurancePct: 1, clearanceFlatCad: 150, projects: {} } } },
+      },
+    });
+    await db.organization.create({ data: { id: ORG_B, name: "Other Org", code: `t2b-${stamp}`, ownerId: OUTSIDER } });
+    await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER, role: "org_admin", status: "active" } });
+    await db.organizationMember.create({ data: { orgId: ORG, userId: VIEWER, role: "org_viewer", status: "active" } });
+    await db.organizationMember.create({ data: { orgId: ORG_B, userId: OUTSIDER, role: "org_admin", status: "active" } });
+
+    const mkProject = async (o: { orgId?: string; owner?: string; workDomain?: string; intakeStatus?: string; name?: string } = {}) => {
+      seq += 1;
+      const id = `t2proj_${stamp}_${seq}`;
+      projectIds.push(id);
+      await db.project.create({ data: { id, name: o.name ?? `Fixture Tender ${seq}`, orgId: o.orgId ?? ORG, ownerId: o.owner ?? OWNER, workDomain: o.workDomain ?? "tender", intakeStatus: o.intakeStatus ?? "dispatched", closeDate: new Date(now.getTime() + 30 * DAY) } as never });
+      return id;
+    };
+    const mkSupplier = async (name: string, orgId = ORG) => {
+      const s = await db.supplier.create({ data: { orgId, name, contactEmail: `${name.replace(/\W/g, "").toLowerCase()}@supplier-fixture.test`, status: "active", createdById: orgId === ORG ? OWNER : OUTSIDER } as never });
+      supplierIds.push(s.id);
+      return s.id;
+    };
+    const mkRound = async (projectId: string, roundNumber: number, dueDate: Date | null, status = "in_progress", orgId = ORG, owner = OWNER) => {
+      const inq = await db.projectInquiry.create({ data: { projectId, roundNumber, status, dueDate, createdById: owner } });
+      await db.pendingAction.create({ data: { type: "tender.send_rfq", title: `第 ${roundNumber} 轮`, preview: "fixture", payload: { inquiryId: inq.id, projectId, roundNumber, items: [{ body: "- 数量：200 件\n" }] }, status: "executed", createdById: owner, orgId, projectId, expiresAt: new Date(now.getTime() + 3 * DAY), idempotencyKey: `t2-${stamp}-${inq.id}` } });
+      return inq.id;
+    };
+    const mkItem = async (inquiryId: string, supplierId: string, o: Rec) =>
+      (await db.inquiryItem.create({ data: { inquiryId, supplierId, createdById: OWNER, ...o } as never })).id;
+
+    const P1 = await mkProject({ name: "Fixture Tender One" });
+    const P2 = await mkProject({ name: "Fixture Tender Two" });
+    // P1 的关税率（FOB 换算要用）
+    {
+      const cur = rec((await db.organization.findUnique({ where: { id: ORG } }))?.settingsJson);
+      const lc = rec(rec(cur.tenderRfq).landedCost);
+      await db.organization.update({ where: { id: ORG }, data: { settingsJson: { ...cur, tenderRfq: { ...rec(cur.tenderRfq), landedCost: { ...lc, projects: { [P1]: { dutyRatePct: 6.5 } } } } } as never } });
+    }
+    const PX = await mkProject({ workDomain: "trade", name: "Not A Tender" });
+    const PU = await mkProject({ intakeStatus: "pending_dispatch", name: "Not Dispatched" });
+    const PB = await mkProject({ orgId: ORG_B, owner: OUTSIDER, name: "Other Org Tender" });
+
+    const S = { a: await mkSupplier("Alpha Wait"), b: await mkSupplier("Beta Card"), c: await mkSupplier("Gamma Manual"), d: await mkSupplier("Delta Quoted"), e: await mkSupplier("Epsilon CNY"), f: await mkSupplier("Foxtrot Reply"), g: await mkSupplier("Golf Late"), h: await mkSupplier("Hotel NoResp"), i: await mkSupplier("India Canceled"), x: await mkSupplier("Xray Hidden"), z: await mkSupplier("Zulu Other", ORG_B) };
+
+    const r1 = await mkRound(P1, 1, ymdAfter(10));
+    const autoNotes = (facts: string) => `[auto ${ago(1).toISOString()} msg=m${seq}] ${facts}`;
+    const A = await mkItem(r1, S.a, { status: "sent", sentAt: ago(1), contactNotes: "threadId=thrA" });
+    const B = await mkItem(r1, S.b, { status: "sent", sentAt: ago(4), contactNotes: "threadId=thrB" });
+    const C = await mkItem(r1, S.c, { status: "sent", sentAt: ago(1), contactNotes: null });
+    const D = await mkItem(r1, S.d, { status: "quoted", sentAt: ago(3), repliedAt: ago(1), unitPrice: 89.5, totalPrice: 17900, currency: "USD", deliveryDays: 21, validUntil: ymdAfter(40), contactNotes: "threadId=thrD", quoteNotes: autoNotes("单价=89.5；贸易条款=FOB") });
+    const E = await mkItem(r1, S.e, { status: "quoted", sentAt: ago(3), repliedAt: ago(1), unitPrice: 500, currency: "CNY", deliveryDays: 20, validUntil: ymdAfter(40), contactNotes: "threadId=thrE", quoteNotes: autoNotes("单价=500；贸易条款=FOB") });
+    const F = await mkItem(r1, S.f, { status: "replied", sentAt: ago(3), repliedAt: ago(1), contactNotes: "threadId=thrF", quoteNotes: autoNotes("缺：价格、币种") });
+    // B 有一张待批的第 1 次催单卡
+    const cardB = await db.pendingAction.create({ data: { type: "tender.send_chase", title: "催单", preview: "fixture", payload: { inquiryItemId: B, inquiryId: r1, projectId: P1, kind: "no_reply", chaseIndex: 1, supplierName: "Beta Card", to: "beta@supplier-fixture.test", subject: "Re: 询价", body: "您好，想确认一下报价进展。", threadId: "thrB" }, status: "pending", createdById: OWNER, orgId: ORG, projectId: P1, expiresAt: new Date(now.getTime() + 2 * DAY), idempotencyKey: `tender.send_chase:${B}:1` } });
+
+    const r2 = await mkRound(P2, 1, new Date(ago(3).toISOString().slice(0, 10) + "T00:00:00Z"));
+    const G = await mkItem(r2, S.g, { status: "sent", sentAt: ago(6), contactNotes: "threadId=thrG" });
+    const H = await mkItem(r2, S.h, { status: "no_response", sentAt: ago(9), contactNotes: "threadId=thrH" });
+    const rc = await mkRound(P2, 2, ymdAfter(5), "canceled");
+    const I = await mkItem(rc, S.i, { status: "sent", sentAt: ago(1), contactNotes: "threadId=thrI" });
+    const rx = await mkRound(PX, 1, ymdAfter(5));
+    await mkItem(rx, S.x, { status: "sent", sentAt: ago(1), contactNotes: "threadId=thrX" });
+    const ru = await mkRound(PU, 1, ymdAfter(5));
+    await mkItem(ru, S.x, { status: "sent", sentAt: ago(1), contactNotes: "threadId=thrU" });
+    const rb = await mkRound(PB, 1, ymdAfter(5), "in_progress", ORG_B, OUTSIDER);
+    await mkItem(rb, S.z, { status: "sent", sentAt: ago(1), contactNotes: "threadId=thrZ", createdById: OUTSIDER });
+
+    /* ---------- 1. 看得到哪些 ---------- */
+    const g1 = await getTracker();
+    ok(g1.status === 200, "管理员读追踪页：200", g1.status);
+    const projNames = ((g1.body.groups as Rec[]) ?? []).map((g) => rec(g.project).name);
+    ok(projNames.includes("Fixture Tender One") && projNames.includes("Fixture Tender Two") && !projNames.includes("Not A Tender") && !projNames.includes("Not Dispatched") && !projNames.includes("Other Org Tender"), "只有本组织、已派发的招投标项目（不含非招投标、未派发、别的组织）", projNames);
+    ok(!rowBy(g1.body, "India Canceled"), "已取消轮次里的不出现");
+    ok(!!rowBy(g1.body, "Hotel NoResp") && rowBy(g1.body, "Hotel NoResp")!.status === "no_response", "近 14 天标为未响应的显示出来");
+    const gb = await getTracker(OUTSIDER);
+    ok(gb.status === 200 && ((gb.body.groups as Rec[]) ?? []).map((g) => rec(g.project).name).join() === "Other Org Tender", "别的组织的管理员只看到自己组织的", gb.body.groups);
+    const gbx = await getTracker(OUTSIDER, `?orgId=${ORG}`);
+    ok(gbx.status === 403 || gbx.status === 400, "别的组织的人带上本组织 id：被拒（组织由服务端按成员关系解析）", gbx.status);
+
+    /* ---------- 2. 每一行 ---------- */
+    const tz = String(g1.body.timeZone);
+    const ra = rowBy(g1.body, "Alpha Wait")!;
+    ok(ra.status === "sent" && ra.outlookKind === "chase_on" && ra.view.outlookText === `下次自动催 ${zonedMonthDay(new Date(ago(1).getTime() + 3 * DAY), tz)}` && ra.canChaseNow && ra.needsAction === null, "等回复：下次自动催的日期 = 发出 + 3 天（默认间隔），可「现在就催」", ra);
+    const rb1 = rowBy(g1.body, "Beta Card")!;
+    ok(rb1.needsAction === "chase_card_pending" && rb1.view.outlookText === "催单卡待批" && rb1.cards.length === 1 && rec(rb1.cards[0]).actionId === cardB.id && rec(rb1.cards[0]).chaseKind === "no_reply" && rec(rb1.cards[0]).chaseIndex === 1 && !rb1.canChaseNow, "有待批卡：需要我处理、带卡（审批信息、第几次）、没有「现在就催」", rb1);
+    ok(Array.isArray(rec(rb1.cards[0]).emails) && JSON.stringify(rec(rb1.cards[0]).emails).includes("想确认一下报价进展") && !!rec(rec(rb1.cards[0]).approval).approvalId, "卡带正文与审批信息");
+    const rc1 = rowBy(g1.body, "Gamma Manual")!;
+    ok(rc1.outlookKind === "manual_only" && String(rc1.view.outlookText).startsWith("手工联系，系统不会自动催") && !rc1.canChaseNow, "手工联系：写明不会自动催，没有「现在就催」", rc1);
+    const rf = rowBy(g1.body, "Foxtrot Reply")!;
+    ok(rf.needsAction === "reply_no_quote" && String(rf.view.missingText).includes("单价"), "回信没报价：需要我处理，写缺什么", rf);
+    const rg = rowBy(g1.body, "Golf Late")!;
+    ok(rg.needsAction === "past_reply_by", "过了回复截止还没回：需要我处理", rg);
+
+    /* ---------- 3. 价格只有一个出处 ---------- */
+    const m = await loadCompareMatrix({ projectId: P1, orgId: ORG, inquiryId: r1, now });
+    ok(m.ok, "比价矩阵能算");
+    const mrow = (id: string) => (m.ok ? m.matrix.rows.find((x) => x.itemId === id) : undefined);
+    const rd = rowBy(g1.body, "Delta Quoted")!;
+    const dTotal = mrow(D)!.landedCad.total!;
+    ok(String(rd.quote?.landedText) === `落地价 CAD ${Math.round(dTotal).toLocaleString("en-US")}` && String(rd.quote?.quoteText).startsWith("报价 USD 89.5 / 件 · 总价 USD 17,900"), "已报价：原币种报价；落地价与比价矩阵相同", { rd: rd.quote, dTotal });
+    ok(Boolean(rd.quote?.cheapest) === mrow(D)!.flags.includes("cheapest"), "「最便宜」与矩阵一致");
+    const re = rowBy(g1.body, "Epsilon CNY")!;
+    ok(String(re.quote?.landedText) === `落地价未换算（${mrow(E)!.blockers[0]}）` && rec(re.quote).needsCompareLink === true, "缺 CNY 汇率：写矩阵给的原因、给去比价链接", re.quote);
+    // 待批卡的正文预览里有收件地址（审批时要看到发给谁）；卡以外的部分不该有供应商邮箱
+    const noCards = JSON.stringify({ ...g1.body, groups: ((g1.body.groups as Rec[]) ?? []).map((g) => ({ ...g, rounds: ((g.rounds as Rec[]) ?? []).map((r) => ({ ...r, rows: ((r.rows as Rec[]) ?? []).map((x) => ({ ...x, cards: [] })) })) })) });
+    const leak = g1.text.match(/estimatedValue|ourBidPrice|winningBidPrice|margin|quoteNotes|\[auto /i)?.[0] ?? noCards.match(/supplier-fixture\.test/)?.[0] ?? null;
+    ok(leak === null, "返回里没有估值、我方报价、中标价、毛利、报价备注原文；卡以外没有供应商邮箱", leak);
+
+    /* ---------- 4. 计数与汇总卡 ---------- */
+    const s = rec(g1.body.summary);
+    const rows = rowsOf(g1.body);
+    ok(s.needsAction === rows.filter((r) => r.needsAction).length && s.waiting === rows.filter((r) => r.status === "sent").length && s.quoted === 2 && s.noResponse === 1 && s.pendingCards === 1, "顶部计数与行一致", s);
+    const gs = await getTracker(OWNER, "?summary=1");
+    ok(JSON.stringify(gs.body.summary) === JSON.stringify(g1.body.summary) && JSON.stringify(gs.body.groups) === "[]", "汇总卡（summary=1）的数字与整页顶部相同，不带行", gs.body);
+
+    /* ---------- 5. 间隔与扫描同一来源 ---------- */
+    await db.organization.update({ where: { id: ORG }, data: { settingsJson: { ...(rec((await db.organization.findUnique({ where: { id: ORG } }))?.settingsJson)), museBridge: { userPrefs: { [OWNER]: { chaseAfterDays: 5 } } } } } });
+    const g5 = await getTracker();
+    ok(rowBy(g5.body, "Alpha Wait")!.view.outlookText === `下次自动催 ${zonedMonthDay(new Date(ago(1).getTime() + 5 * DAY), tz)}`, "负责人把催单天数设为 5：下次自动催 = 发出 + 5 天");
+    const orgNow = await db.organization.findUnique({ where: { id: ORG }, select: { settingsJson: true } });
+    const noFollow = { flagEnabled: false, roundCard: null, approver: { active: false, role: null }, inquiryStatus: "", stopped: false };
+    ok(chaseDaysForRound(orgNow?.settingsJson, OWNER, noFollow) === 5 && chaseDaysForRound(orgNow?.settingsJson, OWNER, noFollow) === resolveChaseAfterDays(5, orgNow?.settingsJson), "chaseDaysForRound 在没有跟进授权时就是负责人偏好 → 组织设置（与原来相同）");
+
+    /* ---------- 6. loadItems 不传 projectIds 与原来相同 ---------- */
+    const all = await loadItems({ orgId: ORG }, now);
+    const some = await loadItems({ orgId: ORG, projectIds: [P1] }, now);
+    const both = await loadItems({ orgId: ORG, projectIds: [P1, P2, PX, PU] }, now);
+    const ids = (xs: Array<{ snapshot: { itemId: string } }>) => xs.map((x) => x.snapshot.itemId).sort().join();
+    ok(ids(all) === ids(both) && some.every((x) => x.snapshot.projectId === P1) && some.length === 6, "loadItems：不传 projectIds 与传全部项目结果相同；只传 P1 只有 P1 的", { all: all.length, some: some.length });
+    ok(!all.some((x) => x.snapshot.itemId === I), "loadItems 照旧排除已取消轮次");
+
+    /* ---------- 7. 现在就催 ---------- */
+    const before = await db.pendingAction.count({ where: { orgId: ORG, type: "tender.send_chase" } });
+    const c1 = await postChase(P1, { inquiryId: r1, itemIds: [A, B, C] });
+    const drafted = (c1.body.drafted as Rec[]) ?? [];
+    const skipped = (c1.body.skipped as Rec[]) ?? [];
+    ok(c1.status === 200 && drafted.length === 1 && drafted[0].itemId === A && !!rec(drafted[0].approval).approvalId && drafted[0].chaseKind === "no_reply" && drafted[0].chaseIndex === 1, "等回复的那家（还没到期也行）：起草一张卡，带审批信息与第几次", c1.body);
+    ok(skipped.some((x) => x.itemId === B && x.reasonZh === "已有一张待批的催单卡") && skipped.some((x) => x.itemId === C && x.reasonZh === "这家是手工联系的，没有邮件线程可回复"), "另两家：说明原因（已有待批卡 / 手工联系）", skipped);
+    const after = await db.pendingAction.findMany({ where: { orgId: ORG, type: "tender.send_chase" }, select: { status: true, executedAt: true } });
+    ok(after.length === before + 1 && after.every((a) => a.status === "pending" && a.executedAt === null), "只建了一张待批卡，没有任何一张被执行（没发信）");
+    const g7 = await getTracker();
+    ok(rowBy(g7.body, "Alpha Wait")!.needsAction === "chase_card_pending" && rowBy(g7.body, "Alpha Wait")!.cards.length === 1, "起草之后追踪页里那一行变成「催单卡待批」并带卡");
+    ok((await postChase(P1, { inquiryId: r1, itemIds: [A] }, OUTSIDER)).status >= 403, "别的组织的人「现在就催」：拒绝");
+    ok((await postChase(P1, { inquiryId: r1, itemIds: [] })).status === 400 && (await postChase(P1, { inquiryId: r1, itemIds: Array.from({ length: 9 }, (_, i) => `x${i}`) })).status === 400, "一次 0 家或超过 8 家：400");
+    const vres = await postChase(P1, { inquiryId: r1, itemIds: [A] }, VIEWER);
+    ok(vres.status === 403, "只读成员（org_viewer）没有写权限：403", vres.status);
+
+    /* ---------- 8. 首页建议 ---------- */
+    await mkItem(r2, await mkSupplier("Juliet Pending"), { status: "pending", createdAt: ago(20) });
+    const scan = await scanProjectsForUser(OWNER, "user");
+    const sug = scan.suggestions.find((x) => x.kind === "supplier_no_response" && x.projectId === P2);
+    ok(!!sug && sug.suggestedAction?.type === "open_rfq_tracker" && sug.suggestedAction.label === "去询价追踪" && sug.title.includes("超过 5 天"), "首页「供应商未回复」：按负责人的催单天数（5 天），按钮去询价追踪", sug);
+    ok(!!sug && sug.description.includes("Golf Late") && !sug.description.includes("Juliet Pending") && !sug.description.includes("Hotel NoResp") && sug.title.includes("有 1 家"), "只算已发出且超过 5 天的（pending 的、未响应的不算）", sug?.description);
+    ok(!scan.suggestions.some((x) => x.kind === "supplier_no_response" && x.projectId === P1), "P1 的几家都没超过 5 天：不提醒");
+
+    /* ---------- 9. 旧接口 ---------- */
+    const old = await batchRoute.POST();
+    ok(old.status === 410, "batch-followup：410");
+  } finally {
+    await db.auditLog.deleteMany({ where: { OR: [{ orgId: { in: [ORG, ORG_B] } }, { userId: { in: users } }, { projectId: { in: projectIds } }] } });
+    await db.pendingAction.deleteMany({ where: { orgId: { in: [ORG, ORG_B] } } });
+    await db.inquiryItem.deleteMany({ where: { inquiry: { projectId: { in: projectIds } } } });
+    await db.projectInquiry.deleteMany({ where: { projectId: { in: projectIds } } });
+    await db.supplier.deleteMany({ where: { id: { in: supplierIds } } });
+    await db.project.deleteMany({ where: { id: { in: projectIds } } });
+    await db.organizationMember.deleteMany({ where: { orgId: { in: [ORG, ORG_B] } } });
+    await db.organization.deleteMany({ where: { id: { in: [ORG, ORG_B] } } });
+    await db.user.deleteMany({ where: { id: { in: users } } });
+    await db.$disconnect();
+  }
+
+  console.log(`\nT-2 rfq tracker DB: ${pass} passed, ${fail} failed`);
+  if (fail > 0) process.exit(1);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

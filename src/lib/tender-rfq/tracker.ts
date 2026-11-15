@@ -28,6 +28,7 @@ import {
   trackerSummary,
   type ChaseOutlook,
   type NeedsAction,
+  parseChaseCardKey,
   type QuoteCell,
   type TrackerRowView,
   type TrackerSummary,
@@ -46,7 +47,8 @@ const toNum = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-export type TrackerCard = { actionId: string; approval: RfqApprovalInfo; emails: RfqEmailPreview[] };
+export type TrackerCard = { actionId: string; approval: RfqApprovalInfo; emails: RfqEmailPreview[]; chaseKind: "no_reply" | "missing_fields"; chaseIndex: number };
+
 
 export type TrackerRow = {
   itemId: string;
@@ -75,7 +77,15 @@ export type TrackerPayload = {
 type ExtraFields = { currency: string | null; repliedAt: Date | null; deliveryDays: number | null; validUntil: Date | null; unitPrice: number | null; totalPrice: number | null };
 
 /** 只读；不建卡、不发信、不改任何状态 */
-export async function loadTracker(input: { request: NextRequest; user: AuthUser; orgId: string; now?: Date; projectId?: string | null }): Promise<TrackerPayload> {
+export async function loadTracker(input: {
+  request: NextRequest;
+  user: AuthUser;
+  orgId: string;
+  now?: Date;
+  projectId?: string | null;
+  /** /bids 汇总卡：只要计数——不取比价矩阵、不取审批信息（计数与这两样无关，和整页的计数相同） */
+  summaryOnly?: boolean;
+}): Promise<TrackerPayload> {
   const now = input.now ?? new Date();
   const org = await db.organization.findUnique({ where: { id: input.orgId }, select: { settingsJson: true } });
   const timeZone = resolveOrgTimezone(org?.settingsJson ?? null);
@@ -133,12 +143,12 @@ export async function loadTracker(input: { request: NextRequest; user: AuthUser;
     select: { id: true, idempotencyKey: true },
     orderBy: { createdAt: "asc" },
   });
-  const cardIdsByItem = new Map<string, string[]>();
+  const cardIdsByItem = new Map<string, Array<{ id: string; chaseKind: "no_reply" | "missing_fields"; chaseIndex: number }>>();
   for (const c of liveCards) {
-    const itemId = (c.idempotencyKey ?? "").split(":")[1];
-    if (itemId) cardIdsByItem.set(itemId, [...(cardIdsByItem.get(itemId) ?? []), c.id]);
+    const k = parseChaseCardKey(c.idempotencyKey);
+    if (k) cardIdsByItem.set(k.itemId, [...(cardIdsByItem.get(k.itemId) ?? []), { id: c.id, chaseKind: k.chaseKind, chaseIndex: k.chaseIndex }]);
   }
-  const actionIds = liveCards.map((c) => c.id);
+  const actionIds = input.summaryOnly ? [] : liveCards.map((c) => c.id);
   const [approvals, emails] = await Promise.all([
     loadRfqApprovalInfo(input.request, input.user, input.orgId, actionIds),
     loadRfqSendEmails(input.orgId, actionIds),
@@ -162,7 +172,7 @@ export async function loadTracker(input: { request: NextRequest; user: AuthUser;
     const prev = quotedRounds.get(it.inquiryId);
     if (!prev || t > prev.latest) quotedRounds.set(it.inquiryId, { projectId: it.snapshot.projectId, latest: t });
   }
-  const matrixRounds = [...quotedRounds.entries()].sort((a, b) => b[1].latest - a[1].latest).slice(0, TRACKER_MATRIX_ROUND_LIMIT);
+  const matrixRounds = input.summaryOnly ? [] : [...quotedRounds.entries()].sort((a, b) => b[1].latest - a[1].latest).slice(0, TRACKER_MATRIX_ROUND_LIMIT);
   const matrixLoaded = new Set<string>();
   const matrixRowByItem = new Map<string, Pick<CompareRow, "landedCad" | "flags" | "blockers">>();
   for (const [inquiryId, r] of matrixRounds) {
@@ -193,7 +203,9 @@ export async function loadTracker(input: { request: NextRequest; user: AuthUser;
     const missing: InboundMissingField[] = s.status === "replied" || s.status === "quoted" ? currentMissingFields(s.quote, { quoted: s.status === "quoted" }) : [];
     const needsAction = classifyNeedsAction({ status: s.status, outlook, missing, replyBy, now });
     const noReplyChases = s.chases.filter((c) => c.kind === "no_reply").length;
-    const cards = (cardIdsByItem.get(s.itemId) ?? []).filter((id) => approvals[id]).map((id) => ({ actionId: id, approval: approvals[id], emails: emails[id] ?? [] }));
+    const cards = (cardIdsByItem.get(s.itemId) ?? [])
+      .filter((c) => approvals[c.id])
+      .map((c) => ({ actionId: c.id, approval: approvals[c.id], emails: emails[c.id] ?? [], chaseKind: c.chaseKind, chaseIndex: c.chaseIndex }));
     built.push({
       itemId: s.itemId,
       supplierName: s.supplierName,
@@ -248,6 +260,7 @@ export async function loadTracker(input: { request: NextRequest; user: AuthUser;
   });
 
   const summary = trackerSummary(built, now);
+  if (input.summaryOnly) return { summary, groups: [], timeZone, truncated };
   let rows = built;
   if (rows.length > TRACKER_ROW_LIMIT) {
     truncated = true;

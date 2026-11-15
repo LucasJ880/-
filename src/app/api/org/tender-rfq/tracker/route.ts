@@ -1,5 +1,5 @@
 /**
- * GET /api/org/tender-rfq/tracker?orgId=&project= — T-2 询价追踪页（只读）
+ * GET /api/org/tender-rfq/tracker?orgId=&project=&summary=1 — T-2 询价追踪页（只读；summary=1 只要计数，给 /bids 汇总卡）
  *
  * 组织按登录者解析（resolveRequestOrgIdForUser；apiFetch 对 /api/org/ 自动带 orgId），项目按可见规则过滤。
  * 返回按白名单组装：报价字段与比价矩阵的落地价 / 最便宜 / 换算不出的原因；不含估值、我方报价、毛利。
@@ -14,6 +14,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const orgRes = await resolveRequestOrgIdForUser(user, searchParams.get("orgId"));
   if (!orgRes.ok) return orgRes.response;
   const projectId = (searchParams.get("project") ?? "").trim() || null;
-  const payload = await loadTracker({ request, user, orgId: orgRes.orgId, projectId });
+  const summaryOnly = searchParams.get("summary") === "1";
+  const payload = await loadTracker({ request, user, orgId: orgRes.orgId, projectId, summaryOnly });
   return NextResponse.json(payload);
 });

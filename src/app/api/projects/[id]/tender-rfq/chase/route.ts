@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     loadRfqSendEmails(orgId, actionIds),
   ]);
   return NextResponse.json({
-    drafted: r.run.drafted.map((d) => ({ itemId: d.itemId, supplierName: d.supplierName, actionId: d.actionId, approval: approvals[d.actionId] ?? null, emails: emails[d.actionId] ?? [] })),
+    drafted: r.run.drafted.map((d) => ({ itemId: d.itemId, supplierName: d.supplierName, actionId: d.actionId, chaseKind: d.kind, chaseIndex: d.chaseIndex, approval: approvals[d.actionId] ?? null, emails: emails[d.actionId] ?? [] })),
     skipped: r.run.skipped.map((s) => ({ itemId: s.itemId, supplierName: s.supplierName, reasonZh: chaseSkipZh(s.reason) })),
     failed: r.run.failed.map((f) => ({ itemId: f.itemId, supplierName: f.supplierName, reasonZh: friendlyExecutionError(f.error) })),
   });
