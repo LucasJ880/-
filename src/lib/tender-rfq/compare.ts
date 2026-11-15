@@ -179,7 +179,7 @@ export function summarizeMatrixZh(m: {
   const byId = new Map(m.rows.map((r) => [r.itemId, r]));
   const cheapest = m.cheapestItemId ? byId.get(m.cheapestItemId)! : null;
   const rec = m.recommendedItemId ? byId.get(m.recommendedItemId)! : null;
-  const parts: string[] = [`共 ${m.rows.length} 家报价（落地价，CAD，到目的地含税）。`];
+  const parts: string[] = [`共 ${m.rows.length} 家报价（落地价，CAD，到目的地，含关税，不含 GST/HST）。`];
 
   if (rec) {
     parts.push(`推荐 ${short(rec.supplierName)}：落地价 ${money(rec.landedCad.total!)}，交期、有效期、强制项、起订量检查均通过${rec.checks.moqOk === "unknown" ? "（起订量未注明）" : ""}。`);

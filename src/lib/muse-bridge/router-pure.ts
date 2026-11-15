@@ -414,7 +414,7 @@ export function compareAdvisory(input: { projectId: string; roundNumber: number;
   }
   const notNormalized = matrix.rows.filter((r) => r.landedCad.total == null);
   if (notNormalized.length) reasons.push(`${notNormalized.length} 家未能换算落地价（${notNormalized[0].blockers[0] ?? "参数不全"}）`);
-  reasons.push(`第 ${input.roundNumber} 轮共 ${matrix.rows.length} 家报价；落地价 = CAD，到目的地含税`);
+  reasons.push(`第 ${input.roundNumber} 轮共 ${matrix.rows.length} 家报价；落地价 = CAD，到目的地，含关税，不含 GST/HST`);
 
   const target = rec ?? cheapest;
   const scenario = (r: { itemId: string; supplierName: string }): MuseSuggestedAction => ({
