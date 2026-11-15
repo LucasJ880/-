@@ -34,7 +34,8 @@
 import { google } from "googleapis";
 import { db } from "@/lib/db";
 import { encryptField, decryptField } from "@/lib/crypto";
-import { isGmailDraftAllowed } from "@/lib/env/runtime-isolation";
+import { isGmailDraftAllowed, isMailReadAllowed } from "@/lib/env/runtime-isolation";
+import { MAIL_SEARCH_MAX_RESULTS, applyThreadBudget } from "@/lib/mail-read/pure";
 
 // ── Scopes ──────────────────────────────────────────────────
 
@@ -72,6 +73,13 @@ export function isGmailDraftEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return isGmailDraftAllowed(env);
+}
+
+/** MAIL-1 助手读信开关（MAIL_READ_ENABLED，默认关）；统一走 runtime-isolation */
+export function isMailReadEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isMailReadAllowed(env);
 }
 
 /** 解析 OAuth scope 字符串是否包含目标 scope（支持完整 URL 或短名） */
@@ -517,16 +525,33 @@ export type GmailReadApi = {
     };
     threads: {
       get: (args: { userId: string; id: string; format?: string }) => Promise<{
-        data: { messages?: Array<{ id?: string | null; threadId?: string | null }> | null };
+        data: {
+          /** format=minimal 时只有 id / threadId；format=full 时带标签、时间与分段（MAIL-1 读线程） */
+          messages?: Array<{
+            id?: string | null;
+            threadId?: string | null;
+            labelIds?: string[] | null;
+            internalDate?: string | null;
+            payload?: GmailMessagePart | null;
+          }> | null;
+        };
       }>;
     };
     messages: {
+      /** MAIL-1：按查询串列出邮件 id（只读；不传 includeSpamTrash，默认不含垃圾邮件与已删除邮件） */
+      list: (args: { userId: string; q?: string; labelIds?: string[]; maxResults?: number }) => Promise<{
+        data: {
+          messages?: Array<{ id?: string | null; threadId?: string | null }> | null;
+          nextPageToken?: string | null;
+        };
+      }>;
       get: (args: { userId: string; id: string; format?: string; metadataHeaders?: string[] }) => Promise<{
         data: {
           id?: string | null;
           threadId?: string | null;
           labelIds?: string[] | null;
           internalDate?: string | null;
+          snippet?: string | null;
           payload?: GmailMessagePart | null;
         };
       }>;
@@ -750,6 +775,190 @@ export async function getMessageWithAttachments(
     subject: header("Subject"),
     bodyText: plain.length ? plain.join("\n").trim() : htmlToText(html.join("\n")),
     attachments,
+  };
+}
+
+// ── 助手只读读信（MAIL-1；spec mail/assistant-read） ───────────
+// 只按 userId 取本人的 EmailProvider；只调用 messages.list / messages.get(metadata) / threads.get，
+// 不下载附件、不改动邮箱。正文不在这里落库或打日志。
+
+export type MailboxReadErrorCode = "MAIL_NOT_CONNECTED" | "MAIL_READ_SCOPE_MISSING";
+
+/** 未绑 Gmail / 授权缺读信权限：在调用 Gmail 之前失败 */
+export class MailboxReadError extends Error {
+  readonly code: MailboxReadErrorCode;
+
+  constructor(code: MailboxReadErrorCode) {
+    super(code);
+    this.name = "MailboxReadError";
+    this.code = code;
+  }
+}
+
+async function getMailboxReader(userId: string, deps: GmailReadDeps): Promise<GmailReadApi> {
+  const getProvider = deps.getProvider ?? getEmailProvider;
+  const provider = await getProvider(userId);
+  if (!provider || !provider.accessToken) throw new MailboxReadError("MAIL_NOT_CONNECTED");
+  if (!hasGmailReadScope(provider.grantedScopes)) throw new MailboxReadError("MAIL_READ_SCOPE_MISSING");
+  const getGmail =
+    deps.getGmail ??
+    (async (p: NonNullable<Awaited<ReturnType<typeof getEmailProvider>>>) => {
+      const client = await getAuthedGmailClient(p);
+      return google.gmail({ version: "v1", auth: client }) as unknown as GmailReadApi;
+    });
+  return getGmail(provider);
+}
+
+function gmailErrorStatus(err: unknown): number | undefined {
+  const e = err as { code?: unknown; status?: unknown; response?: { status?: unknown } } | null;
+  const n = Number(e?.code ?? e?.status ?? e?.response?.status);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function partHeader(part: GmailMessagePart | null | undefined, name: string): string {
+  return (part?.headers ?? []).find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
+}
+
+function internalDateOf(raw: string | null | undefined): Date | null {
+  const n = Number(raw ?? "");
+  return Number.isFinite(n) && n > 0 ? new Date(n) : null;
+}
+
+export type MailboxMessageMeta = {
+  messageId: string;
+  threadId: string;
+  from: string;
+  to: string;
+  subject: string;
+  /** ISO 时间；Gmail 没给时为 null */
+  date: string | null;
+  snippet: string;
+  labelIds: string[];
+};
+
+/**
+ * 搜索本人邮箱：messages.list + 逐封 messages.get(format=metadata)，至多 maxResults 封（上限 10）。
+ * 只取头与摘要，不取正文全文。query 由调用方用 buildMailSearchQuery 拼好。
+ */
+export async function searchMailbox(
+  userId: string,
+  opts: { query: string; maxResults?: number },
+  deps: GmailReadDeps = {},
+): Promise<{ messages: MailboxMessageMeta[]; hasMore: boolean }> {
+  const gmail = await getMailboxReader(userId, deps);
+  const max = Math.max(1, Math.min(opts.maxResults ?? MAIL_SEARCH_MAX_RESULTS, MAIL_SEARCH_MAX_RESULTS));
+  const { data } = await gmail.users.messages.list({ userId: "me", q: opts.query, maxResults: max });
+  const refs = (data.messages ?? []).filter((m): m is { id: string; threadId?: string | null } => !!m.id);
+  const picked = refs.slice(0, max);
+  const messages = await Promise.all(
+    picked.map(async (ref): Promise<MailboxMessageMeta> => {
+      const res = await gmail.users.messages.get({
+        userId: "me",
+        id: ref.id,
+        format: "metadata",
+        metadataHeaders: ["From", "To", "Subject", "Date"],
+      });
+      const m = res.data;
+      return {
+        messageId: m.id ?? ref.id,
+        threadId: m.threadId ?? ref.threadId ?? "",
+        from: partHeader(m.payload, "From"),
+        to: partHeader(m.payload, "To"),
+        subject: partHeader(m.payload, "Subject"),
+        date: internalDateOf(m.internalDate)?.toISOString() ?? null,
+        snippet: m.snippet ?? "",
+        labelIds: m.labelIds ?? [],
+      };
+    }),
+  );
+  return { messages, hasMore: Boolean(data.nextPageToken) || refs.length > picked.length };
+}
+
+export type MailThreadAttachment = { filename: string; mimeType: string; size: number };
+
+export type MailThreadMessage = {
+  messageId: string;
+  from: string;
+  to: string;
+  subject: string;
+  date: string | null;
+  labelIds: string[];
+  /** 纯文本正文（text/plain 优先；只有 HTML 时去标签）；已按字数额度截断 */
+  bodyText: string;
+  truncated: boolean;
+  bodyOmitted: boolean;
+  /** 只列文件名与大小，不下载 */
+  attachments: MailThreadAttachment[];
+};
+
+export type MailThreadText = {
+  threadId: string;
+  messages: MailThreadMessage[];
+  /** 任一封被截短或整线程额度用完 */
+  truncated: boolean;
+  returnedChars: number;
+};
+
+/**
+ * 读取本人邮箱里一个线程的纯文本：一次 threads.get(format=full)。
+ * 每封截 6,000 字、整线程 20,000 字（最新的优先）；附件只读分段上的文件名与大小，不调用附件下载接口。
+ * 线程不在本人邮箱里（Gmail 返回 404 / 400）→ null。
+ */
+export async function getThreadText(
+  userId: string,
+  threadId: string,
+  deps: GmailReadDeps = {},
+): Promise<MailThreadText | null> {
+  const gmail = await getMailboxReader(userId, deps);
+  let thread: Awaited<ReturnType<GmailReadApi["users"]["threads"]["get"]>>["data"];
+  try {
+    ({ data: thread } = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" }));
+  } catch (err) {
+    const status = gmailErrorStatus(err);
+    if (status === 404 || status === 400) return null;
+    throw err;
+  }
+
+  const raw = (thread.messages ?? []).map((m) => {
+    const plain: string[] = [];
+    const html: string[] = [];
+    const attachments: MailThreadAttachment[] = [];
+    const walk = (part: GmailMessagePart | null | undefined) => {
+      if (!part) return;
+      const mime = (part.mimeType ?? "").toLowerCase();
+      const filename = part.filename?.trim() ?? "";
+      if (filename) {
+        attachments.push({
+          filename,
+          mimeType: mime || "application/octet-stream",
+          size: part.body?.size ?? 0,
+        });
+      } else if (mime === "text/plain" && part.body?.data) {
+        plain.push(decodeBase64Url(part.body.data).toString("utf-8"));
+      } else if (mime === "text/html" && part.body?.data) {
+        html.push(decodeBase64Url(part.body.data).toString("utf-8"));
+      }
+      for (const child of part.parts ?? []) walk(child);
+    };
+    walk(m.payload);
+    return {
+      messageId: m.id ?? "",
+      from: partHeader(m.payload, "From"),
+      to: partHeader(m.payload, "To"),
+      subject: partHeader(m.payload, "Subject"),
+      date: internalDateOf(m.internalDate)?.toISOString() ?? null,
+      labelIds: m.labelIds ?? [],
+      bodyText: plain.length ? plain.join("\n").trim() : htmlToText(html.join("\n")),
+      attachments,
+    };
+  });
+
+  const budgeted = applyThreadBudget(raw);
+  return {
+    threadId,
+    messages: budgeted.messages,
+    truncated: budgeted.truncated,
+    returnedChars: budgeted.returnedChars,
   };
 }
 
