@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  otherCategoryZh,
   CHECKLIST_ITEM_STATUSES, CHECKLIST_STATUS_ZH, CONDITION_NOT_FOUND_ZH, SUBMISSION_CATEGORY_ZH, SUBMISSION_CHECKLIST_CATEGORIES,
   buildSubmissionChecklist, checklistKeyOf, checklistSummaryZh, parseItemStatus,
   type ChecklistRequirement,
@@ -132,6 +133,11 @@ console.log("开关");
   ok("模型清单的接口：被取代的判断在调用模型之前", legacy.indexOf("if (replacedByDeterministicChecklist(access.project)) {") > 0 && legacy.indexOf("if (replacedByDeterministicChecklist(access.project)) {") < legacy.indexOf("if (!isAIConfigured())") && legacy.indexOf("if (!isAIConfigured())") < legacy.indexOf("createCompletion({"));
   const runner = read("src/components/project-create/auto-ai-panels-runner.tsx");
   ok("自动触发器：模型清单已被取代时不算「缺清单」，不为它去触发生成", runner.includes("const hasChecklist = !!checklistRes?.checklist || checklistRes?.replaced === true;") && runner.includes("if (hasSummary && hasChecklist) {"));
+}
+
+console.log("类别的中文名");
+{
+  ok("废标风险里的非提交类类别有中文名；认不出的显示「其他要求」，不显示原始代码", otherCategoryZh("technical") === "技术" && otherCategoryZh("Certification") === "认证" && otherCategoryZh("weird_x") === "其他要求" && otherCategoryZh(null) === "其他要求" && otherCategoryZh("toString") === "其他要求");
 }
 
 console.log("挂到页面");

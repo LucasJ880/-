@@ -64,6 +64,18 @@ export type ChecklistItem = ChecklistLine & {
 };
 
 /** 招标文件写明的一项提交条件；found = false 表示分析里没有找到 */
+/** 非提交类的要求类别（只出现在「废标风险」里）：给中文名；认不出的不显示原始代码 */
+const OTHER_CATEGORY_ZH: Record<string, string> = {
+  product: "产品", model: "型号", technical: "技术", safety: "安全", certification: "认证", dimensions: "尺寸",
+  performance: "性能", material: "材料", quality: "质量", capability: "能力", installation: "安装", training: "培训",
+  warranty: "质保", reporting: "报告", commercial: "商务", delivery: "交付", packaging: "包装", schedule: "工期",
+  site_visit: "现场踏勘", mandatory: "强制条款",
+};
+export function otherCategoryZh(category: string | null | undefined): string {
+  const k = (category ?? "").trim().toLowerCase();
+  return Object.hasOwn(OTHER_CATEGORY_ZH, k) ? OTHER_CATEGORY_ZH[k] : "其他要求";
+}
+
 export type ChecklistCondition = { slot: string; labelZh: string; found: boolean; textZh: string };
 
 export type SubmissionChecklistView = {
@@ -109,7 +121,7 @@ const lineOf = (r: ChecklistRequirement): ChecklistLine => ({
   key: checklistKeyOf(r.requirementCode),
   requirementCode: r.requirementCode,
   category: r.category,
-  categoryZh: isSubmissionCategory(r.category) ? SUBMISSION_CATEGORY_ZH[r.category] : r.category,
+  categoryZh: isSubmissionCategory(r.category) ? SUBMISSION_CATEGORY_ZH[r.category] : otherCategoryZh(r.category),
   textZh: (r.chineseTranslation ?? "").trim() || r.originalRequirement.trim(),
   originalText: r.originalRequirement.trim(),
   sourcePage: r.sourcePage,
