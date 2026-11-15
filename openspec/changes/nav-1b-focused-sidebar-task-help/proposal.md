@@ -1,6 +1,6 @@
 # Proposal：常用入口置顶 + 白话说明页（NAV-1b）
 
-TASKFLOW：NAV-1b（Phase N；任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TASKBRIEF.md` §NAV-1b，Lucas 2026-11-14 拍板「常用 8 项取推荐」「三条改法全部执行」）。依赖 NAV-1a（#453 已合并，取名函数 `navEntryLabel` 与能力 `navigation/entry-naming`）。核对基线：main `d46730e`（2026-11-15，含 NAV-1a）；任务书引用的文件相对 `dd0e99d` 只有 NAV-1a 自己改过的那些。
+TASKFLOW：NAV-1b（Phase N；任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TASKBRIEF.md` §NAV-1b，Lucas 2026-11-14 拍板「常用 8 项取推荐」「三条改法全部执行」）。依赖 NAV-1a（#453 已合并，取名函数 `navEntryLabel` 与能力 `navigation/entry-naming`）。核对基线：main `d46730e`（2026-11-15，含 NAV-1a）；任务书引用的文件相对 `dd0e99d` 只有 NAV-1a 自己改过的那些。推送时 main 已到 `982527b`（含 NAV-1a 归档 #457 与招投标线 #454），本 change 涉及的文件没有再变。
 
 ## Why
 
