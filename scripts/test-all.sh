@@ -330,6 +330,8 @@ run_test "外贸按岗位权限键（PERM-6a）" "npx tsx src/lib/trade/__tests_
 run_test "外贸收件人 / 营收中心按外贸键（PERM-6c）" "npx tsx src/lib/trade/__tests__/trade-recipients.test.ts"
 # NAV-1c（openspec change nav-1c-reply-entry）：看到来信就能回——回复目标解析、时间线文字、收件箱按钮与深链、审批面链接，纯函数 + 源码断言，无 DB
 run_test "回复入口：客户时间线 / 询盘收件箱 / 审批面（NAV-1c）" "npx tsx src/lib/trade/__tests__/reply-entry.test.ts"
+# NAV-6（openspec change nav-6-inbox-reply-clarity）：阶段 replied 的显示名与同源、收件箱「我方已回复」、回复能力标记与只读成员的页面，纯函数 + 源码断言，无 DB
+run_test "询盘收件箱：谁回复了谁 / 不能回复的成员（NAV-6）" "npx tsx src/lib/trade/__tests__/reply-clarity.test.ts"
 run_test "岗位绑定界面（PERM-7）" "npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts"
 run_test "梦馨落岗位（PERM-6b）" "npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts"
 run_test "平台 admin 退役（PERM-7b）" "npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts"

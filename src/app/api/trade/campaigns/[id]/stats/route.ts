@@ -12,7 +12,7 @@ import {
   TRADE_READ_KEYS,
   requireTradePermission,
 } from "@/lib/trade/access";
-import { normalizeTradeProspectStage, type TradeProspectStage } from "@/lib/trade/stage";
+import { normalizeTradeProspectStage, TRADE_PROSPECT_STAGE_LABELS, type TradeProspectStage } from "@/lib/trade/stage";
 
 const FUNNEL_STAGES: { key: string; label: string; includes: TradeProspectStage[] | null }[] = [
   { key: "total", label: "总线索", includes: null },
@@ -43,7 +43,7 @@ const FUNNEL_STAGES: { key: string; label: string; includes: TradeProspectStage[
   },
   {
     key: "replied",
-    label: "已回复",
+    label: TRADE_PROSPECT_STAGE_LABELS.replied,
     includes: ["replied", "quoted", "follow_up", "converted"],
   },
   {

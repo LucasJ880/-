@@ -76,7 +76,8 @@ export const TRADE_PROSPECT_STAGE_LABELS: Record<TradeProspectStage, string> = {
   researched: "已研究",
   qualified: "合格",
   contacted: "已触达",
-  replied: "已回复",
+  // NAV-6：买家来信就进这个阶段（含第一次主动询盘），我方回复后也不变——名字写明主语，不再叫「已回复」
+  replied: "买家已来信",
   quoted: "已报价",
   follow_up: "待跟进",
   converted: "已转化",

@@ -1,6 +1,6 @@
 # Tasks
 
-每条带验证；真实输出写进 `docs/QINGYAN_NAV-6_REPORT.md`。四件套待 Lucas 审核（design「审核关注点」Q1–Q5），审核通过前不动业务代码。
+每条带验证；真实输出写进 `docs/QINGYAN_NAV-6_REPORT.md`。四件套 Lucas 2026-11-15 审核通过（Q1–Q5 全部按推荐）。
 
 受影响测试基线（2026-11-15，main `59ab1837`，Node 24）：
 
@@ -14,13 +14,13 @@
 
 ## 1. 说法
 
-- [ ] 1.1 把阶段 `replied` 的显示名改为「买家已来信」（`src/lib/trade/stage.ts`），并把概览卡、看板漏斗、活动漏斗、助手阶段分布四处写死的「已回复」改为读阶段表（design D1 / D2）。新增 `src/lib/trade/__tests__/reply-clarity.test.ts` 的「阶段显示名与同源、取值与漏斗定义不变」一组，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。验证：该组全过；`bash scripts/check-test-registry.sh` 通过、基线不增。
-- [ ] 1.2 把询盘收件箱卡片下方的状态文字改为「我方已回复」（design D3），在 `reply-clarity.test.ts` 加「卡片上的两种说法」断言。验证：断言通过；`entry-visibility` 仍是 92 通过（按钮「已回复，标记」未改名）。
+- [x] 1.1 把阶段 `replied` 的显示名改为「买家已来信」（`src/lib/trade/stage.ts`），并把概览卡、看板漏斗、活动漏斗、助手阶段分布四处写死的「已回复」改为读阶段表（design D1 / D2）。新增 `src/lib/trade/__tests__/reply-clarity.test.ts` 的「阶段显示名与同源、取值与漏斗定义不变」一组，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。验证：该组全过；`bash scripts/check-test-registry.sh` 通过、基线不增。
+- [x] 1.2 把询盘收件箱卡片下方的状态文字改为「我方已回复」（design D3），在 `reply-clarity.test.ts` 加「卡片上的两种说法」断言。验证：断言通过；`entry-visibility` 仍是 92 通过（按钮「已回复，标记」未改名）。
 
 ## 2. 回复能力
 
-- [ ] 2.1 给 `GET /api/trade/inbox` 与 `GET /api/trade/inbox/focus` 的 `capabilities` 加 `reply`（design D4）；在 `reply-entry-db.isolated.test.ts` 加「只持 `trade.read` 的成员」一组（测试岗位只建在隔离库）。验证：本机 Postgres 上原 21 项 + 新增一组全过；无库时跳过并退出 0；`trade-access` 仍是 128 通过、守卫处理器 111 个。
-- [ ] 2.2 询盘收件箱页面按 `reply` 决定回复操作是否出现：三个卡片按钮、只读的草稿窗口、深链提示（design D5）。在 `reply-clarity.test.ts` 加出现条件的源码断言，并调整 `reply-entry.test.ts` 里断言按钮渲染条件的两条。验证：`reply-clarity` 全过；`reply-entry` 通过数 ≥ 45；`npm run typecheck` 通过。
+- [x] 2.1 给 `GET /api/trade/inbox` 与 `GET /api/trade/inbox/focus` 的 `capabilities` 加 `reply`（design D4）；在 `reply-entry-db.isolated.test.ts` 加「只持 `trade.read` 的成员」一组（测试岗位只建在隔离库）。验证：本机 Postgres 上原 21 项 + 新增一组全过；无库时跳过并退出 0；`trade-access` 仍是 128 通过、守卫处理器 111 个。
+- [x] 2.2 询盘收件箱页面按 `reply` 决定回复操作是否出现：三个卡片按钮、只读的草稿窗口、深链提示（design D5）。在 `reply-clarity.test.ts` 加出现条件的源码断言，并调整 `reply-entry.test.ts` 里断言按钮渲染条件的两条。验证：`reply-clarity` 全过；`reply-entry` 通过数 ≥ 45；`npm run typecheck` 通过。
 
 ## 3. 交付
 

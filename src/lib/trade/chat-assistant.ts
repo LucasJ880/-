@@ -350,7 +350,7 @@ async function toolGetOverview(orgId: string): Promise<ToolResult> {
     `已研究 ${merged.researched}`,
     `合格 ${merged.qualified}`,
     `已触达 ${merged.contacted}`,
-    `已回复 ${merged.replied}`,
+    `${getTradeProspectStageLabel("replied")} ${merged.replied}`,
     `已报价 ${merged.quoted}`,
     `待跟进 ${merged.follow_up}`,
     `已转化 ${merged.converted}`,

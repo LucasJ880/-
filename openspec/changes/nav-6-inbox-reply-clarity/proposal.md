@@ -1,6 +1,6 @@
 # Proposal：询盘收件箱里「谁回复了谁」说清楚，不能回复的人不出现回复操作（NAV-6）
 
-TASKFLOW：NAV-6（Phase N；来源是 `docs/QINGYAN_NAV-1c_REPORT.md` §4 第 4、6 条与 §7 的后续队列，Lucas 2026-11-15「3.要做」）。没有单独的任务书，本 proposal 即任务口径。核对基线：main `59ab1837`（2026-11-15，含 NAV-1a / 1b / 1c 及其归档）。四件套待审，审核通过前不动业务代码。
+TASKFLOW：NAV-6（Phase N；来源是 `docs/QINGYAN_NAV-1c_REPORT.md` §4 第 4、6 条与 §7 的后续队列，Lucas 2026-11-15「3.要做」）。没有单独的任务书，本 proposal 即任务口径。核对基线：main `59ab1837`（2026-11-15，含 NAV-1a / 1b / 1c 及其归档）。四件套审核：Lucas 2026-11-15「都按照你推荐的来」，design「审核关注点」Q1–Q5 全部按推荐。
 
 ## Why
 
