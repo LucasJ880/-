@@ -28,7 +28,7 @@
 
 ## 7. 验证与报告
 
-- [ ] 7.1 全量验证。verify：`npm test`、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate mail-read-tools --strict` 全部通过；`git diff --stat main -- vercel.json prisma/` 为空；`git grep -n "mailboxEmail" -- src/lib/mail-read src/lib/agent-core/tools/mail.ts` 无结果
+- [ ] 7.1 全量验证。verify：`npm test`、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate mail-read-tools --strict` 全部通过；`git diff --stat main -- vercel.json prisma/` 为空；`git grep -n "mailboxEmail" -- src/lib/mail-read/pure.ts src/lib/agent-core/tools/mail.ts` 无结果（测试文件里有一句检查它的断言，不算）
 - [ ] 7.2 写 `docs/QINGYAN_MAIL-1_REPORT.md`（核对结果、两处拍板的最终取值、与任务书对不上的地方、测试通过数与基线对比、`snippet` 的实测结论、未做的 staging 验收项与运维前置）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的 MAIL-1 状态列。verify：报告文件存在且各节齐全；TASKFLOW 的 MAIL-1 行状态为 `[G]`
 
 ## Workflow follow-up

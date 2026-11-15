@@ -13,6 +13,9 @@
  * （tool-registry.ts 的 list）；执行期第一步按同一个值再判一次，其它入口直接喊工具名也拿不到。
  *
  * 外部依赖都可注入（createMailTools），测试不连 Google、不连数据库。
+ *
+ * 本文件只导出工厂函数，不自己登记工具：两个工具在同一个域的 ./secretary.ts 里登记进既有的注册表
+ * （运行时架构守卫不允许新增「工具登记面」文件，见 runtime-architecture/guards.ts）。
  */
 
 import { db } from "@/lib/db";
@@ -39,7 +42,6 @@ import {
   mailReadError,
   type MailReadErrorCode,
 } from "@/lib/mail-read/pure";
-import { registry } from "../tool-registry";
 import type { ToolDefinition, ToolExecutionContext, ToolExecutionResult } from "../types";
 import { resolveEffectiveCustomerId } from "./sales-scope";
 
@@ -281,5 +283,3 @@ export function createMailTools(overrides: Partial<MailToolDeps> = {}): ToolDefi
 
   return [mailSearch, mailReadThread];
 }
-
-for (const tool of createMailTools()) registry.register(tool);

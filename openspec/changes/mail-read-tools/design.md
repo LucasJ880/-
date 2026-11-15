@@ -4,6 +4,13 @@
 
 动机见 proposal.md。本文只写做法、核对结果和需要拍板的地方。所有代码引用在 main `dd0e99d`（2026-11-12）上核对——与任务书用的是同一个提交，任务书里的路径和行号全部对得上；只读代码，没有运行应用，没有连 Google。
 
+### 拍板结果（2026-11-15，Lucas：「按照推荐的走，四件套审核通过」）
+
+- 待拍板 A 取 **A1**：回复照常保存，落库前省略与邮件正文连续重合 120 字以上的段落；读过邮件的那一轮不做项目洞察抽取。
+- 待拍板 B 取 **B1**：读信工具成功返回后，本轮所有非只读工具一律拒绝。
+
+下面保留拍板前的原文，供日后回看当时的备选。
+
 ### 待拍板（两处，都已按推荐方案写进 specs 与 tasks；改选别的方案只动标出的那一条 Requirement 和那一条 task）
 
 **待拍板 A · 助手的回复里带着邮件内容，回复本身是落库的**
@@ -94,7 +101,9 @@
 
 ### D1 用入口门实现「只在网页助手、只给邮箱绑定页的受众」
 
-`ToolEntryGate` 增加可选的 `mail`。只有网页助手的消息接口在取入口门时声明自己是网页助手入口，此时 `mail = 读信开关开 ∧ canOpenHref("/settings/email")`（与侧栏、路由门、设置页卡片同一个函数，平台 super_admin 放行、输入缺失不放行）。`registry.list` 在 `mail !== true` 时剔除 `mail_*`。与营销那一项相反，读信是「不传即不给」：微信对话、Agent Core 对话、工具列表接口调用同一个加载函数但不声明网页助手入口，提及网关、技能运行、外贸对话根本不传入口门，都拿不到。`_policy.ts` 里两个工具登记为 `l0_read`、`allowRoles: "*"`。
+`ToolEntryGate` 增加可选的 `mail`。只有网页助手的消息接口在取入口门时声明自己是网页助手入口，此时 `mail = 读信开关开 ∧ canOpenHref("/settings/email")`（与侧栏、路由门、设置页卡片同一个函数，平台 super_admin 放行、输入缺失不放行）。给模型的工具列表（`registry.toOpenAITools`，引擎两条运行路径只经它取列表）在 `mail !== true` 时一律剔除 `mail_*`，包括根本没传入口门的运行；`registry.list` 在传了入口门而 `mail !== true` 时剔除（工具列表接口走这里）。
+
+实施时的调整：最初写的是「`registry.list` 只要带过滤条件就剔除」。那样会改掉既有的两条语义——`registry.list({ names: undefined })` 表示不按名称过滤、`registry.list({ modulesJson })` 与执行期模块判定逐工具相同（`pre-execute-guard.test.ts`、`tool-list-modules.test.ts` 各有断言）。所以把「不传即不给」放到给模型的那一层，不传入口门的 `registry.list` 仍是注册表枚举（策略表打标签、测试用），两个既有测试一行不改。与营销那一项相反，读信是「不传即不给」：微信对话、Agent Core 对话、工具列表接口调用同一个加载函数但不声明网页助手入口，提及网关、技能运行、外贸对话根本不传入口门，都拿不到。`_policy.ts` 里两个工具登记为 `l0_read`、`allowRoles: "*"`。
 
 - 否决：按任务书在 `allowRoles` 里写角色。平台角色词表里没有「招投标」，老板在列表过滤时被归成 `user`，会把任务书点名的受众挡在外面；而执行期对企业成员几乎不看这张白名单，起不到限制作用。
 - 否决：给 `ToolDefinition` 加渠道字段。要改所有入口的列表调用并给每个既有工具定默认值，面太大，且和已有的入口门是同一件事的第二种表达。
@@ -111,7 +120,9 @@
 
 ### D3 读信意图的路由：入口门放行时才生效
 
-消息接口在分流之后先算读信入口门（开关关时不算，零额外查询）。`mail === true` 且消息提到邮件 / 邮箱 / 来信 / 回信 / 收件箱（或 email、inbox、gmail）时：本轮走 Operator 分支并带工具，做法与现有的日历意图一致（`route.ts:346–351` 的 `requestedCalendarAction`）。`mail !== true` 时这些词不参与任何判断。
+消息接口在分流之后先算读信入口门（开关关时不算，零额外查询）。`mail === true` 且消息提到邮件 / 邮箱 / 来信 / 回信 / 信件 / 「封信」/ 收件箱（或 email、inbox、gmail）时：本轮走 Operator 分支并带工具，做法与现有的日历意图一致（`route.ts:346–351` 的 `requestedCalendarAction`）。`mail !== true` 时这些词不参与任何判断。
+
+实施时补充（追问）：任务书验收里的追问「他具体说了什么」本身没有任何邮件字样，也不命中既有的业务关键词，会落到不带工具的直答；而工具结果不进下一轮上下文（核对一第 2 点），不带工具就读不了信。所以 `mail === true` 且本条没提邮箱时，再看本对话最近 4 条消息（两轮）有没有提到这些词，有就带工具。只在读信可用时多一次按线程取 4 条消息的查询。
 
 - 否决：把这些词直接加进全局的 `BUSINESS_TRIGGERS`。开关关着的时候也会把「帮我润色这封邮件」从直答改成带工具运行，改变了所有人的现有行为。
 - 否决：不强制 Operator，要求运维先把灰度对全员打开。读信能不能用就取决于一组与它无关的环境变量，验收也没法在代码里保证。日历已有「独立执行边界的能力不受灰度影响」的先例。
@@ -130,7 +141,7 @@
 
 ### D5 工具通过依赖注入拿外部依赖，审计先于返回
 
-`tools/mail.ts` 用一个工厂函数生成两个工具，依赖（Gmail 读函数、授权查询、客户查询、审计写入、开关）可注入，默认接真实实现。执行顺序：入口判定 → 参数校验 → 授权状态（未绑 / 缺读信权限）→ 客户解析与可见性（沿用 `enterprise-readonly.ts:221–232` 的判定与 `resolveEffectiveCustomerId`）→ 读 Gmail → 写审计 → 返回。审计写失败返回 `MAIL_AUDIT_FAILED`，不给内容。错误一律放在返回的 `data` 里（`code`、`message`、`settingsHref`），因为引擎只把 `data` 交给模型。
+`tools/mail.ts` 用一个工厂函数生成两个工具，依赖（Gmail 读函数、授权查询、客户查询、审计写入、开关）可注入，默认接真实实现。执行顺序：入口判定 → 参数校验 → 客户解析与可见性（沿用 `enterprise-readonly.ts:221–232` 的判定与 `resolveEffectiveCustomerId`）→ 读 Gmail（读接口在发请求之前先查授权：未绑 / 缺读信权限就此返回）→ 写审计 → 返回。实施时把授权状态并进了读接口函数本身，省掉工具里重复的一次授权查询；两种顺序下「缺授权时不访问 Gmail」「客户不可见时不访问 Gmail」都成立。审计写失败返回 `MAIL_AUDIT_FAILED`，不给内容。错误一律放在返回的 `data` 里（`code`、`message`、`settingsHref`），因为引擎只把 `data` 交给模型。
 
 审计：`action` 为 `mail.read.search` / `mail.read.thread`，`targetType` 为 `mailbox`，读线程时 `targetId` 为线程 id；`afterData` 只有查询条件、命中封数、返回字数。
 
@@ -183,6 +194,7 @@
 
 ## 验证方式
 
+- 本地验收脚本 `scripts/mail-1-local-acceptance.ts`（只允许对本机隔离库运行）：真实的消息接口、引擎、注册表、读信工具、状态接口与本地 Postgres；模型换成按剧本回答的本地假服务，Gmail 换成内存里的假邮箱。输出存 `docs/acceptance/mail-1/local-acceptance.txt`。
 - 四个新测试：
   - `npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts`（查询拼装、截断、开关解析、原文省略、状态响应、设置页源码断言）
   - `npx tsx src/lib/agent-core/__tests__/mail-tool-visibility.test.ts`（开关 × 入口 × 受众 × 模块，列表与执行逐格一致；各入口源码断言）
