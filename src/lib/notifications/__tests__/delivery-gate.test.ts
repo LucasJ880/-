@@ -117,7 +117,11 @@ assert.equal(
   true,
   "仅高优 + urgent → 投",
 );
-// 静默时段：medium 被压制，urgent 打破（用跨午夜全天段保证任意运行时刻都在静默内）
+// 静默时段：medium 被压制，urgent 打破。
+// 时间要传固定值：静默时段按多伦多时间、结束时刻不含，00:00–23:59 并不覆盖 23:59 那一分钟，
+// 用真实时钟时这两条每天多伦多 23:59 必然失败。
+const IN_QUIET = new Date("2026-11-15T17:00:00Z"); // 多伦多 12:00（EST）
+const AT_QUIET_END = new Date("2026-11-16T04:59:30Z"); // 多伦多 23:59:30，结束时刻不含 → 不在静默内
 const quietPref = {
   ...basePref,
   quietHoursEnabled: true,
@@ -131,6 +135,7 @@ assert.equal(
     pref: quietPref,
     hasCustomList: true,
     listUpdatedAt: AFTER_INTRO,
+    now: IN_QUIET,
   }),
   false,
   "静默时段 medium 不投",
@@ -142,9 +147,22 @@ assert.equal(
     pref: quietPref,
     hasCustomList: true,
     listUpdatedAt: AFTER_INTRO,
+    now: IN_QUIET,
   }),
   true,
   "静默时段 urgent 打破",
+);
+assert.equal(
+  evaluateDeliveryGate({
+    type: "followup",
+    priority: "medium",
+    pref: quietPref,
+    hasCustomList: true,
+    listUpdatedAt: AFTER_INTRO,
+    now: AT_QUIET_END,
+  }),
+  true,
+  "静默时段结束时刻不含：00:00–23:59 在 23:59 照投",
 );
 
 console.log("Notification delivery gate tests passed");
