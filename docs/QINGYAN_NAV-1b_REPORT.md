@@ -4,6 +4,7 @@ change：`nav-1b-focused-sidebar-task-help`（任务书 `docs/QINGYAN_NAV-1_PLAI
 
 | 项 | 值 |
 |---|---|
+| 状态 | #463，2026-11-15 合并；archive `openspec/changes/archive/2026-11-15-nav-1b-focused-sidebar-task-help`；没有开关，已随合并生效 |
 | 新能力 | `navigation/focused-sidebar`（6 条要求） |
 | 改的能力 | `navigation/entry-visibility`（改 1 条、加 5 条） |
 | 测试 | `trade-layout.test.ts` 重写为 32 项并注册进 `scripts/test-all.sh:256`「侧栏常用 + 更多两段式（NAV-1b）」（历史欠账基线 68 → 67）；`entry-visibility.test.ts` 73 → 91 |
