@@ -191,6 +191,8 @@ run_test "Phase1.1 AIRuntimeContext契约" "npx tsx src/lib/ai/__tests__/runtime
 run_test "Phase1.1 Context传播/安全/审批correlation" "npx tsx src/lib/agent-core/__tests__/phase1-1-context-propagation.test.ts"
 run_test "解锁码 bcrypt 与跨租户隔离" "npx tsx src/lib/blinds/__tests__/unlock-code.test.ts"
 run_test "Blinds Valance 选项与定价联动（None/Cassette/Fascia + Zebra 无 None）" "npx tsx src/lib/blinds/__tests__/valance-options.test.ts"
+# QUOTE-1a（openspec change quote-order-form-pricing-parity）：详细订单「表单行 → 行构造 → 企业默认折扣 → 引擎」完整路径——纯逻辑 + 源码断言，无 DB
+run_test "详细订单定价口径对照（Roller 罩型 / 实木百叶窗 / 预览 = 保存 / 定价 ⇔ 工艺单罩盒；QUOTE-1a）" "npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts"
 run_test "价格表 2026-10-28 黄金对照（Fauxwood / Allusion / 回归；与上传工具 price() 原函数逐条比）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-golden.test.ts"
 run_test "价格表 2026-10-28 附加项目目录（36 项对照价表文件 / Excel 40 行归类 / 按英尺 / 企业价；PRICE-3）" "npx tsx src/lib/blinds/__tests__/pricelist-2026-10-addons.test.ts"
 # Sunny 工艺单（sunny-process-order-autogen）：引擎 × Excel 原件逐值对照（夹具由 scripts/sunny-process-oracle 生成）+ 签字自动生成
