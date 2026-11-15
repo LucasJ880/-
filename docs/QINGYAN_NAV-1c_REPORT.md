@@ -4,7 +4,7 @@ change：`nav-1c-reply-entry`（任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TA
 
 | 项 | 值 |
 |---|---|
-| 状态 | 待审（PR 号开出后补）；没有开关，合并即生效 |
+| 状态 | #472 待审；没有开关，合并即生效 |
 | 新能力 | `trade/inquiry-reply-entry`（11 条要求） |
 | 改的能力 | `navigation/entry-visibility`（「『我想做什么』的外贸内容」加 1 个场景、按钮名称清单加「写回复」） |
 | 测试 | 新增 `reply-entry.test.ts` 45 项（`scripts/test-all.sh:330`、`scripts/test-ci-unit.sh:354`）与 `reply-entry-db.isolated.test.ts` 21 项（`scripts/test-all.sh:417`）；`entry-visibility.test.ts` 91 → 92；`trade-access.test.ts` 的守卫处理器盘点 110 → 111 |
