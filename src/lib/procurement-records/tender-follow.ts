@@ -93,7 +93,7 @@ export async function followTenderNotice(input: { orgId: string; user: AuthUser;
       data: { orgId: input.orgId, projectId: p.id, instrumentId: inst.id, relation: "CURRENT", note: "跟这个标", createdById: user.id },
     });
     await tx.procurementInstrument.update({ where: { id: inst.id }, data: { triageStatus: "WATCHING", triagedById: user.id, triagedAt: now } });
-    return { ok: true as const, projectId: p.id, created: true, name: p.name, instrumentId: inst.id };
+    return { ok: true as const, projectId: p.id, created: true, name: p.name, instrumentId: inst.id, instrumentTitle: inst.title?.trim() || inst.officialNumber };
   });
 
   if (out.ok && out.created && "name" in out) {
@@ -113,7 +113,8 @@ export async function followTenderNotice(input: { orgId: string; user: AuthUser;
       action: "procurement_instrument.follow_tender",
       targetType: "procurement_instrument",
       targetId: out.instrumentId,
-      afterData: { projectId: out.projectId, relation: "CURRENT", triageStatus: "WATCHING" },
+      // title：活动流显示「从采购监控跟进了采购公告「…」」
+      afterData: { title: out.instrumentTitle, projectId: out.projectId, relation: "CURRENT", triageStatus: "WATCHING" },
     });
   }
   if (!out.ok) return out;

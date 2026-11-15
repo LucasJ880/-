@@ -134,8 +134,10 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   // P2-3a「跟这个标」：招标公告 → 招投标项目（只建一次；已跟过返回原项目）
   const follow = async (id: string) => {
     const r = await api.call(`f-${id}`, `/api/procurement/instruments/${id}/follow`, { method: "POST" });
-    if (r.ok) api.setNote({ tone: "good", text: r.body.created ? FOLLOW_CREATED_ZH : FOLLOW_EXISTING_ZH });
+    if (!r.ok) return;
+    // 先重新读取再给提示：每次接口调用开始时都会清空提示
     await load();
+    api.setNote({ tone: "good", text: r.body.created ? FOLLOW_CREATED_ZH : FOLLOW_EXISTING_ZH });
   };
   const prepare = async (id: string) => {
     const r = await api.call(`p-${id}`, `/api/procurement/requests${q}`, { method: "POST", json: { instrumentIds: [id], pathType: "NEW_FORMAL_REQUEST" } });

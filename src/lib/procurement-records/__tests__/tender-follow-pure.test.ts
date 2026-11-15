@@ -18,6 +18,8 @@ import {
   type FollowInstrument,
 } from "../tender-follow-pure";
 import { FollowAction } from "@/components/procurement-records/procurement-monitor";
+import { formatActivity } from "@/lib/activity/formatter";
+import { AUDIT_ACTION_LABELS } from "@/lib/cockpit/audit-labels";
 
 let passed = 0;
 function ok(name: string, cond: boolean, detail?: unknown) {
@@ -121,9 +123,19 @@ console.log("接线");
   const view = read("src/lib/procurement-records/tender-follow-pure.ts");
   ok("纯规则文件不引用任何模块（采购监控页在浏览器端引用它）", !/^\s*import\s/m.test(view));
   const ui = read("src/components/procurement-records/procurement-monitor.tsx");
+  ok("跟标成功：先重新读取、再给提示（提示不会被重新读取清掉）；失败不重读（保留错误提示）", /if \(!r\.ok\) return;\s*\/\/[^\n]*\n\s*await load\(\);\s*api\.setNote\(\{ tone: "good", text: r\.body\.created \? FOLLOW_CREATED_ZH : FOLLOW_EXISTING_ZH \}\);/.test(ui));
   ok("采购监控候选卡片挂上跟标按钮", ui.includes("<FollowAction state={followButtonState(") && ui.includes("`/api/procurement/instruments/${id}/follow`"));
   const ledger = read("src/lib/project-ledger/__tests__/p1-pure.test.ts");
   ok("台账静态纪律清单包含跟标服务", ledger.includes('"src/lib/procurement-records/tender-follow.ts"'));
+}
+
+console.log("活动流文案");
+{
+  const f = formatActivity({ id: "a1", action: "procurement_instrument.follow_tender", targetType: "procurement_instrument", targetId: "inst1", beforeData: null, afterData: JSON.stringify({ title: "Hospital privacy curtains", projectId: "p1" }), createdAt: new Date(), user: null } as never);
+  ok("项目「最近变化」：从采购监控跟进了采购公告「标题」（不露出原始动作名）", f.summary === "从采购监控跟进了采购公告「Hospital privacy curtains」" && !f.summary.includes("procurement_instrument"), f.summary);
+  const l = formatActivity({ id: "a2", action: "procurement_instrument.link_tender", targetType: "procurement_instrument", targetId: "inst1", beforeData: null, afterData: JSON.stringify({ relation: "CURRENT" }), createdAt: new Date(), user: null } as never);
+  ok("手工关联也有中文", !l.summary.includes("procurement_instrument") && l.summary.startsWith("关联了采购公告"), l.summary);
+  ok("驾驶舱动作名", AUDIT_ACTION_LABELS["procurement_instrument.follow_tender"] === "跟进新标");
 }
 
 console.log(`\ntender-follow-pure: ${passed} passed`);

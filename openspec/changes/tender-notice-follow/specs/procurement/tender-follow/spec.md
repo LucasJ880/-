@@ -7,6 +7,10 @@
 - **WHEN** 组织成员对一条未截标的 CanadaBuys 招标公告点「跟这个标」
 - **THEN** 新建招投标项目，招标编号、截标日、采购方、公告链接与公告一致；公告关联为「本项目」、分诊为「关注」（`npx tsx src/lib/procurement-records/__tests__/tender-follow-pure.test.ts`；`npx tsx src/lib/procurement-records/__tests__/tender-follow-db.isolated.test.ts`）
 
+#### Scenario: 项目动态写明来源
+- **WHEN** 跟标建出项目后打开项目
+- **THEN** 「最近变化」写「从采购监控跟进了采购公告「公告标题」」，不出现内部动作名（`tender-follow-pure.test.ts`）
+
 #### Scenario: 与手工新建相同
 - **WHEN** 跟标建出项目
 - **THEN** 操作人是项目管理员，有测试与正式两个环境，和手工新建的项目逐项相同（`tender-follow-db.isolated.test.ts`）
