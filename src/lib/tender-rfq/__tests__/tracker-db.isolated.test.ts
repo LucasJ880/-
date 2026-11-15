@@ -149,6 +149,7 @@ async function main() {
     await db.$executeRaw`UPDATE "InquiryItem" SET "updatedAt" = ${ago(20)} WHERE id = ${OLDNR}`;
     const rx = await mkRound(PX, 1, ymdAfter(5));
     await mkItem(rx, S.x, { status: "sent", sentAt: ago(1), contactNotes: "threadId=thrX" });
+    await mkItem(rx, await mkSupplier("Romeo Old NonTender"), { status: "sent", sentAt: ago(9), contactNotes: "threadId=thrR" });
     const ru = await mkRound(PU, 1, ymdAfter(5));
     await mkItem(ru, S.x, { status: "sent", sentAt: ago(1), contactNotes: "threadId=thrU" });
     const rb = await mkRound(PB, 1, ymdAfter(5), "in_progress", ORG_B, OUTSIDER);
@@ -259,6 +260,7 @@ async function main() {
     const sug = scan.suggestions.find((x) => x.kind === "supplier_no_response" && x.projectId === P2);
     ok(!!sug && sug.suggestedAction?.type === "open_rfq_tracker" && sug.suggestedAction.label === "去询价追踪" && sug.title.includes("超过 5 天"), "首页「供应商未回复」：按负责人的催单天数（5 天），按钮去询价追踪", sug);
     ok(!!sug && sug.description.includes("Golf Late") && !sug.description.includes("Juliet Pending") && !sug.description.includes("Hotel NoResp") && !sug.description.includes("Oscar Old Canceled") && sug.title.includes("有 1 家"), "只算已发出且超过 5 天的（pending 的、未响应的、已取消轮次的不算）", sug?.description);
+    ok(!scan.suggestions.some((x) => x.kind === "supplier_no_response" && x.projectId === PX), "非招投标项目里 9 天没回的：不提醒（追踪页只列招投标）");
     const sug1 = scan.suggestions.find((x) => x.kind === "supplier_no_response" && x.projectId === P1);
     ok(!!sug1 && sug1.description.includes("Mike Max") && !/Alpha Wait|Beta Card|Gamma Manual/.test(sug1.description) && sug1.title.includes("有 1 家"), "P1 只算超过 5 天的那一家（8 天前发出的），最近发出的不算", sug1?.description);
 
