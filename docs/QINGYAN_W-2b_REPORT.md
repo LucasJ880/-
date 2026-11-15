@@ -58,12 +58,13 @@
 
 | 门禁 | 结果 |
 |---|---|
-| `npm run test:ci` | 见 PR（本机，CI 的环境变量） |
+| `npm run test:ci` | `CI unit subset PASS`（本机，CI 的环境变量） |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS |
 | `bash scripts/check-test-registry.sh` | OK |
 | `bash scripts/test-runtime-architecture.sh` | PASS |
 | `openspec validate rfq-timing-settings --strict` | valid |
+| 客户端组件不间接引用服务端模块（`node:`） | 组织页这一节的引用链干净（静态检查；T-2 在这上面出过问题） |
 | W-2 原有测试、Muse `advisory.test.ts` / `prefs.test.ts` | 通过 |
 
 ## 5. 独立审查
