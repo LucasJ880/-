@@ -172,6 +172,21 @@ async function main() {
     for (let i = 0; i < 25; i++) await db.auditLog.create({ data: { userId: OWNER, orgId: ORG, projectId: P4, action: "tender.fixture.other", targetType: SUBMISSION_AUDIT_TARGET, targetId: P4, afterData: JSON.stringify({ v: 1, kind: "first", submittedAt: at(9 * HOUR), channel: "portal", receiptRef: null, note: null }) } });
     w = await wsWindow(P4);
     ok(w.expired === null && w.submitted, "之后又有 25 条别的动作的审计行：只看提交记录那一种，真正的记录还在", w);
+    // 之后又写下一条时间对不上、没有回执的提交记录（最新的一条不是对得上的那条）：仍按对得上的那条（有回执）
+    await sleep(20);
+    await db.auditLog.create({ data: { userId: OWNER, orgId: ORG, projectId: P4, action: SUBMISSION_AUDIT_ACTION, targetType: SUBMISSION_AUDIT_TARGET, targetId: P4, afterData: JSON.stringify({ v: 1, kind: "correction", submittedAt: at(40 * HOUR), channel: "portal", receiptRef: null, note: null }) } });
+    w = await wsWindow(P4);
+    ok(w.expired === null && w.submitted, "最新的一条提交记录时间对不上：往回找到对得上的那条（有回执），不只看最新的", w);
+    // 同一个提交时间有两条：先带回执，后来那条没带——按后来那条
+    const P7 = await mkProject();
+    const p7At = new Date(at(6 * HOUR));
+    await db.project.update({ where: { id: P7 }, data: { submittedAt: p7At, tenderStatus: "bid_submitted" } });
+    const p7Row = (receiptRef: string | null) => db.auditLog.create({ data: { userId: OWNER, orgId: ORG, projectId: P7, action: SUBMISSION_AUDIT_ACTION, targetType: SUBMISSION_AUDIT_TARGET, targetId: P7, afterData: JSON.stringify({ v: 1, kind: "backfill", submittedAt: p7At.toISOString(), channel: "portal", receiptRef, note: null }) } });
+    await p7Row("FIRST-1");
+    await sleep(20);
+    await p7Row(null);
+    w = await wsWindow(P7);
+    ok(w.expired === WINDOW_EXPIRED_NO_RECEIPT_ZH && !w.submitted, "同一提交时间两条记录：按后写的那条（没带回执），不按先写的", w);
 
     /* ---------- 7. 截标还没到 ---------- */
     const P6 = await mkProject({ closeInDays: 3 });
