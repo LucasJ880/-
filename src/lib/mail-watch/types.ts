@@ -52,7 +52,7 @@ export type Classification =
   | { kind: MailWatchRule; customer: CustomerRef }
   | { kind: "unmatched" };
 
-/** 通知收件人的算法：判断点 8 未定前恒为 owner_only；改 B 时只换这个值 */
+/** 通知收件人的算法：判断点 8 取 A（2026-11-15 拍板）：恒为 owner_only；以后要改 B 只换这个值 */
 export type RecipientMode = "owner_only" | "owner_and_customer_owner";
 
 /** mail.watch.observed 的 afterData */

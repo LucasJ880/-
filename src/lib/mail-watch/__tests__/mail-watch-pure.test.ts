@@ -162,7 +162,7 @@ async function main() {
     ok(JSON.stringify(inboundRecipients({ mailboxOwnerId: "u_lynn", customerCreatedById: "u_sam", mode: "owner_only" })) === '["u_lynn"]', "只提醒邮箱主人");
     ok(JSON.stringify(inboundRecipients({ mailboxOwnerId: "u_lynn", customerCreatedById: "u_sam", mode: "owner_and_customer_owner" })) === '["u_lynn","u_sam"]', "同时提醒客户负责人：邮箱主人 + 客户建档人");
     ok(JSON.stringify(inboundRecipients({ mailboxOwnerId: "u_lynn", customerCreatedById: "u_lynn", mode: "owner_and_customer_owner" })) === '["u_lynn"]', "建档人就是邮箱主人：去重");
-    ok(DEFAULT_RECIPIENT_MODE === "owner_only", "判断点 8 未定：默认只提醒邮箱主人");
+    ok(DEFAULT_RECIPIENT_MODE === "owner_only", "判断点 8 取 A：默认只提醒邮箱主人");
     ok(notificationSourceKey("o1", "m1", "u1") === "mail-watch:o1:m1:u1", "通知键 = 组织 + Gmail 邮件 id + 收件人");
     ok(notificationHref({ entityType: "sales_customer", entityId: "c1" } as Parameters<typeof notificationHref>[0]) === "/sales/customers/c1", "通知点开到 /sales/customers/{客户 id}");
   }

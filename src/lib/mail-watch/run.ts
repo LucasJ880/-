@@ -104,7 +104,7 @@ export interface MailWatchDeps {
   deadline?: Date;
   /** 平台开关（测试用）；缺省读 MAIL_WATCH_ENABLED */
   platformEnabled?: boolean;
-  /** 通知收件人的算法；缺省只提醒邮箱主人（判断点 8 未定） */
+  /** 通知收件人的算法；缺省只提醒邮箱主人（判断点 8 取 A，2026-11-15 拍板） */
   recipientMode?: RecipientMode;
   /** 测试钩子：某封命中的信建好通知与互动之后、写账本之前 */
   beforeLedger?: (messageId: string) => void | Promise<void>;

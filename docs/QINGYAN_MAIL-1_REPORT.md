@@ -6,7 +6,7 @@
 | TASKFLOW | MAIL-1（Phase M「邮箱助手」） |
 | 任务书 | `docs/QINGYAN_MAIL-1_MAILBOX_ASSISTANT_TASKBRIEF.md`（判断点 1–7 已于 2026-11-14 拍板） |
 | 分支 | `claude/vibrant-mccarthy-2low2g`（从 main `dd0e99d` 开） |
-| 状态 | #455，2026-11-15 合并；archive `openspec/changes/archive/2026-11-15-mail-read-tools`；主规格 `openspec/specs/mail/assistant-read/spec.md`（19 条要求）。合并后补记：岗位模式下只有销售岗位的成员打不开 `/assistant`（VIS-1 判断点 5，路由门重定向到销售首页），所以这类成员目前在网页上用不了读信；§6「Lynn」一组是直接调消息接口验证的，没有覆盖页面这一层。做法待定（MAIL-2 的 PR #470 里有说明）。开关默认关，线上暂无影响 |
+| 状态 | #455，2026-11-15 合并；archive `openspec/changes/archive/2026-11-15-mail-read-tools`；主规格 `openspec/specs/mail/assistant-read/spec.md`（19 条要求）。合并后补记：岗位模式下只有销售岗位的成员打不开 `/assistant`（VIS-1 判断点 5，路由门重定向到销售首页），所以这类成员目前在网页上用不了读信；§6「Lynn」一组是直接调消息接口验证的，没有覆盖页面这一层。2026-11-15 拍板：维持现状，网页读信只对能打开助手页的人可用（见 `docs/QINGYAN_MAIL-2_REPORT.md` §3.1）。开关默认关，线上暂无影响 |
 | 开关 | 新增环境变量 `MAIL_READ_ENABLED`，**默认关**。合并后不设它，线上零变化 |
 | 性质 | 新能力。零 schema、零出站、零新增模型调用、不新增定时任务或队列；`vercel.json` 与 Prisma schema 无 diff |
 
