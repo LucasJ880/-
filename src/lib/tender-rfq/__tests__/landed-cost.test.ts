@@ -51,6 +51,8 @@ console.log("tender-rfq landed-cost");
   ok("§4-1 landedCad.unit = 63.35", close(r.landedCad.unit, 63.35), r.landedCad);
   ok("§4-1 assumptions 5 条（汇率/运费/保险/关税/清关）", r.assumptions.length === 5 && /汇率 CNY→CAD 0.19（2026-10-20，手工）/.test(r.assumptions[0]), r.assumptions);
   ok("§4-1 无 blocker、无 warning", r.blockers.length === 0 && r.warnings.length === 0);
+  const b = r.breakdownCad;
+  ok("FLOW-H2 §4-1 逐项：货值 79,800 / 海运 9,000 / 保险 888 / 关税 5,187 / 清关 150，之和 = 落地总价；不含 GST/HST", b != null && b.goods === 79800 && b.freight === 9000 && b.insurance === 888 && b.duty === 5187 && b.clearance === 150 && b.inland === null && !b.feesIncludedInQuote && close(b.goods + b.freight! + b.insurance! + b.duty! + b.clearance!, 95025) && !Object.keys(b).some((k) => /gst|hst/i.test(k)), b);
 }
 
 /* §4-2 */
@@ -66,6 +68,7 @@ console.log("tender-rfq landed-cost");
   const r = normalizeQuote({ unitPrice: null, totalPrice: 61000, currency: "CAD", incoterm: "DDP" }, ctx());
   ok("§4-3 CAD 61,000 DDP → 不加任何项", close(r.landedCad.total, 61000) && close(r.landedCad.unit, 61000 / 1500));
   ok("§4-3 assumptions=[]", r.assumptions.length === 0 && r.blockers.length === 0, r);
+  ok("FLOW-H2 §4-3 DDP 逐项：费用都已含在报价里", r.breakdownCad?.feesIncludedInQuote === true && r.breakdownCad.goods === 61000 && r.breakdownCad.duty === null, r.breakdownCad);
 }
 
 /* §4-4 */

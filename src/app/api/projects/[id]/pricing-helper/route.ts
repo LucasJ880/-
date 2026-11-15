@@ -21,6 +21,15 @@ import {
   pricingEvalTexts,
   readPricingBenchmark,
 } from "@/lib/tender-pricing/project-context";
+import {
+  isPricingCompareSourceEnabledForOrg,
+  nextCostSource,
+  readCostClaim,
+  readCostSource,
+  staleNoteZh,
+  type CompareCostView,
+} from "@/lib/tender-pricing/compare-cost-source";
+import { loadCompareCostSuggestionSafe } from "@/lib/tender-pricing/compare-cost-source-load";
 
 /**
  * 报价表助手（tender-pricing/v1）
@@ -29,6 +38,8 @@ import {
  * POST { action:"save", inputs?, model? }   → 存 room.summaryJson.pricingInputs / pricingModel(HUMAN)
  * POST { action:"derive" }                  → LLM 从事实重新推导模型（60s 频控，AI_INFERRED）
  * 纪律：计算结果是假设驱动的情景，不是报价决定；绝不 GO/NO-GO。
+ * FLOW-H2（开关 TENDER_PRICING_COMPARE_SOURCE_ENABLED）：GET 多返回 compareCost（比价矩阵里人工选定那一家的落地价建议、
+ * 已保存成本的来源、矩阵变了的提示）；POST save 可带 ourCostSource 声明，服务端重新取数核对，到分相同才记来源。
  */
 
 
@@ -62,7 +73,17 @@ export async function GET(
     targetMarginPct: saved.targetMarginPct ?? null,
   };
   const result = model ? buildScenarios(model, inputs) : null;
+
+  // FLOW-H2：组织只用服务端鉴权得到的项目组织
+  const orgId = access.project.orgId;
+  let compareCost: CompareCostView | null = null;
+  if (orgId && isPricingCompareSourceEnabledForOrg(orgId)) {
+    const suggestion = await loadCompareCostSuggestionSafe({ projectId, orgId });
+    const source = readCostSource((saved as Record<string, unknown>).ourCostSource);
+    compareCost = { suggestion, source, staleNoteZh: staleNoteZh(source, inputs.ourCostCad, suggestion) };
+  }
   return NextResponse.json({
+    ...(compareCost ? { compareCost } : {}),
     runId: run?.id ?? null,
     model,
     modelOrigin,
@@ -89,6 +110,7 @@ export async function POST(
     action?: "save" | "derive";
     inputs?: Partial<PricingInputs>;
     model?: Partial<ScoringModel>;
+    ourCostSource?: unknown;
   };
   const room = await db.bidIntelligenceRoom.findUnique({
     where: { projectId },
@@ -150,7 +172,30 @@ export async function POST(
   if (inputs.targetMarginPct != null && inputs.targetMarginPct >= 100) {
     return NextResponse.json({ error: "目标毛利须小于 100%" }, { status: 400 });
   }
-  const next: Record<string, unknown> = { ...sj, [PRICING_INPUTS_KEY]: { ...prevPi, ...inputs } };
+  // FLOW-H2：成本来源。请求只能声明用的是哪一条报价；金额与轮次由服务端重新取数核对
+  const orgId = access.project.orgId;
+  const compareEnabled = !!orgId && isPricingCompareSourceEnabledForOrg(orgId);
+  const claim = compareEnabled ? readCostClaim(body.ourCostSource) : null;
+  const suggestion =
+    compareEnabled && orgId && claim && inputs.ourCostCad != null
+      ? await loadCompareCostSuggestionSafe({ projectId, orgId })
+      : null;
+  const prevSource = readCostSource((prevInputs as Record<string, unknown>).ourCostSource);
+  const source = nextCostSource({
+    enabled: compareEnabled,
+    costInBody: !!body.inputs && "ourCostCad" in body.inputs,
+    ourCostCad: inputs.ourCostCad,
+    prevCostCad: prevInputs.ourCostCad ?? null,
+    prevSource,
+    claim,
+    suggestion,
+    now: new Date(),
+  });
+  // FIX-8：保留 pricingInputs 里的其它键（报价引擎镜像的我方报价）；来源这一键按本次结果设或去掉
+  const stored: Record<string, unknown> = { ...prevPi, ...inputs };
+  if (source) stored.ourCostSource = source;
+  else delete stored.ourCostSource;
+  const next: Record<string, unknown> = { ...sj, [PRICING_INPUTS_KEY]: stored };
   if (body.model) {
     const base = isScoringModel(sj[PRICING_MODEL_KEY]) ? (sj[PRICING_MODEL_KEY] as ScoringModel) : null;
     const pw = body.model.priceWeightPct ?? base?.priceWeightPct;
@@ -180,5 +225,10 @@ export async function POST(
     where: { id: room.id },
     data: { summaryJson: JSON.parse(JSON.stringify(next)) },
   });
-  return NextResponse.json({ ok: true, inputs, model: next[PRICING_MODEL_KEY] ?? null });
+  return NextResponse.json({
+    ok: true,
+    inputs,
+    model: next[PRICING_MODEL_KEY] ?? null,
+    ...(compareEnabled ? { ourCostSource: source } : {}),
+  });
 }

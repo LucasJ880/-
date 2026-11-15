@@ -128,9 +128,24 @@ export type NormalizedQuote = {
   /** 报价折成 CAD（未加任何费用） */
   goodsCad: { unit: number | null; total: number | null };
   landedCad: { unit: number | null; total: number | null };
+  /**
+   * 落地价逐项（CAD，各自舍入到分）。只有算出了落地总价时才有；按贸易条款不加的项为 null。
+   * DDP：feesIncludedInQuote = true，各项费用都已含在供应商报价里。不含 GST/HST（进口 GST/HST 可抵扣，不计入成本）。
+   */
+  breakdownCad: LandedBreakdown | null;
   assumptions: string[];
   warnings: string[];
   blockers: string[];
+};
+
+export type LandedBreakdown = {
+  goods: number;
+  inland: number | null;
+  freight: number | null;
+  insurance: number | null;
+  duty: number | null;
+  clearance: number | null;
+  feesIncludedInQuote: boolean;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -169,9 +184,14 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
   const assumptions: string[] = [];
   const warnings: string[] = [];
   const blockers: string[] = [];
-  const out = (goods: NormalizedQuote["goodsCad"], landed: NormalizedQuote["landedCad"]): NormalizedQuote => ({
+  const out = (
+    goods: NormalizedQuote["goodsCad"],
+    landed: NormalizedQuote["landedCad"],
+    breakdown: LandedBreakdown | null = null,
+  ): NormalizedQuote => ({
     goodsCad: { unit: goods.unit == null ? null : round2(goods.unit), total: goods.total == null ? null : round2(goods.total) },
     landedCad: { unit: landed.unit == null ? null : round2(landed.unit), total: landed.total == null ? null : round2(landed.total) },
+    breakdownCad: landed.total == null ? null : breakdown,
     assumptions,
     warnings,
     blockers,
@@ -221,7 +241,11 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
     blockers.push(`贸易条款 ${term} 暂不支持换算`);
     return out(goods, none);
   }
-  if (steps.length === 0) return out(goods, goods); // DDP：不加任何项
+  if (steps.length === 0) {
+    // DDP：不加任何项
+    const g = goods.total == null ? null : round2(goods.total);
+    return out(goods, goods, g == null ? null : { goods: g, inland: null, freight: null, insurance: null, duty: null, clearance: null, feesIncludedInQuote: true });
+  }
 
   if (goodsTotal == null) {
     blockers.push("缺询价数量，无法由单价算出货值总额");
@@ -233,6 +257,7 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
   let inland = 0;
   let freight = 0;
   const adds: number[] = [];
+  const part: Record<Step, number | null> = { inland: null, freight: null, insurance: null, duty: null, clearance: null };
 
   if (steps.includes("inland")) {
     if (!s.exportInlandEstimate) missing.push("出口国内陆运费估算参数");
@@ -241,6 +266,7 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
       if ("missing" in r) missing.push(r.missing);
       else {
         inland = r.amount;
+        part.inland = r.amount;
         adds.push(r.amount);
         assumptions.push(r.assumption);
       }
@@ -253,6 +279,7 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
       if ("missing" in r) missing.push(r.missing);
       else {
         freight = r.amount;
+        part.freight = r.amount;
         adds.push(r.amount);
         assumptions.push(r.assumption);
       }
@@ -263,6 +290,7 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
     else {
       const base = goodsTotal + inland + freight;
       const amount = (base * s.insurancePct) / 100;
+      part.insurance = amount;
       adds.push(amount);
       assumptions.push(`保险 ${s.insurancePct}% ×（货值${inland ? " + 内陆" : ""} + 运费 ${fmt(base)}）= ${fmt(amount)} CAD`);
     }
@@ -272,6 +300,7 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
     else {
       const base = goodsTotal + inland;
       const amount = (base * ctx.dutyRatePct) / 100;
+      part.duty = amount;
       adds.push(amount);
       const basis = term === "CIF" || term === "CIP" || term === "DAP" ? `${term} 价（含运保，偏保守）` : inland ? "货值 + 内陆" : "货值";
       assumptions.push(`关税 ${ctx.dutyRatePct}% × ${basis} ${fmt(base)} = ${fmt(amount)} CAD`);
@@ -280,6 +309,7 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
   if (steps.includes("clearance")) {
     if (s.clearanceFlatCad == null) missing.push("清关杂费");
     else {
+      part.clearance = s.clearanceFlatCad;
       adds.push(s.clearanceFlatCad);
       assumptions.push(`进口清关 ${fmt(s.clearanceFlatCad)} CAD/票（组织估算参数）`);
     }
@@ -290,7 +320,36 @@ export function normalizeQuote(item: QuoteForNormalize, ctx: NormalizeContext): 
     return out(goods, none);
   }
   const landedTotal = goodsTotal + adds.reduce((a, b) => a + b, 0);
-  return out(goods, { unit: qty ? landedTotal / qty : null, total: landedTotal });
+  // 逐项各自舍入到分；舍入差（几分）记到最大的一项费用上，使逐项之和正好等于舍入后的落地总价（总价不变）
+  const cents = (n: number) => Math.round(n * 100);
+  const fees: Record<Step, number | null> = {
+    inland: part.inland == null ? null : cents(part.inland),
+    freight: part.freight == null ? null : cents(part.freight),
+    insurance: part.insurance == null ? null : cents(part.insurance),
+    duty: part.duty == null ? null : cents(part.duty),
+    clearance: part.clearance == null ? null : cents(part.clearance),
+  };
+  const goodsC = cents(goodsTotal);
+  const feeKeys = (Object.keys(fees) as Step[]).filter((k) => fees[k] != null);
+  const diff = cents(landedTotal) - goodsC - feeKeys.reduce((a, k) => a + (fees[k] as number), 0);
+  if (diff !== 0 && feeKeys.length > 0) {
+    const biggest = feeKeys.reduce((a, k) => ((fees[k] as number) > (fees[a] as number) ? k : a), feeKeys[0]);
+    fees[biggest] = (fees[biggest] as number) + diff;
+  }
+  const fromC = (c: number | null) => (c == null ? null : c / 100);
+  return out(
+    goods,
+    { unit: qty ? landedTotal / qty : null, total: landedTotal },
+    {
+      goods: goodsC / 100,
+      inland: fromC(fees.inland),
+      freight: fromC(fees.freight),
+      insurance: fromC(fees.insurance),
+      duty: fromC(fees.duty),
+      clearance: fromC(fees.clearance),
+      feesIncludedInQuote: false,
+    },
+  );
 }
 
 /* ---------------------------------- 合规判断（§2.4） ---------------------------------- */
