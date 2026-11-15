@@ -750,7 +750,7 @@ function ProjectDetailContent() {
           handoffInfo={handoffInfo}
           onReload={load}
           onReviewConfirmed={() => setOrgRulesRefreshKey((k) => k + 1)}
-          onGoRequirements={() => openProjectArea("requirements")}
+          onGoRequirements={() => openNextStepTarget({ kind: "tab", tab: "requirements", anchor: "tender-analysis" })}
         />
       )}
 

@@ -59,9 +59,27 @@ export type ChecklistLine = {
 };
 export type ChecklistItem = ChecklistLine & {
   status: ChecklistItemStatus;
-  /** 两条要求的编号派生出同一个键时，后一条不能单独标状态（否则会改到前一条） */
+  /** 两条要求的编号派生出同一个键时，两条共用一个状态（同一行交付物）：只有前一条有按钮，后一条跟着它显示 */
   tickable: boolean;
 };
+
+/**
+ * 这份分析是不是逐条带依据的那一种（V2）：它的摘要里有逐条对应要求的提交清单（`submissionChecklist` 数组，
+ * 交付物投影用的也是它）。旧的分析（V1）只把要求分成「强制·通用 / 强制·技术」两类，认不出哪些是提交类的——
+ * 拿它生成会得出「没有提交类强制要求」这种不对的结论，所以不用它，模型生成的那份清单照旧。
+ */
+export function isGroundedAnalysisSummary(summaryJson: unknown): boolean {
+  const o = summaryJson && typeof summaryJson === "object" && !Array.isArray(summaryJson) ? (summaryJson as Record<string, unknown>) : null;
+  return !!o && Array.isArray(o.submissionChecklist);
+}
+
+/** 比清单所用的那份更新的一次分析：还在进行 / 失败了（已被取代的不算） */
+export type NewerRunState = "in_progress" | "failed" | null;
+export function newerRunStateOf(status: string | null | undefined): NewerRunState {
+  if (status === "PENDING" || status === "EXTRACTING" || status === "ANALYZING") return "in_progress";
+  if (status === "FAILED") return "failed";
+  return null;
+}
 
 /** 非提交类的要求类别（只出现在「废标风险」里）：给中文名；认不出的不显示原始代码 */
 const OTHER_CATEGORY_ZH: Record<string, string> = {
@@ -83,6 +101,10 @@ export type SubmissionChecklistView = {
   hasAnalysis: boolean;
   /** 这份分析批准了没有（没批准时清单仍然显示，页面提示还在审核中） */
   analysisApproved: boolean;
+  /** 清单所用的那份分析是什么时候发起的 */
+  analysisCreatedAt: string | null;
+  /** 之后又发起了一次、还在进行或失败了：清单仍按这一份，页面写明 */
+  newerRun: NewerRunState;
   /** 要备齐的：强制、提交类、已确认 */
   toPrepare: ChecklistItem[];
   /** 还没确认的：强制、提交类、还没人确认——不算进要备齐的，也不藏起来 */
@@ -139,10 +161,13 @@ const asStatus = (v: unknown): ChecklistItemStatus => ((CHECKLIST_ITEM_STATUSES 
  * 生成清单。
  *   requirements：当前可用的那份分析的全部要求；没有可用的分析时传 null。
  *   statusByKey：这份分析的交付物行上已有的状态（键 → 状态）。库里别的值（比如 IN_PROGRESS）按待办算。
+ *   编号派生出同一个键的几条共用那一行的状态，进度里各算一条（标了前一条，后一条一起变）。
  */
 export function buildSubmissionChecklist(input: {
   requirements: ChecklistRequirement[] | null;
   analysisStatus: string | null;
+  analysisCreatedAt?: Date | null;
+  newerRunStatus?: string | null;
   statusByKey: Readonly<Record<string, string>>;
   criticalFacts: unknown;
   closeDate: Date | null;
@@ -161,7 +186,7 @@ export function buildSubmissionChecklist(input: {
     .map((line) => {
       const tickable = !seen.has(line.key);
       seen.add(line.key);
-      return { ...line, status: tickable ? asStatus(input.statusByKey[line.key]) : "PENDING", tickable };
+      return { ...line, status: asStatus(input.statusByKey[line.key]), tickable };
     });
   const unconfirmed = inScope.filter((r) => r.reviewStatus === "AI_EXTRACTED").map(lineOf).sort(byCategoryThenCode);
   const risks = mandatory.filter((r) => r.complianceStatus === "NON_COMPLIANT" && r.reviewStatus !== "REJECTED").map(lineOf).sort(byCategoryThenCode);
@@ -171,6 +196,8 @@ export function buildSubmissionChecklist(input: {
   return {
     hasAnalysis: input.requirements !== null,
     analysisApproved: input.analysisStatus === "APPROVED",
+    analysisCreatedAt: input.requirements !== null && input.analysisCreatedAt ? input.analysisCreatedAt.toISOString() : null,
+    newerRun: input.requirements !== null ? newerRunStateOf(input.newerRunStatus) : null,
     toPrepare,
     unconfirmed,
     risks,

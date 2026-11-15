@@ -10,6 +10,7 @@ import {
 import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
 import { db } from "@/lib/db";
 import { isSubmissionChecklistEnabledForOrg } from "@/lib/tender-submission-checklist/flags";
+import { isDeterministicChecklistAvailable } from "@/lib/tender-submission-checklist/service";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -80,13 +81,17 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 
   const checklist = await loadStoredChecklist(id);
   // FLOW-H4b：这个组织开了确定性的交付前检查清单 → 告诉调用方这份模型清单已被取代（已存的内容照旧返回，不删历史）
-  const replaced = replacedByDeterministicChecklist(access.project);
+  const replaced = await replacedByDeterministicChecklist(access.project);
   return NextResponse.json(replaced ? { checklist, replaced: true } : { checklist });
 }
 
-/** FLOW-H4b：招投标项目、且组织开了确定性清单的开关 → 这份模型清单不再生成 */
-function replacedByDeterministicChecklist(project: { orgId: string | null; workDomain?: string | null }): boolean {
-  return project.workDomain === "tender" && isSubmissionChecklistEnabledForOrg(project.orgId);
+/**
+ * FLOW-H4b：招投标项目、组织开了确定性清单的开关、且当前可用的那份分析逐条带依据 → 这份模型清单不再生成。
+ * 没有分析或是旧的分析时，确定性清单不可用，这份照旧。
+ */
+async function replacedByDeterministicChecklist(project: { id: string; orgId: string | null; workDomain?: string | null }): Promise<boolean> {
+  if (project.workDomain !== "tender" || !project.orgId || !isSubmissionChecklistEnabledForOrg(project.orgId)) return false;
+  return isDeterministicChecklistAvailable({ projectId: project.id, orgId: project.orgId });
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {
@@ -96,7 +101,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if (access instanceof NextResponse) return access;
 
   // FLOW-H4b：已由确定性清单取代 → 不调模型（页面上的自动触发器发来的请求到这里就结束）
-  if (replacedByDeterministicChecklist(access.project)) {
+  if (await replacedByDeterministicChecklist(access.project)) {
     return NextResponse.json({ error: "投标准备清单已由「交付前检查清单」取代，不再由模型生成", replaced: true }, { status: 409 });
   }
 

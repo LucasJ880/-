@@ -4,7 +4,9 @@
  * FLOW-H4b「提交」页签的交付前检查清单
  *
  * 清单由已确认的强制提交类要求确定性生成（接口现算），每条能回到原文；人逐条标「备好了 / 不适用」。
- * 系统不替人判断某一条是否真的备好了。接口 404（开关关闭、不是招投标项目）时什么都不渲染。
+ * 系统不替人判断某一条是否真的备好了。
+ * 接口 404（开关关闭、不是招投标项目）或说不可用（没有分析、旧的分析）时什么都不渲染，上层照旧显示模型生成的那份；
+ * 其它失败（出错、网络、超时）时显示「没有取到」与重试——不退回模型生成的那份（那份已被取代，它的按钮也不能用）。
  */
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ClipboardCheck } from "lucide-react";
@@ -16,6 +18,28 @@ import {
   type ChecklistLine,
   type SubmissionChecklistView,
 } from "@/lib/tender-submission-checklist/contract";
+
+/**
+ * 取清单的结果怎么处理（纯函数）：
+ *   show —— 显示清单；off —— 不显示，上层照旧显示模型生成的那份（404：开关关闭 / 不是招投标项目；
+ *   或接口说不可用：没有分析、旧的分析）；failed —— 显示没取到与重试，不退回模型生成的那份。
+ * res 为 null 表示请求本身失败（网络、超时）。
+ */
+export function checklistLoadOutcome(
+  res: { status: number; ok: boolean } | null,
+  data: unknown,
+): { kind: "show"; view: SubmissionChecklistView } | { kind: "off" } | { kind: "failed" } {
+  if (!res) return { kind: "failed" };
+  if (res.status === 404) return { kind: "off" };
+  if (!res.ok) return { kind: "failed" };
+  const d = data && typeof data === "object" && !Array.isArray(data) ? (data as { view?: unknown; unavailable?: unknown }) : null;
+  if (d && d.view && typeof d.view === "object") return { kind: "show", view: d.view as SubmissionChecklistView };
+  if (d && d.view === null && typeof d.unavailable === "string") return { kind: "off" };
+  return { kind: "failed" };
+}
+
+/** 取清单最多等这么久，超时按没取到处理 */
+const LOAD_TIMEOUT_MS = 15_000;
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" }) : "暂无");
 
@@ -55,6 +79,13 @@ export function SubmissionChecklistBody({
         清单取自招标分析里已确认的强制提交类要求，每条可对照原文。状态由你来标，系统不会自己打勾。
         {view.hasAnalysis && !view.analysisApproved ? "这份分析还在等审核，批准前内容可能会变。" : ""}
       </p>
+      {view.analysisCreatedAt ? (
+        <p className="mt-1 text-[11px] text-muted" data-testid="submission-checklist-run">
+          清单所用的招标分析发起于 {day(view.analysisCreatedAt)}
+          {view.newerRun === "in_progress" ? "；之后又发起了一次分析，还在进行，完成并可审核之后清单会换成新的那份" : ""}
+          {view.newerRun === "failed" ? "；之后又发起的一次分析失败了，清单仍按这一份" : ""}
+        </p>
+      ) : null}
       {error ? <p role="alert" className="mt-2 text-sm text-danger-text" data-testid="submission-checklist-error">{error}</p> : null}
 
       {view.risks.length > 0 ? (
@@ -102,7 +133,7 @@ export function SubmissionChecklistBody({
                 ) : (
                   <span className="shrink-0 text-xs text-muted" data-testid="submission-checklist-status">
                     {CHECKLIST_STATUS_ZH[item.status]}
-                    {!item.tickable ? "（与上一条编号相近，请在上一条上标）" : ""}
+                    {!item.tickable ? "（与上一条编号相近、共用一个状态，请在上一条上标）" : ""}
                   </span>
                 )}
               </div>
@@ -153,37 +184,60 @@ export function SubmissionChecklistBody({
   );
 }
 
+/** 开关开着、却没取到清单（出错、网络、超时）：写明没取到，给一个重试 */
+export function SubmissionChecklistLoadFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <section className="rounded-xl border border-border bg-card-bg p-5" data-testid="submission-checklist-load-failed">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <ClipboardCheck size={16} className="text-accent/60" />
+        交付前检查清单
+      </h3>
+      <p role="alert" className="mt-1 text-sm text-danger-text">没有取到交付前检查清单，请稍后再试</p>
+      <button type="button" onClick={onRetry} className="mt-2 rounded-md border border-border px-2 py-1 text-xs hover:bg-background">
+        重试
+      </button>
+    </section>
+  );
+}
+
 export function SubmissionChecklistCard({
   projectId,
   onAvailable,
   onGoConfirm,
 }: {
   projectId: string;
-  /** 接口可用（开关开着）时告诉上层：这时不再显示模型生成的那份清单 */
+  /** 告诉上层要不要显示模型生成的那份：true = 不显示（清单可用，或开着却没取到）；false = 照旧显示 */
   onAvailable?: (available: boolean) => void;
   onGoConfirm?: () => void;
 }) {
   const [view, setView] = useState<SubmissionChecklistView | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
+    let outcome: ReturnType<typeof checklistLoadOutcome>;
     try {
-      const res = await apiFetch(`/api/projects/${projectId}/submission-checklist`);
-      const data = res.ok ? ((await res.json().catch(() => null)) as { view?: SubmissionChecklistView } | null) : null;
-      setView(data?.view ?? null);
-      onAvailable?.(!!data?.view);
+      const res = await apiFetch(`/api/projects/${projectId}/submission-checklist`, { signal: controller.signal });
+      outcome = checklistLoadOutcome(res, res.ok ? await res.json().catch(() => null) : null);
     } catch {
-      setView(null);
-      onAvailable?.(false);
+      outcome = checklistLoadOutcome(null, null);
+    } finally {
+      clearTimeout(timer);
     }
+    setView(outcome.kind === "show" ? outcome.view : null);
+    setLoadFailed(outcome.kind === "failed");
+    // 显示清单、或开着却没取到：都不再显示模型生成的那份
+    onAvailable?.(outcome.kind !== "off");
   }, [projectId, onAvailable]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  if (!view) return null;
+  if (!view) return loadFailed ? <SubmissionChecklistLoadFailed onRetry={() => void load()} /> : null;
 
   const onSet = async (key: string, status: ChecklistItemStatus) => {
     setBusyKey(key);

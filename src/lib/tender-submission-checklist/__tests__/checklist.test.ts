@@ -8,7 +8,7 @@ import { join } from "node:path";
 import {
   otherCategoryZh,
   CHECKLIST_ITEM_STATUSES, CHECKLIST_STATUS_ZH, CONDITION_NOT_FOUND_ZH, SUBMISSION_CATEGORY_ZH, SUBMISSION_CHECKLIST_CATEGORIES,
-  buildSubmissionChecklist, checklistKeyOf, checklistSummaryZh, parseItemStatus,
+  buildSubmissionChecklist, checklistKeyOf, checklistSummaryZh, isGroundedAnalysisSummary, newerRunStateOf, parseItemStatus,
   type ChecklistRequirement,
 } from "../contract";
 import { isSubmissionChecklistEnabledForOrgWithEnv } from "../flags";
@@ -65,6 +65,17 @@ console.log("没有可用的分析");
   ok("分析还在等审核：清单照常生成，并标明还没批准", build([req({ requirementCode: "R-1" })], { analysisStatus: "REVIEW_REQUIRED" }).analysisApproved === false && build([req({ requirementCode: "R-1" })]).analysisApproved === true);
 }
 
+/* ---------- 2b. 只用逐条带依据的分析；清单来自哪一份 ---------- */
+console.log("只用逐条带依据的分析");
+{
+  ok("摘要里有逐条的提交清单（数组）= 带依据的分析；旧的分析（没有这一项、形状不对）不算", isGroundedAnalysisSummary({ submissionChecklist: [] }) && isGroundedAnalysisSummary({ submissionChecklist: [{ requirementId: "R-1", statement: "x" }], criticalFacts: {} }) && [null, undefined, "x", [], {}, { submissionChecklist: null }, { submissionChecklist: {} }, { submissionChecklist: "R-1" }, { criticalFacts: {} }].every((x) => !isGroundedAnalysisSummary(x)));
+  ok("这个判断与交付物投影读的是同一个字段", readFileSync(join(process.cwd(), "src/lib/tender-auto-analysis/deliverables.ts"), "utf8").includes("summaryJson.submissionChecklist"));
+  ok("更新的一次分析：等待、抽取、分析中算还在进行；失败算失败；可用的、已取代的、没有的都不算", ["PENDING", "EXTRACTING", "ANALYZING"].every((s) => newerRunStateOf(s) === "in_progress") && newerRunStateOf("FAILED") === "failed" && [null, undefined, "", "APPROVED", "REVIEW_REQUIRED", "SUPERSEDED", "failed"].every((s) => newerRunStateOf(s) === null));
+  const v = build([req({ requirementCode: "R-1" })], { analysisCreatedAt: new Date("2026-11-10T15:00:00Z"), newerRunStatus: "ANALYZING" });
+  ok("清单带出所用的那份分析的发起时间，以及之后那一次的状态", v.analysisCreatedAt === "2026-11-10T15:00:00.000Z" && v.newerRun === "in_progress" && build([req({ requirementCode: "R-1" })]).analysisCreatedAt === null && build([req({ requirementCode: "R-1" })]).newerRun === null);
+  ok("没有分析时：两项都是空", build(null, { analysisCreatedAt: new Date(), newerRunStatus: "FAILED" }).analysisCreatedAt === null && build(null, { newerRunStatus: "FAILED" }).newerRun === null);
+}
+
 /* ---------- 3. 废标风险与提交条件 ---------- */
 console.log("废标风险与提交条件");
 {
@@ -86,7 +97,10 @@ console.log("废标风险与提交条件");
   ok("关键事实的形状不对（空、字符串、数组、文字不是字符串、状态已知但没有文字）：一律按没有找到", [null, "x", [], { bond: "yes" }, { bond: { status: "KNOWN", text: 5 } }, { bond: { status: "KNOWN", text: "  " } }, { bond: { status: "KNOWN" } }, { bond: { status: "UNKNOWN", text: "某段文字" } }, { bond: { text: "没有状态的文字" } }].every((x) => build([], { criticalFacts: x }).conditions.find((y) => y.slot === "bond")?.found === false));
   const d = build([], { closeDate: new Date("2026-12-01T19:00:00Z"), questionCloseDate: new Date("2026-11-20T22:00:00Z") });
   ok("项目上的截标时间与提问截止时间原样带出；没有的是空", d.closesAt === "2026-12-01T19:00:00.000Z" && d.questionCloseAt === "2026-11-20T22:00:00.000Z" && build([]).closesAt === null && build([]).questionCloseAt === null);
-  ok("清单里没有金额、毛利、报价之类的字段", (() => { const keys = new Set<string>(); const walk = (x: unknown) => { if (Array.isArray(x)) x.forEach(walk); else if (x && typeof x === "object") for (const [k, val] of Object.entries(x)) { keys.add(k); walk(val); } }; walk(build([req({ requirementCode: "R-1" })], { criticalFacts: cf })); return ![...keys].some((k) => /price|amount|margin|cost|value|金额|毛利/i.test(k)) && [...keys].sort().join() === "analysisApproved,canEdit,category,categoryZh,closesAt,conditions,done,found,hasAnalysis,key,labelZh,originalText,pending,progress,questionCloseAt,requirementCode,risks,slot,sourcePage,status,textZh,tickable,toPrepare,total,unconfirmed,waived"; })());
+  const priced = build([req({ requirementCode: "P-1", category: "pricing", chineseTranslation: "投标总价不得超过预算 2,400,000 加元（含税）" })], { criticalFacts: { bond: { status: "KNOWN", text: "投标保证金 120,000 加元" } } });
+  ok("招标文件原文里写的金额（预算上限、保证金额度）照原文显示，不改写、不另算", priced.toPrepare[0].textZh === "投标总价不得超过预算 2,400,000 加元（含税）" && priced.conditions.find((c) => c.slot === "bond")?.textZh === "投标保证金 120,000 加元");
+  ok("清单不碰我方的成本、毛利、报价：取数只读分析、要求、交付物与项目的两个时间", (() => { const svc = readFileSync(join(process.cwd(), "src/lib/tender-submission-checklist/service.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, ""); const models = [...svc.matchAll(/client\.(\w+)\./g)].map((m) => m[1]); return [...new Set(models)].sort().join() === "project,tenderAnalysisRun,tenderDeliverable,tenderExtractedRequirement" && !/cost|margin|quote|price|bidWorkspace|inquiry/i.test(svc.replace(/import[^;]+;/g, "")) && svc.includes("select: { id: true, closeDate: true, questionCloseDate: true }"); })());
+  ok("清单没有新增金额、毛利、报价之类的字段", (() => { const keys = new Set<string>(); const walk = (x: unknown) => { if (Array.isArray(x)) x.forEach(walk); else if (x && typeof x === "object") for (const [k, val] of Object.entries(x)) { keys.add(k); walk(val); } }; walk(build([req({ requirementCode: "R-1" })], { criticalFacts: cf })); return ![...keys].some((k) => /price|amount|margin|cost|value|金额|毛利/i.test(k)) && [...keys].sort().join() === "analysisApproved,analysisCreatedAt,canEdit,category,categoryZh,closesAt,conditions,done,found,hasAnalysis,key,labelZh,newerRun,originalText,pending,progress,questionCloseAt,requirementCode,risks,slot,sourcePage,status,textZh,tickable,toPrepare,total,unconfirmed,waived"; })());
 }
 
 /* ---------- 4. 状态与进度 ---------- */
@@ -100,7 +114,7 @@ console.log("状态与进度");
   ok("还没确认的、废标风险里的没有状态（不能标）", (() => { const x = build([req({ requirementCode: "U-1", reviewStatus: "AI_EXTRACTED" })], { statusByKey: { [checklistKeyOf("U-1")]: "DONE" } }); return x.unconfirmed.length === 1 && !("status" in x.unconfirmed[0]) && x.progress.total === 0; })());
   ok("键的派生：与招标分析投影交付物时相同的规则（小写、非字母数字换成下划线、去掉两端、最长 60、空的记 unknown）", checklistKeyOf("R-001") === "req_r_001" && checklistKeyOf("  Sub.Req #12 ") === "req_sub_req_12" && checklistKeyOf("要求一") === "req_unknown" && checklistKeyOf("A".repeat(100)) === `req_${"a".repeat(60)}` && (() => { const src = readFileSync(join(process.cwd(), "src/lib/tender-auto-analysis/deliverables.ts"), "utf8"); return src.includes('.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);') && src.includes('return `req_${slug || "unknown"}`;'); })());
   const dup = build([req({ requirementCode: "R-1" }), req({ requirementCode: "R 1" })], { statusByKey: { req_r_1: "DONE" } });
-  ok("两条要求派生出同一个键：只有前一条能标、带着状态；后一条显示为待办且不能单独标（免得改到前一条）", dup.toPrepare.length === 2 && dup.toPrepare[0].tickable === true && dup.toPrepare[0].status === "DONE" && dup.toPrepare[1].tickable === false && dup.toPrepare[1].status === "PENDING" && dup.progress.done === 1);
+  ok("两条要求派生出同一个键：共用一个状态（同一行交付物）；只有前一条能标，后一条跟着显示；进度能到齐", dup.toPrepare.length === 2 && dup.toPrepare[0].tickable === true && dup.toPrepare[0].status === "DONE" && dup.toPrepare[1].tickable === false && dup.toPrepare[1].status === "DONE" && JSON.stringify(dup.progress) === JSON.stringify({ total: 2, done: 2, waived: 0, pending: 0 }));
   ok("状态只有三个，各有中文", CHECKLIST_ITEM_STATUSES.join() === "PENDING,DONE,WAIVED" && CHECKLIST_ITEM_STATUSES.every((s) => CHECKLIST_STATUS_ZH[s].length > 0));
   ok("标状态的请求体：三个值能过；别的值、小写、空、不是对象都不行", CHECKLIST_ITEM_STATUSES.every((s) => { const r = parseItemStatus({ status: s }); return r.ok && r.status === s; }) && [{ status: "IN_PROGRESS" }, { status: "done" }, { status: "" }, {}, null, "DONE", [{ status: "DONE" }], { status: 1 }].every((b) => !parseItemStatus(b).ok));
   ok("canEdit 原样带出", build([], { canEdit: false }).canEdit === false && build([]).canEdit === true);
@@ -127,12 +141,13 @@ console.log("开关");
   ok("规则是纯的：不访问数据库、不发请求、不调模型", !/@\/lib\/db|prisma|fetch\(|createCompletion|openai|anthropic/i.test(src));
   const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
   const service = read("src/lib/tender-submission-checklist/service.ts");
-  ok("取数：项目、分析、要求、交付物都带着项目（项目与分析还带着组织）去查", service.includes("client.project.findFirst({ where: { id: input.projectId, orgId: input.orgId },") && service.includes("where: { projectId: input.projectId, orgId: input.orgId, status: { in: USABLE_RUN } },") && service.includes("client.tenderExtractedRequirement.findMany({ where: { analysisRunId: run.id, projectId: input.projectId },") && service.includes("client.tenderDeliverable.findMany({ where: { analysisRunId: run.id, projectId: input.projectId },"));
+  ok("取数：项目、分析、要求、交付物都带着项目（项目与分析还带着组织）去查", service.includes("client.project.findFirst({ where: { id: input.projectId, orgId: input.orgId },") && service.includes("where: { projectId, orgId, status: { in: USABLE_RUN } },") && service.includes("usableRunOf(client, input.projectId, input.orgId)") && service.includes("usableRunOf(db, input.projectId, input.orgId)") && service.includes("where: { projectId: input.projectId, orgId: input.orgId, createdAt: { gt: run.createdAt }, status: { notIn: [...USABLE_RUN, \"SUPERSEDED\"] } },") && service.includes("client.tenderExtractedRequirement.findMany({ where: { analysisRunId: run.id, projectId: input.projectId },") && service.includes("client.tenderDeliverable.findMany({ where: { analysisRunId: run.id, projectId: input.projectId },"));
+  ok("标状态：读、写交付物、写审计、再读，都用同一个事务的客户端", (() => { const fn = service.slice(service.indexOf("export async function setChecklistItemStatus")); return fn.includes("db.$transaction(async (tx: Prisma.TransactionClient)") && fn.includes("await loadInClient(tx, {") && fn.includes("await tx.tenderDeliverable.findUnique(") && fn.includes("await tx.tenderDeliverable.upsert({") && fn.includes("await writeAuditLog(tx, {") && !/\bdb\.(tenderDeliverable|auditLog)\b|writeAuditLog\(db/.test(fn); })());
   ok("取数与标状态都不调模型、不发请求", !/fetch\(|createCompletion|openai|anthropic/i.test(service.replace(/\/\*[\s\S]*?\*\//g, "")));
   const legacy = read("src/app/api/projects/[id]/checklist/route.ts");
-  ok("模型清单的接口：被取代的判断在调用模型之前", legacy.indexOf("if (replacedByDeterministicChecklist(access.project)) {") > 0 && legacy.indexOf("if (replacedByDeterministicChecklist(access.project)) {") < legacy.indexOf("if (!isAIConfigured())") && legacy.indexOf("if (!isAIConfigured())") < legacy.indexOf("createCompletion({"));
+  ok("模型清单的接口：被取代的判断在调用模型之前，且要看当前可用的分析是否带依据", legacy.indexOf("if (await replacedByDeterministicChecklist(access.project)) {") > 0 && legacy.indexOf("if (await replacedByDeterministicChecklist(access.project)) {") < legacy.indexOf("if (!isAIConfigured())") && legacy.indexOf("if (!isAIConfigured())") < legacy.indexOf("createCompletion({") && legacy.includes("return isDeterministicChecklistAvailable({ projectId: project.id, orgId: project.orgId });"));
   const runner = read("src/components/project-create/auto-ai-panels-runner.tsx");
-  ok("自动触发器：模型清单已被取代时不算「缺清单」，不为它去触发生成", runner.includes("const hasChecklist = !!checklistRes?.checklist || checklistRes?.replaced === true;") && runner.includes("if (hasSummary && hasChecklist) {"));
+  ok("自动触发器：先问模型清单是否已被取代（强制刷新也问）；取代了不算「缺清单」，也不发生成请求", runner.indexOf("const checklistReplaced = checklistRes?.replaced === true;") > 0 && runner.indexOf("const checklistReplaced = checklistRes?.replaced === true;") < runner.indexOf("if (!force) {") && runner.includes("const hasChecklist = !!checklistRes?.checklist || checklistReplaced;") && /\.\.\.\(checklistReplaced\s*\?\s*\[\]\s*:\s*\[\s*apiFetch\(`\/api\/projects\/\$\{projectId\}\/checklist`, \{\s*method: "POST",/.test(runner) && (runner.match(/\/checklist`, \{\s*method: "POST"/g) ?? []).length === 1);
 }
 
 console.log("类别的中文名");
@@ -147,7 +162,7 @@ console.log("挂到页面");
   ok("「提交」页签的「提交就绪」里挂着交付前检查清单，「去确认」由上层传入", tab.includes("<SubmissionChecklistCard") && tab.includes("onGoConfirm={onGoRequirements}") && tab.indexOf("<SubmissionChecklistCard") > tab.indexOf("提交就绪") && tab.indexOf("<SubmissionChecklistCard") < tab.indexOf("<TenderAnalysisPanel"));
   ok("模型生成的那份清单只在确定性清单不可用时显示（没查完之前两份都不显示）", tab.includes('{checklistState === "off" ? <BidChecklist projectId={projectId} /> : null}') && tab.includes('useState<"unknown" | "on" | "off">("unknown")') && !/^\s*<BidChecklist projectId=\{projectId\} \/>\s*$/m.test(tab));
   ok("可用回调是稳定引用（清单的取数函数依赖它，不稳定会反复取数）", tab.includes('const onChecklistAvailable = useCallback((available: boolean) => setChecklistState(available ? "on" : "off"), []);') && tab.includes("onAvailable={onChecklistAvailable}"));
-  ok("项目页把「去确认」接到「要求」页签", read("src/app/(main)/projects/[id]/page.tsx").includes('onGoRequirements={() => openProjectArea("requirements")}'));
+  ok("项目页把「去确认」接到「要求」页签里招标分析那一块（与「下一步」用同一个位置）", read("src/app/(main)/projects/[id]/page.tsx").includes('onGoRequirements={() => openNextStepTarget({ kind: "tab", tab: "requirements", anchor: "tender-analysis" })}') && read("src/components/tender-analysis/analysis-panel.tsx").includes('id="tender-analysis"'));
 }
 
 console.log(`\n✓ submission-checklist: ${passed} 项断言全部通过`);

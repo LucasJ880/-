@@ -4,6 +4,9 @@
  * 清单在读取时现算（规则在 contract.ts）。状态存进这条要求在该次分析里的交付物行（TenderDeliverable.status）：
  * 分析时已经把提交类的强制要求逐条投影成交付物行、键由要求编号派生；分析时没被投影、后来才确认的要求，标状态时现建。
  * 组织只取自项目记录。
+ *
+ * 只用逐条带依据的分析（V2，见 isGroundedAnalysisSummary）。没有可用的分析、或可用的那份是旧的分析时，
+ * 确定性清单不可用：「提交」页签与模型生成清单的接口都照旧。
  */
 import type { NextRequest } from "next/server";
 import type { Prisma } from "@prisma/client";
@@ -12,6 +15,7 @@ import { writeAuditLog } from "@/lib/audit/logger";
 import {
   SUBMISSION_CHECKLIST_AUDIT_ACTION,
   buildSubmissionChecklist,
+  isGroundedAnalysisSummary,
   type ChecklistItemStatus,
   type SubmissionChecklistView,
 } from "./contract";
@@ -26,27 +30,46 @@ const REQUIREMENT_SELECT = {
   chineseTranslation: true, originalRequirement: true, sourcePage: true,
 } as const;
 
-async function loadInClient(client: Client, input: { projectId: string; orgId: string; canEdit: boolean }): Promise<{ view: SubmissionChecklistView; runId: string | null } | null> {
-  const project = await client.project.findFirst({ where: { id: input.projectId, orgId: input.orgId }, select: { id: true, closeDate: true, questionCloseDate: true } });
-  if (!project) return null;
-  const run = await client.tenderAnalysisRun.findFirst({
-    where: { projectId: input.projectId, orgId: input.orgId, status: { in: USABLE_RUN } },
+/** 确定性清单为什么不可用：没有可用的分析 / 可用的那份是旧的分析（不逐条带依据） */
+export type ChecklistUnavailableReason = "no_analysis" | "not_grounded";
+export type ChecklistLoad =
+  | { kind: "not_found" }
+  | { kind: "unavailable"; reason: ChecklistUnavailableReason }
+  | { kind: "ok"; view: SubmissionChecklistView; runId: string };
+
+async function usableRunOf(client: Client, projectId: string, orgId: string) {
+  return client.tenderAnalysisRun.findFirst({
+    where: { projectId, orgId, status: { in: USABLE_RUN } },
     orderBy: { createdAt: "desc" },
-    select: { id: true, status: true, summaryJson: true },
+    select: { id: true, status: true, summaryJson: true, createdAt: true },
   });
-  if (!run) {
-    return { runId: null, view: buildSubmissionChecklist({ requirements: null, analysisStatus: null, statusByKey: {}, criticalFacts: null, closeDate: project.closeDate ?? null, questionCloseDate: project.questionCloseDate ?? null, canEdit: input.canEdit }) };
-  }
-  const [requirements, deliverables] = await Promise.all([
+}
+
+async function loadInClient(client: Client, input: { projectId: string; orgId: string; canEdit: boolean }): Promise<ChecklistLoad> {
+  const project = await client.project.findFirst({ where: { id: input.projectId, orgId: input.orgId }, select: { id: true, closeDate: true, questionCloseDate: true } });
+  if (!project) return { kind: "not_found" };
+  const run = await usableRunOf(client, input.projectId, input.orgId);
+  if (!run) return { kind: "unavailable", reason: "no_analysis" };
+  if (!isGroundedAnalysisSummary(run.summaryJson)) return { kind: "unavailable", reason: "not_grounded" };
+  const [requirements, deliverables, newer] = await Promise.all([
     client.tenderExtractedRequirement.findMany({ where: { analysisRunId: run.id, projectId: input.projectId }, select: REQUIREMENT_SELECT }),
     client.tenderDeliverable.findMany({ where: { analysisRunId: run.id, projectId: input.projectId }, select: { deliverableKey: true, status: true } }),
+    // 比这份更新的一次（还在进行 / 失败）：页面写明清单仍按这一份
+    client.tenderAnalysisRun.findFirst({
+      where: { projectId: input.projectId, orgId: input.orgId, createdAt: { gt: run.createdAt }, status: { notIn: [...USABLE_RUN, "SUPERSEDED"] } },
+      orderBy: { createdAt: "desc" },
+      select: { status: true },
+    }),
   ]);
-  const summary = run.summaryJson && typeof run.summaryJson === "object" && !Array.isArray(run.summaryJson) ? (run.summaryJson as Record<string, unknown>) : {};
+  const summary = run.summaryJson as Record<string, unknown>;
   return {
+    kind: "ok",
     runId: run.id,
     view: buildSubmissionChecklist({
       requirements,
       analysisStatus: run.status,
+      analysisCreatedAt: run.createdAt,
+      newerRunStatus: newer?.status ?? null,
       statusByKey: Object.fromEntries(deliverables.map((d) => [d.deliverableKey, d.status])),
       criticalFacts: summary.criticalFacts,
       closeDate: project.closeDate ?? null,
@@ -56,9 +79,18 @@ async function loadInClient(client: Client, input: { projectId: string; orgId: s
   };
 }
 
-/** 读取清单。只读。项目不在这个组织里 → null */
-export async function loadSubmissionChecklist(input: { projectId: string; orgId: string; canEdit: boolean }): Promise<SubmissionChecklistView | null> {
-  return (await loadInClient(db, input))?.view ?? null;
+/** 读取清单。只读。项目不在这个组织里 → not_found；没有能用来生成的分析 → unavailable */
+export async function loadSubmissionChecklist(input: { projectId: string; orgId: string; canEdit: boolean }): Promise<ChecklistLoad> {
+  return loadInClient(db, input);
+}
+
+/**
+ * 模型生成的那份清单此刻是否已被取代：当前可用的那份分析逐条带依据。调用方负责开关与「是招投标项目」。
+ * 与 loadSubmissionChecklist 用同一个判断，页面显示哪一份与模型接口拦不拦始终一致。
+ */
+export async function isDeterministicChecklistAvailable(input: { projectId: string; orgId: string }): Promise<boolean> {
+  const run = await usableRunOf(db, input.projectId, input.orgId);
+  return !!run && isGroundedAnalysisSummary(run.summaryJson);
 }
 
 export type SetItemStatusResult = { ok: true; view: SubmissionChecklistView } | { ok: false; status: 404; error: string };
@@ -70,8 +102,8 @@ export type SetItemStatusResult = { ok: true; view: SubmissionChecklistView } | 
 export async function setChecklistItemStatus(input: { projectId: string; orgId: string; key: string; status: ChecklistItemStatus; actorId: string; request?: NextRequest }): Promise<SetItemStatusResult> {
   return db.$transaction(async (tx: Prisma.TransactionClient): Promise<SetItemStatusResult> => {
     const loaded = await loadInClient(tx, { projectId: input.projectId, orgId: input.orgId, canEdit: true });
-    const item = loaded?.view.toPrepare.find((i) => i.key === input.key && i.tickable);
-    if (!loaded || !loaded.runId || !item) return { ok: false, status: 404, error: "清单里没有这一条" };
+    const item = loaded.kind === "ok" ? loaded.view.toPrepare.find((i) => i.key === input.key && i.tickable) : undefined;
+    if (loaded.kind !== "ok" || !item) return { ok: false, status: 404, error: "清单里没有这一条" };
     const where = { analysisRunId_deliverableKey: { analysisRunId: loaded.runId, deliverableKey: item.key } };
     const before = await tx.tenderDeliverable.findUnique({ where, select: { status: true } });
     await tx.tenderDeliverable.upsert({
@@ -87,6 +119,7 @@ export async function setChecklistItemStatus(input: { projectId: string; orgId: 
       request: input.request,
     });
     const after = await loadInClient(tx, { projectId: input.projectId, orgId: input.orgId, canEdit: true });
-    return { ok: true, view: after!.view };
+    if (after.kind !== "ok") throw new Error("交付前检查清单在同一事务里读不回来");
+    return { ok: true, view: after.view };
   }, { timeout: 15000 });
 }
