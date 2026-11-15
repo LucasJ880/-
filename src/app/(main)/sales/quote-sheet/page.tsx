@@ -35,8 +35,6 @@ import { useVisualViewport } from "@/lib/mobile/use-visual-viewport";
 import { formatCAD } from "@/lib/blinds/pricing-engine";
 import type { QuoteItemInput, CordlessPolicy } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
-import { allowsManualSellingPrice, fullnessFromPercent } from "@/lib/blinds/pricing-engine";
-import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import {
   DEFAULT_SUNNY_MOTOR_PRICE,
   DEFAULT_MIN_INSTALL_FEE,
@@ -71,7 +69,7 @@ import {
   sumAllMsrp,
   type DiscountsOverride,
 } from "./pricing-helpers";
-import { fractionToInches } from "./types";
+import { buildOrderFormItems } from "./order-items";
 import { exportQuotePdf, loadLogoAsDataUrl } from "./quote-pdf";
 import {
   loadDraft,
@@ -527,11 +525,11 @@ function QuoteSheetPageInner() {
     () =>
       sumShadeTotals(
         shadeOrders,
-        shadeValanceType,
         installMode,
         discounts,
         sunnyMotorPrice,
         cordlessPolicy,
+        shadeValanceType,
       ),
     [shadeOrders, shadeValanceType, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
   );
@@ -561,11 +559,11 @@ function QuoteSheetPageInner() {
     () =>
       sumAllMsrp(
         shadeOrders,
-        shadeValanceType,
         shutterOrders,
         shutterMaterial,
         drapeOrders,
         sunnyMotorPrice,
+        shadeValanceType,
       ),
     [shadeOrders, shadeValanceType, shutterOrders, shutterMaterial, drapeOrders, sunnyMotorPrice],
   );
@@ -868,106 +866,10 @@ function QuoteSheetPageInner() {
     }
     setSaving(true);
     try {
-      // 从三个电子订单表构造报价单 items（代替原来的 Part A 行）
-      const items: QuoteItemInput[] = [];
-
-      // Shades
-      for (const l of shadeOrders) {
-        // Roman：手填价分支，不要求价格表 SKU，只要宽高 + manualPrice（Allusion 2026-10-28 起走查表 + 可选覆盖）
-        if (isManualPriceShadeProduct(l.product)) {
-          if (!l.widthWhole || !l.heightWhole) continue;
-          const w = fractionToInches(l.widthWhole, l.widthFrac);
-          const h = fractionToInches(l.heightWhole, l.heightFrac);
-          if (!w || !h) continue;
-          const manual = parseFloat(l.manualPrice ?? "");
-          if (!Number.isFinite(manual) || manual <= 0) continue;
-          items.push({
-            product: l.product,
-            fabric: l.sku || l.product,
-            widthIn: w,
-            heightIn: h,
-            location: l.location,
-            sku: l.sku || l.product,
-            manualPrice: manual,
-            motorized: l.lift === "M",
-          });
-          continue;
-        }
-        if (!l.sku || !l.widthWhole || !l.heightWhole) continue;
-        const w = fractionToInches(l.widthWhole, l.widthFrac);
-        const h = fractionToInches(l.heightWhole, l.heightFrac);
-        if (!w || !h) continue;
-        // 把具体 SKU（例如 RL-AQUAWIDE3-BEIGE-LF）映射为定价表认的 fabric key
-        // （例如 "Light Filtering (Open Roll)"），否则后端 priceFor 会报
-        // "Pricing for this Roller fabric is not set yet"，导致整行价格丢失。
-        const pricingFabric = skuToPricingFabric(l.sku, l.product);
-        const manualOverride = allowsManualSellingPrice(l.product) ? parseFloat(l.manualPrice ?? "") : NaN;
-        items.push({
-          product: l.product,
-          fabric: pricingFabric,
-          widthIn: w,
-          heightIn: h,
-          // PRICE-2（Q4 = A）：无绳只来自 Cordless 开关；Lift L/R 只表示拉杆位置
-          cordless: l.cordless === true,
-          motorized: l.lift === "M",
-          location: l.location,
-          sku: l.sku,
-          // Allusion：手动成交单价覆盖随行上传，服务端用同一纯函数套用
-          ...(Number.isFinite(manualOverride) && manualOverride > 0 ? { manualPrice: manualOverride } : {}),
-        });
-      }
-
-      // Shutters
-      for (const l of shutterOrders) {
-        if (!l.widthWhole || !l.heightWhole) continue;
-        const w = fractionToInches(l.widthWhole, l.widthFrac);
-        const h = fractionToInches(l.heightWhole, l.heightFrac);
-        if (!w || !h) continue;
-        const qty = Math.max(1, l.panelCount ?? 1);
-        const base: QuoteItemInput = {
-          product: "Shutters",
-          fabric: shutterMaterial,
-          widthIn: w,
-          heightIn: h,
-          location: l.location,
-          sku: shutterMaterial,
-        };
-        for (let i = 0; i < qty; i++) items.push({ ...base });
-      }
-
-      // Drapes（每行可能包含 Drape 和/或 Sheer，分别作为 item）
-      for (const l of drapeOrders) {
-        if (l.drapeFabricSku && l.drapeWidthWhole && l.drapeHeightWhole) {
-          const w = fractionToInches(l.drapeWidthWhole, l.drapeWidthFrac);
-          const h = fractionToInches(l.drapeHeightWhole, l.drapeHeightFrac);
-          if (w && h) {
-            items.push({
-              product: "Drapery",
-              fabric: l.drapeFabricSku,
-              widthIn: w,
-              heightIn: h,
-              location: l.location,
-              sku: l.drapeFabricSku,
-              ...(fullnessFromPercent(l.drapeFullness) != null ? { fullness: fullnessFromPercent(l.drapeFullness)! } : {}),
-            });
-          }
-        }
-        if (l.sheerFabricSku && l.sheerWidthWhole && l.sheerHeightWhole) {
-          const w = fractionToInches(l.sheerWidthWhole, l.sheerWidthFrac);
-          const h = fractionToInches(l.sheerHeightWhole, l.sheerHeightFrac);
-          if (w && h) {
-            items.push({
-              product: "Sheer",
-              fabric: l.sheerFabricSku,
-              widthIn: w,
-              heightIn: h,
-              location: l.location,
-              sku: l.sheerFabricSku,
-              ...(fullnessFromPercent(l.sheerFullness) != null ? { fullness: fullnessFromPercent(l.sheerFullness)! } : {}),
-            });
-          }
-        }
-      }
+      // 从三个电子订单表构造报价单 items（代替原来的 Part A 行）——纯函数，见 ./order-items.ts
+      const items: QuoteItemInput[] = buildOrderFormItems({
+        shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shadeValanceType,
+      });
 
       // 注意：items 为空也允许提交，由后端以 shell 模式保存（仅存 formDataJson）
       // 这样即使 pricing 全部对不上，销售填写的内容也绝不会丢。

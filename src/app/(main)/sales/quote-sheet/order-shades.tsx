@@ -121,7 +121,7 @@ export function OrderShadesForm({
     () =>
       lines.map((l) =>
         // 行上 Valance 为空时取表底部 Valance Type（与工艺单同口径）
-        computeShadeLinePrice(l, valanceType, installMode, discounts, sunnyMotorPrice, cordlessPolicy),
+        computeShadeLinePrice(l, installMode, discounts, sunnyMotorPrice, cordlessPolicy, valanceType),
       ),
     [lines, valanceType, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
   );

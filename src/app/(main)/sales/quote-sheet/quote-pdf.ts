@@ -628,11 +628,11 @@ export async function exportQuotePdf(
   const filledShades = input.shadeOrders.filter((l) => {
     const p = computeShadeLinePrice(
       l,
-      input.shadeValanceType,
       input.installMode,
       input.discounts,
       input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
       input.cordlessPolicy,
+      input.shadeValanceType,
     );
     return (
       p &&
@@ -844,11 +844,11 @@ export async function exportQuotePdf(
       body: filledShades.map((l, i) => {
         const p = computeShadeLinePrice(
           l,
-          input.shadeValanceType,
           input.installMode,
           input.discounts,
           input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
           input.cordlessPolicy,
+          input.shadeValanceType,
         );
         const w = fractionToInches(l.widthWhole, l.widthFrac);
         const h = fractionToInches(l.heightWhole, l.heightFrac);

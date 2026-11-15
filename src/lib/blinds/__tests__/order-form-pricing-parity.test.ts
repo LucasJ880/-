@@ -6,7 +6,11 @@
  *
  * 运行：npx tsx src/lib/blinds/__tests__/order-form-pricing-parity.test.ts
  */
-import { priceFor } from "@/lib/blinds/pricing-engine";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { calculateQuoteTotal, priceFor } from "@/lib/blinds/pricing-engine";
+import { applyOrgDiscountDefaults } from "@/lib/blinds/discount-settings";
+import type { ProductName } from "@/lib/blinds/pricing-types";
 import { DEFAULT_DISCOUNTS } from "@/lib/blinds/pricing-data";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import {
@@ -20,12 +24,14 @@ import {
 import { mapQuoteFormToProcessOrder } from "@/lib/sunny-process/quote-mapping";
 import { DEFAULT_CORDLESS_POLICY, DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
 import {
+  computeDrapeLinePrice,
   computeShadeLinePrice,
   computeShutterLinePrice,
   sumAllMsrp,
   sumShadeTotals,
 } from "@/app/(main)/sales/quote-sheet/pricing-helpers";
-import type { ShadeOrderLine, ShutterOrderLine } from "@/app/(main)/sales/quote-sheet/types";
+import { buildOrderFormItems } from "@/app/(main)/sales/quote-sheet/order-items";
+import type { DrapeOrderLine, ShadeOrderLine, ShutterOrderLine } from "@/app/(main)/sales/quote-sheet/types";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, n: string, d?: unknown) => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.error(`  ✗ ${n}`, d ?? ""); } };
@@ -97,7 +103,7 @@ const shutterLine = (o: Partial<ShutterOrderLine>): ShutterOrderLine => ({
 console.log("② 预览金额");
 {
   const preview = (o: Partial<ShadeOrderLine>, formValance = "", mode: "default" | "pickup" = "default") => {
-    const p = computeShadeLinePrice(shadeLine(o), formValance, mode, DEFAULT_DISCOUNTS, DEFAULT_SUNNY_MOTOR_PRICE, DEFAULT_CORDLESS_POLICY);
+    const p = computeShadeLinePrice(shadeLine(o), mode, DEFAULT_DISCOUNTS, DEFAULT_SUNNY_MOTOR_PRICE, DEFAULT_CORDLESS_POLICY, formValance);
     if (!p || p.error) throw new Error(`预览报错：${p?.error ?? "null"}`);
     return p;
   };
@@ -138,11 +144,11 @@ console.log("② 预览金额");
 
   // 小计与 MSRP 合计也带上表底部罩型
   const lines = [shadeLine({ id: "1", valance: "" }), shadeLine({ id: "2", valance: "None" })];
-  const t0 = sumShadeTotals(lines, "", "pickup", DEFAULT_DISCOUNTS);
-  const t1 = sumShadeTotals(lines, "Cassette", "pickup", DEFAULT_DISCOUNTS);
+  const t0 = sumShadeTotals(lines, "pickup", DEFAULT_DISCOUNTS);
+  const t1 = sumShadeTotals(lines, "pickup", DEFAULT_DISCOUNTS, DEFAULT_SUNNY_MOTOR_PRICE, DEFAULT_CORDLESS_POLICY, "Cassette");
   ok(r2(t0.merch) === 443.75 && r2(t1.merch) === 493.75, "PRE-04a: sumShadeTotals 两行（未取整 221.875 ×2）= 443.75；表底部 Cassette 只加到行上留空的那一行 → 493.75", [t0.merch, t1.merch]);
-  const m0 = sumAllMsrp(lines, "", [], "Vinyl", []);
-  const m1 = sumAllMsrp(lines, "Cassette", [], "Vinyl", []);
+  const m0 = sumAllMsrp(lines, [], "Vinyl", []);
+  const m1 = sumAllMsrp(lines, [], "Vinyl", [], DEFAULT_SUNNY_MOTOR_PRICE, "Cassette");
   ok(r2(m1 - m0) === 50, "PRE-04b: sumAllMsrp（成交折扣率的分母）随罩盒加价 +50", [m0, m1]);
 
   // 任务书 c：Shutters 72×60
@@ -157,7 +163,150 @@ console.log("② 预览金额");
   ok(r2(sh("Vinyl", { panelCount: 2 }).merch) === 1402.58 && sh("Vinyl", { panelCount: 2 }, "pickup").install === 0, "PRE-05d: Vinyl Panel 数 2 → 1402.58；自提安装 0", sh("Vinyl", { panelCount: 2 }));
   const over = sh("Wooden", { widthWhole: "400" });
   ok(typeof over.error === "string" && /Out of range/.test(over.error) && over.merch === 0, "PRE-05e: Wooden 超出价表范围仍报超范围、不计价", over);
-  ok(r2(sumAllMsrp([], "", [shutterLine({})], "Wooden", [])) === 1803.41, "PRE-05f: 实木行进入 MSRP 合计（1803.41）");
+  ok(r2(sumAllMsrp([], [shutterLine({})], "Wooden", [])) === 1803.41, "PRE-05f: 实木行进入 MSRP 合计（1803.41）");
+}
+
+// ── ③ 表单行 → 行构造 → 企业默认折扣 → 引擎，与预览逐行比 ──
+console.log("③ 完整路径：保存 = 预览");
+{
+  const drapeLine = (o: Partial<DrapeOrderLine>): DrapeOrderLine => ({
+    id: "d", location: "Dining",
+    drapeWidthWhole: "", drapeWidthFrac: "0", drapeHeightWhole: "", drapeHeightFrac: "0", drapeFabricSku: "",
+    drapeFullness: "180", drapePanels: "S", drapePleatStyle: "", drapeLiner: false, drapeBracket: "",
+    sheerWidthWhole: "", sheerWidthFrac: "0", sheerHeightWhole: "", sheerHeightFrac: "0", sheerFabricSku: "",
+    sheerFullness: "180", sheerPanels: "S", sheerPleatStyle: "", sheerBracket: "", accessoriesSku: "", note: "", ...o,
+  });
+  type Discounts = Record<ProductName, number>;
+  /** 服务端同款：行构造 → 套企业默认折扣 → 引擎（quotes/route.ts 与 quote-update.ts 的调用顺序） */
+  const save = (form: Parameters<typeof buildOrderFormItems>[0], discounts: Discounts) => {
+    const items = buildOrderFormItems(form);
+    const calc = calculateQuoteTotal({ items: applyOrgDiscountDefaults(items, discounts), installMode: "default", cordlessPolicy: DEFAULT_CORDLESS_POLICY });
+    return { items, calc };
+  };
+  const emptyForm = { shadeOrders: [], shutterOrders: [], drapeOrders: [], shutterMaterial: "Vinyl" as const, shadeValanceType: "" };
+
+  // 任务书 a / c 的提交内容
+  {
+    const { items, calc } = save({ ...emptyForm, shadeOrders: [shadeLine({ valance: "Cassette" })] }, DEFAULT_DISCOUNTS);
+    ok(items.length === 1 && items[0]!.fabric === "Blackout w Cassette" && items[0]!.sku === SKU_BO, "SAVE-01a: Roller CABO-WHITE-BO + Cassette 提交的定价面料 = Blackout w Cassette，sku 仍是销售选的 SKU", items);
+    ok(calc.errors.length === 0 && r2(calc.merchSubtotal) === 271.88 && calc.itemResults[0]!.install === 18, "SAVE-01b: 保存金额 271.88 + 安装 18（修之前 221.88）", calc);
+    const none = save({ ...emptyForm, shadeOrders: [shadeLine({ valance: "None" })] }, DEFAULT_DISCOUNTS);
+    ok(none.items[0]!.fabric === "Blackout (Open Roll)" && r2(none.calc.merchSubtotal) === 221.88, "SAVE-01c: 改成 None → Blackout (Open Roll) / 221.88");
+    const fascia = save({ ...emptyForm, shadeOrders: [shadeLine({ valance: "Fascia" })] }, DEFAULT_DISCOUNTS);
+    ok(fascia.items[0]!.fabric === "Blackout w Fascia" && r2(fascia.calc.merchSubtotal) === 271.88, "SAVE-01d: Fascia → Blackout w Fascia / 271.88");
+    const viaForm = save({ ...emptyForm, shadeValanceType: "Cassette", shadeOrders: [shadeLine({ valance: "" }), shadeLine({ valance: "None" })] }, DEFAULT_DISCOUNTS);
+    ok(viaForm.items[0]!.fabric === "Blackout w Cassette" && viaForm.items[1]!.fabric === "Blackout (Open Roll)" && r2(viaForm.calc.merchSubtotal) === 493.75, "SAVE-01e: 表底部 Cassette 只作用于行上留空的行（271.875 + 221.875 = 493.75）", viaForm.items);
+    const fullKey = save({ ...emptyForm, shadeOrders: [shadeLine({ sku: "Blackout w Cassette", valance: "" })] }, DEFAULT_DISCOUNTS);
+    ok(fullKey.items[0]!.fabric === "Blackout w Cassette" && r2(fullKey.calc.merchSubtotal) === 271.88, "SAVE-01f: SKU 本身是完整定价面料、无生效罩型 → 原样计价（与改动前相同）");
+  }
+  {
+    const wood = save({ ...emptyForm, shutterMaterial: "Wooden", shutterOrders: [shutterLine({})] }, DEFAULT_DISCOUNTS);
+    ok(wood.items.length === 1 && wood.items[0]!.product === "Shutters" && wood.items[0]!.fabric === "Wood" && wood.items[0]!.sku === "Wooden", "SAVE-02a: Wooden 提交 fabric = Wood，sku 仍是 Wooden", wood.items);
+    ok(wood.calc.errors.length === 0 && r2(wood.calc.merchSubtotal) === 1172.22 && wood.calc.itemResults[0]!.install === 54, "SAVE-02b: Wooden 72×60 保存 1172.22 + 安装 54，无「is not set yet」报错（修之前报错）", wood.calc.errors);
+    const vinyl = save({ ...emptyForm, shutterMaterial: "Vinyl", shutterOrders: [shutterLine({})] }, DEFAULT_DISCOUNTS);
+    ok(vinyl.items[0]!.fabric === "Vinyl" && vinyl.items[0]!.sku === "Vinyl" && r2(vinyl.calc.merchSubtotal) === 701.29, "SAVE-02c: Vinyl 不变（701.29）");
+    const two = save({ ...emptyForm, shutterMaterial: "Wooden", shutterOrders: [shutterLine({ panelCount: 2 })] }, DEFAULT_DISCOUNTS);
+    ok(two.items.length === 2 && two.items.every((i) => i.fabric === "Wood") && r2(two.calc.merchSubtotal) === 2344.43, "SAVE-02d: Panel 数 2 → 两条 Wood 报价行（2344.43）");
+  }
+
+  // 预览 = 保存：逐行扫（缺省折扣 + 非缺省折扣各一轮）
+  const sweep = (label: string, discounts: Discounts) => {
+    const bad: unknown[] = [];
+    let rows = 0;
+    const cmp = (what: string, a: { merch: number; install: number }, b: { merch: number; install: number }) => {
+      rows++;
+      if (!near(a.merch, b.merch) || a.install !== b.install) bad.push({ what, preview: a, saved: b });
+    };
+    // Roller：两个真实 SKU × 行上 4 种 × 表底部 3 种 × 窗宽 49 / 50 / 55 × 有无无绳
+    for (const sku of [SKU_BO, SKU_LF]) for (const valance of ROW_VALANCES) for (const fv of FORM_VALANCES)
+      for (const w of ["49", "50", "55"]) for (const cordless of [false, true]) {
+        const line = shadeLine({ sku, valance, widthWhole: w, cordless });
+        const p = computeShadeLinePrice(line, "default", discounts, DEFAULT_SUNNY_MOTOR_PRICE, DEFAULT_CORDLESS_POLICY, fv)!;
+        const { calc } = save({ ...emptyForm, shadeValanceType: fv, shadeOrders: [line] }, discounts);
+        const r = calc.itemResults[0];
+        if (p.error || !r) { bad.push({ sku, valance, fv, w, cordless, previewError: p.error, saveErrors: calc.errors }); rows++; continue; }
+        cmp(`Roller ${sku} ${valance || "∅"}/${fv || "∅"} w${w} cordless=${cordless}`, p, { merch: r.price, install: r.install });
+      }
+    // 其它 Shades 产品（罩型照填，确认不影响）
+    for (const [product, sku, w, h] of [["Zebra", "PRADO-WHITE-LF", "40", "50"], ["Zebra", "MILAN-GREY-BO", "90", "60"], ["SHANGRILA", "Standard", "60", "72"], ["Cordless Cellular", "Standard", "30", "48"], ["Fauxwood", "Standard", "36", "48"], ["Roman Shade", "BMF06-BO", "40", "60"]] as const) {
+      const line = shadeLine({ product, sku, widthWhole: w, heightWhole: h, valance: "Cassette" });
+      const p = computeShadeLinePrice(line, "default", discounts, DEFAULT_SUNNY_MOTOR_PRICE, DEFAULT_CORDLESS_POLICY, "Fascia")!;
+      const { calc } = save({ ...emptyForm, shadeValanceType: "Fascia", shadeOrders: [line] }, discounts);
+      const r = calc.itemResults[0];
+      if (p.error || !r) { bad.push({ product, sku, previewError: p.error, saveErrors: calc.errors }); rows++; continue; }
+      cmp(`${product} ${sku}`, p, { merch: r.price, install: r.install });
+    }
+    // Shutters：Wooden / Vinyl × Panel 数 1 / 2
+    for (const material of ["Wooden", "Vinyl"] as const) for (const panelCount of [1, 2]) {
+      const line = shutterLine({ panelCount });
+      const p = computeShutterLinePrice(line, material, "default", discounts)!;
+      const { calc } = save({ ...emptyForm, shutterMaterial: material, shutterOrders: [line] }, discounts);
+      if (p.error || calc.errors.length) { bad.push({ material, panelCount, previewError: p.error, saveErrors: calc.errors }); rows++; continue; }
+      cmp(`Shutters ${material} ×${panelCount}`, p, { merch: calc.merchSubtotal, install: calc.installSubtotal });
+    }
+    // Drapery / Sheer / Door Screen Sheer（后者只断言两边相等，不钉口径——判断点 1 未拍板）
+    const drapes: DrapeOrderLine[] = [
+      drapeLine({ drapeFabricSku: "With liner (Black out)", drapeLiner: true, drapeWidthWhole: "100", drapeHeightWhole: "108", drapeFullness: "180" }),
+      drapeLine({ sheerFabricSku: "Light Filtering", sheerWidthWhole: "100", sheerHeightWhole: "108", sheerFullness: "230" }),
+      drapeLine({ sheerFabricSku: "Door Screen Sheer", sheerWidthWhole: "25", sheerHeightWhole: "48" }),
+      drapeLine({ sheerFabricSku: "Door Screen Sheer", sheerWidthWhole: "30", sheerHeightWhole: "48" }),
+    ];
+    for (const line of drapes) {
+      const p = computeDrapeLinePrice(line, "default", discounts)!;
+      const { calc } = save({ ...emptyForm, drapeOrders: [line] }, discounts);
+      if (p.error || calc.errors.length) { bad.push({ line: line.drapeFabricSku || line.sheerFabricSku, previewError: p.error, saveErrors: calc.errors }); rows++; continue; }
+      cmp(`Drapes ${line.drapeFabricSku || line.sheerFabricSku} w${line.drapeWidthWhole || line.sheerWidthWhole}`, { merch: p.drapeMerch + p.sheerMerch, install: p.drapeInstall + p.sheerInstall }, { merch: calc.merchSubtotal, install: calc.installSubtotal });
+    }
+    ok(bad.length === 0, `PARITY-${label}: ${rows} 行预览金额与安装费 = 保存金额与安装费（误差 ≤ 0.01）`, bad.slice(0, 5));
+    return rows;
+  };
+  const n1 = sweep("01 缺省企业折扣", { ...DEFAULT_DISCOUNTS });
+  const n2 = sweep("02 Roller 40% / Shutters 30%", { ...DEFAULT_DISCOUNTS, Roller: 0.4, Shutters: 0.3 });
+  ok(n1 === 158 && n2 === 158, "PARITY-03: 每轮 158 行（Roller 144 + 其它 Shades 6 + Shutters 4 + Drapes 4）", [n1, n2]);
+
+  // 非缺省折扣下的字面量：Roller 40% 带罩 55×72 = 403.41 × 0.6 + 50；Wood 30% 72×60 = 1803.41 × 0.7
+  const custom = { ...DEFAULT_DISCOUNTS, Roller: 0.4, Shutters: 0.3 };
+  const c1 = save({ ...emptyForm, shadeOrders: [shadeLine({ valance: "Cassette" })] }, custom);
+  const c2 = save({ ...emptyForm, shutterMaterial: "Wooden", shutterOrders: [shutterLine({})] }, custom);
+  ok(r2(c1.calc.merchSubtotal) === 292.05 && r2(c2.calc.merchSubtotal) === 1262.39, "PARITY-04: 企业折扣非缺省时仍按企业折扣（Roller 40% 带罩 292.05；Wood 30% 1262.39）", [c1.calc.merchSubtotal, c2.calc.merchSubtotal]);
+}
+
+// ── ⑥ 源码断言：取值只有一处 ───────────────────────────────
+console.log("⑥ 源码断言");
+{
+  const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+  const dir = "src/app/(main)/sales/quote-sheet";
+  const page = read(`${dir}/page.tsx`);
+  const helpers = read(`${dir}/pricing-helpers.ts`);
+  const pdf = read(`${dir}/quote-pdf.ts`);
+  const orderItems = read(`${dir}/order-items.ts`);
+  const mapping = read("src/lib/sunny-process/quote-mapping.ts");
+  ok(![page, helpers, pdf, orderItems].some((s) => s.includes("skuToPricingFabric")), "SRC-01: 页面 / 预览 / PDF / 行构造不再直接由 SKU 推定价面料");
+  ok(!page.includes("fabric: shutterMaterial") && !orderItems.includes("fabric: shutterMaterial") && !/priceFor\(\s*"Shutters",\s*material\b/.test(helpers), "SRC-02: 不再把表单材质直接当定价面料");
+  ok(helpers.includes("shadeLinePricingFabric(") && helpers.includes("shutterPricingFabric(") && orderItems.includes("shadeLinePricingFabric(") && orderItems.includes("shutterPricingFabric("), "SRC-03: 预览与行构造都引用同一个取值");
+  ok(page.includes("buildOrderFormItems(") && !/items\.push\(/.test(page), "SRC-04: 页面保存只经 buildOrderFormItems，不再内联构造报价行");
+  // 页面 / 表格 / PDF 里每一处 Shades 计价调用都把表底部 Valance Type 传进去（漏传会静默按「表底部未选」计价）
+  const callsOf = (src: string, fn: string) => {
+    const out: string[] = [];
+    let i = 0;
+    while ((i = src.indexOf(`${fn}(`, i)) >= 0) {
+      let depth = 0, j = i + fn.length;
+      for (; j < src.length; j++) { if (src[j] === "(") depth++; else if (src[j] === ")" && --depth === 0) break; }
+      out.push(src.slice(i, j + 1));
+      i = j;
+    }
+    return out;
+  };
+  const orderShades = read(`${dir}/order-shades.tsx`);
+  const shadeCalls = [
+    ...callsOf(orderShades, "computeShadeLinePrice"),
+    ...callsOf(pdf, "computeShadeLinePrice"),
+    ...callsOf(page, "sumShadeTotals"),
+    ...callsOf(page, "sumAllMsrp"),
+  ];
+  const missing = shadeCalls.filter((c) => !/(valanceType|shadeValanceType)\s*,?\s*\)$/.test(c));
+  ok(shadeCalls.length === 5 && missing.length === 0, "SRC-05: 页面 2 处、Shades 表 1 处、PDF 2 处计价调用的最后一个实参都是表底部罩型", { count: shadeCalls.length, missing });
+  ok(mapping.includes("effectiveShadeValance(") && !mapping.includes("s(l.valance) || formValance"), "SRC-06: 工艺单罩型取值调用同一个函数");
 }
 
 // ── ④ 定价 ⇔ 工艺单罩盒 ───────────────────────────────────

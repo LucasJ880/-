@@ -52,20 +52,20 @@ const ZERO_DISCOUNTS: DiscountsOverride = {
 
 export function sumAllMsrp(
   shadeOrders: ShadeOrderLine[],
-  /** Shades 表底部的 Valance Type（行上 Valance 为空时生效） */
-  formValance: string,
   shutterOrders: ShutterOrderLine[],
   shutterMaterial: "Wooden" | "Vinyl",
   drapeOrders: DrapeOrderLine[],
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
+  /** Shades 表底部的 Valance Type（行上 Valance 为空时生效） */
+  formValance = "",
 ): number {
   const shades = sumShadeTotals(
     shadeOrders,
-    formValance,
     "pickup",
     ZERO_DISCOUNTS,
     sunnyMotorPrice,
     ZERO_CORDLESS_POLICY,
+    formValance,
   ).merch;
   const shutters = sumShutterTotals(shutterOrders, shutterMaterial, "pickup", ZERO_DISCOUNTS).merch;
   const drapes = sumDrapeTotals(drapeOrders, "pickup", ZERO_DISCOUNTS).merch;
@@ -100,16 +100,16 @@ const ZERO_CORDLESS_POLICY: CordlessPolicy = { ...DEFAULT_CORDLESS_POLICY, disco
 
 // ── Shades ──
 /**
- * formValance：Shades 表底部的 Valance Type。必填且排在第二位——漏传的调用点会编译失败，
- * 而不是静默按无罩计价（QUOTE-1a）。
+ * formValance：Shades 表底部的 Valance Type（行上 Valance 为空时生效，QUOTE-1a）。
+ * 页面、PDF 的每个调用点都必须传它——对照测试的源码断言逐个检查；不传等于「表底部未选」。
  */
 export function computeShadeLinePrice(
   line: ShadeOrderLine,
-  formValance: string,
   installMode: InstallMode,
   discounts?: DiscountsOverride,
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
   cordlessPolicy: CordlessPolicy = DEFAULT_CORDLESS_POLICY,
+  formValance = "",
 ): LinePrice | null {
   const motorSurcharge = line.lift === "M" ? Math.max(0, sunnyMotorPrice) : 0;
   // Roman：销售手填单价，跳过 MSRP 表（Allusion 2026-10-28 起查表，见下方覆盖）
@@ -163,21 +163,21 @@ export function computeShadeLinePrice(
 
 export function sumShadeTotals(
   lines: ShadeOrderLine[],
-  formValance: string,
   installMode: InstallMode,
   discounts?: DiscountsOverride,
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
   cordlessPolicy: CordlessPolicy = DEFAULT_CORDLESS_POLICY,
+  formValance = "",
 ): SectionTotals {
   const totals = emptyTotals();
   for (const line of lines) {
     const p = computeShadeLinePrice(
       line,
-      formValance,
       installMode,
       discounts,
       sunnyMotorPrice,
       cordlessPolicy,
+      formValance,
     );
     if (!p || p.error) continue;
     totals.merch += p.merch;

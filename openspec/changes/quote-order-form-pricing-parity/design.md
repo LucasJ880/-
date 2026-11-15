@@ -97,10 +97,11 @@ c. Shutters 72×60（价表键 Wood 期望 1172.22）
 - 已知不一致（保留现状）：这类行（SKU 是带罩键、两处 Valance 都空）定价带罩、工艺单是单轨无盒。只在 SKU 目录加载失败回落时出现；specs 的「同一取值」要求已把它排除在外。
 - 否决：SKU 自带罩型优先于行上 Valance——行上的 Valance 是销售看得见、工艺单也在用的那个值。
 
-### D4 预览函数把表单级罩型作为必填的第二个参数
-- 做法：`computeShadeLinePrice(line, formValance, installMode, …)`、`sumShadeTotals(lines, formValance, installMode, …)`，`sumAllMsrp` 同样加入 `formValance`；`computeShutterLinePrice` 内部经 `shutterPricingFabric(material)` 取键，签名不变。调用方：`order-shades.tsx`（已有 `valanceType` 属性）、`page.tsx`（`shadeValanceType`）、`quote-pdf.ts`（输入对象加 `shadeValanceType`，页面传入）。同时改掉 `pricing-helpers.ts:180` 的过时注释。
-- 理由：必填且位置在前，任何漏改的调用点都会编译失败（第三个实参类型对不上）；追加在末尾的可选参数漏传时会静默按无罩计价，正是本次修的那类错。
-- 否决：末尾可选参数 `formValance = ""`——理由同上。否决：改成单个 `ctx` 对象入参——六个调用点全部重写，diff 大而无额外收益。
+### D4 预览函数把表单级罩型作为末位参数，调用点由源码断言守住
+- 做法：`computeShadeLinePrice(line, installMode, discounts?, sunnyMotorPrice, cordlessPolicy, formValance = "")`、`sumShadeTotals(…, formValance = "")`、`sumAllMsrp(…, sunnyMotorPrice, formValance = "")`，既有参数的位置不动；`computeShutterLinePrice` 内部经 `shutterPricingFabric(material)` 取键，签名不变。调用方：`order-shades.tsx`（已有 `valanceType` 属性）、`page.tsx`（`shadeValanceType`）、`quote-pdf.ts`（输入对象加 `shadeValanceType`，页面传入）。同时改掉 `pricing-helpers.ts:180` 的过时注释。对照测试的源码断言逐个检查这 5 处调用（页面 2、Shades 表 1、PDF 2）的最后一个实参是表底部罩型。
+- apply 中更正（原稿是「必填的第二个参数，漏改的调用点编译失败」）：`pricelist-2026-10-golden.test.ts` 末尾的本地用例按旧的参数顺序调 `computeShadeLinePrice` 与 `sumAllMsrp`，而 `tsconfig.json` 把 `**/__tests__` 排除在类型检查之外——在第二位插入参数既不会让它编译失败，又会让它运行时错位（实测 `sumAllMsrp` 直接抛错）。黄金测试文件不许动，所以改为末位可选参数：旧调用的含义一字不变（等于「表底部未选」），黄金测试 158 条 / 787 条断言与基线相同。
+- 否决：必填的第二个参数——见上。否决：为此改黄金测试文件的调用——违反「158 条黄金用例与其测试文件不改」。否决：改成单个 `ctx` 对象入参——同样要改黄金测试文件，且六个调用点全部重写。
+- 代价：漏传不再是编译错误，改由源码断言（SRC-05）兜住；新增调用点时断言里的计数会失败，提醒补上。
 
 ### D5 行构造抽成 `src/app/(main)/sales/quote-sheet/order-items.ts` 的纯函数
 - 做法：把 `handleSave` 里 `// Shades` 到 `// Drapes` 三段原样搬进 `buildOrderFormItems({ shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shadeValanceType })`，返回 `QuoteItemInput[]`；只改两处取键（`shadeLinePricingFabric(l, effectiveShadeValance(l.valance, shadeValanceType))`、`shutterPricingFabric(shutterMaterial)`）。百叶窗行 `fabric` 为定价键（`Wood` / `Vinyl`），`sku` 仍是表单材质（`Wooden` / `Vinyl`）——与 Roller 行「`fabric` 是定价键、`sku` 是销售选的值」一致。其余字段、跳过规则、Drapes 两段逐字不变。`page.tsx` 改为调用它，并删掉对 `skuToPricingFabric` 的直接引用。
