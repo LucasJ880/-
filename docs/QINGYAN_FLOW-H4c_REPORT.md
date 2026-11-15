@@ -53,7 +53,7 @@
 
 | 门禁 | 结果 |
 |---|---|
-| `npm run test:ci` | `CI unit subset PASS`（本机，CI 的环境变量；修复前后各跑一次） |
+| `npm run test:ci` | `CI unit subset PASS`（本机，CI 的环境变量；修复前后各跑一次）。中间有一次在 04:59 UTC 失败于 `notifications/__tests__/delivery-gate.test.ts`「静默时段 medium 不投」：那条测试用真实时钟、静默时段写成 00:00–23:59（多伦多时间，结束不含），每天多伦多 23:59 那一分钟必然失败——与本次无关，过了那一分钟重跑通过。建议另开一个小改动让它传固定的时间 |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（无新增 error fingerprint） |
 | `bash scripts/check-test-registry.sh` | OK（已注册 620 个） |
