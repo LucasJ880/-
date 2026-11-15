@@ -125,7 +125,12 @@ export async function POST(
   }
 
   // save：输入与/或人工模型覆盖
-  const prevInputs = (sj[PRICING_INPUTS_KEY] ?? {}) as Partial<PricingInputs>;
+  // pricingInputs 里还有报价引擎镜像的权威报价（ourPriceCad / ourPrice / ourPriceCurrency / ourPriceSource /
+  // ourPriceStatus / ourPriceSupersededSource，见 quote-engine/tender-bid.ts），这里只改三项人工输入，其余键原样保留。
+  const prevRaw = sj[PRICING_INPUTS_KEY];
+  const prevPi: Record<string, unknown> =
+    prevRaw && typeof prevRaw === "object" && !Array.isArray(prevRaw) ? (prevRaw as Record<string, unknown>) : {};
+  const prevInputs = prevPi as Partial<PricingInputs>;
   const num = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : v === null ? null : undefined as never;
   const inputs: PricingInputs = {
@@ -145,7 +150,7 @@ export async function POST(
   if (inputs.targetMarginPct != null && inputs.targetMarginPct >= 100) {
     return NextResponse.json({ error: "目标毛利须小于 100%" }, { status: 400 });
   }
-  const next: Record<string, unknown> = { ...sj, [PRICING_INPUTS_KEY]: inputs };
+  const next: Record<string, unknown> = { ...sj, [PRICING_INPUTS_KEY]: { ...prevPi, ...inputs } };
   if (body.model) {
     const base = isScoringModel(sj[PRICING_MODEL_KEY]) ? (sj[PRICING_MODEL_KEY] as ScoringModel) : null;
     const pw = body.model.priceWeightPct ?? base?.priceWeightPct;
