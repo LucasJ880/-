@@ -102,6 +102,13 @@ console.log("与 decideChases 的一致性");
   const once2 = snap({ chases: [{ index: 1, kind: "no_reply", messageId: "m1", at: at(1) }] });
   const o5 = consistent("催过一次后截止过了", once2, replyMid, at(2), "no_response_on");
   ok("取「等满间隔」与「截止次日」中较晚的", o5.kind === "no_response_on" && o5.at.getTime() === Math.max(at(4).getTime(), replyMid.getTime() + DAY));
+  // 到期了但还没扫描到、此刻回复截止也过了：下一次扫描是标未响应，不是催
+  const overdueReply = new Date("2026-11-07T00:00:00Z");
+  const nowLate = at(9);
+  const od = nextChaseOutlook(snap(), { now: nowLate, chaseAfterDays: days, replyBy: overdueReply });
+  ok("到期未扫描、截止已过：写将标未响应（此刻扫描就是标未响应，不起草）", od.kind === "no_response_on" && markedNoResp(snap(), nowLate, overdueReply) && !drafted(snap(), nowLate, overdueReply), od);
+  const od2 = nextChaseOutlook(snap(), { now: at(4), chaseAfterDays: days, replyBy: new Date("2026-11-20T00:00:00Z") });
+  ok("到期未扫描、截止还没过：仍是催（此刻扫描就会起草）", od2.kind === "chase_on" && drafted(snap(), at(4), new Date("2026-11-20T00:00:00Z")), od2);
   // 有待批卡
   const pend = snap({ cards: [{ slot: chaseSlot("it1", "no_reply", 1), state: "live" }] });
   consistent("有待批卡", pend, null, at(4), "card_pending");

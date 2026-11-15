@@ -56,8 +56,10 @@ export function nextChaseOutlook(item: OutlookInput, ctx: { now: Date; chaseAfte
     if (slot === "live") return { kind: "card_pending" };
     if (slot === "rejected") return { kind: "rejected_wait", noResponseAt: nra };
     const chaseAt = new Date(last.getTime() + days * DAY);
-    // 到期那一刻回复截止已过：扫描不再催，改标未响应
-    if (deadlinePassed(replyBy, chaseAt)) return { kind: "no_response_on", at: nra! };
+    // 下一次扫描真正发生的时刻：已经到期但还没扫描到时，就是现在
+    const effective = chaseAt.getTime() > now.getTime() ? chaseAt : now;
+    // 那一刻回复截止已过：扫描不再催，改标未响应
+    if (deadlinePassed(replyBy, effective)) return { kind: "no_response_on", at: nra! };
     return { kind: "chase_on", at: chaseAt, chaseKind: "no_reply" };
   }
 
