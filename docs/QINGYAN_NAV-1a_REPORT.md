@@ -4,7 +4,8 @@ change：`nav-1a-single-name`（任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TA
 
 | 项 | 值 |
 |---|---|
-| 新能力 | `navigation/entry-naming`（8 条要求） |
+| 状态 | #453，2026-11-15 合并；archive `openspec/changes/archive/2026-11-15-nav-1a-single-name`；没有开关，已随合并生效 |
+| 新能力 | `navigation/entry-naming`（8 条要求），已归档进 `openspec/specs/navigation/entry-naming/spec.md` |
 | 新测试 | `src/lib/navigation/__tests__/entry-naming.test.ts`，31 项；`scripts/test-all.sh:248`「入口名称单一来源（NAV-1a）」，`scripts/test-ci-unit.sh:157` |
 | 截图 | `docs/acceptance/nav-1a/01–16`（本机临时库 + `next dev`，虚构企业与账号） |
 | BREAKING | 文案：所有企业侧栏与使用说明里 20 个入口名称、16 个页面大标题、20 处站内文字 |
