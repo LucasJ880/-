@@ -282,12 +282,12 @@
 
 任务书：`docs/QINGYAN_QUOTE-1_QUOTE_FILE_IMPORT_TASKBRIEF.md`（Lucas 2026-11-14；方案文档 `Sunny报价系统_融入青砚方案_2026-11-14.md` 的 Q-0）。规则：文件只告诉青砚「填了什么」，价格永远由青砚算；文件里比青砚便宜的部分一律变成特别让利，走现有审批。纪律同上：零 schema（新字段只落 `formDataJson` 与 AuditLog）、零出站、不新增队列、零 LLM 调用、不新增权限键 / 路由。与 Phase K / P / V 并列，属 Sunny 线。一个 change = 一个 PR，按 QUOTE-1a → 1b 顺序合并。
 
-判断点（任务书「判断点」节）：3（Roller 罩盒加价补上）已拍板「做」，实施中补充两项拍板（Lucas 2026-11-15）：罩型与工艺单同口径、打开旧的实木报价时提醒检查 Part B；1（Door Screen Sheer 口径）未拍板，QUOTE-1a 不实施该项；2（褶皱率非 180 / 230 的行）只影响 QUOTE-1b，待拍板。
+判断点（任务书「判断点」节）：3（Roller 罩盒加价补上）已拍板「做」，实施中补充两项拍板（Lucas 2026-11-15）：罩型与工艺单同口径、打开旧的实木报价时提醒检查 Part B；1（Door Screen Sheer 口径）与 2（褶皱率）Lucas 2026-11-15 拍板「都先不变」：Door Screen Sheer 继续套纱帘的企业折扣（宽 ≤ 25" $110.80 / ≤ 40" $147.73），详细订单的褶皱率仍只有 180 / 230 两档。对 QUOTE-1b 的后果（propose 时写清）：工具里的 Door Screen Sheer 行（$170.45 / $227.27）导入后以青砚的低价为准、差额只列提醒；工具默认褶皱率 2.0 在青砚没有对应档，导入时须落到 180 或 230，怎么落在 QUOTE-1b propose 时再定。
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| QUOTE-1a | 详细订单定价口径对齐：Roller 行的定价键 = 基础面料 + 生效罩型（行上 Valance，空则取表底部 Valance Type，与工艺单同口径；Cassette / Fascia 加价 25 / 50）；实木百叶窗表单材质 `Wooden` 按价表键 `Wood` 计价；页面预览、PDF 与保存时的行构造用同一个纯函数取定价键，PDF 的 Valance 列显示生效罩型；补经「表单行 → 企业默认折扣 → 引擎」完整路径的对照测试；口径标记 `formDataJson.orderPricingRev` + 打开改动前保存的实木报价时提醒检查 Part B；已存报价不重算。Door Screen Sheer 不套企业折扣一项待判断点 1 拍板，另起 change 或追加 | 判断点 3；罩型同口径、实木提醒取 B（Lucas 2026-11-15） | OpenSpec change `quote-order-form-pricing-parity`；`order-form-pricing-parity` 测试（72 条）注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`、158 条黄金用例不变；截图 `docs/acceptance/quote-1a/`；BREAKING（金额，只影响新建与再次保存的报价）；报告 `docs/QINGYAN_QUOTE-1a_REPORT.md` | [G]（#456 待审） |
-| QUOTE-1b | 导入工具报价文件（`.sunny-quote.json`，格式 `sunny-quote-studio` v1）：浏览器内读文件、不上传原文件 → 校验 → 多方案选一套 → 核对窗（逐行对照文件金额 / 青砚金额 + 阻断 / 提醒清单）→ 填入详细订单 → 走现有保存与让利三档；行级折扣低于企业默认的保留到行上，其余差额累加进特别让利；`formDataJson.importSource` 留痕 + 审计 `quote_imported` | QUOTE-1a；判断点 2 | OpenSpec change `quote-import-studio-file`；校验 / 映射 / 16 行样例对照测试注册；报告 `docs/QINGYAN_QUOTE-1b_REPORT.md` | [ ] |
+| QUOTE-1a | 详细订单定价口径对齐：Roller 行的定价键 = 基础面料 + 生效罩型（行上 Valance，空则取表底部 Valance Type，与工艺单同口径；Cassette / Fascia 加价 25 / 50）；实木百叶窗表单材质 `Wooden` 按价表键 `Wood` 计价；页面预览、PDF 与保存时的行构造用同一个纯函数取定价键，PDF 的 Valance 列显示生效罩型；补经「表单行 → 企业默认折扣 → 引擎」完整路径的对照测试；口径标记 `formDataJson.orderPricingRev` + 打开改动前保存的实木报价时提醒检查 Part B；已存报价不重算。Door Screen Sheer 不套企业折扣一项未实施（判断点 1 拍板「先不变」） | 判断点 3；罩型同口径、实木提醒取 B（Lucas 2026-11-15） | OpenSpec change `quote-order-form-pricing-parity`；`order-form-pricing-parity` 测试（72 条）注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`、158 条黄金用例不变；截图 `docs/acceptance/quote-1a/`；BREAKING（金额，只影响新建与再次保存的报价）；报告 `docs/QINGYAN_QUOTE-1a_REPORT.md` | [x]（#456；archive `2026-11-15-quote-order-form-pricing-parity`） |
+| QUOTE-1b | 导入工具报价文件（`.sunny-quote.json`，格式 `sunny-quote-studio` v1）：浏览器内读文件、不上传原文件 → 校验 → 多方案选一套 → 核对窗（逐行对照文件金额 / 青砚金额 + 阻断 / 提醒清单）→ 填入详细订单 → 走现有保存与让利三档；行级折扣低于企业默认的保留到行上，其余差额累加进特别让利；`formDataJson.importSource` 留痕 + 审计 `quote_imported` | QUOTE-1a；褶皱率非 180 / 230 的行怎么落（判断点 2「先不变」之后的导入规则） | OpenSpec change `quote-import-studio-file`；校验 / 映射 / 16 行样例对照测试注册；报告 `docs/QINGYAN_QUOTE-1b_REPORT.md` | [ ] |
 
 ---
 
@@ -326,3 +326,8 @@
     - 手工验收放在 qingyan-staging 上做；本地 `.env` 直连生产库，不在本地跑。
 12. 对外询价可以自批（W-1，用户 2026-11-07 拍板）：Web 建的 `tender.send_rfq` 审批卡不指定审批人，按审批中心现有规则（`canDecidePending`）创建人本人可以批准自己发起的对外询价，与 Muse 路径一致；纪律第 2 条「出站先审批」仍成立（必须经审批卡），不加「对外邮件不能自批」。
 13. **决定 C**（2026-11-05，PROC-1，Lucas 批准）：硬纪律第 1 条例外——迁移 `20261105120000_add_procurement_records_foundation` 只新增 16 张 `Procurement*` / `Records*` 表；第 3 条例外——`ProcurementScanRun` 的单行认领（runnerToken + 心跳）只服务 `tender-watch` 里的采购扫描步骤，三个命中 R1 命名模式的表已逐条登记 baseline。两条例外都只限 PROC-1，已写进 `openspec/config.yaml`；合并仍由 Evan 拍板，生产迁移走 Owner Gate（`docs/QINGYAN_PROC-1_RELEASE_RUNBOOK.md`）。
+14. 详细订单定价口径（QUOTE-1a，#456，Lucas 2026-11-15）：
+    - Roller 行的定价随生效罩型：Cassette / Fascia 每行加 25（宽 < 50"）/ 50（宽 ≥ 50"）；生效罩型 = 行上 Valance，行上为空取表底部 Valance Type，与工艺单同口径；报价 PDF 的 Valance 列显示生效罩型。
+    - 实木百叶窗（表单材质 Wooden）按价表 `Wood` 表自动计价，Part B 不再手填；打开改动前保存的实木报价时提醒检查 Part B。
+    - 只影响新建与再次保存的报价，已存报价不重算。
+    - Door Screen Sheer 的企业折扣与详细订单的褶皱率两档（180 / 230）先不变。
