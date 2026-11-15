@@ -527,12 +527,13 @@ function QuoteSheetPageInner() {
     () =>
       sumShadeTotals(
         shadeOrders,
+        shadeValanceType,
         installMode,
         discounts,
         sunnyMotorPrice,
         cordlessPolicy,
       ),
-    [shadeOrders, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
+    [shadeOrders, shadeValanceType, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
   );
   const shutterTotals = useMemo(
     () => sumShutterTotals(shutterOrders, shutterMaterial, installMode, discounts),
@@ -560,12 +561,13 @@ function QuoteSheetPageInner() {
     () =>
       sumAllMsrp(
         shadeOrders,
+        shadeValanceType,
         shutterOrders,
         shutterMaterial,
         drapeOrders,
         sunnyMotorPrice,
       ),
-    [shadeOrders, shutterOrders, shutterMaterial, drapeOrders, sunnyMotorPrice],
+    [shadeOrders, shadeValanceType, shutterOrders, shutterMaterial, drapeOrders, sunnyMotorPrice],
   );
 
   // Special Promotion 硬门槛：ratio > promoMaxPct 时，非 admin 禁止保存/生成
@@ -1211,6 +1213,7 @@ function QuoteSheetPageInner() {
       salesRep,
       installMode,
       shadeOrders,
+      shadeValanceType,
       shutterOrders,
       shutterMaterial,
       shutterLouverSize,
@@ -1245,7 +1248,7 @@ function QuoteSheetPageInner() {
     orderNumber, date, customerName, customerPhone, customerEmail, customerAddress,
     salesRep, partBAddons, subtotalB, paymentMethod, depositAmount,
     balanceAmount, financeEligible, financeApproved, partCServices, partCAddOns, subtotalC,
-    shadeOrders, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
+    shadeOrders, shadeValanceType, shutterOrders, drapeOrders, shutterMaterial, shutterLouverSize,
     installMode, productsSubtotal, shadeTotals, shutterTotals, drapeTotals,
     discounts, sunnyMotorPrice, cordlessPolicy, minInstallFee, deliveryFee,
     specialPromotionNum, totalMsrp, finalDiscountPct, taxRate,

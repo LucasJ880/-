@@ -228,6 +228,8 @@ export interface QuotePdfInput {
   salesRep: string;
   installMode: InstallMode;
   shadeOrders: ShadeOrderLine[];
+  /** Shades 表底部的 Valance Type：行上 Valance 为空时用它定价（与页面预览、保存同一取值） */
+  shadeValanceType: string;
   shutterOrders: ShutterOrderLine[];
   shutterMaterial: "Wooden" | "Vinyl";
   shutterLouverSize: string;
@@ -626,6 +628,7 @@ export async function exportQuotePdf(
   const filledShades = input.shadeOrders.filter((l) => {
     const p = computeShadeLinePrice(
       l,
+      input.shadeValanceType,
       input.installMode,
       input.discounts,
       input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,
@@ -841,6 +844,7 @@ export async function exportQuotePdf(
       body: filledShades.map((l, i) => {
         const p = computeShadeLinePrice(
           l,
+          input.shadeValanceType,
           input.installMode,
           input.discounts,
           input.sunnyMotorPrice ?? DEFAULT_SUNNY_MOTOR_PRICE,

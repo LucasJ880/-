@@ -12,7 +12,7 @@ import {
   DEFAULT_CORDLESS_POLICY,
   INSTALL_RULES,
 } from "@/lib/blinds/pricing-data";
-import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
+import { effectiveShadeValance, shadeLinePricingFabric, shutterPricingFabric } from "@/lib/blinds/order-form-pricing";
 import type { ProductName, CordlessPolicy } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 
@@ -52,6 +52,8 @@ const ZERO_DISCOUNTS: DiscountsOverride = {
 
 export function sumAllMsrp(
   shadeOrders: ShadeOrderLine[],
+  /** Shades 表底部的 Valance Type（行上 Valance 为空时生效） */
+  formValance: string,
   shutterOrders: ShutterOrderLine[],
   shutterMaterial: "Wooden" | "Vinyl",
   drapeOrders: DrapeOrderLine[],
@@ -59,6 +61,7 @@ export function sumAllMsrp(
 ): number {
   const shades = sumShadeTotals(
     shadeOrders,
+    formValance,
     "pickup",
     ZERO_DISCOUNTS,
     sunnyMotorPrice,
@@ -96,8 +99,13 @@ export function emptyTotals(): SectionTotals {
 const ZERO_CORDLESS_POLICY: CordlessPolicy = { ...DEFAULT_CORDLESS_POLICY, discount: 0 };
 
 // ── Shades ──
+/**
+ * formValance：Shades 表底部的 Valance Type。必填且排在第二位——漏传的调用点会编译失败，
+ * 而不是静默按无罩计价（QUOTE-1a）。
+ */
 export function computeShadeLinePrice(
   line: ShadeOrderLine,
+  formValance: string,
   installMode: InstallMode,
   discounts?: DiscountsOverride,
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
@@ -128,7 +136,8 @@ export function computeShadeLinePrice(
   const h = fractionToInches(line.heightWhole, line.heightFrac);
   if (!w || !h) return null;
 
-  const fabric = skuToPricingFabric(line.sku, line.product);
+  // 定价面料与保存时的行构造同一个取值（Roller 随生效罩型；见 order-form-pricing.ts）
+  const fabric = shadeLinePricingFabric(line, effectiveShadeValance(line.valance, formValance));
   // PRICE-2：无绳只看 Cordless 开关（Zebra / Roller）；无绳行不套产品折扣，按企业无绳策略（与服务端同源）
   const cordless = line.cordless === true && isCordlessEligible(line.product);
   const table = priceFor(
@@ -154,6 +163,7 @@ export function computeShadeLinePrice(
 
 export function sumShadeTotals(
   lines: ShadeOrderLine[],
+  formValance: string,
   installMode: InstallMode,
   discounts?: DiscountsOverride,
   sunnyMotorPrice = DEFAULT_SUNNY_MOTOR_PRICE,
@@ -163,6 +173,7 @@ export function sumShadeTotals(
   for (const line of lines) {
     const p = computeShadeLinePrice(
       line,
+      formValance,
       installMode,
       discounts,
       sunnyMotorPrice,
@@ -177,8 +188,8 @@ export function sumShadeTotals(
 }
 
 // ── Shutters ──
-// 约束：MSRP_SHUTTERS 目前只有 "Vinyl" 数据，"Wooden" 会 priceFor 报 error。
-//        这属于定价库的约束（不在本次改动范围），UI 会显示"—"并在 tooltip 说明 error。
+// 表单材质 Wooden / Vinyl → 价表键 Wood / Vinyl（MSRP_SHUTTERS 两张表都有）；与保存时的行构造同一个取值。
+// 超出价表范围时 priceFor 报 error，UI 显示"—"并在 tooltip 说明。
 export function computeShutterLinePrice(
   line: ShutterOrderLine,
   material: "Wooden" | "Vinyl",
@@ -190,7 +201,7 @@ export function computeShutterLinePrice(
   const h = fractionToInches(line.heightWhole, line.heightFrac);
   if (!w || !h) return null;
 
-  const result = priceFor("Shutters", material, w, h, pick(discounts, "Shutters"));
+  const result = priceFor("Shutters", shutterPricingFabric(material), w, h, pick(discounts, "Shutters"));
   if ("error" in result) {
     return { merch: 0, install: 0, total: 0, error: result.error };
   }

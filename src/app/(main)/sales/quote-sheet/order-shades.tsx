@@ -120,9 +120,10 @@ export function OrderShadesForm({
   const pricings = useMemo(
     () =>
       lines.map((l) =>
-        computeShadeLinePrice(l, installMode, discounts, sunnyMotorPrice, cordlessPolicy),
+        // 行上 Valance 为空时取表底部 Valance Type（与工艺单同口径）
+        computeShadeLinePrice(l, valanceType, installMode, discounts, sunnyMotorPrice, cordlessPolicy),
       ),
-    [lines, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
+    [lines, valanceType, installMode, discounts, sunnyMotorPrice, cordlessPolicy]
   );
   const totalMerch = pricings.reduce((s, p) => s + (p?.merch ?? 0), 0);
   const totalInstall = pricings.reduce((s, p) => s + (p?.install ?? 0), 0);

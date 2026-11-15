@@ -18,6 +18,14 @@ import {
   shutterPricingFabric,
 } from "@/lib/blinds/order-form-pricing";
 import { mapQuoteFormToProcessOrder } from "@/lib/sunny-process/quote-mapping";
+import { DEFAULT_CORDLESS_POLICY, DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
+import {
+  computeShadeLinePrice,
+  computeShutterLinePrice,
+  sumAllMsrp,
+  sumShadeTotals,
+} from "@/app/(main)/sales/quote-sheet/pricing-helpers";
+import type { ShadeOrderLine, ShutterOrderLine } from "@/app/(main)/sales/quote-sheet/types";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, n: string, d?: unknown) => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.error(`  ✗ ${n}`, d ?? ""); } };
@@ -73,6 +81,83 @@ console.log("① 定价键");
   ok(shutterPricingFabric("Wooden") === "Wood" && shutterPricingFabric("Vinyl") === "Vinyl", "KEY-05: Shutters Wooden → Wood、Vinyl → Vinyl");
   const wood = priceFor("Shutters", shutterPricingFabric("Wooden"), 72, 60, DEFAULT_DISCOUNTS.Shutters);
   ok(!("error" in wood) && r2(wood.price) === 1172.22, "KEY-05a: 引擎用映射后的键 72×60 = 1172.22", wood);
+}
+
+// ── 表单行夹具（与页面 emptyLine 同形）─────────────────────
+const shadeLine = (o: Partial<ShadeOrderLine>): ShadeOrderLine => ({
+  id: "s", location: "Living", widthWhole: "55", widthFrac: "0", heightWhole: "72", heightFrac: "0",
+  product: "Roller", sku: SKU_BO, mount: "", lift: "", bracket: "", valance: "", note: "", manualPrice: "", ...o,
+});
+const shutterLine = (o: Partial<ShutterOrderLine>): ShutterOrderLine => ({
+  id: "h", location: "Bedroom", widthWhole: "72", widthFrac: "0", heightWhole: "60", heightFrac: "0",
+  frame: "", openDirection: "", mountType: "", midRail: "", panelCount: 1, draft: "", ...o,
+});
+
+// ── ② 预览金额 ────────────────────────────────────────────
+console.log("② 预览金额");
+{
+  const preview = (o: Partial<ShadeOrderLine>, formValance = "", mode: "default" | "pickup" = "default") => {
+    const p = computeShadeLinePrice(shadeLine(o), formValance, mode, DEFAULT_DISCOUNTS, DEFAULT_SUNNY_MOTOR_PRICE, DEFAULT_CORDLESS_POLICY);
+    if (!p || p.error) throw new Error(`预览报错：${p?.error ?? "null"}`);
+    return p;
+  };
+  // 任务书 a：Roller 55×72 CABO-WHITE-BO
+  ok(r2(preview({ valance: "None" }).merch) === 221.88, "PRE-01a: Roller 55×72 CABO-WHITE-BO Valance=None → 221.88");
+  ok(r2(preview({ valance: "Cassette" }).merch) === 271.88, "PRE-01b: Valance=Cassette → 271.88（修之前 221.88）");
+  ok(r2(preview({ valance: "Fascia" }).merch) === 271.88, "PRE-01c: Valance=Fascia → 271.88（与 Cassette 同价）");
+  ok(r2(preview({ valance: "" }).merch) === 221.88, "PRE-01d: 行上留空、表底部未选 → 221.88");
+  ok(r2(preview({ valance: "" }, "Cassette").merch) === 271.88, "PRE-01e: 行上留空、表底部 Cassette → 271.88");
+  ok(r2(preview({ valance: "None" }, "Cassette").merch) === 221.88, "PRE-01f: 行上 None、表底部 Cassette → 221.88");
+  ok(preview({ valance: "Cassette" }).install === 18 && preview({ valance: "Cassette" }, "", "pickup").install === 0, "PRE-01g: 带罩行安装费 18，自提 0（不随罩型变）");
+
+  // 窗宽 49 / 50 / 55 × 行上 4 种 × 有无无绳（字面量来自 design 参考表）
+  const table: Record<number, { open: number; cass: number; cOpen: number; cCass: number }> = {
+    49: { open: 202.5, cass: 227.5, cOpen: 296.39, cCass: 325.14 },
+    50: { open: 202.5, cass: 252.5, cOpen: 296.39, cCass: 353.89 },
+    55: { open: 221.88, cass: 271.88, cOpen: 324.74, cCass: 382.24 },
+  };
+  const bad: unknown[] = [];
+  let n = 0;
+  for (const w of [49, 50, 55]) for (const valance of ROW_VALANCES) for (const cordless of [false, true]) {
+    n++;
+    const withBox = valance === "Cassette" || valance === "Fascia";
+    const want = cordless ? (withBox ? table[w]!.cCass : table[w]!.cOpen) : (withBox ? table[w]!.cass : table[w]!.open);
+    const got = r2(preview({ widthWhole: String(w), valance, cordless }).merch);
+    if (got !== want) bad.push({ w, valance, cordless, got, want });
+  }
+  ok(n === 24 && bad.length === 0, "PRE-02: 窗宽 49 / 50 / 55 × 行上 4 种 × 有无无绳 = 24 行与字面量一致", bad);
+  ok(r2(preview({ widthWhole: "49", valance: "Cassette" }).merch - preview({ widthWhole: "49", valance: "None" }).merch) === 25
+    && r2(preview({ widthWhole: "50", valance: "Cassette" }).merch - preview({ widthWhole: "50", valance: "None" }).merch) === 50
+    && r2(preview({ widthWhole: "55", valance: "Cassette" }).merch - preview({ widthWhole: "55", valance: "None" }).merch) === 50,
+    "PRE-02a: 加价 25（49\"）/ 50（50\"）/ 50（55\"），以 50\" 为界");
+  ok(r2(preview({ valance: "Cassette", cordless: true }).merch) === 382.24 && r2(preview({ valance: "None", cordless: true }).merch) === 324.74, "PRE-02b: 无绳 55×72 带罩 382.24 / 无罩 324.74");
+
+  // Zebra：罩型不进定价
+  const z = (valance: string, fv = "") => r2(preview({ product: "Zebra", sku: "PRADO-WHITE-LF", widthWhole: "40", heightWhole: "50", valance }, fv).merch);
+  ok(z("Cassette") === z("Fascia") && z("Cassette") === z("") && z("", "Fascia") === z("Cassette"), "PRE-03: Zebra 行金额不随行上 / 表底部罩型变", [z("Cassette"), z("Fascia"), z("")]);
+
+  // 小计与 MSRP 合计也带上表底部罩型
+  const lines = [shadeLine({ id: "1", valance: "" }), shadeLine({ id: "2", valance: "None" })];
+  const t0 = sumShadeTotals(lines, "", "pickup", DEFAULT_DISCOUNTS);
+  const t1 = sumShadeTotals(lines, "Cassette", "pickup", DEFAULT_DISCOUNTS);
+  ok(r2(t0.merch) === 443.75 && r2(t1.merch) === 493.75, "PRE-04a: sumShadeTotals 两行（未取整 221.875 ×2）= 443.75；表底部 Cassette 只加到行上留空的那一行 → 493.75", [t0.merch, t1.merch]);
+  const m0 = sumAllMsrp(lines, "", [], "Vinyl", []);
+  const m1 = sumAllMsrp(lines, "Cassette", [], "Vinyl", []);
+  ok(r2(m1 - m0) === 50, "PRE-04b: sumAllMsrp（成交折扣率的分母）随罩盒加价 +50", [m0, m1]);
+
+  // 任务书 c：Shutters 72×60
+  const sh = (material: "Wooden" | "Vinyl", o: Partial<ShutterOrderLine> = {}, mode: "default" | "pickup" = "default") => {
+    const p = computeShutterLinePrice(shutterLine(o), material, mode, DEFAULT_DISCOUNTS);
+    if (!p) throw new Error("预览 null");
+    return p;
+  };
+  ok(sh("Wooden").error === null && r2(sh("Wooden").merch) === 1172.22 && sh("Wooden").install === 54, "PRE-05a: Shutters Wooden 72×60 → 1172.22 + 安装 54（修之前报错）", sh("Wooden"));
+  ok(r2(sh("Vinyl").merch) === 701.29 && sh("Vinyl").install === 54, "PRE-05b: Shutters Vinyl 72×60 → 701.29 + 安装 54（不变）");
+  ok(r2(sh("Wooden", { panelCount: 2 }).merch) === 2344.43 && sh("Wooden", { panelCount: 2 }).install === 108, "PRE-05c: Wooden Panel 数 2 → 商品与安装都 ×2", sh("Wooden", { panelCount: 2 }));
+  ok(r2(sh("Vinyl", { panelCount: 2 }).merch) === 1402.58 && sh("Vinyl", { panelCount: 2 }, "pickup").install === 0, "PRE-05d: Vinyl Panel 数 2 → 1402.58；自提安装 0", sh("Vinyl", { panelCount: 2 }));
+  const over = sh("Wooden", { widthWhole: "400" });
+  ok(typeof over.error === "string" && /Out of range/.test(over.error) && over.merch === 0, "PRE-05e: Wooden 超出价表范围仍报超范围、不计价", over);
+  ok(r2(sumAllMsrp([], "", [shutterLine({})], "Wooden", [])) === 1803.41, "PRE-05f: 实木行进入 MSRP 合计（1803.41）");
 }
 
 // ── ④ 定价 ⇔ 工艺单罩盒 ───────────────────────────────────
