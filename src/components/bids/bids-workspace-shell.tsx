@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
+import { RfqTrackerSummaryCard } from "./rfq-tracker-summary-card";
 
 type LoadState = "loading" | "ready" | "error" | "empty";
 
@@ -82,6 +83,9 @@ export function BidsWorkspaceShell() {
           `/projects`，深层链接与核心投标流程保持不变。
         </p>
       </header>
+
+      {/* T-2：询价追踪汇总卡（只有计数） */}
+      <RfqTrackerSummaryCard />
 
       <section className="grid gap-3 sm:grid-cols-2">
         {LINKS.map((item) => (
