@@ -235,6 +235,26 @@ Lucas 2026-11-12 已回答的三个问题（「1.要修，要这些组队任务 
 
 H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8（RFQ 设置页，W-2）在 TASKFLOW 里各有任务书，不在这一批。
 
+### 0.5e 报价表助手两项修复（FIX-8、FIX-9，2026-11-15）
+
+**授权（Lucas 2026-11-15）**：「你自己做好 hand off，这个项目中的 PR 你自己盯，自己合并，你全权负责。如果有方案，都按照推荐的走。」——本条线上的 PR 由会话自己盯 CI 与评审、自己合并（合并方式沿用 merge commit），有多个方案时按推荐的走。部署、生产数据、对外发送不在这条授权里，仍按 §5。
+
+| 项 | 做了什么 | PR | 状态 |
+|---|---|---|---|
+| FIX-8 | 报价表助手保存不再整块替换 `pricingInputs`，保留报价引擎镜像的我方报价（`ourPrice*`）；报告 `docs/QINGYAN_FIX-8_REPORT.md` | #478、归档 #479 | 已合并并归档（`2026-11-15-pricing-helper-save-keeps-bid-mirror`） |
+| FIX-9 | 保存与重新推导的写入与报价同步串行：事务里先拿报价引擎的项目行锁（导出 `lockProject`），再重读、只改自己的键、写回；模型调用与比价取数在锁外；与 FLOW-H2（#476）的成本来源合在一起；报告 `docs/QINGYAN_FIX-9_REPORT.md` | #483、归档（与本节同一个 PR） | 已合并并归档（`2026-11-15-pricing-helper-write-lock`） |
+
+接手要知道的：
+
+1. `BidIntelligenceRoom.summaryJson.pricingInputs` 现在有三个写入方：报价表助手的三项人工输入、FLOW-H2 的 `ourCostSource`、报价引擎的 `ourPrice*` 镜像。**谁写都要先 `lockProject`、再重读、只改自己的键**（报价引擎与报价表助手已经这样做）。`summaryJson` 的其它键（情报、分析写的）的写入方还没有拿这把锁——是已知的余项，没开 change。
+2. 推导的 60 秒频控在锁外判断，两个推导同时到达可能都调一次模型（与以前相同，没修）。
+3. 本地跑隔离库测试的做法（云容器里验证过）：
+   - `npm ci`；`npm i -g @fission-ai/openspec@1.15.0`（`npx openspec` 在没装依赖时找不到可执行文件）。
+   - 容器里有 Postgres 16 但默认没起、没有 pgvector：`service postgresql start`；`apt-get install -y postgresql-16-pgvector`；建库后 `npx prisma migrate deploy`。容器休眠后 Postgres 会停，重新 `service postgresql start` 即可（库还在）。
+   - 环境变量：`DATABASE_URL` / `DIRECT_URL` 指向 `localhost`、`NODE_ENV=test`、`DATABASE_ENVIRONMENT=isolated`、任意 32 字节以上的 `JWT_SECRET`。`assertSafeTestDatabase` 对 localhost 放行。
+   - 全量 `npm test` 约 25 分钟。main 上本来就失败的 9 项与偶发的 1 项列在 `docs/QINGYAN_FIX-9_REPORT.md` §5，比较时先对照这份清单。
+4. 写并发测试时，路由第一次调用很慢（加载模块、建连接），会让「持锁期间发起」的交错不成立；先预热一次（见 `pricing-helper-lock-db.isolated.test.ts`）。
+
 ### 0.6 实施中沿用的约定
 
 - 纯函数目录：`src/lib/tender-price-schedule/`、`tender-bid-cost/`、`tender-competition/`、`tender-bid-readiness/`。文件基本名避开架构守卫的禁用词（plan / engine / queue / scheduler 等，按 `-`、`_`、`.` 切分后整词匹配）。
@@ -333,7 +353,7 @@ TENDER_BID_WORKSPACE_ENABLED=1 npx next dev -p 3100
 
 ## 5. 不要做的事
 
-- 不要合并、不要部署、不要 archive 未合并的 change。
+- 不要合并、不要部署、不要 archive 未合并的 change。（2026-11-15 起 Lucas 授权：本条线上的 PR 由会话自己盯、自己合并，见 §0.5e；部署仍不要做。）
 - 新的 change 先 `/opsx:propose`、审过再 apply；不要 propose 之外顺手改代码。
 - 不要新建并行的 Tender / Supplier / Task 体系；供应商主档只有 `Supplier` 一个。
 - 不要发询价、付费、提交投标或资料申请、合并、部署、动生产数据或凭证——每一项都要 Lucas 单独明确授权。
