@@ -12,6 +12,8 @@
  * ownerBriefSkipped = 没发的原因（no_trade_module：modulesJson.enabled 未显式含 trade；empty：四栏全为 0）。
  * INSTALL-2f：同一时刻对该组织过了目标日、没人推进的维修单发返修逾期提醒（repairOverdueSent = 提醒的维修单数；
  * 独立一步，失败不影响简报与其他组织；不新增 cron 条目）。
+ * P2-3b：同一时刻对已启用采购监控的组织发「今日新标」早报（过去 24 小时首次发现、未截标的招标公告；
+ * noticeBriefSent = 新写入的通知数，没有新标不发；独立一步，失败不影响其他步骤）。
  * A-5：同一定时任务里，在简报之后对处于当地 00:00 / 01:00（补一次）的组织为前一个本地日写岗位日结
  * （审计 cockpit.post_daily_digest，只含计数，同日幂等），作为自动化 post-daily-digest 另记一次运行；
  * 单个组织失败不影响其他组织，日结异常不影响简报。两组都没有组织到点才 skipped。
@@ -28,6 +30,7 @@ import { generateBriefingsForOrg } from "@/lib/secretary/briefing";
 import { boothDayOf, sendBoothSummary } from "@/lib/trade/booth-summary";
 import { sendOwnerInquiryBrief } from "@/lib/revenue-spine/owner-brief";
 import { remindOverdueRepairs } from "@/lib/install/repair-service";
+import { sendNoticeBrief } from "@/lib/procurement-records/notice-brief";
 import { runPostDailyDigests } from "@/lib/cockpit/daily-digest";
 import { DIGEST_DEADLINE_MS, digestOutcome, runEmailDigest } from "@/lib/notifications/collab/digest";
 
@@ -61,12 +64,13 @@ export async function GET(request: NextRequest) {
   type OwnerBriefFields = { ownerBriefSent?: number; ownerBriefWechatDelivered?: number; ownerBriefSkipped?: string | null };
   const data = await runTrackedAutomation("daily-brief", async () => {
     const results: Array<
-      { orgId: string; orgName: string; generated?: number; boothSummarySent?: number; repairOverdueSent?: number; error?: string } & OwnerBriefFields
+      { orgId: string; orgName: string; generated?: number; boothSummarySent?: number; repairOverdueSent?: number; noticeBriefSent?: number; error?: string } & OwnerBriefFields
     > = [];
 
     for (const org of orgs) {
       let boothSummarySent: number | undefined;
       let repairOverdueSent: number | undefined;
+      let noticeBriefSent: number | undefined;
       let owner: OwnerBriefFields = {};
       try {
         // 07:xx 往前一小时就是刚结束的展会日（07:00 到次日 07:00）
@@ -87,11 +91,16 @@ export async function GET(request: NextRequest) {
         console.error(`[cron/daily-brief] Repair overdue reminder failed for org ${org.name}:`, e);
       }
       try {
+        noticeBriefSent = (await sendNoticeBrief(org.id, org.timezone, { now })).sent;
+      } catch (e) {
+        console.error(`[cron/daily-brief] Notice brief failed for org ${org.name}:`, e);
+      }
+      try {
         const count = await generateBriefingsForOrg(org.id);
-        results.push({ orgId: org.id, orgName: org.name, generated: count, boothSummarySent, repairOverdueSent, ...owner });
+        results.push({ orgId: org.id, orgName: org.name, generated: count, boothSummarySent, repairOverdueSent, noticeBriefSent, ...owner });
       } catch (e) {
         console.error(`[cron/daily-brief] Failed for org ${org.name}:`, e);
-        results.push({ orgId: org.id, orgName: org.name, error: String(e), boothSummarySent, repairOverdueSent, ...owner });
+        results.push({ orgId: org.id, orgName: org.name, error: String(e), boothSummarySent, repairOverdueSent, noticeBriefSent, ...owner });
       }
     }
 

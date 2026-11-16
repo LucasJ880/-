@@ -109,6 +109,7 @@
 | P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4 | [ ] |
 | P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |
 | P2-3a | 采购监控「跟这个标」：招标公告 → 建 `Project(workDomain=tender)` + 关联（本项目）+ 关注，同一组织同一公告只建一次（Web 版，Muse 已冻结） | P2-1（PROC-1 新标拉取） | 点一次建一个项目、字段预填、再点 / 并发不重复；只读成员看不到 | [x]（#496，2026-11-16 合并；archive `2026-11-16-tender-notice-follow`；`POST /api/procurement/instruments/{id}/follow`；报告 `docs/QINGYAN_P2-3a_REPORT.md`） |
+| P2-3b | 早上 7 点「今日新标」通知：已启用采购监控的组织，过去 24 小时首次发现、未截标的招标公告，发给监控开启人与创建人，点开落在新标视图（Web 版，Muse 已冻结） | P2-1（新标视图） | 有新标时每天一条、同日不重复、没有新标不发；点通知进新标视图 | [G]（change `tender-notice-brief`；报告 `docs/QINGYAN_P2-3b_REPORT.md`） |
 | P2-4 | `watch.ts` 升级为结构化 diff → 触发 `addendum-diff.ts` → `addendum.detected` | P0-5 | 变更≠Addenda 时文案仍诚实 | [ ] |
 | P2-1b | CanadaBuys 截标时间按东部当地时间解析（CSV 不带时区；原按服务器时区 UTC 解析，早 4–5 小时） | P2-1 | 截标时间与公告页一致；已入库的下次扫描改正；与进程时区无关 | [x]（#508，2026-11-16 合并；archive `2026-11-16-canadabuys-closing-tz`；规格并入 `procurement/watch-scan`；报告 `docs/QINGYAN_P2-1b_REPORT.md`；夏令时口径 2027-04 前核对一次） |
 
