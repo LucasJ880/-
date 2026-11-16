@@ -5,7 +5,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { NOTICE_EVIDENCE_ORDER, noticeUrlOf } from "./tender-follow-pure";
-import { FIT_SORT_VALUE, compareByFit, computeFitScore, prepareFitProjects, type FitProject } from "./fit-score-pure";
+import { FIT_SORT_VALUE, compareByFit, computeFitScore, prepareFitProjects, projectsForNotice, type FitProject } from "./fit-score-pure";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { db } from "@/lib/db";
 import { EVENT_LABELS } from "./case-pure";
@@ -28,7 +28,7 @@ async function fitProjectsFor(orgId: string, viewer: { id: string; role: string 
     where: { orgId, workDomain: "tender", ...(visible ? { id: { in: visible } } : {}) },
     orderBy: { updatedAt: "desc" },
     take: 500,
-    select: { id: true, name: true, clientOrganization: true, tenderStatus: true, submittedAt: true },
+    select: { id: true, name: true, clientOrganization: true, tenderStatus: true, submittedAt: true, sourceMetadataJson: true },
   });
   return prepareFitProjects(rows);
 }
@@ -56,8 +56,8 @@ export async function listCandidates(
   const ids = rows.map((r) => r.id);
   // P2-2：新标视图算匹配度（读时计算，按看的人可见的项目）
   const fitNow = filter.now ?? new Date();
-  const fitProjects = newView && filter.viewer ? await fitProjectsFor(orgId, filter.viewer) : null;
-  const [evCounts, callUps, links, requests, urlEvidence] = await Promise.all([
+  const [fitProjects, evCounts, callUps, links, requests, urlEvidence] = await Promise.all([
+    newView && filter.viewer ? fitProjectsFor(orgId, filter.viewer) : Promise.resolve(null),
     db.procurementSourceEvidence.groupBy({ by: ["instrumentId", "sourceType"], where: { instrumentId: { in: ids } }, _count: { _all: true } }),
     db.procurementInstrument.groupBy({ by: ["parentInstrumentId"], where: { parentInstrumentId: { in: ids } }, _count: { _all: true } }),
     // P2-3a：按建立时间排（「已跟进」指向最早的「本项目」关联）
@@ -109,7 +109,8 @@ export async function listCandidates(
       fit: fitProjects
         ? computeFitScore(
             { title: r.title, buyingInstitution: r.buyingInstitution, contractingInstitution: r.contractingInstitution, closingAt: r.closingAt, match: (r.matchJson ?? null) as { productHits?: string[]; serviceHits?: string[]; categoryHits?: string[] } | null },
-            fitProjects,
+            // 为这条公告建的项目不算往来与业绩（审查 H1）
+            projectsForNotice(fitProjects, r.id, links.filter((l) => l.instrumentId === r.id && l.relation === "CURRENT").map((l) => l.projectId)),
             fitNow,
           )
         : null,

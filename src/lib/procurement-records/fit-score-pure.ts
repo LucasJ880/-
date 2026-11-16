@@ -47,10 +47,30 @@ export interface FitProject {
   submitted: boolean;
   won: boolean;
   tokens: Set<string>;
+  /** 由「跟这个标」建出时对应的公告 id（项目来源元数据）；算这条公告时排除（审查 H1） */
+  followedInstrumentId: string | null;
+}
+
+/** 交过标：有提交时间，或招投标状态已在提交之后（审查 L2） */
+const SUBMITTED_STATUSES = new Set(["bid_submitted", "won", "lost"]);
+
+function followedInstrumentOf(sourceMetadataJson: string | null | undefined): string | null {
+  if (!sourceMetadataJson) return null;
+  try {
+    const v = (JSON.parse(sourceMetadataJson) as { procurementInstrumentId?: unknown }).procurementInstrumentId;
+    return typeof v === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 字段可能是旧数据或写坏了：只认字符串数组（审查 L4） */
+function strings(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
 export function prepareFitProjects(
-  rows: Array<{ id: string; name: string; clientOrganization: string | null; tenderStatus: string | null; submittedAt: Date | null }>,
+  rows: Array<{ id: string; name: string; clientOrganization: string | null; tenderStatus: string | null; submittedAt: Date | null; sourceMetadataJson?: string | null }>,
 ): FitProject[] {
   return rows.map((r) => {
     const status = (r.tenderStatus ?? "").toLowerCase();
@@ -58,25 +78,34 @@ export function prepareFitProjects(
       id: r.id,
       name: r.name,
       clientKey: normalizeInstitutionKey(r.clientOrganization).key,
-      submitted: !!r.submittedAt || status === "won" || status === "lost",
+      submitted: !!r.submittedAt || SUBMITTED_STATUSES.has(status),
       won: status === "won",
       tokens: tokenize(r.name),
+      followedInstrumentId: followedInstrumentOf(r.sourceMetadataJson),
     };
   });
 }
 
-/** 公告的采购方：使用部门优先，没有再用采购机关（design D3） */
+/**
+ * 公告的采购方：使用部门优先，没有再用采购机关（design D3）。
+ * 认出来是 PSPC（不论来自哪个字段）都按「只知道是 PSPC」处理：PSPC 代各部门采购，客户写 PSPC 的项目大多其实是别的部门的标（审查 M1）。
+ */
 export function noticeBuyer(n: Pick<FitNotice, "buyingInstitution" | "contractingInstitution">): { key: string; pspcOnly: boolean } {
   const buying = normalizeInstitutionKey(n.buyingInstitution).key;
-  if (buying !== "UNKNOWN") return { key: buying, pspcOnly: false };
-  const contracting = normalizeInstitutionKey(n.contractingInstitution).key;
-  return { key: contracting, pspcOnly: contracting === "PSPC" };
+  const key = buying !== "UNKNOWN" ? buying : normalizeInstitutionKey(n.contractingInstitution).key;
+  return { key, pspcOnly: key === "PSPC" };
+}
+
+/** 算某条公告时用的项目：去掉为这条公告建的项目（「本项目」关联或由跟标建出），否则跟了的标会自己给自己加分（审查 H1） */
+export function projectsForNotice(projects: FitProject[], instrumentId: string, currentLinkedProjectIds: Iterable<string>): FitProject[] {
+  const own = new Set(currentLinkedProjectIds);
+  return projects.filter((p) => !own.has(p.id) && p.followedInstrumentId !== instrumentId);
 }
 
 function businessMatch(m: FitNotice["match"]): FitDimension {
-  const products = m?.productHits ?? [];
-  const services = m?.serviceHits ?? [];
-  const categories = m?.categoryHits ?? [];
+  const products = strings(m?.productHits);
+  const services = strings(m?.serviceHits);
+  const categories = strings(m?.categoryHits);
   const productPts = Math.min(30, products.length * 10);
   const categoryPts = categories.length > 0 ? 6 : 0;
   const servicePts = services.length > 0 && (products.length > 0 || categories.length > 0) ? 4 : 0;

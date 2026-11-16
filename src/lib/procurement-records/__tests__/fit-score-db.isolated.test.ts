@@ -120,6 +120,17 @@ async function main() {
     const order = (byFit.body.items as Rec[]).map((i) => i.id);
     ok(JSON.stringify(order) === JSON.stringify([A, B, C]), "按匹配度从高到低", (byFit.body.items as Rec[]).map((i) => [i.title, (i.fit as Fit).score]));
 
+    // 审查 H1：跟了这个标（建项目 + 「本项目」关联）之后，A 的匹配度不变
+    const scoreBefore = fitOf((await get(MEMBER, "&view=new")).body, A);
+    const linked = await mkProject(ORG, { name: "Supply and installation of roller blinds", clientOrganization: "National Defence", tenderStatus: "bid_submitted", submittedAt: new Date(now - DAY) });
+    await db.procurementTenderLink.create({ data: { orgId: ORG, projectId: linked, instrumentId: A, relation: "CURRENT", createdById: SUPER } });
+    const followedOnly = await mkProject(ORG, { name: "Supply and installation of roller blinds", clientOrganization: "National Defence", tenderStatus: "won", sourceMetadataJson: JSON.stringify({ procurementInstrumentId: A }) });
+    const scoreAfter = fitOf((await get(MEMBER, "&view=new")).body, A);
+    ok(JSON.stringify(scoreAfter) === JSON.stringify(scoreBefore), "跟标建的项目（关联或来源元数据）不给这条公告加分", { before: scoreBefore?.score, after: scoreAfter?.score });
+    const fbAfter = fitOf((await get(SUPER, "&view=new")).body, B);
+    ok(dimOf(fbAfter, "PAST_WORK")?.points === 20, "但仍算进别的公告（B 的业绩照常）", dimOf(fbAfter, "PAST_WORK"));
+    void followedOnly;
+
     // 别的视图没有匹配度、排序参数无效
     const all = await get(MEMBER, "&sort=fit");
     ok((all.body.items as Rec[]).length === 4 && (all.body.items as Rec[]).every((i) => i.fit === null), "全部视图没有匹配度", (all.body.items as Rec[]).map((i) => i.fit));
@@ -128,6 +139,7 @@ async function main() {
     const out = await get(OUT, "&view=new");
     ok(out.status === 403 || out.status === 404, "别的组织的人读不了", out.status);
   } finally {
+    await db.procurementTenderLink.deleteMany({ where: { orgId: { in: orgs } } });
     await db.procurementInstrument.deleteMany({ where: { orgId: { in: orgs } } });
     await db.project.deleteMany({ where: { id: { in: pids } } });
     await db.organizationMember.deleteMany({ where: { orgId: { in: orgs } } });
