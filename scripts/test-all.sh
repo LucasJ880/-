@@ -781,6 +781,8 @@ run_test "采购监控 跟这个标（P2-3a）" "npx tsx src/lib/procurement-rec
 run_test "采购监控 跟这个标 DB（隔离库执行，否则跳过，P2-3a）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/tender-follow-db.isolated.test.ts"
 run_test "采购监控 新标视图与扫描时间（P2-1）" "npx tsx src/lib/procurement-records/__tests__/new-notices-pure.test.ts"
 run_test "采购监控 新标视图与扫描时间 DB（隔离库执行，否则跳过，P2-1）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/new-notices-db.isolated.test.ts"
+run_test "采购监控 今日新标早报（P2-3b）" "npx tsx src/lib/procurement-records/__tests__/notice-brief-pure.test.ts"
+run_test "采购监控 今日新标早报 DB（隔离库执行，否则跳过，P2-3b）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/notice-brief-db.isolated.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间（P2-1b）" "npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间 DB（隔离库执行，否则跳过，P2-1b）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts"
 

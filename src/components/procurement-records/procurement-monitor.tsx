@@ -19,6 +19,7 @@ import {
   NEW_VIEW_HINT_ZH,
   NEW_VIEW_LABEL_ZH,
   NEW_VIEW_VALUE,
+  initialTriageFromSearch,
   NOTICE_LINK_ZH,
   SCHEDULE_DAY_LABELS,
   SCHEDULE_HINT_ZH,
@@ -111,6 +112,12 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
     if (c.ok) setCandidates((c.body.items as Json[]) ?? []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, q, triage]);
+
+  // P2-3b：从「今日新标」通知点进来（?view=new）时先切到新标视图；放在 effect 里避免服务端与客户端首屏不一致
+  useEffect(() => {
+    const t = initialTriageFromSearch(window.location.search);
+    if (t) setTriage(t);
+  }, []);
 
   useEffect(() => {
     void load();
