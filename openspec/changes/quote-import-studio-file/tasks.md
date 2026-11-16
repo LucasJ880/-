@@ -4,7 +4,7 @@
 
 - [x] 1.1 拿到工具包（`index.html`，记录 SHA-256）与 Lucas 从工具界面导出的 2–3 份真实报价（含一份多方案、一份带照片），放在仓库外的空目录里只读使用。对照 design「Context」的结构表核对字段：税率、备注、多方案（`plans[]` / `planWindows`）、照片、文件价表版本、文件合计的字段名与形状；用任务书附录 A 的脚本从该工具包生成 16 行样例（不含照片）存为 `src/lib/sales/quote-import/__tests__/fixtures/sample-16.sunny-quote.json`。把核对结果追加到 design D2；与规格增量有出入且改变对外行为时，先改规格增量并告知审核人再继续。verify：design D2 有「核对结果」小节（工具包哈希、每个未知字段的实际名称、与任务书的出入清单）；样例夹具用附录 A 的脚本重跑得到 `C.totals(quote).grand === 8224.5`；`openspec validate quote-import-studio-file --strict` 通过
   - 实施备注（2026-11-16）：材料来自 Lucas 提供的 `quote-1b-materials.zip`（工具定价核心、seed、附录 A 脚本、16 行样例、两份 toolcode 文件）。两份多方案 / 带照片的文件是在 Node 里执行工具自己的方案组装与校验代码生成的，**不是从界面导出的真实文件**；`index.html` 不在材料包里，哈希取自 README、没有实算。样例重跑输出 `8224.5`。规格增量按真实结构改了四处（拆行上限与非法行阻断、价表比对加最低价与安装费标准、留痕里的文件合计是重算值、多方案顶层是当前方案）。
-- [ ] 1.2 `src/lib/sales/quote-import/types.ts` 与 `validate.ts`（design D1、D11）：格式 / 版本 / 大小 / 行数 / 附加项目数 / 产品品类 / 非 JSON 的拒绝与中文原因；原型污染键丢弃；多方案清单；照片只计数。新建 `__tests__/validate.test.ts` 并在本 task 内注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。verify：`npx tsx src/lib/sales/quote-import/__tests__/validate.test.ts` 全过；`bash scripts/check-test-registry.sh` 退出 0
+- [x] 1.2 `src/lib/sales/quote-import/types.ts` 与 `validate.ts`（design D1、D11）：格式 / 版本 / 大小 / 行数 / 附加项目数 / 产品品类 / 非 JSON 的拒绝与中文原因；原型污染键丢弃；多方案清单；照片只计数。新建 `__tests__/validate.test.ts` 并在本 task 内注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。verify：`npx tsx src/lib/sales/quote-import/__tests__/validate.test.ts` 全过；`bash scripts/check-test-registry.sh` 退出 0
 
 ## 2. 表单配套
 

@@ -351,7 +351,8 @@ run_test "AI 报价文字解析：2026-10-28 价表新产品词表（Fauxwood / 
 run_test "价表折扣设置（settingsJson）审批 DB 端到端（PRICE-1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/quote-settings-db.isolated.test.ts"
 run_test "签约单改总价审批判定与接线（PERM-4a）" "npx tsx src/lib/sales/__tests__/signed-quote-amount.test.ts"
 run_test "签约单改总价审批 DB 端到端（PERM-4a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/signed-quote-amount-db.isolated.test.ts"
-# QUOTE-1b（openspec change quote-import-studio-file）：导入留痕与审计——纯逻辑 + 隔离库端到端
+# QUOTE-1b（openspec change quote-import-studio-file）：文件校验 / 映射 / 金额对照（纯逻辑）+ 导入留痕与审计（纯逻辑 + 隔离库端到端）
+run_test "报价文件校验（格式 / 版本 / 上限 / 原型污染 / 多方案 / 照片只计数；QUOTE-1b）" "npx tsx src/lib/sales/quote-import/__tests__/validate.test.ts"
 run_test "报价导入留痕 → 审计内容（quote_imported；同一次导入只写一次；QUOTE-1b）" "npx tsx src/lib/sales/quote-import/__tests__/audit.test.ts"
 run_test "报价导入留痕审计 DB 端到端（QUOTE-1b；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/quote-import-audit-db.isolated.test.ts"
 run_test "销售区记录访问 DB 端到端（PERM-4a；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/sales/__tests__/sales-record-access-db.isolated.test.ts"
