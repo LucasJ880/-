@@ -234,10 +234,18 @@ export function canadaBuysInstant(v: unknown): string | null {
   if (m) {
     const hour = Number(m[2]), minute = Number(m[3]), second = m[4] ? Number(m[4]) : 0;
     if (hour > 23 || minute > 59 || second > 59) return null;
+    // 日历日期必须真实存在（2026-13-01、2026-12-00 之类不顺延，直接 null）
+    const [y, mo, d] = m[1].split("-").map(Number);
+    const cal = new Date(Date.UTC(y, mo - 1, d));
+    if (Number.isNaN(cal.getTime()) || cal.toISOString().slice(0, 10) !== m[1]) return null;
     const t = zonedWallTimeToUtc(m[1], hour, minute, CANADABUYS_TIMEZONE);
     return Number.isNaN(t.getTime()) ? null : new Date(t.getTime() + second * 1000).toISOString();
   }
-  return toIsoInstant(s);
+  // 只有日期：照旧（UTC 零点，日历日期）
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return toIsoInstant(s);
+  // 其它写法只认带 Z / ±HH:MM 的（结果与进程时区无关）；不带时区又不是上面格式的 → null
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) return toIsoInstant(s);
+  return null;
 }
 
 /** 金额文本 → 规范十进制字符串（保留原精度；无法解析 → null，绝不给 0） */

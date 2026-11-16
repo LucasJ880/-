@@ -50,6 +50,12 @@ async function main() {
     const before = await db.procurementInstrument.findUnique({ where: { id: o1.instrumentId! }, select: { closingAt: true, lastChangedAt: true } });
     ok(o1.created && before?.closingAt?.toISOString() === "2026-12-15T14:00:00.000Z", "旧数据：存成 14:00Z（多伦多上午 9 点）", before);
 
+    // 「跟这个标」建过的项目（截标日 = 旧值）与一个手工改过截标日的项目，都关联为「本项目」
+    const P_FOLLOW = `ctzp1_${stamp}`, P_MANUAL = `ctzp2_${stamp}`;
+    await db.project.create({ data: { id: P_FOLLOW, name: "Fixture followed", orgId: ORG, ownerId: U, workDomain: "tender", closeDate: new Date("2026-12-15T14:00:00.000Z"), members: { create: { userId: U, role: "project_admin", status: "active" } } } as never });
+    await db.project.create({ data: { id: P_MANUAL, name: "Fixture manual", orgId: ORG, ownerId: U, workDomain: "tender", closeDate: new Date("2026-12-20T17:00:00.000Z") } as never });
+    for (const pid of [P_FOLLOW, P_MANUAL]) await db.procurementTenderLink.create({ data: { orgId: ORG, projectId: pid, instrumentId: o1.instrumentId!, relation: "CURRENT", createdById: U } });
+
     // 下一次扫描读到同一条公告（新口径）
     const t2 = new Date("2026-11-17T12:00:00Z");
     const o2 = await upsertInstrumentFromRecord({ orgId: ORG, record: fresh, match: undefined, runId: null, now: t2, allowCreate: true });
@@ -59,10 +65,22 @@ async function main() {
     const evCount = await db.procurementSourceEvidence.count({ where: { orgId: ORG, instrumentId: o1.instrumentId! } });
     ok(evCount === 2, "证据两条：旧口径一条、新口径一条", evCount);
 
+    const pf = await db.project.findUnique({ where: { id: P_FOLLOW }, select: { closeDate: true } });
+    const pm = await db.project.findUnique({ where: { id: P_MANUAL }, select: { closeDate: true } });
+    ok(pf?.closeDate?.toISOString() === "2026-12-15T19:00:00.000Z", "跟标建过的项目（截标日等于旧值）跟着改成 19:00Z", pf);
+    ok(pm?.closeDate?.toISOString() === "2026-12-20T17:00:00.000Z", "截标日被人改过的项目不动", pm);
+    const cal = await db.calendarEvent.findMany({ where: { projectId: P_FOLLOW, userId: U }, select: { startTime: true } as never });
+    ok(cal.some((c) => (c as unknown as { startTime: Date }).startTime.toISOString() === "2026-12-15T05:00:00.000Z"), "负责人的截标日程已同步（多伦多 12-15 全天）", cal);
+
     // 再扫一次：没有变化
     const o3 = await upsertInstrumentFromRecord({ orgId: ORG, record: fresh, match: undefined, runId: null, now: new Date("2026-11-18T12:00:00Z"), allowCreate: true });
     ok(o3.evidenceChanged === false && (await db.procurementSourceEvidence.count({ where: { orgId: ORG, instrumentId: o1.instrumentId! } })) === 2, "再扫一次：不再算变化，不加证据");
   } finally {
+    const pids = (await db.project.findMany({ where: { orgId: ORG }, select: { id: true } })).map((p) => p.id);
+    await db.calendarEvent.deleteMany({ where: { projectId: { in: pids } } });
+    await db.procurementTenderLink.deleteMany({ where: { orgId: ORG } });
+    await db.projectMember.deleteMany({ where: { projectId: { in: pids } } });
+    await db.project.deleteMany({ where: { id: { in: pids } } });
     await db.procurementSourceEvidence.deleteMany({ where: { orgId: ORG } });
     await db.procurementInstrumentRelation.deleteMany({ where: { orgId: ORG } });
     await db.procurementInstrument.deleteMany({ where: { orgId: ORG } });
