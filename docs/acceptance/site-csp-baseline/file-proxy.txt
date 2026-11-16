@@ -25,3 +25,8 @@ off 模式（等于改动之前）脚本执行了。PDF 三种模式都不带内
 {"what":"PDF","status":200,"contentType":"application/pdf","csp":null}
 {"what":"页面 /login","csp":null,"cspReportOnly":"frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-src 'self'; connect-src 'self' ws://localhost:* ws://127.0.0.1:*; media-src 'self' blob: data:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'"}
 {"what":"未登录打开同一个地址","status":401}
+### 生产构建（next build + next start），CSP_MODE 未配置
+{"what":"另一名成员直接打开上传的网页","status":200,"contentType":"text/html","csp":"sandbox","titleAfterLoad":"orig","scriptRan":false,"text":"uploaded page"}
+{"what":"PDF","status":200,"contentType":"application/pdf","csp":null}
+{"what":"页面 /login","csp":"frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-src 'self'; connect-src 'self'; media-src 'self' blob: data:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'","cspReportOnly":null}
+{"what":"未登录打开同一个地址","status":401}
