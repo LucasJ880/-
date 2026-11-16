@@ -1,7 +1,7 @@
 # inventory/fabric-stock-access Specification
 
 ## Purpose
-面料库存的读写权限：运营主管管库存，其他岗位只读；每次码数变动可追溯。
+面料库存的读写权限：运营主管管库存（新增面料、调整码数、改安全线 / 成本 / 基础信息需 `inventory.manage`），其他岗位凭 `inventory.read` 只读；每次码数变动留库存流水与审计记录，可追溯。
 
 ## Requirements
 

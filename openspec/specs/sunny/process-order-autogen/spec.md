@@ -45,33 +45,6 @@
 - **WHEN** 斑马帘行 Cordless 开、Lift=R
 - **THEN** 操控方式为无绳、拉杆位置 R，减尺按无绳表；`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts` 覆盖
 
-### Requirement: 斑马帘布纱比对照表
-系统 SHALL 维护组织级的斑马帘「面料编码 → 布:纱」对照表（存于 `Organization.settingsJson.sunnyProcess.zebraRatios`，组织从未保存时以原件《Blinds 工艺单》Sheet1 W 列 24 条为种子），经 `GET/PUT /api/sunny-process/zebra-ratios` 与页面 `/blinds-orders/zebra-ratios` 查看与整表编辑；组织成员可读，保存 SHALL 需要持 `orders.fulfillment.update.shades`（出单·Roller/Zebra/Roman 岗位；斑马帘属 shades 品类）或全品类键 `orders.fulfillment.update`、或 org_admin 及以上组织角色、或平台管理员，否则 403；每次保存记一条 AuditLog。生成工艺单与退回自产时，斑马帘 SHALL 按报价 SKU 查表：编码与 SKU 完全相同优先，否则编码作为完整一段出现在 SKU 中即命中（空格 / 下划线 / 斜杠视同连字符），多条命中取最长编码；命中时用表中布纱比并在待核对写明来源，未命中时默认 3:2 并提示核对。
-
-#### Scenario: 系列名命中
-- **WHEN** 对照表有 `AQUAWIDE3 → 3 4/16 : 2 3/16`，报价斑马帘 SKU 为 `AQUAWIDE3-GRAY-LF`
-- **THEN** 工艺单该行布纱比为 3.25 : 2.1875，待核对提示含"对照表「AQUAWIDE3」"
-
-#### Scenario: 未命中
-- **WHEN** 报价斑马帘 SKU 不在对照表中
-- **THEN** 布纱比为 3 : 2，待核对提示"不在布纱比对照表里…请按面料核对"
-
-#### Scenario: 组织隔离
-- **WHEN** 另一组织的用户读取对照表
-- **THEN** 读到的是该用户自己组织的表（未保存则为种子），看不到本组织的条目（`autogen-db.isolated.test.ts` 第 [5b] 段）
-
-#### Scenario: 出单岗位可以保存
-- **WHEN** 一个组织角色为 org_member、但绑定了出单·Roller/Zebra/Roman 岗位（持 `orders.fulfillment.update.shades`）的用户保存对照表
-- **THEN** 返回 200；`GET` 返回 `canEdit: true`（`autogen-db.isolated.test.ts` 第 [5b] 段）
-
-#### Scenario: 无出单权限的普通成员只读
-- **WHEN** 一个 org_member、未绑定出单岗位的用户保存对照表
-- **THEN** 返回 403，`GET` 返回 `canEdit: false`
-
-#### Scenario: 只持其他品类出单键
-- **WHEN** 只绑定出单·Vinyl 岗位（持 `orders.fulfillment.update.vinyl`）的 org_member 保存对照表
-- **THEN** 返回 403
-
 ### Requirement: 外采购行
 报价中 Wooden 百叶、外框为 S / G / M / Casing 的百叶（属于 Wooden 百叶）、百叶尺寸为 4-1/2" 或 Arch 的百叶、Pleat 为 G 的打孔窗帘、以及没有工艺模板的帘子产品，系统 SHALL 不做工艺计算，按销售在 Order Form 上填写的原值（尺寸原样、各列原值，不含价格与草图）生成外采购行，SHALL NOT 产生阻断项；导出 SHALL 含「外采购单」工作表。Vinyl 材质却选了 Wooden 外框时 SHALL 另给一条订单级提示请与销售确认。
 
@@ -175,3 +148,33 @@ draft 状态的工艺单 SHALL 允许通过 `PUT /api/blinds-orders/{id}/spec` �
 #### Scenario: 一行仿木百叶
 - **WHEN** 已签报价含一行 Fauxwood 36" × 48"、Mount I、Lift L
 - **THEN** 工艺单外采购行一条，品类"仿木百叶 Fauxwood"，宽高原样，待核对为提示级；`npx tsx src/lib/sunny-process/__tests__/quote-mapping.test.ts` 覆盖
+
+### Requirement: 斑马帘布纱比对照表的维护
+系统 SHALL 维护组织级的斑马帘「面料编码 → 布:纱」对照表（存于 `Organization.settingsJson.sunnyProcess.zebraRatios`，组织从未保存时以原件《Blinds 工艺单》Sheet1 W 列 24 条为种子），经 `GET/PUT /api/sunny-process/zebra-ratios` 与页面 `/blinds-orders/zebra-ratios` 查看与整表编辑；组织成员可读，保存 SHALL 需要持 `orders.fulfillment.update.shades`（出单·Roller/Zebra/Roman 岗位；斑马帘属 shades 品类）或全品类键 `orders.fulfillment.update`、或 org_admin 及以上组织角色、或平台管理员，否则 403；每次保存记一条 AuditLog。
+
+#### Scenario: 组织隔离
+- **WHEN** 另一组织的用户读取对照表
+- **THEN** 读到的是该用户自己组织的表（未保存则为种子），看不到本组织的条目（`autogen-db.isolated.test.ts` 第 [5b] 段）
+
+#### Scenario: 出单岗位可以保存
+- **WHEN** 一个组织角色为 org_member、但绑定了出单·Roller/Zebra/Roman 岗位（持 `orders.fulfillment.update.shades`）的用户保存对照表
+- **THEN** 返回 200；`GET` 返回 `canEdit: true`（`autogen-db.isolated.test.ts` 第 [5b] 段）
+
+#### Scenario: 无出单权限的普通成员只读
+- **WHEN** 一个 org_member、未绑定出单岗位的用户保存对照表
+- **THEN** 返回 403，`GET` 返回 `canEdit: false`
+
+#### Scenario: 只持其他品类出单键
+- **WHEN** 只绑定出单·Vinyl 岗位（持 `orders.fulfillment.update.vinyl`）的 org_member 保存对照表
+- **THEN** 返回 403
+
+### Requirement: 斑马帘按对照表取布纱比
+生成工艺单与退回自产时，斑马帘 SHALL 按报价 SKU 查组织的布纱比对照表（见「斑马帘布纱比对照表的维护」）：编码与 SKU 完全相同优先，否则编码作为完整一段出现在 SKU 中即命中（空格 / 下划线 / 斜杠视同连字符），多条命中取最长编码；命中时用表中布纱比并在待核对写明来源，未命中时默认 3:2 并提示核对。
+
+#### Scenario: 系列名命中
+- **WHEN** 运行 `npx tsx src/lib/sunny-process/__tests__/zebra-ratios.test.ts`，对照表有 `AQUAWIDE3 → 3 4/16 : 2 3/16`，报价斑马帘 SKU 为 `AQUAWIDE3-GRAY-LF`
+- **THEN** 工艺单该行布纱比为 3.25 : 2.1875，待核对提示含"对照表「AQUAWIDE3」"，测试通过
+
+#### Scenario: 未命中
+- **WHEN** 报价斑马帘 SKU 不在对照表中
+- **THEN** 布纱比为 3 : 2，待核对提示"不在布纱比对照表里…请按面料核对"（同一测试覆盖）
