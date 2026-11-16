@@ -5,23 +5,7 @@
 import { db } from "@/lib/db";
 import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { computePriceGap } from "@/lib/projects/price-gap";
-
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .split(/\s+/)
-      .filter((t) => t.length >= 2),
-  );
-}
-
-function jaccard(a: Set<string>, b: Set<string>): number {
-  if (!a.size || !b.size) return 0;
-  let inter = 0;
-  for (const x of a) if (b.has(x)) inter++;
-  return inter / (a.size + b.size - inter);
-}
+import { jaccard, tokenize } from "@/lib/projects/text-similarity";
 
 export async function recomputeProjectSimilarities(input: {
   projectId: string;

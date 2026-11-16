@@ -36,6 +36,9 @@ const ACTION_LABELS: Record<string, string> = {
   bid_fact_saved: "保存了调查事实",
   // FLOW-H1c：由事实触发、系统写入（挂名的是触发的人或项目负责人）
   "tender.stage.auto_advance": "（系统）自动推进了阶段记录：",
+  // P2-3a：采购监控「跟这个标」；PROC-1 的手工关联
+  "procurement_instrument.follow_tender": "从采购监控跟进了",
+  "procurement_instrument.link_tender": "关联了",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -44,6 +47,7 @@ const TARGET_LABELS: Record<string, string> = {
   organization_member: "组织成员",
   project: "项目",
   project_member: "项目成员",
+  procurement_instrument: "采购公告",
   environment: "环境",
   task: "任务",
   calendar_event: "日程",

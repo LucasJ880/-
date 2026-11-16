@@ -1,0 +1,110 @@
+# tender/rfq-settings-page Specification
+
+## Purpose
+规定组织页上「询价与落地价设置」一节：只对组织管理员显示；保存只发人改过的项，效果与直接调现有接口相同；汇率必须带日期与来源。
+
+## Requirements
+
+### Requirement: 谁能看到
+组织详情页 SHALL 只在组织在用时、对组织管理员（org_admin）与平台管理员显示「询价与落地价设置」一节。其他成员 SHALL NOT 看到这一节，接口对他们 SHALL 仍返回 403。读取失败时只有 403 SHALL 隐藏这一节，其它失败 SHALL 显示错误。
+
+#### Scenario: 组织管理员
+- **WHEN** 组织管理员打开组织详情页
+- **THEN** 看到这一节，里面是当前的发件设置与落地价参数（`npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx`；`npx tsx src/lib/tender-rfq/__tests__/settings-form-db.isolated.test.ts`）
+
+#### Scenario: 普通成员
+- **WHEN** 组织里的普通成员打开组织详情页，或直接调接口
+- **THEN** 没有这一节；接口 403，设置不变（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+
+### Requirement: 保存只发改过的项
+保存 SHALL 只把人改过的项发给 `PUT tender-rfq-settings`：没改的项 SHALL NOT 出现在请求里；改成空 SHALL 发 null。发件三项没单独存时 SHALL 显示为空并写明当前回退到的值；授权邮箱没单独存而显示地址改了，SHALL 把授权邮箱固定为改之前实际用的那个。汇率表改过 SHALL 连同日期与来源一起发。读回来的设置 SHALL 与直接调接口的结果相同。
+
+#### Scenario: 只改了保险费率
+- **WHEN** 管理员只把保险费率从 1 改成 1.5 后保存
+- **THEN** 请求里只有 `landedCost.insurancePct = 1.5`；发件地址仍按环境变量回退（没有被写成固定值）（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+
+#### Scenario: 授权邮箱跟着显示地址回退
+- **WHEN** 组织只存了显示地址 a@、没单独存授权邮箱，管理员把显示地址改成 b@
+- **THEN** 请求里同时把授权邮箱固定为 a@；保存后发信账号仍是 a@（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+
+#### Scenario: 两人同时改汇率
+- **WHEN** 管理员 A 打开之后 B 改了汇率、日期与来源，A 只改汇率就保存
+- **THEN** 存下的是 A 的汇率连同 A 看到的日期与来源（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+
+#### Scenario: 清空一项
+- **WHEN** 管理员把清关杂费清空后保存
+- **THEN** 请求里 `clearanceFlatCad = null`，读回来是空（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+
+#### Scenario: 项目关税率
+- **WHEN** 管理员给一个招投标项目加关税率 6.5%，删掉另一个项目的设置
+- **THEN** 请求里前者是 `{ dutyRatePct: 6.5 }`、后者是 null；别的组织的项目被接口拒绝；新加的一行什么都没填时页面写明（`settings-form.test.tsx`；`settings-form-db.isolated.test.ts`）
+
+### Requirement: 汇率必须带日期与来源
+汇率表里有数字时，页面 SHALL 要求填汇率日期与来源（手工 / 银行结算），缺了 SHALL 不发请求并写明缺什么。币种 SHALL 是三位大写代码、汇率 SHALL 大于 0；不合规的行 SHALL 写明哪一行不对。
+
+#### Scenario: 填了汇率没填日期
+- **WHEN** 管理员加了 USD 1.36，没有填日期
+- **THEN** 页面提示「填写汇率时必须同时给出日期和来源」，不发请求（`settings-form.test.tsx`）
+
+#### Scenario: 币种或汇率不对
+- **WHEN** 币种写成 usd 或汇率写成 0
+- **THEN** 页面写明那一行不对，不发请求（`settings-form.test.tsx`）
+
+### Requirement: 接口的两处补充
+`GET tender-rfq-settings` SHALL 多返回 `stored`：发件显示名、显示地址、授权邮箱各自是不是组织自己存的。`PUT` 里项目设置为 null（删除）时 SHALL NOT 校验项目归属（项目可能已被删除）；要写入的项目设置 SHALL 仍须属于本组织。
+
+#### Scenario: 读取说明哪几项是自己存的
+- **WHEN** 组织存了授权邮箱、没存显示地址
+- **THEN** `stored` 是 `{ fromName, fromEmail: false, mailboxEmail: true }`（`settings-form-db.isolated.test.ts`）
+
+#### Scenario: 删掉已删除项目的那一行
+- **WHEN** 一个项目已被删除，管理员删掉它在设置里的那一行并保存
+- **THEN** 保存成功，那一行没了（`settings-form-db.isolated.test.ts`）
+
+### Requirement: 写明用在哪里
+这一节 SHALL 写明这些参数用于比价矩阵的落地价与报价表助手的成本建议，是组织的估算参数，落地价会标明出处；SHALL 写明授权邮箱与显示地址可以不同。这一节 SHALL NOT 显示或要求任何密码、令牌。
+
+#### Scenario: 说明文字
+- **WHEN** 渲染这一节
+- **THEN** 有用途说明与两个地址的说明，没有密码或令牌输入框（`settings-form.test.tsx`）
+
+### Requirement: 接口收询价节奏三项
+`PUT tender-rfq-settings` SHALL 收 `replyLeadDays`、`roundLockDays`、`chaseAfterDays`：1–60 的整数，null 清空（回到默认）；传了的覆盖、没传的保留；不在范围内或不是整数 SHALL 400 且设置不变。`GET` SHALL 返回这三项在组织层的生效值、默认值（7 / 3 / 3），以及 `stored` 里各自是不是组织自己存的。默认值与读取规则 SHALL NOT 改变。
+
+#### Scenario: 改回复提前量
+- **WHEN** 管理员 PUT `{ replyLeadDays: 10 }`
+- **THEN** 读回来 10、`stored.replyLeadDays` 为真；其它设置不变；之后新建的轮次回复截止是截标前 10 天；建轮次读到的轮次锁天数、催单天数就是存的值（`npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings.test.tsx`；`npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings-db.isolated.test.ts`）
+
+#### Scenario: 不合规
+- **WHEN** PUT `{ roundLockDays: 0 }`、`{ chaseAfterDays: 2.5 }` 或 `{ replyLeadDays: 61 }`
+- **THEN** 400，设置不变（`rfq-timing-settings.test.tsx`；`rfq-timing-settings-db.isolated.test.ts`）
+
+#### Scenario: 清空回到默认
+- **WHEN** 组织存了催单天数 5，管理员 PUT `{ chaseAfterDays: null }`
+- **THEN** 读回来是默认 3、`stored.chaseAfterDays` 为假；项目负责人自己设的催单天数仍然优先（`rfq-timing-settings-db.isolated.test.ts`）
+
+#### Scenario: 普通成员
+- **WHEN** 普通成员 PUT 这三项
+- **THEN** 403，设置不变（`rfq-timing-settings-db.isolated.test.ts`）
+
+### Requirement: 页面上的询价节奏
+「询价与落地价设置」一节 SHALL 有「询价节奏」三项：没单独设置时 SHALL 显示为空并写明当前用的默认天数；保存 SHALL 只发改过的项，改成空 SHALL 发 null；不是 1–60 的整数 SHALL 不发请求并写明哪一项不对。每一项 SHALL 写明它管什么与生效范围：回复提前量只影响以后新建的询价；催单天数同时决定第二次催单与标「未响应」（标未响应不用批），以项目负责人个人设置为先，开了自动跟进且仍生效的轮次按当时定下的天数。
+
+#### Scenario: 只改催单天数
+- **WHEN** 管理员只把催单天数从空改成 5 后保存
+- **THEN** 请求里只有 `chaseAfterDays: 5`；读回来与直接调接口相同（`rfq-timing-settings.test.tsx`；`rfq-timing-settings-db.isolated.test.ts`）
+
+#### Scenario: 填错
+- **WHEN** 管理员把轮次锁天数填成 0 或 abc
+- **THEN** 页面写明「轮次锁天数」要 1–60 的整数，不发请求（`rfq-timing-settings.test.tsx`）
+
+#### Scenario: 说明文字
+- **WHEN** 渲染这一节
+- **THEN** 三项各有说明，没单独设置的写明默认天数（`rfq-timing-settings.test.tsx`）
+
+### Requirement: Muse 查看偏好写出实际的催单天数
+Muse「查看偏好」的回复里，本人没设催单天数时 SHALL 写明实际按的组织层天数（组织设置，没有就是 3 天），SHALL NOT 固定写 3 天。本人设了的照旧写本人的天数。
+
+#### Scenario: 组织设了 5 天、本人没设
+- **WHEN** 组织催单天数是 5，本人没设，问 Muse 查看偏好
+- **THEN** 回复写「催单：未设（按组织设置：5 天没回）」（`npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings.test.tsx`）

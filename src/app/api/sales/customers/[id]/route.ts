@@ -6,6 +6,7 @@ import { authorize, humanPrincipal } from '@/lib/authorization';
 import {
   resolveSalesOrgIdForRequest,
 } from '@/lib/sales/org-context';
+import { loadReplyTargets } from '@/lib/trade/reply-target-server';
 
 export const GET = withAuth(async (request, ctx, user) => {
   const { id } = await ctx.params;
@@ -69,7 +70,12 @@ export const GET = withAuth(async (request, ctx, user) => {
     }
   }
 
-  return NextResponse.json(customer);
+  // NAV-1c：每条互动带「回复目标」（外贸线索 id 或空）；读时计算，不放行时不查线索（spec trade/inquiry-reply-entry）
+  const replyTargets = await loadReplyTargets(user, orgRes.orgId, customer.interactions);
+  return NextResponse.json({
+    ...customer,
+    interactions: customer.interactions.map((i) => ({ ...i, replyTarget: replyTargets.get(i.id) ?? null })),
+  });
 });
 
 export const PATCH = withAuth(async (request, ctx, user) => {

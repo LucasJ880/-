@@ -135,7 +135,7 @@ for (const f of routes) {
     if (key !== expected) mismatches.push(`${r} ${method}: ${key} ≠ ${expected}`);
   });
 }
-ok(guarded === 110, `守卫处理器 110 个（实际 ${guarded}）`);
+ok(guarded === 111, `守卫处理器 111 个（实际 ${guarded}）`);
 ok(mismatches.length === 0, `每个处理器的守卫键与方法一致${mismatches.length ? "：" + mismatches.join("; ") : ""}`);
 mismatches = [];
 {

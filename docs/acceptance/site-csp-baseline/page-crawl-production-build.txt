@@ -1,0 +1,40 @@
+site-csp-baseline · 本地生产构建下的页面巡检（2026-11-16）
+
+做法：本地 Postgres；next build --webpack 后 next start（生产构建，本机运行，不是 Vercel 部署），
+CSP_MODE 未配置（强制执行）。身份、页面与记录的字段同 page-crawl.txt，多一列：
+  idle        页面 load 之后 20 秒内网络是否空闲
+
+构建产物 .next/routes-manifest.json 里的两条响应头规则：
+  /((?!api/|_next/|monitoring|sunny-quote\\.html).*)  →  十条指令（生产环境没有 ws:// 与 vercel 主机）
+  /sunny-quote.html                                   →  frame-ancestors 'self'
+
+结果：22 次访问，全部 200、全部带响应头，violations 与 consoleCsp 全部为空。
+
+idle 为 false 的两页（/sunny-quote.html 与嵌入它的 /sales/quote-sheet）：粗报价工具页自己请求的三个
+CSV（零售用.csv、FABRIC.csv、ADDONS.csv）在浏览器里一直挂着。用拦截器把响应上的内容安全策略去掉后
+重试，现象相同——与本次改动无关，没有继续查原因。
+
+没有覆盖的：全站其余页面；带 PDF 嵌入框架的公开报价页；Vercel 的预览 / 生产部署。
+
+{"who": "anon", "path": "/login", "final": "/login", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "anon", "path": "/register", "final": "/register", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "anon", "path": "/display", "final": "/display", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/", "final": "/", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/tasks", "final": "/tasks", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/settings/email", "final": "/settings/email", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/settings", "final": "/settings", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/assistant", "final": "/assistant", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/sales/customers/m2cwang_mwilyqks", "final": "/sales/customers/m2cwang_mwilyqks", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/sales/home", "final": "/sales/home", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/sales/quote-sheet", "final": "/sales/quote-sheet", "status": 200, "header": "yes", "idle": false, "frames": 2, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/sunny-quote.html", "final": "/sunny-quote.html", "status": 200, "header": "yes", "idle": false, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/notifications", "final": "/notifications", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/organizations", "final": "/organizations", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/operations", "final": "/operations", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/trade/chat", "final": "/", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/settings/wechat", "final": "/settings/wechat", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/help", "final": "/help", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lynn", "path": "/sales/home", "final": "/sales/home", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lynn", "path": "/sales/customers/m2cwang_mwilyqks", "final": "/sales/customers/m2cwang_mwilyqks", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lynn", "path": "/settings/email", "final": "/settings/email", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lynn", "path": "/sales/calendar", "final": "/sales/calendar", "status": 200, "header": "yes", "idle": true, "frames": 1, "violations": [], "consoleCsp": []}

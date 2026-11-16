@@ -4,6 +4,9 @@
  */
 
 import type { Prisma } from "@prisma/client";
+import { NOTICE_EVIDENCE_ORDER, noticeUrlOf } from "./tender-follow-pure";
+import { FIT_SORT_VALUE, compareByFit, computeFitScore, prepareFitProjects, projectsForNotice, type FitProject } from "./fit-score-pure";
+import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { db } from "@/lib/db";
 import { EVENT_LABELS } from "./case-pure";
 import { institutionDisplayName, JURISDICTION_LABELS } from "./identity";
@@ -18,18 +21,55 @@ const dec = (v: Prisma.Decimal | null) => (v === null ? null : v.toString());
 const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-export async function listCandidates(orgId: string, filter: { triage?: string | null; q?: string | null; take?: number }) {
+/** P2-2：算匹配度用的本组织招投标项目（看的人可见的；最多 500 个，新到旧；价格不读，design D1 / D4） */
+async function fitProjectsFor(orgId: string, viewer: { id: string; role: string }): Promise<FitProject[]> {
+  const visible = await getVisibleProjectIds(viewer.id, viewer.role);
+  const rows = await db.project.findMany({
+    where: { orgId, workDomain: "tender", ...(visible ? { id: { in: visible } } : {}) },
+    orderBy: { updatedAt: "desc" },
+    take: 500,
+    select: { id: true, name: true, clientOrganization: true, tenderStatus: true, submittedAt: true, sourceMetadataJson: true },
+  });
+  return prepareFitProjects(rows);
+}
+
+export async function listCandidates(
+  orgId: string,
+  filter: { triage?: string | null; q?: string | null; take?: number; view?: string | null; sort?: string | null; viewer?: { id: string; role: string }; now?: Date },
+) {
   const where: Prisma.ProcurementInstrumentWhereInput = { orgId, NOT: { triageStatus: "HISTORY" } };
-  if (filter.triage && filter.triage !== "ALL") where.triageStatus = filter.triage;
+  // P2-1：新标视图——只看未截标（或未知）、没被忽略 / 归档的招标公告，按发布日期从新到旧
+  const newView = filter.view === "new";
+  if (newView) {
+    const now = filter.now ?? new Date();
+    where.instrumentClass = "SOLICITATION";
+    where.triageStatus = { notIn: ["IGNORED", "ARCHIVED", "HISTORY"] };
+    where.AND = [{ OR: [{ closingAt: null }, { closingAt: { gt: now } }] }];
+    delete where.NOT;
+  } else if (filter.triage && filter.triage !== "ALL") where.triageStatus = filter.triage;
   if (filter.q?.trim()) where.OR = [{ title: { contains: filter.q.trim(), mode: "insensitive" } }, { officialNumber: { contains: filter.q.trim(), mode: "insensitive" } }];
-  const rows = await db.procurementInstrument.findMany({ where, orderBy: [{ updatedAt: "desc" }], take: Math.min(filter.take ?? 100, 300) });
+  const rows = await db.procurementInstrument.findMany({
+    where,
+    orderBy: newView ? [{ publishedAt: { sort: "desc", nulls: "last" } }, { firstSeenAt: "desc" }] : [{ updatedAt: "desc" }],
+    take: Math.min(filter.take ?? 100, 300),
+  });
   const ids = rows.map((r) => r.id);
-  const [evCounts, callUps, links, requests] = await Promise.all([
+  // P2-2：新标视图算匹配度（读时计算，按看的人可见的项目）
+  const fitNow = filter.now ?? new Date();
+  const [fitProjects, evCounts, callUps, links, requests, urlEvidence] = await Promise.all([
+    newView && filter.viewer ? fitProjectsFor(orgId, filter.viewer) : Promise.resolve(null),
     db.procurementSourceEvidence.groupBy({ by: ["instrumentId", "sourceType"], where: { instrumentId: { in: ids } }, _count: { _all: true } }),
     db.procurementInstrument.groupBy({ by: ["parentInstrumentId"], where: { parentInstrumentId: { in: ids } }, _count: { _all: true } }),
-    db.procurementTenderLink.findMany({ where: { orgId, instrumentId: { in: ids } }, select: { instrumentId: true, projectId: true, relation: true } }),
+    // P2-3a：按建立时间排（「已跟进」指向最早的「本项目」关联）
+    db.procurementTenderLink.findMany({ where: { orgId, instrumentId: { in: ids } }, orderBy: { createdAt: "asc" }, select: { instrumentId: true, projectId: true, relation: true } }),
     db.recordsRequest.findMany({ where: { orgId, autoDraftKey: { in: ids.map((i) => `auto:${i}`) } }, select: { id: true, autoDraftKey: true, status: true } }),
+    // P2-1：公告链接（只给招标公告；与跟标预填同一查询与规则）
+    db.procurementSourceEvidence.findMany({ where: { orgId, instrumentId: { in: rows.filter((r) => r.instrumentClass === "SOLICITATION").map((r) => r.id) }, sourceUrl: { not: null } }, orderBy: NOTICE_EVIDENCE_ORDER, select: { instrumentId: true, sourceType: true, sourceUrl: true } }),
   ]);
+  // P2-3a：项目已删的关联不展示（关联表对项目没有外键）
+  const aliveProjects = new Set(links.length ? (await db.project.findMany({ where: { orgId, id: { in: [...new Set(links.map((l) => l.projectId))] } }, select: { id: true } })).map((p) => p.id) : []);
+  const evidenceByInstrument = new Map<string, typeof urlEvidence>();
+  for (const e of urlEvidence) if (e.instrumentId) evidenceByInstrument.set(e.instrumentId, [...(evidenceByInstrument.get(e.instrumentId) ?? []), e]);
   const items = rows.map((r) => {
     const p = (r.priorityJson ?? null) as { score?: number; dimensions?: unknown[]; unknownsZh?: string[] } | null;
     return {
@@ -45,6 +85,9 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
       recordsHolderInstitution: r.recordsHolderInstitution,
       vendorName: r.vendorName,
       closingAt: iso(r.closingAt),
+      // 发布日期是日历日期（CanadaBuys 只给日期，入库为 UTC 零点）：按日期返回，别再换时区（P2-1 审查 H1）
+      publishedAt: day(r.publishedAt),
+      noticeUrl: r.instrumentClass === "SOLICITATION" ? noticeUrlOf(evidenceByInstrument.get(r.id) ?? []) : null,
       currentExpiryAt: day(r.currentExpiryAt),
       remainingOptions: r.remainingOptions,
       confirmedRetenderDate: day(r.confirmedRetenderDate),
@@ -60,11 +103,21 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
       firstSeenAt: iso(r.firstSeenAt),
       evidenceCounts: Object.fromEntries(evCounts.filter((e) => e.instrumentId === r.id).map((e) => [e.sourceType, e._count._all])),
       callUpCount: callUps.find((c) => c.parentInstrumentId === r.id)?._count._all ?? 0,
-      tenderLinks: links.filter((l) => l.instrumentId === r.id).map((l) => ({ projectId: l.projectId, relation: l.relation })),
+      tenderLinks: links.filter((l) => l.instrumentId === r.id && aliveProjects.has(l.projectId)).map((l) => ({ projectId: l.projectId, relation: l.relation })),
       autoDraft: requests.find((q) => q.autoDraftKey === `auto:${r.id}`) ?? null,
+      // P2-2：只在新标视图给（别的视图没有匹配度）
+      fit: fitProjects
+        ? computeFitScore(
+            { title: r.title, buyingInstitution: r.buyingInstitution, contractingInstitution: r.contractingInstitution, closingAt: r.closingAt, match: (r.matchJson ?? null) as { productHits?: string[]; serviceHits?: string[]; categoryHits?: string[] } | null },
+            // 为这条公告建的项目不算往来与业绩（审查 H1）
+            projectsForNotice(fitProjects, r.id, links.filter((l) => l.instrumentId === r.id && l.relation === "CURRENT").map((l) => l.projectId)),
+            fitNow,
+          )
+        : null,
     };
   });
-  items.sort((a, b) => (b.priority?.score ?? -1) - (a.priority?.score ?? -1));
+  if (!newView) items.sort((a, b) => (b.priority?.score ?? -1) - (a.priority?.score ?? -1));
+  else if (filter.sort === FIT_SORT_VALUE) items.sort(compareByFit);
   return items;
 }
 

@@ -12,6 +12,8 @@ import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { getOpportunityStageLabel } from "@/lib/revenue-spine/opportunity-stage";
 import { RFQ_FIELD_LABELS, type RfqField } from "@/lib/revenue-spine/rfq/types";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
+import { inboxReplyHref } from "@/lib/trade/reply-target";
 
 type Json = Record<string, unknown>;
 
@@ -58,6 +60,8 @@ function fmt(v: unknown): string {
 export default function RevenueOpportunityPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  // NAV-1c：到询盘收件箱的链接只在收件箱对当前用户放行时出现（与路由门同一判定；未就绪时为 false）
+  const canWriteInInbox = useNavigationAccess().canOpen("/trade/inbox");
   const [data, setData] = useState<Detail | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -286,7 +290,16 @@ export default function RevenueOpportunityPage() {
               <Check className="h-3 w-3" /> 买家已回复，停止自动跟进
             </button>
           </form>
-          {data.pendingApprovals.length === 0 ? <div className="text-xs text-muted">尚无草稿</div> : null}
+          {data.pendingApprovals.length === 0 ? (
+            <div className="text-xs text-muted">
+              尚无草稿
+              {canWriteInInbox ? (
+                <Link href={inboxReplyHref({ opportunityId: o.id })} className="ml-2 text-blue-600 hover:underline">
+                  去询盘收件箱写回复
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
           <ul className="space-y-3">
             {data.pendingApprovals.map((p) => (
               <li key={p.id} className="rounded border border-border p-3 text-xs">
@@ -307,6 +320,12 @@ export default function RevenueOpportunityPage() {
                   )
                 ) : null}
                 {p.failureReason ? <div className="mt-1 text-red-400">{p.failureReason}</div> : null}
+                {/* NAV-3：带着这份草稿去询盘收件箱改完再发。发出后同商机的待批草稿由系统作废（既有行为） */}
+                {p.status === "pending" && canWriteInInbox ? (
+                  <Link href={inboxReplyHref({ opportunityId: o.id, approvalId: p.id })} className="mt-2 block text-muted underline">
+                    想改一改再发？去询盘收件箱改这份草稿（发出后这份草稿自动作废）
+                  </Link>
+                ) : null}
                 {p.status === "pending" ? (
                   <div className="mt-2 flex gap-2">
                     <button type="button" disabled={busy !== null} onClick={() => void post(`a:${p.id}`, `/api/ai/pending-actions/${p.id}`, { decision: "approve" }, "POST")} className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-1 text-white disabled:opacity-50"><Check className="h-3 w-3" /> 批准并发送</button>
@@ -331,7 +350,7 @@ export default function RevenueOpportunityPage() {
               void post("inbound", `/api/revenue/opportunities/${o.id}/interactions`, { direction: "inbound", channel: "email", content: inbound }).then(() => setInbound(""));
             }}
           >
-            <input value={inbound} onChange={(e) => setInbound(e.target.value)} placeholder="记录客户来信内容（触发 CUSTOMER_REPLIED + 重跑 FDE）" className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs" />
+            <input value={inbound} onChange={(e) => setInbound(e.target.value)} placeholder="把买家在别处发来的内容贴到这里，AI 会重新起草回复" className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs" />
             <button type="submit" disabled={busy !== null} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs disabled:opacity-50"><Send className="h-3 w-3" /> 记录</button>
           </form>
           <ul className="space-y-2 text-xs">

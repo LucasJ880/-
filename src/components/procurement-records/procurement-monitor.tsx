@@ -13,6 +13,32 @@ import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { JURISDICTION_LABELS } from "@/lib/procurement-records/identity";
 import { RUN_STATUS_LABELS, SOURCE_STATUS_LABELS, SOURCE_TYPE_LABELS, TRIAGE_LABELS, type SourceStatus } from "@/lib/procurement-records/labels";
 import { Btn, Chip, Field, inputCls, Note, NotEnabled, Section, toneForStatus, Unknown, useApiCall, when } from "./primitives";
+import { FOLLOW_CREATED_ZH, FOLLOW_EXISTING_ZH, FOLLOW_LABEL_ZH, FOLLOWED_LABEL_ZH, followButtonState } from "@/lib/procurement-records/tender-follow-pure";
+import {
+  ALL_VIEW_HINT_ZH,
+  NEW_VIEW_HINT_ZH,
+  NEW_VIEW_LABEL_ZH,
+  NEW_VIEW_VALUE,
+  DATE_SORT_VALUE,
+  FIT_LABEL_ZH,
+  FIT_SORT_VALUE,
+  NEW_VIEW_FIT_HINT_ZH,
+  FIT_NOTE_ZH,
+  SORT_OPTIONS_ZH,
+  initialTriageFromSearch,
+  NOTICE_LINK_ZH,
+  SCHEDULE_DAY_LABELS,
+  SCHEDULE_HINT_ZH,
+  SCHEDULE_PRESETS,
+  applyPreset,
+  candidatesQuery,
+  presetOf,
+  scheduleBodyIfChanged,
+  scheduleFormOf,
+  toggleDay,
+  type ScheduleForm,
+} from "@/lib/procurement-records/new-notices-pure";
+import { formatLocal } from "@/lib/procurement-records/schedule";
 
 type Json = Record<string, unknown>;
 interface SourceRow { key: string; label: string; mode: string; descriptionZh: string; officialUrl: string; enabled: boolean | null; lastResult: Json | null }
@@ -43,16 +69,24 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const [view, setView] = useState<WatchView | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [canManage, setCanManage] = useState(false);
+  // P2-3a：只读成员不显示「跟这个标」（接口也会 403）
+  const [canFollow, setCanFollow] = useState(false);
   const [candidates, setCandidates] = useState<Json[]>([]);
   const [triage, setTriage] = useState("ALL");
+  // P2-2：新标视图的排序（发布日期 / 匹配度）
+  const [sort, setSort] = useState(DATE_SORT_VALUE);
   const [runId, setRunId] = useState<string | null>(null);
   const [run, setRun] = useState<Json | null>(null);
   const [form, setForm] = useState({ keywords: "", excludeKeywords: "", institutions: "", regions: "", lookbackDays: 120, maxNewCandidates: 5, maxNewDraftCards: 3, maxPagesPerSource: 5 });
+  // P2-1：扫描时间（打开时的值另记，保存时只在改过时才发）
+  const [sched, setSched] = useState<ScheduleForm>({ weekdays: [1, 4], time: "08:00" });
+  const [schedInitial, setSchedInitial] = useState<ScheduleForm>({ weekdays: [1, 4], time: "08:00" });
   const [imp, setImp] = useState({ jurisdiction: "CA-ON", instrumentClass: "SOLICITATION", officialNumber: "", title: "", contractingInstitution: "", sourceUrl: "", platform: "" });
   const api = useApiCall();
   const q = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
 
-  const load = useCallback(async () => {
+  // keepEdits：扫描结束后的刷新只更新状态与候选，不覆盖正在改的配置与扫描时间（P2-1 审查 L5）
+  const load = useCallback(async (opts: { keepEdits?: boolean } = {}) => {
     if (!orgId) return;
     const r = await api.call("load", `/api/procurement/watch${q}`);
     if (r.body.available === false) {
@@ -64,8 +98,9 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
     const w = r.body.watch as WatchView;
     setView(w);
     setCanManage(Boolean(r.body.canManage));
+    setCanFollow(r.body.canFollow === true);
     const f = w.config.filters;
-    setForm({
+    if (!opts.keepEdits) setForm({
       keywords: lines(f.keywords),
       excludeKeywords: lines(f.excludeKeywords),
       institutions: lines(f.institutions),
@@ -75,11 +110,22 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
       maxNewDraftCards: w.config.limits.maxNewDraftCards,
       maxPagesPerSource: w.config.limits.maxPagesPerSource,
     });
+    if (!opts.keepEdits) {
+      const sf = scheduleFormOf(w.config.schedule);
+      setSched(sf);
+      setSchedInitial(sf);
+    }
     if (w.activeRun) setRunId(String(w.activeRun.id));
-    const c = await api.call("cands", `/api/procurement/candidates${q}${triage !== "ALL" ? `&triage=${triage}` : ""}`);
+    const c = await api.call("cands", `/api/procurement/candidates${q}${candidatesQuery(triage, sort)}`);
     if (c.ok) setCandidates((c.body.items as Json[]) ?? []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, q, triage]);
+  }, [orgId, q, triage, sort]);
+
+  // P2-3b：从「今日新标」通知点进来（?view=new）时先切到新标视图；放在 effect 里避免服务端与客户端首屏不一致
+  useEffect(() => {
+    const t = initialTriageFromSearch(window.location.search);
+    if (t) setTriage(t);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -96,7 +142,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
       if (["QUEUED", "RUNNING"].includes(String(r.run.status))) setTimeout(tick, 3000);
       else {
         setRunId(null);
-        void load();
+        void load({ keepEdits: true });
       }
     };
     void tick();
@@ -106,16 +152,27 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   }, [runId, orgId, q, load]);
 
   const save = async (enableAfter: boolean) => {
+    const sb = scheduleBodyIfChanged(sched, schedInitial);
+    if (!sb.ok) {
+      api.setNote({ tone: "bad", text: sb.error });
+      return;
+    }
     const r = await api.call("save", `/api/procurement/watch${q}`, {
       method: "PUT",
       json: {
+        ...(sb.schedule ? { schedule: sb.schedule } : {}),
         filters: { keywords: parseLines(form.keywords), excludeKeywords: parseLines(form.excludeKeywords), institutions: parseLines(form.institutions), regions: parseLines(form.regions), lookbackDays: Number(form.lookbackDays) },
         limits: { maxNewCandidates: Number(form.maxNewCandidates), maxNewDraftCards: Number(form.maxNewDraftCards), maxPagesPerSource: Number(form.maxPagesPerSource) },
       },
     });
-    if (r.ok && enableAfter) await api.call("enable", `/api/procurement/watch/enable${q}`, { method: "POST" });
-    if (r.ok) api.setNote({ tone: "good", text: enableAfter ? "已保存并启用：只授权配置内的只读检索、分析与内部草稿，不授权对政府发函或提交。" : "配置已保存（未改变启用状态）。" });
+    // 失败：保留错误提示与正在改的内容，不重新读取；成功：先重新读取再给提示（每次接口调用开始时都会清空提示）
+    if (!r.ok) return;
+    if (enableAfter) {
+      const e = await api.call("enable", `/api/procurement/watch/enable${q}`, { method: "POST" });
+      if (!e.ok) return;
+    }
     await load();
+    api.setNote({ tone: "good", text: enableAfter ? "已保存并启用：只授权配置内的只读检索、分析与内部草稿，不授权对政府发函或提交。" : "配置已保存（未改变启用状态）。" });
   };
 
   const runNow = async () => {
@@ -130,6 +187,14 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
     await api.call(`t-${id}`, `/api/procurement/instruments/${id}/triage`, { method: "POST", json: { triageStatus: status } });
     await load();
   };
+  // P2-3a「跟这个标」：招标公告 → 招投标项目（只建一次；已跟过返回原项目）
+  const follow = async (id: string) => {
+    const r = await api.call(`f-${id}`, `/api/procurement/instruments/${id}/follow`, { method: "POST" });
+    if (!r.ok) return;
+    // 先重新读取再给提示：每次接口调用开始时都会清空提示
+    await load();
+    api.setNote({ tone: "good", text: r.body.created ? FOLLOW_CREATED_ZH : FOLLOW_EXISTING_ZH });
+  };
   const prepare = async (id: string) => {
     const r = await api.call(`p-${id}`, `/api/procurement/requests${q}`, { method: "POST", json: { instrumentIds: [id], pathType: "NEW_FORMAL_REQUEST" } });
     if (r.ok) window.location.assign(`/projects/intelligence/records/${String(r.body.requestId)}`);
@@ -137,9 +202,9 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const importManual = async () => {
     const r = await api.call("import", `/api/procurement/candidates/import${q}`, { method: "POST", json: imp });
     if (r.ok) {
-      api.setNote({ tone: "good", text: "已人工导入（标「人工导入」，平台不等于申请接收机关；官方性待核实）。" });
       setImp({ ...imp, officialNumber: "", title: "", sourceUrl: "" });
       await load();
+      api.setNote({ tone: "good", text: "已人工导入（标「人工导入」，平台不等于申请接收机关；官方性待核实）。" });
     }
   };
 
@@ -171,7 +236,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
               </Btn>
               {canManage ? (
                 view.enabled ? (
-                  <Btn variant="danger" onClick={() => void api.call("disable", `/api/procurement/watch/disable${q}`, { method: "POST" }).then(load)}>
+                  <Btn variant="danger" onClick={() => void api.call("disable", `/api/procurement/watch/disable${q}`, { method: "POST" }).then(() => load())}>
                     停用
                   </Btn>
                 ) : (
@@ -221,6 +286,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
               <Field label="地区（空 = 不限）">
                 <textarea className={`${inputCls} h-12`} value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} disabled={!canManage} />
               </Field>
+              <ScheduleEditor value={sched} onChange={setSched} disabled={!canManage} />
               <details className="text-xs">
                 <summary className="cursor-pointer text-muted">回看天数与每轮上限</summary>
                 <div className="mt-2 grid grid-cols-2 gap-2">
@@ -331,21 +397,34 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
 
       <Section
         title="候选项目"
-        hint="按优先级排序（不是中标概率）。"
+        hint={triage === NEW_VIEW_VALUE ? (sort === FIT_SORT_VALUE ? NEW_VIEW_FIT_HINT_ZH : NEW_VIEW_HINT_ZH) : ALL_VIEW_HINT_ZH}
         testId="candidates"
         actions={
-          <select className={`${inputCls} w-auto`} value={triage} onChange={(e) => setTriage(e.target.value)} aria-label="筛选">
-            <option value="ALL">全部</option>
-            <option value="CANDIDATE">候选</option>
-            <option value="WATCHING">已关注</option>
-            <option value="IGNORED">已忽略</option>
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className={`${inputCls} w-auto`} value={triage} onChange={(e) => setTriage(e.target.value)} aria-label="筛选">
+              <option value="ALL">全部</option>
+              <option value={NEW_VIEW_VALUE}>{NEW_VIEW_LABEL_ZH}</option>
+              <option value="CANDIDATE">候选</option>
+              <option value="WATCHING">已关注</option>
+              <option value="IGNORED">已忽略</option>
+            </select>
+            {triage === NEW_VIEW_VALUE ? (
+              <select className={`${inputCls} w-auto`} value={sort} onChange={(e) => setSort(e.target.value)} aria-label="排序" data-testid="fit-sort">
+                {SORT_OPTIONS_ZH.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            ) : null}
+          </div>
         }
       >
         {candidates.length === 0 ? <p className="text-xs text-muted">暂无候选。点「立即扫描」，或在下方手动添加。</p> : null}
         <ul className="divide-y divide-border">
           {candidates.map((c) => {
             const p = c.priority as { score?: number; dimensions?: Array<{ key: string; label: string; points: number; max: number; reasonZh: string }> } | null;
+            // P2-2：新标视图有匹配度时，分数与理由都换成匹配度
+            const fit = c.fit as { score: number; dimensions: Array<{ key: string; label: string; points: number; max: number; reasonZh: string }>; noteZh: string } | null | undefined;
+            const shown = fit ?? p;
             const ev = (c.evidenceCounts ?? {}) as Record<string, number>;
             const inst = String(c.buyingInstitution ?? c.contractingInstitution ?? "机构未知");
             return (
@@ -360,10 +439,11 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
                     <p className="mt-0.5 text-[11px] text-muted">
                       {inst} · 到期 <Unknown value={c.currentExpiryAt as string | null} /> · 供应商 {c.vendorName ? String(c.vendorName) : "未知"}
                     </p>
+                    {c.instrumentClass === "SOLICITATION" ? <NoticeLine publishedAt={(c.publishedAt as string | null) ?? null} closingAt={(c.closingAt as string | null) ?? null} noticeUrl={(c.noticeUrl as string | null) ?? null} /> : null}
                   </div>
-                  <div className="shrink-0 text-right" title="优先级分（不是中标概率）">
-                    <p className="text-lg font-semibold leading-none">{p?.score ?? "—"}</p>
-                    <p className="mt-0.5 text-[10px] text-muted">优先级</p>
+                  <div className="shrink-0 text-right" title={fit ? FIT_NOTE_ZH : "优先级分（不是中标概率）"} data-testid={fit ? "fit-score" : undefined}>
+                    <p className="text-lg font-semibold leading-none">{shown?.score ?? "—"}</p>
+                    <p className="mt-0.5 text-[10px] text-muted">{fit ? FIT_LABEL_ZH : "优先级"}</p>
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -378,12 +458,14 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
                   )}
                   {c.triageStatus !== "WATCHING" ? <Btn onClick={() => void doTriage(String(c.id), "WATCHING")} busy={api.busy === `t-${String(c.id)}`}>关注</Btn> : null}
                   {c.triageStatus !== "IGNORED" ? <Btn variant="link" onClick={() => void doTriage(String(c.id), "IGNORED")}>忽略</Btn> : null}
+                  <FollowAction state={followButtonState({ instrumentClass: String(c.instrumentClass), closingAt: (c.closingAt as string | null) ?? null, tenderLinks: c.tenderLinks as Array<{ projectId: string; relation: string }> | null }, new Date(), { canFollow })} busy={api.busy === `f-${String(c.id)}`} onFollow={() => void follow(String(c.id))} />
                 </div>
                 <details className="mt-1 text-[11px]">
                   <summary className="cursor-pointer text-muted">评分理由与更多信息</summary>
-                  {p?.dimensions ? (
-                    <ul className="mt-1 grid gap-1 sm:grid-cols-2">
-                      {p.dimensions.map((d) => (
+                  {fit ? <p className="mt-1 text-muted">{fit.noteZh}</p> : null}
+                  {shown?.dimensions ? (
+                    <ul className="mt-1 grid gap-1 sm:grid-cols-2" data-testid={fit ? "fit-reasons" : undefined}>
+                      {shown.dimensions.map((d) => (
                         <li key={d.key} className="text-muted">
                           <span className="text-foreground">{d.label} {d.points}/{d.max}</span>：{d.reasonZh}
                         </li>
@@ -453,5 +535,70 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
         </div>
       </details>
     </div>
+  );
+}
+
+/** P2-3a 候选卡片上的跟标按钮：跟这个标 / 已跟进 · 打开项目 / 不显示（规则在 tender-follow-pure.ts） */
+export function FollowAction({ state, busy, onFollow }: { state: ReturnType<typeof followButtonState>; busy: boolean; onFollow: () => void }) {
+  if (state.kind === "followed") {
+    return (
+      <Link data-testid="procurement-followed" className="inline-flex min-h-[44px] items-center rounded-lg border border-border px-3 text-xs font-medium text-foreground hover:bg-accent/5" href={`/projects/${state.projectId}`}>
+        {FOLLOWED_LABEL_ZH}
+      </Link>
+    );
+  }
+  if (state.kind === "follow") {
+    return (
+      <span data-testid="procurement-follow">
+        <Btn variant="primary" onClick={onFollow} busy={busy}>
+          {FOLLOW_LABEL_ZH}
+        </Btn>
+      </span>
+    );
+  }
+  return null;
+}
+
+/** P2-1 设置页「扫描时间」：星期几多选 + 时刻 + 快捷按钮（规则在 new-notices-pure.ts） */
+export function ScheduleEditor({ value, onChange, disabled }: { value: ScheduleForm; onChange: (v: ScheduleForm) => void; disabled: boolean }) {
+  const active = presetOf(value.weekdays);
+  return (
+    <div className="rounded-lg border border-border p-2" data-testid="schedule-editor">
+      <p className="text-[11px] text-muted">扫描时间</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {SCHEDULE_PRESETS.map((p) => (
+          <button key={p.key} type="button" disabled={disabled} data-testid={`schedule-preset-${p.key}`} aria-pressed={active === p.key} onClick={() => onChange(applyPreset(value, p.key))} className={`rounded-full border px-2.5 py-0.5 text-[11px] ${active === p.key ? "border-accent bg-accent/10 text-accent" : "border-border text-foreground/80"} disabled:opacity-50`}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+        {SCHEDULE_DAY_LABELS.map((label, d) => (
+          <label key={d} className="flex items-center gap-1">
+            <input type="checkbox" disabled={disabled} checked={value.weekdays.includes(d)} onChange={() => onChange(toggleDay(value, d))} aria-label={label} />
+            {label}
+          </label>
+        ))}
+        <input type="time" aria-label="扫描时刻" disabled={disabled} value={value.time} onChange={(e) => onChange({ ...value, time: e.target.value })} className={`${inputCls} w-auto`} />
+      </div>
+      <p className="mt-1 text-[10px] text-muted">{SCHEDULE_HINT_ZH}</p>
+    </div>
+  );
+}
+
+/** P2-1 招标公告的一行：发布日期（日历日期，原样显示）/ 截标（多伦多时间）与「看公告」 */
+export function NoticeLine({ publishedAt, closingAt, noticeUrl }: { publishedAt: string | null; closingAt: string | null; noticeUrl: string | null }) {
+  return (
+    <p className="mt-0.5 text-[11px] text-muted" data-testid="notice-line">
+      发布 {publishedAt ?? "未知"} · 截标 {closingAt ? formatLocal(closingAt) : "未知"}
+      {noticeUrl ? (
+        <>
+          {" · "}
+          <a href={noticeUrl} target="_blank" rel="noreferrer noopener" className="text-accent underline" data-testid="notice-link">
+            {NOTICE_LINK_ZH}
+          </a>
+        </>
+      ) : null}
+    </p>
   );
 }

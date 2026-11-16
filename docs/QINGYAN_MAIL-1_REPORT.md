@@ -6,6 +6,7 @@
 | TASKFLOW | MAIL-1（Phase M「邮箱助手」） |
 | 任务书 | `docs/QINGYAN_MAIL-1_MAILBOX_ASSISTANT_TASKBRIEF.md`（判断点 1–7 已于 2026-11-14 拍板） |
 | 分支 | `claude/vibrant-mccarthy-2low2g`（从 main `dd0e99d` 开） |
+| 状态 | #455，2026-11-15 合并；archive `openspec/changes/archive/2026-11-15-mail-read-tools`；主规格 `openspec/specs/mail/assistant-read/spec.md`（19 条要求）。合并后补记：岗位模式下只有销售岗位的成员打不开 `/assistant`（VIS-1 判断点 5，路由门重定向到销售首页），所以这类成员目前在网页上用不了读信；§6「Lynn」一组是直接调消息接口验证的，没有覆盖页面这一层。2026-11-15 拍板：维持现状，网页读信只对能打开助手页的人可用（见 `docs/QINGYAN_MAIL-2_REPORT.md` §3.1）。开关默认关，线上暂无影响 |
 | 开关 | 新增环境变量 `MAIL_READ_ENABLED`，**默认关**。合并后不设它，线上零变化 |
 | 性质 | 新能力。零 schema、零出站、零新增模型调用、不新增定时任务或队列；`vercel.json` 与 Prisma schema 无 diff |
 
@@ -177,6 +178,10 @@ A1 的比较方式：两边都去掉空白与行首引用符（`>`）之后比�
 ## 9. 发现（都不在本 change 里改，需要另行决定）
 
 1. **助手回复里的图片会被浏览器自动加载。** 网页助手用 Markdown 渲染回复，没有限制图片来源，也没有内容安全策略。一封带指令的邮件如果让模型在回复里插入一张地址里夹着数据的图片，浏览器会去请求那个地址，数据就出去了，不需要用户点任何东西。这是把外部内容交给模型之后的常见外泄途径，对已有的附件也成立，读信让它更现实。本 change 只在固定规则里加了一句「回复里不插入图片、不把邮件里的链接做成可点击的链接」，这靠模型自觉，不是确定性的。**建议在生产打开 `MAIL_READ_ENABLED` 之前**，把助手回复里的外部图片改成不自动加载（聊天面板的图片渲染，约十几行）。
+   **2026-11-15 补记：这条路已由 change `ai-markdown-image-allowlist` 关闭（合并并部署之后生效）。** 关的范围比上面估的大：仓库里按 Markdown 渲染模型输出的页面一共五处（助手对话、外贸对话、市场情报监测详情与手动分析、标讯情报卡），全部改用同一个渲染组件。图片只显示站内文件代理（`/api/files/`）之下的地址，其余一律不生成图片元素，原位置显示一行不可点击的提示（「图片未加载」+ 替代文字 + 主机名）；`![x](/api/auth/logout)` 这类指向站内其它接口的写法同样拦下。外部链接仍可点击，改为新标签页打开、不带来源页，链接文字里没有主机名时在后面显示主机名。规则是纯函数，没有开关，不依赖 `MAIL_READ_ENABLED`。真实页面实测：同一条带四张外部图片的助手消息，改动前浏览器向外部主机发出 4 个请求（查询串原样带出），改动后 0 个，见 `docs/acceptance/ai-markdown-image-allowlist/browser-acceptance.txt`。主规格归档后在 `openspec/specs/agents/ai-output-rendering/spec.md`。
+   **没有关的两处（另行决定）：** ① AI 起草的邮件 HTML 预览（`project-question-dialog.tsx`、`ai-alert-panel.tsx`）走的是 `src/lib/common/sanitize.ts`，净化规则允许 `img` 与 `style`，按代码看存在同一类自动加载，没有做浏览器实测；它们不读邮件正文，与读信开关没有直接关系。② 全站仍然没有内容安全策略。
+   **2026-11-16 补记：① 已由 change `ai-html-preview-no-autoload` 关闭（合并并部署之后生效）。** `sanitizeHtml` 的图片规则与 Markdown 渲染统一（只放行站内文件代理），内联样式里能加载资源的声明去掉，没有浏览器环境时不再原样返回。真实浏览器里对照过：改动前外部图片与背景图各发出 1 个外部请求，改动后为 0。② 全站内容安全策略仍然没有。`iframe` 预览已逐处核对（2026-11-16），结论是没有发现注入路径、不需要改：仓库里一共 6 个 `iframe`，其中 2 个用 `src` 指向站内地址（报价 PDF、粗报价工具），4 个用 `srcDoc`（3 个文件）——① `revenue/[id]/page.tsx` 的邮件效果：HTML 只由 `src/lib/revenue-spine/email-layout.ts` 的两个渲染函数生成，所有文字（含模型润色过的正文）逐行经 `escapeHtml`；图片与链接地址来自企业自己维护的发信档案与款号参考表，并限定为 `https://`（`safeUrl`），主色限定为 `#RRGGBB`；② `settings/email/email-profile-card.tsx` 的样例邮件：同一套模板加样例数据；③ `accounting/warranty-panel.tsx` 的质保邮件与证书（2 个）：没有模型写的文字，所有取值经 `esc`，模板里没有图片。这些预览会加载的外部资源只有企业自己配置的 Logo 与款式图片。没有核对的：有没有别的接口能把客户端传来的 HTML 写进待审批动作的载荷（只查了 `src/app/api/revenue` 下的路由）。
+   **2026-11-16 再补记：② 已由 change `site-csp-baseline` 加上基线（#510，2026-11-16 合并；主规格 `platform/content-security-policy`；部署之后生效）。** 全部页面带内容安全策略响应头：不许被别的网站嵌套，嵌入框架、浏览器脚本的网络请求、音视频、字体只到站内，禁用插件对象，表单与基准地址只到站内。**这一版不限制图片、脚本、样式的来源**——页面上的外部图片照常加载，「图片外泄」这条途径靠的仍是 #486、#499 在渲染时的拦截，不是这条策略；要让策略兜住图片，得先把企业 Logo、头像、面料目录等存任意地址的字段收回到站内。另外文件代理（`/api/files/`）的响应除 PDF 外放进沙箱：盘点时发现 `product-content` 上传接口不限制文件类型，传进去的网页被别的成员直接打开时脚本会以青砚站点的身份执行，本地实测确认后用沙箱挡住（上传侧的类型限制没有改）。出问题时 `CSP_MODE=report-only` 或 `off` 重新部署即可退回。本地巡检 22 个页面无违规（开发服务器与本地生产构建各一遍）；Vercel 的预览与生产部署、带 PDF 嵌入框架的公开报价页没有实测。详见 `openspec/changes/archive/2026-11-16-site-csp-baseline/design.md` 与 `docs/acceptance/site-csp-baseline/`。
 2. **三个 `l2_soft` 工具直接写库**（§4 第一行）。B1 只挡住了「读过邮件的那一轮」。不读邮件时，它们照旧不经审批卡直接建报价、建预约、记跟进。
 3. **写入封锁只管同一轮。** 助手上一轮的摘要文字会进入下一轮上下文，里面可能转述了邮件里的要求。下一轮由用户的新消息触发，外发动作仍须审批卡，但上面第 2 点的三个工具在下一轮不受限。
 4. **梦馨用平台代发时没有 Google 卡片。** `/settings/email` 在平台代发模式下不显示 Google 连接区，「读信权限」一项也随之不显示；这类账号没有绑定个人 Gmail，助手会回 `MAIL_NOT_CONNECTED`。Sunny 不受影响。
@@ -203,6 +208,7 @@ A1 的比较方式：两边都去掉空白与行首引用符（`>`）之后比�
 2. Sunny 成员的邮箱是否都在同一个 Google Workspace 下。
 3. 早期只授权了撰写权限的账号，在 `/settings/email` 重新授权一次。
 4. 决定 §9 第 1 点（外部图片）要不要先修。
+   2026-11-15 补记：已修，change `ai-markdown-image-allowlist`（见 §9 第 1 点的补记）。这一项在该 change 的 PR 合并并部署到生产之后才算满足；本节其余三项不变。
 
 **staging 验收（合并后，开 `MAIL_READ_ENABLED`，一个测试邮箱）**：§6 三张表「未验证的部分」一栏逐条跑一遍，尤其是 L1（真实模型是否主动调用）、L5（真实模型读带指令的邮件）、P2–P3（真实的重新授权流程）。同时确认 `messages.get(format=metadata)` 的响应里带不带 `snippet`、带不带分段——这两点本次没有连 Google 实测，按文档的理解实现；若不带 `snippet`，搜索结果的摘要是空串，功能不受影响。
 

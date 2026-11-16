@@ -25,6 +25,7 @@ import {
   ListChecks,
   MessageSquare,
   Package,
+  Mail,
   MailCheck,
   MailWarning,
   AlarmClock,
@@ -229,6 +230,7 @@ const NTYPE_ICONS: Record<string, typeof Bell> = {
   rfq_reply_received: MessageSquare,
   rfq_chase_ready: AlarmClock,
   rfq_no_response: MailWarning,
+  mail_inbound: Mail,
 };
 
 /* ── Notification Panel ── */

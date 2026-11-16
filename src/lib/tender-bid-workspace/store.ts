@@ -6,6 +6,7 @@
  * 这里只有非财务内容（见 contract.ts 文件头）。
  */
 import { Prisma } from "@prisma/client";
+import { patchRoomSummaryTx } from "@/lib/tender-room/summary-json";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit/logger";
 import { BID_WORKSPACE_KEY, blocksIn, mergeWorkspace, readStoredWorkspace, type SaveWorkspaceRequest, type StoredWorkspace } from "./contract";
@@ -66,14 +67,18 @@ export async function saveWorkspaceBlocks(input: {
   const now = input.now ?? new Date();
   await ensureRoom(input.projectId, input.orgId);
   return db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "BidIntelligenceRoom" WHERE "projectId" = ${input.projectId} FOR UPDATE`;
-    const room = await tx.bidIntelligenceRoom.findUniqueOrThrow({ where: { projectId: input.projectId }, select: { id: true, summaryJson: true } });
-    const sj = ((room.summaryJson as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
-    const next = mergeWorkspace(readStoredWorkspace(sj), input.request, input.userId, now);
-    await tx.bidIntelligenceRoom.update({
-      where: { id: room.id },
-      data: { summaryJson: { ...sj, [BID_WORKSPACE_KEY]: next } as unknown as Prisma.InputJsonValue },
+    // FIX-11：与报价引擎、报价表助手拿同一把项目行锁（原来锁的是房间行，报价同步读房间时不锁它，仍会把价格表冲掉）；
+    // 锁住后重读，只设 bidWorkspace
+    let next!: StoredWorkspace;
+    const written = await patchRoomSummaryTx(tx, {
+      projectId: input.projectId,
+      patch: (latest) => {
+        next = mergeWorkspace(readStoredWorkspace(latest), input.request, input.userId, now);
+        return { set: { [BID_WORKSPACE_KEY]: next } };
+      },
     });
+    if (!written) throw new Error("bid workspace room missing");
+    const room = { id: written.roomId };
     await writeAuditLog(tx, {
       userId: input.userId,
       orgId: input.orgId,

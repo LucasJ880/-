@@ -56,6 +56,8 @@ export type RfqEntryView =
       followUp: RfqEntryFollowUp | null;
       /** RFQ-AUTO-2：由系统起草的轮次（inquiryId → 卡上的那句说明）；开关关闭时没有这个字段 */
       autoDraftedRounds?: Record<string, { noteZh: string }>;
+      /** FLOW-H3：起草之后招标分析更新过的轮次（inquiryId → 提示）；开关关闭时没有这个字段 */
+      analysisUpdateNotes?: Record<string, { noteZh: string }>;
       /** RFQ-AUTO-3：本人的开关「自动起草的轮次带跟进授权」；两个功能开关任一关闭时没有这个字段 */
       autoDraftFollowUp?: { state: "off" | "on" | "lapsed"; available: boolean };
       /** RFQ-AUTO-5：本人的供应商分组与这个项目对上了哪一组；功能关闭时没有这个字段 */

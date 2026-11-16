@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { UNCONFIRMED_BASIS_DRAFT_NOTE_ZH } from "@/lib/tender-decision-gates/gates";
 
 type Payload = {
   runId: string | null;
@@ -21,9 +22,34 @@ type Payload = {
     forbiddenHits: number;
     requirementCount: number;
     internalNotesZh: string[];
+    /** FLOW-H5：起草所用的分析当时是否已批准（开关开着时起草的才有） */
+    basedOnApprovedAnalysis?: boolean;
   } | null;
   latestDoc: { id: string; createdAt: string; version: number } | null;
+  /** FLOW-H5：开关开着时才有 */
+  gates?: BidDraftGates;
 };
+
+/** FLOW-H5：起草元信息接口返回的提醒（开关开着时才有） */
+export type BidDraftGates = { noGoZh: string | null; pendingAnalysisZh: string | null };
+
+/** FLOW-H5：起草卡片上的提醒与标注（只提醒，不拦）。没有就不渲染 */
+export function BidDraftGateNotes({ gates, basedOnApprovedAnalysis }: { gates?: Payload["gates"]; basedOnApprovedAnalysis?: boolean }) {
+  const lines: Array<{ key: string; text: string }> = [];
+  if (gates?.noGoZh) lines.push({ key: "nogo", text: gates.noGoZh });
+  if (gates?.pendingAnalysisZh) lines.push({ key: "pending", text: gates.pendingAnalysisZh });
+  if (gates && basedOnApprovedAnalysis === false) lines.push({ key: "basis", text: UNCONFIRMED_BASIS_DRAFT_NOTE_ZH });
+  if (lines.length === 0) return null;
+  return (
+    <ul className="mt-2 space-y-1 text-[11px] text-amber-800" data-testid="bid-draft-gate-notes">
+      {lines.map((l) => (
+        <li key={l.key} data-note={l.key}>
+          {l.text}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function BidDraftCard({ projectId, canManage }: { projectId: string; canManage: boolean }) {
   const [data, setData] = useState<Payload | null>(null);
@@ -84,6 +110,7 @@ export function BidDraftCard({ projectId, canManage }: { projectId: string; canM
         合规矩阵已标 {data.markedCount}/{data.requirementCount} 条
         {unmarked > 0 ? `——未标的 ${unmarked} 条在草稿中会是 [TO CONFIRM] 占位，建议先标矩阵再起草` : "——全部已标"}
       </p>
+      <BidDraftGateNotes gates={data.gates} basedOnApprovedAnalysis={data.draft?.basedOnApprovedAnalysis} />
       {data.draft ? (
         <div className="mt-2 rounded-lg border border-border/60 px-3 py-2 text-xs">
           <p className="text-foreground/85">

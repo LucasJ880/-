@@ -35,6 +35,7 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   dispatch_project: "分派项目",
   // FLOW-H1c（tender/stage-auto.ts）
   "tender.stage.auto_advance": "阶段记录自动前进",
+  "procurement_instrument.follow_tender": "跟进新标",
   // 审批生命周期（capabilities/approvals/decision.ts、pending-actions/*）
   APPROVAL_CREATED: "发起审批",
   APPROVAL_APPROVED: "批准",

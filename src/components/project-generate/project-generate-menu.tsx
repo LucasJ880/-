@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FileDown, Loader2, ChevronDown, ExternalLink, Download } from "lucide-react";
 import { apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
+import { BidDraftGateNotes, type BidDraftGates } from "@/components/tender/bid-draft-card";
 
 const OPTIONS = [
   { docType: "analyst_memo", label: "投标分析师备忘录 PDF（事实+标准展开+市场基准+GO/NO-GO）" },
@@ -61,6 +62,7 @@ export function ProjectGenerateMenu({
   const [docs, setDocs] = useState<GenDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [progressZh, setProgressZh] = useState<string | null>(null);
+  const [draftGates, setDraftGates] = useState<BidDraftGates | undefined>(undefined);
 
   const load = async () => {
     try {
@@ -71,6 +73,8 @@ export function ProjectGenerateMenu({
     } catch {
       setDocs([]);
     }
+    // FLOW-H5：起草元信息里的提醒（开关关闭时没有 gates，什么都不显示）
+    apiJson<{ gates?: BidDraftGates }>(`/api/projects/${projectId}/bid-draft`).then((r) => setDraftGates(r.gates)).catch(() => setDraftGates(undefined));
   };
 
   useEffect(() => {
@@ -129,8 +133,8 @@ export function ProjectGenerateMenu({
           {open ? (
             <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-border bg-card py-1 shadow-md">
               {OPTIONS.map((o) => (
+                <div key={o.docType}>
                 <button
-                  key={o.docType}
                   type="button"
                   disabled={!!busy}
                   onClick={() => void generate(o.docType)}
@@ -144,6 +148,9 @@ export function ProjectGenerateMenu({
                   ) : null}
                   {o.label}
                 </button>
+                {/* FLOW-H5：投标文件起草的 No-Go 提醒与「当前分析还没批准」的提示（开关开着时接口才返回；只提醒，不拦） */}
+                {o.docType === "bid_draft" ? <div className="px-3 pb-2"><BidDraftGateNotes gates={draftGates} /></div> : null}
+                </div>
               ))}
             </div>
           ) : null}

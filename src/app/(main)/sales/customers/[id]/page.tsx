@@ -18,11 +18,14 @@ import {
   Trash2,
   Pencil,
   ImageIcon,
+  Reply,
 } from "lucide-react";
+import { inboxReplyHref } from "@/lib/trade/reply-target";
 import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
+import { useNavigationAccess } from "@/lib/navigation/use-navigation-access";
 import { useAppScrollLock } from "@/lib/mobile/use-app-scroll-lock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,6 +158,10 @@ function CustomerDetailPageInner() {
   const [showImportConvo, setShowImportConvo] = useState(false);
   const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
   const [emailReady, setEmailReady] = useState<boolean | null>(null);
+  // MAIL-2：读信开关开着时，来信观察建的时间线条目才显示「让助手读这封信」
+  const [mailReadEnabled, setMailReadEnabled] = useState(false);
+  // 入口链到助手页：助手页对本人不放行时（路由门会重定向走）不显示
+  const canOpenAssistant = useNavigationAccess().canOpen("/assistant");
   const [activeActions, setActiveActions] = useState<SalesActionDto[]>([]);
   useAppScrollLock(!!sendingEmailFor, "customer-send-email-overlay");
   const [deleting, setDeleting] = useState(false);
@@ -230,7 +237,7 @@ function CustomerDetailPageInner() {
     const [emailResult, actionResult] = await Promise.all([
       apiFetch("/api/sales/email-status")
         .then(async (response) => response.ok
-          ? response.json() as Promise<{ activeChannel?: "gmail" | "smtp" | null }>
+          ? response.json() as Promise<{ activeChannel?: "gmail" | "smtp" | null; mailRead?: { enabled: boolean } }>
           : null)
         .catch(() => null),
       apiFetch(`/api/sales/actions?status=active&customerId=${encodeURIComponent(id)}`)
@@ -240,6 +247,7 @@ function CustomerDetailPageInner() {
         .catch(() => null),
     ]);
     setEmailReady(emailResult ? Boolean(emailResult.activeChannel) : null);
+    setMailReadEnabled(emailResult?.mailRead?.enabled === true);
     setActiveActions(actionResult?.actions ?? []);
   }, [id]);
 
@@ -472,6 +480,9 @@ function CustomerDetailPageInner() {
   }
 
   if (!customer) return null;
+
+  // NAV-1c：互动按时间倒序，第一条带回复目标的就是最近一条能回复的买家来信
+  const latestReplyTarget = customer.interactions.find((i) => i.replyTarget)?.replyTarget ?? null;
 
   const canEditBasicInfo =
     !userLoading &&
@@ -1073,6 +1084,16 @@ function CustomerDetailPageInner() {
         <div className="ml-auto hidden md:flex items-center gap-2">
           {activeTab === "timeline" && (
             <>
+              {/* NAV-1c：最近一条能回复的买家来信 → 询盘收件箱的回复窗口；没有则不出现 */}
+              {latestReplyTarget && (
+                <Link
+                  href={inboxReplyHref(latestReplyTarget)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-border bg-card-bg/80 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent-soft transition-colors"
+                >
+                  <Reply className="h-3.5 w-3.5" />
+                  回复客户
+                </Link>
+              )}
               <button
                 onClick={() => setShowImportConvo(true)}
                 disabled={orgCreateBlocked}
@@ -1135,7 +1156,12 @@ function CustomerDetailPageInner() {
 
       <div {...swipeHandlers}>
         {activeTab === "timeline" && (
-          <InteractionTimeline interactions={customer.interactions} />
+          <InteractionTimeline
+            interactions={customer.interactions}
+            customerName={customer.name}
+            mailReadEnabled={mailReadEnabled}
+            assistantOpen={canOpenAssistant}
+          />
         )}
         {activeTab === "quotes" && (
           <QuotesList

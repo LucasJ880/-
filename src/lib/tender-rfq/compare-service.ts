@@ -10,12 +10,12 @@ import { db } from "@/lib/db";
 import { ITEM_STATUS } from "@/lib/inquiry/types";
 import { buildCompareMatrix, type CompareInput, type CompareMatrix } from "./compare";
 import { rfqContextFromBody } from "./inbound-contract";
-import { normalizeQuote, projectOverrides, readLandedCostSettings } from "./landed-cost";
+import { normalizeQuote, projectOverrides, readLandedCostSettings, type NormalizedQuote } from "./landed-cost";
 import { parseAutoNotes } from "./notes-parse";
 import { TENDER_SEND_RFQ_TYPE } from "./types";
 
 export type LoadCompareMatrixResult =
-  | { ok: true; matrix: CompareMatrix; projectId: string; projectName: string; inquiryId: string; roundNumber: number; closeDate: string | null }
+  | { ok: true; matrix: CompareMatrix; projectId: string; projectName: string; inquiryId: string; roundNumber: number; closeDate: string | null; firstTierQty: number | null; normalizedByItemId?: Record<string, NormalizedQuote> }
   | { ok: false; errorCode: "PROJECT_NOT_FOUND" | "NO_INQUIRY" | "NO_QUOTES"; message: string; inquiryId?: string; roundNumber?: number };
 
 const toNum = (v: unknown): number | null => {
@@ -30,6 +30,8 @@ export async function loadCompareMatrix(input: {
   orgId?: string;
   inquiryId?: string | null;
   now?: Date;
+  /** 报价表助手（FLOW-H2）要逐项金额：按条目返回换算结果。其它调用方不传，返回与原来相同 */
+  includeNormalized?: boolean;
 }): Promise<LoadCompareMatrixResult> {
   const now = input.now ?? new Date();
   const project = await db.project.findFirst({
@@ -117,5 +119,7 @@ export async function loadCompareMatrix(input: {
     inquiryId: inquiry.id,
     roundNumber: inquiry.roundNumber,
     closeDate: project.closeDate ? project.closeDate.toISOString().slice(0, 10) : null,
+    firstTierQty: rfq.firstTierQty,
+    ...(input.includeNormalized ? { normalizedByItemId: Object.fromEntries(inputs.map((q) => [q.itemId, q.normalized])) } : {}),
   };
 }

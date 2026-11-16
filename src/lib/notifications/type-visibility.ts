@@ -53,6 +53,8 @@ export const NOTIFICATION_TYPE_ENTRIES: Readonly<Record<string, readonly string[
   install_repair_closed: INSTALL_FAMILY,
   install_repair_overdue: INSTALL_FAMILY,
   order_stage: ["/blinds-orders/_"],
+  // MAIL-2：点开到客户详情
+  mail_inbound: ["/sales/customers/_"],
 };
 
 export type NotificationFilterOption = { key: string; label: string; entries: readonly string[] };
@@ -68,6 +70,7 @@ export const NOTIFICATION_FILTER_OPTIONS: readonly NotificationFilterOption[] = 
   { key: "project_update", label: "项目更新", entries: NOTIFICATION_TYPE_ENTRIES.project_update },
   { key: "project_dispatched", label: "项目分发", entries: [PROJECT_DETAIL] },
   { key: "quote_promotion_approval", label: "报价让利审核", entries: ["/sales/quote-sheet"] },
+  { key: "mail_inbound", label: "客户来信", entries: NOTIFICATION_TYPE_ENTRIES.mail_inbound },
 ];
 
 export const ALL_TYPES_FILTER = { key: "", label: "全部类型" } as const;

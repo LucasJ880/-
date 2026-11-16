@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { AiMarkdown } from "@/components/ai-markdown";
 import {
   ExternalLink,
   Shield,
@@ -284,9 +283,9 @@ function FullReportSection({
         <div className="border-t border-border/60 px-4 py-4">
           {reportMd ? (
             <article className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-foreground/80 prose-li:text-foreground/80 prose-strong:text-foreground prose-table:text-sm prose-th:bg-accent/5 prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 prose-blockquote:border-accent/30 prose-blockquote:text-muted">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <AiMarkdown>
                 {reportMd}
-              </ReactMarkdown>
+              </AiMarkdown>
             </article>
           ) : hasStructuredContent && report ? (
             <FullReportInline report={report} />

@@ -17,7 +17,7 @@ import {
   TRADE_READ_KEYS,
   requireTradePermission,
 } from "@/lib/trade/access";
-import { mergeNormalizedProspectStageCounts, type TradeProspectStage } from "@/lib/trade/stage";
+import { mergeNormalizedProspectStageCounts, TRADE_PROSPECT_STAGE_LABELS, type TradeProspectStage } from "@/lib/trade/stage";
 
 export async function GET(request: NextRequest) {
   const auth = await requireTradePermission(request, TRADE_READ_KEYS);
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
     },
     {
       stage: "replied",
-      label: "已回复",
+      label: TRADE_PROSPECT_STAGE_LABELS.replied,
       count: sumStages(["replied", "quoted", "follow_up", "converted"]),
     },
     { stage: "converted", label: "成交", count: stageMap.converted },

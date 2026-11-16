@@ -82,8 +82,16 @@ npx tsx src/lib/tender-intel/__tests__/intel-ops.test.ts
 npx tsx src/lib/tender-understanding/__tests__/taxonomy-p2.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts
 npx tsx src/lib/tender-pricing/__tests__/pricing-helper.test.ts
+NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-save-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-lock-db.isolated.test.ts
+npx tsx src/lib/tender-room/__tests__/summary-json.test.ts
+NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-merge-db.isolated.test.ts
+npx tsx src/lib/tender-room/__tests__/summary-write-guard.test.ts
+NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-writers-db.isolated.test.ts
 npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts
+npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-decision-gates/__tests__/decision-gates-db.isolated.test.ts
 npx tsx src/lib/tender-compliance-memory/__tests__/compliance-memory.test.ts
 npx tsx src/lib/tender-profile/__tests__/tender-profile.test.ts
 npx tsx src/lib/quote-engine/__tests__/quote-calc.test.ts
@@ -185,6 +193,8 @@ npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge-gate.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-semantic-judge.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-recovery-select.test.ts
 npx tsx src/lib/autopilot/__tests__/a2p2-recovery-loop.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-exception-envelope.test.ts
+npx tsx src/lib/autopilot/__tests__/a2p2-a2-closure-matrix.test.ts
 npx tsx src/lib/agent-core/__tests__/run-hooks.test.ts
 npx tsx src/lib/agent-runtime/__tests__/sequence-retry.test.ts
 npx tsx src/lib/marketing/__tests__/sales-digital-employee-access.test.ts
@@ -239,6 +249,7 @@ npx tsx src/lib/tender-bid-draft/__tests__/b4-memory-gate.isolated.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel-static.test.ts
 npx tsx src/lib/agent-runtime/__tests__/b5-supervisor-cancel.isolated.test.ts
 npx tsx src/lib/agent-runtime/__tests__/concurrency-slot-release.isolated.test.ts
+npx tsx src/lib/agent-runtime-v2/__tests__/legacy-followup-safety.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2c-tool-policy.test.ts
 npx tsx src/lib/mention-gateway/__tests__/m2a-identity-policy.test.ts
 # Supplier Intelligence M1-S1（DB 套件无 DATABASE_URL 时自跳过）
@@ -348,6 +359,12 @@ npx tsx src/lib/authorization/__tests__/platform-role-collapse.test.ts
 npx tsx src/lib/authorization/__tests__/residual-reads.test.ts
 npx tsx src/lib/trade/__tests__/trade-access.test.ts
 npx tsx src/lib/trade/__tests__/trade-recipients.test.ts
+# NAV-1c（openspec change nav-1c-reply-entry）：回复入口——纯函数 + 源码断言，无 DB
+npx tsx src/lib/trade/__tests__/reply-entry.test.ts
+# NAV-6（openspec change nav-6-inbox-reply-clarity）：阶段显示名、收件箱说法、回复能力标记——纯函数 + 源码断言，无 DB
+npx tsx src/lib/trade/__tests__/reply-clarity.test.ts
+# NAV-3（openspec change nav-3-approval-draft-editable）：审批草稿可改——纯函数 + 源码断言，无 DB
+npx tsx src/lib/trade/__tests__/approval-draft-edit.test.ts
 npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts
 npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts
 npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts
@@ -416,6 +433,11 @@ npx tsx src/lib/mail-read/__tests__/mail-read-pure.test.ts
 npx tsx src/lib/agent-core/__tests__/mail-tool-visibility.test.ts
 npx tsx src/lib/agent-core/tools/__tests__/mail-tools.test.ts
 npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts
+npx tsx src/lib/ai-markdown/__tests__/url-policy.test.ts
+npx tsx src/components/__tests__/ai-markdown.test.tsx
+npx tsx src/lib/common/__tests__/sanitize-html.test.ts
+npx tsx src/lib/security/__tests__/csp.test.ts
+npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
 npx tsx src/lib/notifications/__tests__/collab-wiring.test.ts
@@ -424,6 +446,19 @@ npx tsx src/lib/notifications/__tests__/collab-email-digest.test.ts
 # PROC-1（openspec change procurement-records-requests）：采购监控 / 资料申请 / 披露分析——纯函数，无 DB、无网络
 npx tsx src/lib/procurement-records/__tests__/procurement-pure.test.ts
 npx tsx src/lib/procurement-records/__tests__/records-request-pure.test.ts
+# P2-3a（openspec change tender-notice-follow）：采购监控「跟这个标」
+npx tsx src/lib/procurement-records/__tests__/tender-follow-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/tender-follow-db.isolated.test.ts
+# P2-1（openspec change tender-notice-daily-view）：新标视图与扫描时间
+npx tsx src/lib/procurement-records/__tests__/new-notices-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/new-notices-db.isolated.test.ts
+npx tsx src/lib/procurement-records/__tests__/notice-brief-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/notice-brief-db.isolated.test.ts
+npx tsx src/lib/procurement-records/__tests__/fit-score-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/fit-score-db.isolated.test.ts
+# P2-1b（openspec change canadabuys-closing-tz）：CanadaBuys 截标时间按东部当地时间
+npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts
 npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
 
 # P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
@@ -443,6 +478,16 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.t
 npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts
 npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts
+npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/settings-form-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings.test.tsx
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/rfq-timing-settings-db.isolated.test.ts
 npx tsx src/lib/organizations/__tests__/settings-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/settings-write-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/organizations/__tests__/org-row-lock-db.isolated.test.ts

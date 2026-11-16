@@ -65,6 +65,9 @@ function entityHref(item: NotificationLinkTarget): string | null {
       return id && `/sales/visualizer/${id}`;
     case "revenue_opportunity":
       return id && `/revenue/${id}`;
+    // 采购监控「今日新标」早报（P2-3b）：采购监控的新标视图
+    case "procurement_new_notices":
+      return "/projects/intelligence/monitor?view=new";
     default:
       return null;
   }
@@ -91,6 +94,7 @@ const ORG_SCOPED_ENTITY_TYPES = new Set([
   "sales_customer",
   "sales_actions",
   "visualizer_session",
+  "procurement_new_notices",
 ]);
 
 export function notificationOrgToRemember(item: NotificationLinkTarget): string | null {
