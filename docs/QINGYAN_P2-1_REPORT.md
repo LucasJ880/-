@@ -54,7 +54,17 @@ PROC-1 已经从 CanadaBuys 官方开放数据拉新标、按组织关键词筛�
 
 截图里的发布日期是审查前的写法（演示数据带时刻，所以没有显示出退一天的问题）；审查后改为按日历日期原样显示，测试覆盖。
 
-**门禁**：见 PR。
+**门禁**
+
+| 门禁 | 结果 |
+|---|---|
+| `npm run test:ci` | `CI unit subset PASS`（本机，CI 的环境变量） |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS |
+| `bash scripts/check-test-registry.sh` | OK |
+| `bash scripts/test-runtime-architecture.sh` | PASS |
+| `openspec validate tender-notice-daily-view --strict` | valid |
+| `next build --webpack`（本地，CI 的环境变量） | 退出码 0 |
 
 ## 5. 独立审查
 
@@ -79,7 +89,7 @@ PROC-1 已经从 CanadaBuys 官方开放数据拉新标、按组织关键词筛�
 
 ## 7. 已知限制
 
-- **截标时间时区（既有，下一个 change）**：见 §5 M1。修好之前，CanadaBuys 公告的截标时间显示早 4–5 小时，当天截标的会提前从新标里消失、提前不能跟。
+- **截标时间时区（既有，下一个 change）**：见 §5 M1。修好之前，CanadaBuys 公告的截标时间显示早 4–5 小时，当天截标的会提前从新标里消失、提前不能跟。2026-11-16 只读核对了 CanadaBuys 在招公告 CSV 的前 537 行：截标时间全是 `YYYY-MM-DDTHH:MM:SS`、不带时区，多为 14:00 / 13:00 这类整点（东部当地时间的写法），证实了这个问题。
 - 新标视图最多 100 条（沿用候选列表上限）。
 - 改成每天后每天多拉一次两个 CSV（上限 60 MB、30 秒），仍由既有 cron 执行。
 
