@@ -440,6 +440,9 @@ npx tsx src/lib/procurement-records/__tests__/records-request-pure.test.ts
 # P2-3a（openspec change tender-notice-follow）：采购监控「跟这个标」
 npx tsx src/lib/procurement-records/__tests__/tender-follow-pure.test.ts
 NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/tender-follow-db.isolated.test.ts
+# P2-1b（openspec change canadabuys-closing-tz）：CanadaBuys 截标时间按东部当地时间
+npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts
 npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
 
 # P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）

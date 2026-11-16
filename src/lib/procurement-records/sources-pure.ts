@@ -16,6 +16,7 @@
  * - Completed ATI 摘要（CKAN）：request_number / summary_en / disposition / pages / owner_org_title / year / month。
  */
 
+import { zonedWallTimeToUtc } from "./schedule";
 import { createHash } from "node:crypto";
 import {
   normalizeInstitutionKey,
@@ -220,6 +221,25 @@ function toIsoInstant(v: unknown): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+/**
+ * CanadaBuys 截标时间 → ISO（P2-1b）：CSV 写成 `2026-12-15T14:00:00`、不带时区，是东部当地时间；
+ * 按 America/Toronto 换算（夏令时由 zonedWallTimeToUtc 处理），不依赖运行进程的时区。
+ * 带 Z / ±HH:MM 的照原样；只有日期的照旧（UTC 零点）；解析不了 → null。
+ */
+export const CANADABUYS_TIMEZONE = "America/Toronto";
+export function canadaBuysInstant(v: unknown): string | null {
+  const s = str(v);
+  if (!s) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/.exec(s);
+  if (m) {
+    const hour = Number(m[2]), minute = Number(m[3]), second = m[4] ? Number(m[4]) : 0;
+    if (hour > 23 || minute > 59 || second > 59) return null;
+    const t = zonedWallTimeToUtc(m[1], hour, minute, CANADABUYS_TIMEZONE);
+    return Number.isNaN(t.getTime()) ? null : new Date(t.getTime() + second * 1000).toISOString();
+  }
+  return toIsoInstant(s);
+}
+
 /** 金额文本 → 规范十进制字符串（保留原精度；无法解析 → null，绝不给 0） */
 export function toDecimalString(v: unknown): string | null {
   const s = str(v);
@@ -321,7 +341,7 @@ export function parseCanadaBuysNoticesCsv(text: string): CanadaBuysParse {
       buyingInstitution: get(row, "endUser"),
       vendorName: null,
       publishedAt: toIsoInstant(get(row, "publicationDate")),
-      closingAt: toIsoInstant(get(row, "closingDate")),
+      closingAt: canadaBuysInstant(get(row, "closingDate")),
       awardDate: null,
       periodEnd: null,
       contractValue: null,
