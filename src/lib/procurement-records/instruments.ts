@@ -17,6 +17,7 @@ import {
   type InstitutionKey,
 } from "./identity";
 import { computePriority } from "./priority";
+import { syncProjectMilestoneCalendars } from "@/lib/projects/sync-milestone-calendar";
 import { atiMentionsNumber, recordContentHash, stableHash, type AtiSummary, type NormalizedRecord } from "./sources-pure";
 import type { KeywordMatch } from "./watch-config";
 import type { KnownInstrumentRef, PageSnapshot } from "./source-fetch";
@@ -197,7 +198,7 @@ export async function upsertInstrumentFromRecord(input: {
 
   let instrument = await db.procurementInstrument.findUnique({
     where: { orgId_dedupeKey: { orgId, dedupeKey } },
-    select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true },
+    select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true, closingAt: true },
   });
   let created = false;
   let flagged = false;
@@ -263,14 +264,14 @@ export async function upsertInstrumentFromRecord(input: {
           origin: input.origin ?? "SCAN",
           createdById: input.createdById ?? null,
         },
-        select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true },
+        select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true, closingAt: true },
       });
       created = true;
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       instrument = await db.procurementInstrument.findUnique({
         where: { orgId_dedupeKey: { orgId, dedupeKey } },
-        select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true },
+        select: { id: true, aliasesJson: true, title: true, parentInstrumentId: true, contractingInstitution: true, buyingInstitution: true, closingAt: true },
       });
       if (!instrument) throw err;
     }
@@ -321,6 +322,11 @@ export async function upsertInstrumentFromRecord(input: {
     if (evidenceChanged) data.lastChangedAt = now;
     if (input.match) data.matchJson = { ...input.match, parentNumber: r.parentNumber } as unknown as Prisma.InputJsonValue;
     await db.procurementInstrument.update({ where: { id: instrument.id }, data });
+    // P2-1b：截标时间被来源改正（或延期）时，关联为「本项目」、截标日仍等于旧值（没人手改过）的项目跟着改
+    const newClosing = r.closingAt ? d(r.closingAt) : null;
+    if (newClosing && instrument.closingAt && newClosing.getTime() !== instrument.closingAt.getTime()) {
+      await syncLinkedProjectCloseDates({ orgId, instrumentId: instrument.id, from: instrument.closingAt, to: newClosing });
+    }
   }
 
   if (parentId) {
@@ -450,4 +456,21 @@ export async function recomputePriority(instrumentId: string, now: Date) {
     data: { priorityJson: { ...p, computedAt: now.toISOString() } as unknown as Prisma.InputJsonValue },
   });
   return p;
+}
+
+/**
+ * P2-1b：公告截标时间变了 → 关联为「本项目」的项目，截标日仍等于旧值的跟着改，并同步里程碑日程。
+ * 项目截标日已被人改成别的值的不动（以人为准）。日程同步失败不影响扫描。
+ */
+export async function syncLinkedProjectCloseDates(input: { orgId: string; instrumentId: string; from: Date; to: Date }): Promise<string[]> {
+  const links = await db.procurementTenderLink.findMany({ where: { orgId: input.orgId, instrumentId: input.instrumentId, relation: "CURRENT" }, select: { projectId: true } });
+  if (!links.length) return [];
+  const targets = await db.project.findMany({ where: { orgId: input.orgId, id: { in: links.map((l) => l.projectId) }, closeDate: input.from }, select: { id: true } });
+  const changed: string[] = [];
+  for (const t of targets) {
+    const res = await db.project.updateMany({ where: { id: t.id, closeDate: input.from }, data: { closeDate: input.to } });
+    if (res.count === 1) changed.push(t.id);
+  }
+  for (const id of changed) await syncProjectMilestoneCalendars(id).catch(() => null);
+  return changed;
 }

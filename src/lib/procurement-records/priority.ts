@@ -3,6 +3,8 @@
  * 到期前 4–6 个月提高研究优先级是内部备料策略，不是重招预测或政府答复承诺。
  */
 
+import { localDateOf } from "./schedule";
+
 export interface PriorityInput {
   productHits: string[];
   serviceHits: string[];
@@ -103,10 +105,10 @@ export function computePriority(input: PriorityInput, now: Date): PriorityResult
     const m = monthsBetween(now, input.closingAt);
     if (m !== null && m >= 0) {
       prep = m <= 1 ? 15 : 8;
-      prepReason = `招标截止 ${input.closingAt.slice(0, 10)}`;
+      prepReason = `招标截止 ${torontoDate(input.closingAt)}`;
     } else if (m !== null) {
       prep = 0;
-      prepReason = `招标已于 ${input.closingAt.slice(0, 10)} 截止`;
+      prepReason = `招标已于 ${torontoDate(input.closingAt)} 截止`;
     }
   }
   dims.push({ key: "PREP_TIME", label: "准备时间", points: prep, max: 25, reasonZh: prepReason });
@@ -140,4 +142,10 @@ export function computePriority(input: PriorityInput, now: Date): PriorityResult
     dimensions: dims,
     unknownsZh: ["采购资格、原产地、本地内容、认证与交付区域以当前正式文件为准（未核实即未知）"],
   };
+}
+
+/** 截标日期按多伦多日期写（P2-1b：截标时间按东部当地时间存后，UTC 日期在晚上截标时会是次日） */
+function torontoDate(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso.slice(0, 10) : localDateOf(d, "America/Toronto");
 }
