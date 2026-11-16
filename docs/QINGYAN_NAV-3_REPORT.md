@@ -4,7 +4,7 @@ change：`nav-3-approval-draft-editable`（任务书 `docs/QINGYAN_NAV-1_PLAIN_N
 
 | 项 | 值 |
 |---|---|
-| 状态 | 待审（PR 号开出后补）；没有开关，合并即生效 |
+| 状态 | #501 待审；没有开关，合并即生效 |
 | 改的能力 | `trade/inquiry-reply-entry`（改 1 条、加 4 条） |
 | 测试 | 新增 `approval-draft-edit.test.ts` 48 项（`scripts/test-all.sh:338`、`scripts/test-ci-unit.sh:362`）；`reply-entry-db.isolated.test.ts` 加第 5 组，28 → 42 |
 | 截图 | `docs/acceptance/nav-3/01–06`（本机临时库 + `next dev`，虚构企业与账号；没有发信、没有批准或拒绝任何草稿） |
@@ -82,8 +82,8 @@ change：`nav-3-approval-draft-editable`（任务书 `docs/QINGYAN_NAV-1_PLAIN_N
 | 相关既有隔离库测试，main `43be745f` 与本分支各跑一遍 | `revenue-spine-db` 166、`booth-cards-db` 69、`channels-to-spine-db` 56，两边逐项相同 |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS，无新增 error fingerprint；本次改动的 10 个文件单独 `eslint` 无输出 |
-| `npm run test:ci` | __TESTCI__ |
-| `npm test` | __TESTALL__ |
+| `npm run test:ci` | `CI unit subset PASS`（退出码 0） |
+| `npm test` | 666/679。13 个失败与 NAV-1a / 1b / 1c / NAV-6 时逐项相同，都是环境类（无数据库连接 / Chromium / Gmail / Agent Trace）；在 main `43be745f` 的干净检出上把这 13 项逐个重跑，同样 13 项失败 |
 | `bash scripts/check-test-registry.sh` | 已注册 646 个；基线 67 条，无新增 |
 | `git diff --stat main -- prisma vercel.json src/lib/pending-actions src/lib/revenue-spine src/lib/trade/outbound-sync.ts` | 无输出 |
 | `openspec validate nav-3-approval-draft-editable --strict` | valid |

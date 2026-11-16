@@ -24,8 +24,8 @@
 
 ## 3. 交付
 
-- [ ] 3.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-3-approval-draft-editable --strict`，以及 design「验证」表里的既有隔离库测试；本机起应用截图放 `docs/acceptance/nav-3/`。验证：命令全部通过（`npm test` 的环境类失败与 main 逐项相同）；`git diff --stat main -- prisma vercel.json src/lib/pending-actions src/lib/revenue-spine src/lib/trade/outbound-sync.ts` 无输出；截图里从待批草稿点进去的窗口正文是草稿原文。
-- [ ] 3.2 写 `docs/QINGYAN_NAV-3_REPORT.md`（入口与窗口的变化、接口变化、与审批执行那条路的差异、与四件套不一致的地方、各命令真实输出、staging 发信验收步骤）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-3 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-3 行状态为 `[G]`。
+- [x] 3.1 跑 `npm run typecheck`、`npm run lint:baseline`、`npm run test:ci`、`npm test`、`openspec validate nav-3-approval-draft-editable --strict`，以及 design「验证」表里的既有隔离库测试；本机起应用截图放 `docs/acceptance/nav-3/`。验证：命令全部通过（`npm test` 的环境类失败与 main 逐项相同）；`git diff --stat main -- prisma vercel.json src/lib/pending-actions src/lib/revenue-spine src/lib/trade/outbound-sync.ts` 无输出；截图里从待批草稿点进去的窗口正文是草稿原文。
+- [x] 3.2 写 `docs/QINGYAN_NAV-3_REPORT.md`（入口与窗口的变化、接口变化、与审批执行那条路的差异、与四件套不一致的地方、各命令真实输出、staging 发信验收步骤）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` Phase N 的 NAV-3 状态列。验证：报告文件存在且含上述各节；TASKFLOW 的 NAV-3 行状态为 `[G]`。
 
 ## Workflow follow-up
 
