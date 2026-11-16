@@ -450,6 +450,8 @@ NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/tender-follow-db.iso
 # P2-1（openspec change tender-notice-daily-view）：新标视图与扫描时间
 npx tsx src/lib/procurement-records/__tests__/new-notices-pure.test.ts
 NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/new-notices-db.isolated.test.ts
+npx tsx src/lib/procurement-records/__tests__/notice-brief-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/notice-brief-db.isolated.test.ts
 npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
 
 # P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）

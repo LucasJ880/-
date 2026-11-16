@@ -75,3 +75,9 @@ export function candidatesQuery(filter: string): string {
   if (filter === NEW_VIEW_VALUE) return "&view=new";
   return filter !== "ALL" ? `&triage=${encodeURIComponent(filter)}` : "";
 }
+
+/** P2-3b：通知链接 ?view=new 打开时直接落在「新标」视图；其他取值保持默认「全部」 */
+export function initialTriageFromSearch(search: string): string | null {
+  const v = new URLSearchParams(search).get("view");
+  return v === "new" ? NEW_VIEW_VALUE : null;
+}
