@@ -42,6 +42,7 @@ console.log("扫描时间");
   ok("时刻不合法", parseTime("24:00") === null && parseTime("08:60") === null && parseTime("8") === null && parseTime("ab:cd") === null && parseTime("") === null);
   const daily = applyPreset(base, "daily");
   ok("点「每天」：七天，时刻不动", JSON.stringify(daily) === JSON.stringify({ weekdays: [0, 1, 2, 3, 4, 5, 6], time: "08:00" }));
+  ok("快捷按钮不动时刻（06:30 点「每天」仍是 06:30）", applyPreset({ weekdays: [2], time: "06:30" }, "daily").time === "06:30" && applyPreset({ weekdays: [2], time: "06:30" }, "weekdays").time === "06:30");
   ok("点「工作日」：周一到周五", JSON.stringify(applyPreset(base, "weekdays").weekdays) === "[1,2,3,4,5]");
   ok("点「默认」：周一、周四", JSON.stringify(applyPreset(daily, "default").weekdays) === "[1,4]");
   ok("高亮哪个快捷按钮", presetOf([6, 5, 4, 3, 2, 1, 0]) === "daily" && presetOf([1, 2, 3, 4, 5]) === "weekdays" && presetOf([4, 1]) === "default" && presetOf([2]) === null);
