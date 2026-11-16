@@ -71,8 +71,19 @@ export const ALL_VIEW_HINT_ZH = "按优先级排序（不是中标概率）。";
 export const NOTICE_LINK_ZH = "看公告";
 
 /** 候选筛选下拉 → 接口查询串（新标走 view=new，其它走 triage） */
-export function candidatesQuery(filter: string): string {
-  if (filter === NEW_VIEW_VALUE) return "&view=new";
+/** P2-2：新标视图的排序（默认按发布日期；fit = 按匹配度） */
+export const FIT_SORT_VALUE = "fit";
+export const DATE_SORT_VALUE = "date";
+export const SORT_OPTIONS_ZH: Array<{ value: string; label: string }> = [
+  { value: DATE_SORT_VALUE, label: "按发布日期" },
+  { value: FIT_SORT_VALUE, label: "按匹配度" },
+];
+export const FIT_LABEL_ZH = "匹配度";
+export const NEW_VIEW_FIT_HINT_ZH = "未截标的招标公告，按匹配度从高到低（不是中标概率）。";
+export const FIT_NOTE_ZH = "匹配度（不是中标概率）：按你能看到的项目计算";
+
+export function candidatesQuery(filter: string, sort: string = DATE_SORT_VALUE): string {
+  if (filter === NEW_VIEW_VALUE) return sort === FIT_SORT_VALUE ? "&view=new&sort=fit" : "&view=new";
   return filter !== "ALL" ? `&triage=${encodeURIComponent(filter)}` : "";
 }
 
