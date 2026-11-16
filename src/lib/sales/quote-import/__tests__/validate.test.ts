@@ -12,15 +12,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseQuoteFile, planDisplayName } from "@/lib/sales/quote-import/validate";
 import { MAX_FILE_BYTES, type ParsedQuoteFile } from "@/lib/sales/quote-import/types";
+import { MULTI, SAMPLE, SINGLE, edit } from "./helpers";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, n: string, d?: unknown) => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.error(`  ✗ ${n}`, d === undefined ? "" : JSON.stringify(d).slice(0, 600)); } };
 
-const FIX = join(process.cwd(), "src/lib/sales/quote-import/__tests__/fixtures");
-const fixture = (name: string) => readFileSync(join(FIX, name), "utf8");
-const SAMPLE = fixture("sample-16.sunny-quote.json");
-const SINGLE = fixture("toolcode-single-with-photos.sunny-quote.json");
-const MULTI = fixture("toolcode-multiplan-A-B-active-B.sunny-quote.json");
 
 const parse = (text: string) => parseQuoteFile(text, Buffer.byteLength(text));
 const good = (text: string): ParsedQuoteFile => {
@@ -28,8 +24,6 @@ const good = (text: string): ParsedQuoteFile => {
   if (!r.ok) throw new Error(`应当通过却被拒绝：${r.reasonZh}`);
   return r.file;
 };
-/** 在样例上改一处再序列化 */
-const edit = (mutate: (root: any) => void, base = SAMPLE) => { const root = JSON.parse(base); mutate(root); return JSON.stringify(root); };
 const reason = (text: string, bytes?: number) => { const r = parseQuoteFile(text, bytes ?? Buffer.byteLength(text)); return r.ok ? null : r; };
 const JPEG = "data:image/jpeg;base64,/9j/AAAA";
 

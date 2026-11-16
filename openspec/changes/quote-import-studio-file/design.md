@@ -66,6 +66,7 @@
   - `compare.ts`：`compareWithQingyan(plan, mapped, settings, fullnessChoices)` → 逐行文件金额 / 青砚金额 / 差额 / 处理方式、两边合计、特别让利、价表是否一致。
   - `audit.ts`：`readImportSource(formDataJson)` 与 `importAuditPayload(next, prev)`（D10；apply 中补进本清单——服务端两条保存路径共用，单独成模块才能做纯测试）。
   - 核对窗 `quote-sheet/import-review-dialog.tsx` 只调这些函数并渲染。
+- 实际的函数签名（apply 中定，2026-11-16）：`parseQuoteFile(text, byteLength)`；`mapQuoteToForm(file, plan, ctx)`（待选褶皱率的行先按 180 占位）+ `applyFullnessChoices(mapped, choices)` + `pendingFullnessRows`；`compareWithQingyan(file, plan, mapped, settings, choices)`（文件的 `pricing` 在 `file` 上，所以比原写法多一个 `file` 参数）；`buildImportSource` 与 `buildFormFill` 产出交给页面的那部分表单数据。
 - `map.ts` 与 `compare.ts` 引用页面目录的表单类型与 `buildOrderFormItems` / 预览函数（`src/lib` 测试引用页面目录代码已有先例）。
 - 否决：把映射写在核对窗组件里——测不到，且 QUOTE-1a 刚把同类逻辑从组件里搬出来。否决：服务端新增解析接口——要上传原文件（可带照片，最大 35 MB），违反任务书「不上传」。
 
@@ -170,6 +171,7 @@
 
 ### D9 客户匹配只在已加载的客户里做
 - 做法：`matchCustomer` 把电话去掉非数字后比较（北美号码去掉前导 1），邮箱去空白转小写比较；电话或邮箱任一命中即算命中，命中集合恰好一位才返回。范围是页面已加载的列表（最多 200 位）；列表之外的客户匹配不到，停在选择 / 新建。
+- 实施补充（2026-11-16）：电话去掉非数字后不足 7 位的不按电话匹配（分机号、残缺号码误配的代价是报价挂到别的客户名下，匹配不到的代价只是手选）；空电话、空邮箱不参与匹配。已写进规格增量。
 - 否决：为匹配新增按电话查客户的接口——超出「不新增接口」；匹配不到的后果只是销售手选。
 
 ### D10 `importSource` 与审计

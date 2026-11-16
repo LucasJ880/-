@@ -190,7 +190,7 @@ Drapery 与 Sheer 行（Door Screen Sheer 除外）的褶皱率为 1.8 时 SHALL
 - **THEN** 核对窗列出阻断原因，「填入表单」不可用
 
 ### Requirement: 客户匹配
-填入表单时系统 SHALL 把文件里的客户名、电话、邮箱、地址带入客户四项，并在页面已加载的客户里按电话（只比数字）或邮箱查找；恰好一位客户命中时 SHALL 自动选中，零位或多位命中时 SHALL NOT 自动选中，停在选择或新建客户。系统 SHALL NOT 因导入自动新建客户。
+填入表单时系统 SHALL 把文件里的客户名、电话、邮箱、地址带入客户四项，并在页面已加载的客户里按电话（只比数字）或邮箱查找；恰好一位客户命中时 SHALL 自动选中，零位或多位命中时 SHALL NOT 自动选中，停在选择或新建客户。电话不足 7 位数字时 SHALL NOT 按电话匹配；文件的电话与邮箱为空时 SHALL NOT 与电话、邮箱同样为空的客户相配。系统 SHALL NOT 因导入自动新建客户。
 
 #### Scenario: 唯一命中
 - **WHEN** 文件电话为 `(416) 555-0100`，已加载客户里只有一位电话为 `416-555-0100`
@@ -199,6 +199,10 @@ Drapery 与 Sheer 行（Door Screen Sheer 除外）的褶皱率为 1.8 时 SHALL
 #### Scenario: 多位命中
 - **WHEN** 两位客户的邮箱都与文件相同
 - **THEN** 不自动选中，四项已带入；`npx tsx src/lib/sales/quote-import/__tests__/map.test.ts` 覆盖
+
+#### Scenario: 文件没有电话与邮箱
+- **WHEN** 文件的电话与邮箱都为空，已加载客户里有电话、邮箱也为空的客户
+- **THEN** 不自动选中任何客户
 
 ### Requirement: 工艺参数不臆造
 文件不记录的工艺参数（Mount、Lift、Bracket、褶型、Panels 等）SHALL 留空或保持表单默认值，系统 SHALL NOT 为它们推断取值；这些行在签字后仍由工艺单的待核对清单处理。

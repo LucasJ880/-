@@ -12,8 +12,9 @@
 
 ## 3. 映射、对照与核对窗
 
-- [ ] 3.1 `map.ts`（design D6–D9）：行映射（数量拆行、1/16" 取整、三张表、SKU 与定价面料、Roller 罩型、无绳、Shutters 材质与混用阻断、Drapes、褶皱率 1.8 / 2.3 直填与待选清单）、行级折扣与成交价、附加项目与负数项、Downtown、安装 / 送货组合、税率、客户四项与 `matchCustomer`、`importSource`、提示清单。新建 `__tests__/map.test.ts`（规格里映射相关的每个场景至少一例 + 源码断言：导入模块无网络调用、产出不含照片与面料键），本 task 内注册。verify：`npx tsx src/lib/sales/quote-import/__tests__/map.test.ts` 全过；注册校验退出 0
-- [ ] 3.2 `compare.ts`（design D3–D5、D8）：价表比对、文件金额重算、青砚金额（`buildOrderFormItems` → `applyOrgDiscountDefaults` → `calculateQuoteTotal`）、逐行处理方式、两边合计、特别让利累加与取整。新建 `__tests__/compare.test.ts`（16 行样例逐行与合计：文件 8224.50、青砚 8134.62、让利 29.38 / 236.94；价表改一格；未用品类不同；企业运费 75；负数附加项目；填入后与手填等价），本 task 内注册。verify：`npx tsx src/lib/sales/quote-import/__tests__/compare.test.ts` 全过；注册校验退出 0
+- [x] 3.1 `map.ts`（design D6–D9）：行映射（数量拆行、1/16" 取整、三张表、SKU 与定价面料、Roller 罩型、无绳、Shutters 材质与混用阻断、Drapes、褶皱率 1.8 / 2.3 直填与待选清单）、行级折扣与成交价、附加项目与负数项、Downtown、安装 / 送货组合、税率、客户四项与 `matchCustomer`、`importSource`、提示清单。新建 `__tests__/map.test.ts`（规格里映射相关的每个场景至少一例 + 源码断言：导入模块无网络调用、产出不含照片与面料键），本 task 内注册。verify：`npx tsx src/lib/sales/quote-import/__tests__/map.test.ts` 全过；注册校验退出 0
+- [x] 3.2 `compare.ts`（design D3–D5、D8）：价表比对、文件金额重算、青砚金额（`buildOrderFormItems` → `applyOrgDiscountDefaults` → `calculateQuoteTotal`）、逐行处理方式、两边合计、特别让利累加与取整。新建 `__tests__/compare.test.ts`（16 行样例逐行与合计：文件 8224.50、青砚 8134.62、让利 29.38 / 236.94；价表改一格；未用品类不同；企业运费 75；负数附加项目；填入后与手填等价），本 task 内注册。verify：`npx tsx src/lib/sales/quote-import/__tests__/compare.test.ts` 全过；注册校验退出 0
+  - 实施备注（2026-11-16）：`map.test.ts` 116 / 0、`compare.test.ts` 67 / 0，均已注册。两份 toolcode 夹具进了测试：单方案提示「有 3 张窗户照片未导入」、表单数据不含 `data:image`；多方案列出 A、B，选 A 16 行、选 B 15 行，两套都不带照片数据。`map.test.ts` 里覆盖核对窗文件的两条源码断言随 3.3 加入（核对窗在 3.3 才创建）。
 - [ ] 3.3 核对窗 `quote-sheet/import-review-dialog.tsx` 与 `page.tsx` 的入口：选文件（只读、先判大小）→ 校验失败显示原因 → 多方案选择 → 核对窗（逐行四列 + 处理方式、待选褶皱率的两档选项、底部两边合计与让利明细、阻断 / 提醒两级清单）→「填入表单」经 `applyFormState` 灌入并执行客户匹配、填特别让利。verify：`npm run typecheck` 退出 0；`npm run lint:baseline` 通过；`map.test.ts` 的源码断言覆盖核对窗文件（无网络调用）
 
 ## 4. 留痕、门禁与走查
