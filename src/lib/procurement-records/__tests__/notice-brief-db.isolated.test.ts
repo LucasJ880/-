@@ -69,8 +69,9 @@ async function main() {
     // 本组织：监控开启人 ADMIN、创建人 CREATOR
     await mkWatch(ORG, { enabled: true, enabledById: ADMIN, createdById: CREATOR });
     // 新标：N1..N6（6 条，进早报）；最新发布的排前面
+    // 发现时间与发布时间反着排（后发现的发布更早），证明排序按发布时间而不是发现时间
     const N = [] as string[];
-    for (let i = 0; i < 6; i++) N.push(await mkInst(ORG));
+    for (let i = 0; i < 6; i++) N.push(await mkInst(ORG, { firstSeenAt: new Date(now.getTime() - 2 * H + (i + 1) * 60_000) }));
     const UNKNOWN = await mkInst(ORG, { closingAt: null, publishedAt: null, title: "Closing unknown" });
     // 不进：24 小时前发现、已截标、合同、忽略 / 归档 / 历史、未来时间（防御）、别的组织
     await mkInst(ORG, { firstSeenAt: new Date(now.getTime() - 25 * H), title: "Old find" });
@@ -112,8 +113,10 @@ async function main() {
 
     // 开启人与创建人是同一人：只发一条
     await mkWatch(ORG_B, { enabled: true, enabledById: OUT, createdById: OUT });
-    const b = await sendNoticeBrief(ORG_B, TZ, { now });
+    // 组织时区决定日期：奥克兰此刻已是 11-17（UTC 仍是 11-16）
+    const b = await sendNoticeBrief(ORG_B, "Pacific/Auckland", { now });
     ok(b.recipients === 1 && b.sent === 1 && b.total === 1, "同一人只发一条、只算本组织", b);
+    ok(b.day === "2026-11-17" && (await notes(ORG_B))[0]?.sourceKey === noticeBriefSourceKey(ORG_B, "2026-11-17", OUT), "日期按组织时区", b.day);
 
     // 监控未启用：不发
     await mkWatch(ORG_C, { enabled: false, createdById: OUT });
