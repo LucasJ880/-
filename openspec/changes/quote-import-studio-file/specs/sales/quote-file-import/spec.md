@@ -44,14 +44,18 @@
 - **THEN** 通过，返回 16 行产品、2 个附加项目与方案清单
 
 ### Requirement: 多方案选择
-文件含多套方案时，系统 SHALL 在核对窗之前让销售选择其中一套；一次导入 SHALL 只填入一套方案。只有一套方案时 SHALL 直接进入核对窗。
+文件含多套方案时，系统 SHALL 在核对窗之前让销售选择其中一套；一次导入 SHALL 只填入一套方案。只有一套方案时 SHALL 直接进入核对窗。文件顶层的报价是导出时的当前方案（不一定是 A），其余方案在 `plans[]`；方案清单 SHALL 按方案编号排序并标出哪一套是导出时的当前方案；每套方案 SHALL 用它自己的产品行、附加项目、备注与安装 / 送货 / Downtown 设置，客户信息、报价号与价表取整份文件共用的。
 
 #### Scenario: 三套方案
 - **WHEN** 校验一份含当前方案与另外 2 套方案的文件
 - **THEN** 返回 3 套方案供选择，选定后只有该方案的行进入映射；`npx tsx src/lib/sales/quote-import/__tests__/validate.test.ts` 覆盖
 
+#### Scenario: 当前方案不是 A
+- **WHEN** 校验一份两套方案的文件，顶层是方案 B（15 行、不含 Downtown），`plans[]` 里是方案 A（16 行、含 Downtown）
+- **THEN** 方案清单为 A、B 两套并标出 B 是导出时的当前方案；选 A 得到 16 行与 Downtown 服务费，选 B 得到 15 行且没有 Downtown 服务费
+
 ### Requirement: 产品行映射
-系统 SHALL 把选定方案的每一行映射为详细订单的表单行：数量 N 拆成 N 行，房间名相同、第 2 行起加序号；宽高换成整数加 1/16"，不在 1/16" 格上的四舍五入到最近一格并提醒；Zebra、Roller、SHANGRILA、Cordless Cellular、SkylightHoneycomb、Roman Shade、Fauxwood、Allusion 填 Shades 行；Shutters 填 Shutters 行且 Panel 数为 1；Drapery、Sheer（含 Door Screen Sheer）各填一条 Drapes 行。尺寸超出青砚价表范围的行 SHALL 阻断导入。
+系统 SHALL 把选定方案的每一行映射为详细订单的表单行：数量 N 拆成 N 行，房间名相同、第 2 行起加序号；宽高换成整数加 1/16"，不在 1/16" 格上的四舍五入到最近一格并提醒；Zebra、Roller、SHANGRILA、Cordless Cellular、SkylightHoneycomb、Roman Shade、Fauxwood、Allusion 填 Shades 行；Shutters 填 Shutters 行且 Panel 数为 1；Drapery、Sheer（含 Door Screen Sheer）各填一条 Drapes 行。尺寸超出青砚价表范围的行 SHALL 阻断导入。数量不是 1–999 的整数、宽或高不是正数的行 SHALL 阻断导入；数量拆行后的表单行总数超过 500 时 SHALL 阻断导入并写明拆行后的行数。
 
 #### Scenario: 16 行样例
 - **WHEN** 运行 `npx tsx src/lib/sales/quote-import/__tests__/map.test.ts` 映射 16 行样例
@@ -64,6 +68,14 @@
 #### Scenario: 尺寸超出价表
 - **WHEN** 一行 Zebra 宽 200"
 - **THEN** 该行列为阻断，不能填入表单
+
+#### Scenario: 数量或尺寸无效
+- **WHEN** 一行的数量为 0、2.5 或 1000，或宽为 0
+- **THEN** 该行列为阻断，不能填入表单；`npx tsx src/lib/sales/quote-import/__tests__/map.test.ts` 覆盖
+
+#### Scenario: 拆行后超过上限
+- **WHEN** 文件有 2 行，数量分别为 400 与 200
+- **THEN** 列为阻断，写明「拆行后共 600 行，超过 500 行」
 
 ### Requirement: Shades 行的 SKU、面料档与罩型
 Shades 行的 SKU SHALL 取文件里的 SKU，文件未填时取面料档名称；面料档 SHALL 以文件为准写入该行的定价面料。Roller 的面料档 SHALL 拆成基础面料与罩型：`… w Cassette` 填行上 Valance = Cassette，`… w Fascia` 填 Fascia，`… (Open Roll)` 填 None。文件里的无绳标记 SHALL 只对 Zebra 与 Roller 填入 Cordless。SKU 不在青砚目录里时 SHALL 列一条提醒，不阻断。
@@ -148,7 +160,7 @@ Drapery 与 Sheer 行（Door Screen Sheer 除外）的褶皱率为 1.8 时 SHALL
 - **THEN** 特别让利为 236.94，服务端合计仍为 8134.62（误差 ≤ 0.01）；`npx tsx src/lib/sales/quote-import/__tests__/compare.test.ts` 覆盖
 
 ### Requirement: 价表一致性比对
-系统 SHALL 把文件自带的价表与青砚现行价表比对，范围只限本次用到的品类；宽高档位与 MSRP 逐格相同才算一致。不一致时核对窗 SHALL NOT 显示文件金额与差额，只显示青砚金额，并提示「该文件的价表与公司现行价表不同」；此时仍 SHALL 允许继续导入。
+系统 SHALL 把文件自带的价表与青砚现行价表比对，范围只限本次用到的品类；宽高档位、MSRP、最低价与安装费标准（含最低安装费）逐项相同才算一致。不一致时核对窗 SHALL NOT 显示文件金额与差额，只显示青砚金额，并提示「该文件的价表与公司现行价表不同」；此时仍 SHALL 允许继续导入。
 
 #### Scenario: 改掉一格
 - **WHEN** 把样例文件里 Zebra 的任一格 MSRP 改掉后做对照
@@ -157,6 +169,10 @@ Drapery 与 Sheer 行（Door Screen Sheer 除外）的褶皱率为 1.8 时 SHALL
 #### Scenario: 没用到的品类不同
 - **WHEN** 文件价表里一个本次没用到的品类与青砚不同
 - **THEN** 结果仍为一致
+
+#### Scenario: 最低价或安装费标准不同
+- **WHEN** 把样例文件里 Zebra 的最低价由 100 改为 120，或把安装费标准里的最低安装费由 200 改为 250
+- **THEN** 结果标记价表不一致，各行没有文件金额；`npx tsx src/lib/sales/quote-import/__tests__/compare.test.ts` 覆盖
 
 ### Requirement: 核对窗
 核对窗 SHALL 逐行并排显示文件金额、青砚金额、差额与处理方式（一致、保留行折扣、计入让利、提醒、待选褶皱率、阻断）；行差绝对值不超过 0.01 × 数量视为一致。底部 SHALL 并排显示两边的产品小计、附加项目、安装、送货、税前、税、合计与本次计入的特别让利。提示 SHALL 分为阻断与提醒两级；有阻断项或有行未选褶皱率时 SHALL NOT 允许填入表单。青砚金额 SHALL 出自保存时服务端使用的同一个计价函数与当前企业设置。
@@ -192,7 +208,7 @@ Drapery 与 Sheer 行（Door Screen Sheer 除外）的褶皱率为 1.8 时 SHALL
 - **THEN** 该行的 Mount、Lift、Bracket 为空；`npx tsx src/lib/sales/quote-import/__tests__/map.test.ts` 覆盖
 
 ### Requirement: 导入留痕与审计
-填入表单时系统 SHALL 在表单数据里写入只读的 `formDataJson.importSource`，含工具报价号、报价 id、文件版本、所选方案、导出时间、文件价表版本、文件合计与导入时间，SHALL NOT 为此新增数据库字段。保存带留痕的报价时服务端 SHALL 写一条审计 `quote_imported`（新建与修改两条路径）；同一张报价的同一次导入 SHALL 只写一次。审计内容 SHALL NOT 含客户电话、邮箱与地址。系统 SHALL NOT 拦截重复导入。
+填入表单时系统 SHALL 在表单数据里写入只读的 `formDataJson.importSource`，含工具报价号、报价 id、文件版本、所选方案、导出时间、文件价表版本、文件合计与导入时间，SHALL NOT 为此新增数据库字段。文件里没有合计字段：留痕里的文件合计 SHALL 取按文件自己的参数重算出的合计，价表不一致、算不出时 SHALL 留空。保存带留痕的报价时服务端 SHALL 写一条审计 `quote_imported`（新建与修改两条路径）；同一张报价的同一次导入 SHALL 只写一次。审计内容 SHALL NOT 含客户电话、邮箱与地址。系统 SHALL NOT 拦截重复导入。
 
 #### Scenario: 新建时写审计
 - **WHEN** 运行 `npx tsx src/lib/sales/__tests__/quote-import-audit-db.isolated.test.ts`，经真实路由新建一张带 `importSource` 的报价
@@ -205,6 +221,10 @@ Drapery 与 Sheer 行（Door Screen Sheer 除外）的褶皱率为 1.8 时 SHALL
 #### Scenario: 修改路径
 - **WHEN** 把文件导入一张已存的、原本没有留痕的报价并保存
 - **THEN** 该报价多一条 `quote_imported`
+
+#### Scenario: 留痕里的文件合计
+- **WHEN** 运行 `npx tsx src/lib/sales/quote-import/__tests__/compare.test.ts`，对 16 行样例生成留痕；再把样例里 Zebra 的一格 MSRP 改掉后生成留痕
+- **THEN** 前者的文件合计为 8224.50，后者的文件合计为空
 
 #### Scenario: 不带留痕的报价
 - **WHEN** 新建一张手工录入的报价

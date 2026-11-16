@@ -74,6 +74,69 @@
 - 样例夹具 `__tests__/fixtures/sample-16.sunny-quote.json` 用任务书附录 A 的脚本从真实工具包生成（不含照片），连同生成命令与工具包哈希一起入库。
 - 否决：现在就猜字段名把校验写死——猜错会把合法文件拒掉。否决：等拿到文件再出四件套——Lucas 2026-11-15 选「先按任务书写」。
 
+#### 核对结果（2026-11-16，tasks 1.1）
+
+**材料。** Lucas 2026-11-16 提供材料包 `quote-1b-materials.zip`，解压到仓库外的空目录只读使用，不进仓库（样例夹具除外）。
+
+| 文件 | SHA-256 | 说明 |
+|---|---|---|
+| 工具 `index.html` | `f29513c0b29300260412a20abba327e4b42f88aec8ec4389ae6de8d35cdf4a69` | 52,352,030 字节。**取自材料包 README；`index.html` 不在材料包里，本次没有实算** |
+| `quote-core.cjs` | `369099b61384d64b7e42e023fd9ee0685b9af3f6b7cdbeb142fa38a7e393f754` | README：从 `index.html` 原样取出的定价核心（17,085 字节）；本次实算 |
+| `seed.json` | `f349431db0c36ce5ef7e53f381766dc797727951666c9aff883b77a52e824262` | README：`<script id="seed">` 的内容；本次实算 |
+| `gen-sample-16.cjs` | `865427d899a70737330d5425d7bec9be6136edadc0ff6ca80c8f83e383cafe8a` | 任务书附录 A 的脚本原文 |
+| `sample-16.sunny-quote.json` | `76c588aef1a656b632e0187d0a05b2fad923c15c779cd4d666cf5f5c6b5a6945` | 入库为 `src/lib/sales/quote-import/__tests__/fixtures/sample-16.sunny-quote.json`（逐字节相同） |
+| `toolcode-single-with-photos.sunny-quote.json` | `a03434f0befef421b69e0427b48643b2612839da9d6e40d670f435ead8012014` | 入库为夹具；单方案、3 张照片 |
+| `toolcode-multiplan-A-B-active-B.sunny-quote.json` | `e509fc7c99512192a69ce524acc566b5b3df0e26c77afe683aadede92e8c0737` | 入库为夹具；A / B 两套、导出时当前方案是 B、3 张照片 |
+
+样例重跑：在空目录里执行 `node <材料目录>/gen-sample-16.cjs`，输出 `8224.5`；生成的文件与材料包里的 `sample-16.sunny-quote.json` 除 `exportedAt` 外逐字段相同。用同一份 `quote-core.cjs` 对两份 toolcode 文件执行 `C.validateQuote` + `C.totals`：单方案 8224.50；多方案顶层（B，15 行）7965.46、`plans[0]`（A，16 行）8224.50——与 README 一致。
+
+**这两份 toolcode 文件不是从界面点「导出」得到的**：是在 Node 里执行工具自己的方案组装与校验代码生成的（README）。界面上才会产生的字段没有覆盖到，见下「没有覆盖到的字段」。
+
+**Context 表里「只知道存在、不知道字段名」各项的实际情况**
+
+| 项 | 实际 | 与原设计的出入 |
+|---|---|---|
+| 税率 | `quote.pricing.tax`（0–1 的小数，样例 0.13） | 原先不知道位置；无行为出入 |
+| 备注 | 整单 / 每套方案的 `note`（字符串）；行上也有 `note` | 无出入 |
+| 文件价表版本 | `quote.pricing.version`（样例 `2026.10-local.1`） | 无出入 |
+| 文件合计 | **文件里没有任何合计字段** | 留痕里的「文件合计」只能取 D3 的重算值，价表不一致时为空——已写进规格增量（「导入留痕与审计」） |
+| 多方案 | 顶层 `quote` 是**导出时的当前方案**（带 `planId` / `planName`，不一定是 A）；其余方案在 `quote.plans[]`。每套方案自带：`planId, planName, items, addons, note, install, delivery, downtown, deliveryAmount, downtownAmount, serviceFeeModes, includeMaterials, includeSwatches, includeWindowPhotos, includeWindowTrials, hideDimensions, hideDiscountPercent, materialSelection, materials`。客户四项、报价号、`id`、`pricing` 只在顶层、整份共用。单方案文件没有 `planId` / `plans` / `planWindows` | 原设计只写了「`plans[]` / `planWindows`」。方案清单 = 顶层 + `plans[]`，按 `planId` 排序并标出当前方案；每套方案用自己的行、附加项目与费用开关——已写进规格增量（「多方案选择」）。README 写「其余方案在 `plans[]`（最多 2 套）」，没法从材料确定是「另外最多 2 套」还是「一共最多 2 套」；校验对 `plans[]` 取前 10 套，不依赖这个上限 |
+| `planWindows` | `quote.planWindows[planWindowId] = { room, windowPhotos }`；行用 `planWindowId` 对应窗位 | 只用来数照片，不读房间名（行上自己有 `room`） |
+| 窗户照片 | **出现在两处**：当前方案的行上 `items[].windowPhotos`，以及 `planWindows[*].windowPhotos`（同一批照片）；`plans[]` 里的行没有 `windowPhotos`。每张是 JPEG data URL 字符串（`data:image/jpeg;base64,/9j/…`），每窗最多 5 张 | 照片数按窗位去重：有 `planWindowId` 且 `planWindows` 里有该窗位的，按 `planWindows` 数；否则按行上的数。两处都不拷贝 |
+| 试装图 | 行上 `windowTrial = { product, sku, colour, image }`，`image` 也是 JPEG data URL（来自 `quote-core.cjs` 的 `validateWindowPhotos`）。**材料里没有带这个字段的文件** | 不拷贝；不计入「窗户照片」张数 |
+| `materials` / `materialSelection` | 整单与每套方案各有一份，样例里都是空对象 `{}`；工具对 `materials` 的上限是序列化后 25 MB。**非空时的形状未知** | 不读、不拷贝 |
+
+**Context 表之外、文件里实际还有的字段**（一律不读、不留存）：整单 `revision, date, validDays, title, orderNumber, sales, updatedAt, batchTrialHidden, serviceFeeModes, includeMaterials, includeSwatches, includeWindowPhotos, includeWindowTrials, hideDimensions, hideDiscountPercent`；行上 `planWindowId`（只用于数照片）；`pricing` 里的 `data.delivery, data.cta_link, delivery, downtown, fullness, addonCatalogOverrides`（`fullness` 用于行上没填褶皱率时的文件默认值）。`serviceFeeModes` 在样例里是 `{ delivery: "default", downtown: "default" }`，工具的 `C.totals` 不读它（只看 `delivery` / `downtown` 开关与两个金额），所以文件金额的重算也不读。
+
+**`pricing` 的结构（D3、D4 用到）**
+
+- `pricing.data.products[产品] = { brackets: { widths, heights }, fabrics: { 面料档: { msrp: 矩阵, discount } } }`；Roller 的面料档是 `{ kind, cassette, msrpRef }`，矩阵在 `products.Roller.msrpTables.LF / BO`；Door Screen Sheer 是 `{ special: "door_screen_sheer", discount: 0 }`，**文件里没有它的两档价**（170.45 / 227.27 写死在工具代码里）。
+- `pricing.discounts[产品]`、`pricing.floors[产品]`、`pricing.cordlessDiscount`、`pricing.cordlessMultiplier`、`pricing.cordlessFloors.{Zebra,Roller}`、`pricing.data.install = { regular, wide_threshold_in, wide, drapery_regular, drapery_wide, shutter_panel_width_in, shutter_panel_price, minimum_total }`、`pricing.tax`、`pricing.fullness.{Drapery,Sheer}`。
+- 工具的 Roller 面料档只有 `(Open Roll)` 与 `w Cassette` 四个，**没有 `w Fascia`**；规格里 Fascia 的映射保留（青砚有这个键，多认一种无害）。
+
+**对 D3、D4 的修正（按真实结构）**
+
+1. D3 写的是「文件行折扣，否则该产品的企业默认折扣」。文件金额应当是工具当时算给客户的数，所以改为：**文件行折扣，否则文件自己的 `pricing.discounts[产品]`；无绳行否则 `pricing.cordlessDiscount`**；无绳倍率与无绳最低价也取文件的（作为无绳策略传给引擎）。样例里文件的默认折扣与青砚缺省值逐项相同，金额不变。
+2. D4 只比宽高档位与 MSRP。引擎的最低价与安装费标准是青砚自己的常量，传不进去；文件里这两样若被改过，重算出来的「文件金额」就不是工具算的数。所以比对范围加上：本次用到的品类的 `floors`，以及整份的安装费标准（8 项，含最低安装费 `minimum_total`）。任一不同即按「价表不一致」处理（不显示文件金额）。已写进规格增量（「价表一致性比对」）。
+3. D4 写「Door Screen Sheer 没有矩阵，比两档价」。文件里没有这两档价，无从比；改为只核对文件里该面料档带 `special: "door_screen_sheer"`。
+4. 逐行取整照工具的写法：单价取到分，再乘数量、再取到分；附加项目合计取到分；税 = 税前 × 税率取到分。
+
+**对映射的补充（规格增量已同步）**
+
+- 工具允许数量 1–999、最多 500 行，拆行后最多可达 499,500 行，浏览器撑不住。拆行后的表单行总数超过 500 → 阻断并写明行数。数量不是 1–999 的整数、宽高不是正数的行 → 阻断（工具自己的校验也拒绝这类行；这里不信任文件）。
+- 附加项目的数量在工具里只要求 > 0，可以是小数；青砚 Part B 的数量是整数（提交时四舍五入）。数量不是整数的附加项目按「数量 1、单价 = 数量 × 单价」填成自定义行并提醒，金额不变。
+
+**没有覆盖到的字段（一律按「可能出现、形状未知」处理：校验时容忍、不留存，各有一条测试）**
+
+| 字段 | 处理 | 测试 |
+|---|---|---|
+| `windowTrial`（行上，任意形状） | 不读、不拷贝；不影响通过 | `validate.test.ts`「没覆盖到的字段」组 |
+| `materials` / `materialSelection`（整单与方案上，任意形状，含内嵌图片） | 不读、不拷贝 | 同上 |
+| Excel 录入的行（可能带额外键，如来源标记、原始文本） | 只取认识的键；未知键不进结果 | 同上 |
+| 旧版本保存的报价（可能缺 `note`、`sku`、`room`、`cordless`、`offer`、`discountOverridePct`、`fullness`、`deliveryAmount`、`downtownAmount` 等后来才有的键） | 缺的键按空 / 否 / 未填处理，不拒绝 | 同上 |
+
+仍需 Lucas 从工具界面导出真实文件（含一份多方案、一份带照片、一份带试装图或面料资料的）核对一次；在那之前「界面导出的真实文件」这一项按未验证记录（tasks 4.1 走查第 ⑨ 项、报告「已知限制」）。
+
 ### D3 文件金额由青砚引擎按文件的参数重算，只在价表一致时显示
 - 做法：文件行金额 = 用文件里该行的面料档、尺寸、无绳、褶皱率、折扣（文件行折扣，否则该产品的企业默认折扣；无绳行否则无绳折扣）与成交价，经 `priceFor` 算出单价，逐行取到分，再乘数量。Door Screen Sheer 按工具的口径不打折（文件行自带折扣时照用）。安装、送货、Downtown、税按文件值与工具的规则合计。
 - 只有 D4 的价表比对一致时才算并显示文件金额；不一致时文件金额与差额一律不显示。
