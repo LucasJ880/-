@@ -272,7 +272,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 | 1 | **W-2：组织页「询价与落地价设置」**（发件三项、汇率连同日期与来源、运费 / 保险 / 清关、项目关税率与交付截止） | 没有页面，FLOW-H2 的落地价在多数组织里「换算不出」 | 已合并并归档（#487；报告 `docs/QINGYAN_W-2_REPORT.md`） |
 | 2 | **T-2：询价追踪页 `/bids/rfq` 与 `/bids` 汇总卡**（需要我处理 / 等回复 / 已报价 / 未响应；下次自动催的日期；落地价取比价矩阵） | 任务书 `docs/QINGYAN_T-1_T-2_RFQ_TRACKING_TASKBRIEF.md` §3 已由 Evan 拍板；T-1 已完成 | 已合并（#491）并归档（`2026-11-15-rfq-tracker`）；报告 `docs/QINGYAN_T-2_REPORT.md` |
 | 3 | **W-2b：回复提前量 / 轮次锁 / 催单天数可在页面上改**（先扩 PUT） | W-2 的余项 | 已合并（#492）并归档（`2026-11-16-rfq-timing-settings`）；报告 `docs/QINGYAN_W-2b_REPORT.md` |
-| 4 | H7（前接发现 P2-1～P2-3：CanadaBuys 开放数据每日拉取 → 匹配打分 → 早报跟标） | 范围大，涉及外部数据源；P2-1 的大半已由 PROC-1 做完 | 只读调查已完成：`docs/QINGYAN_H7_INVESTIGATION.md`（切成 5 个 change；第 1 个「跟这个标」P2-3a 已合并 #496；需 Lucas：生产外部情报开关现值、开放数据许可、召回用的 10 个历史投标） |
+| 4 | H7（前接发现 P2-1～P2-3：CanadaBuys 开放数据每日拉取 → 匹配打分 → 早报跟标） | 范围大，涉及外部数据源；P2-1 的大半已由 PROC-1 做完 | 只读调查 `docs/QINGYAN_H7_INVESTIGATION.md` 切的 5 个 change 里 4 个已合并并归档：P2-3a 跟这个标（#496）、P2-1 新标视图与每天排期（#502）、P2-3b 早报（#511）、P2-2 匹配度（#514，验收召回待名单）；另修 P2-1b 截标时区（#508）。P2-3c 自动拉附件先不做；P2-4 另立。需 Lucas：生产外部情报开关现值、开放数据许可、召回用的 10 个历史投标、生产部署 |
 
 ### 0.5g 调查室 summaryJson 的写入（FIX-10、FIX-11，2026-11-16）
 
@@ -361,7 +361,7 @@ TENDER_BID_WORKSPACE_ENABLED=1 npx next dev -p 3100
   - 成本实验室扩 `src/lib/quote-engine`，不另写计算器。
   - 三个现存问题：询价单类别大小写对不上（`tender-rfq/build.ts:187` 对 `v2-map.ts:214`）；数量与单位在 `v2-map.ts` 被丢；`TenderArchiveItem` 没有写入方。
   - 架构守卫禁止 Prisma 模型名与 `src/lib` 文件名含 Plan / Run / Task / Event / engine / queue 等词——「Plan Taker」在代码里叫「文件领取方（document holder）」。
-- TASKFLOW 里已有、与本任务重叠的未完成项：W-2、W-3、T-2、P2-1～P2-4、P3-1～P3-3。H2 = W-3，H6 = T-2，H7 = P2-1～3，H8 = W-2。不要重复立项。
+- TASKFLOW 里与本任务重叠的项：H2 = W-3，H6 = T-2，H7 = P2-1～3，H8 = W-2。不要重复立项。截至 2026-11-16 还没完成的：P2-2 的验收召回、P2-3c（拉文件包）、P2-4、P3-1～P3-3；W-2、W-3、T-2、P2-1、P2-3a、P2-3b 已完成。
 
 ---
 
