@@ -69,10 +69,15 @@ async function main() {
     // 本组织：监控开启人 ADMIN、创建人 CREATOR
     await mkWatch(ORG, { enabled: true, enabledById: ADMIN, createdById: CREATOR });
     // 新标：N1..N6（6 条，进早报）；最新发布的排前面
-    // 发现时间与发布时间反着排（后发现的发布更早），证明排序按发布时间而不是发现时间
+    // 插入顺序、发现顺序、发布顺序三者都不同，证明排序按发布时间（审查 L1）
+    const pubHoursAgo = [3, 1, 5, 2, 6, 4];
     const N = [] as string[];
-    for (let i = 0; i < 6; i++) N.push(await mkInst(ORG, { firstSeenAt: new Date(now.getTime() - 2 * H + (i + 1) * 60_000) }));
-    const UNKNOWN = await mkInst(ORG, { closingAt: null, publishedAt: null, title: "Closing unknown" });
+    for (let i = 0; i < 6; i++) N.push(await mkInst(ORG, { title: `Pub ${pubHoursAgo[i]}h ago`, publishedAt: new Date(now.getTime() - pubHoursAgo[i] * H), firstSeenAt: new Date(now.getTime() - 2 * H + (i + 1) * 60_000) }));
+    // 没有发布日期、发现得最晚：排最后（Postgres 降序默认把空值排最前）
+    const UNKNOWN = await mkInst(ORG, { closingAt: null, publishedAt: null, title: "Closing unknown", firstSeenAt: new Date(now.getTime() - 60_000) });
+    // 窗口边界：正好前一天 07:00 发现的算今天；正好今天 07:00 发现的算明天
+    await mkInst(ORG, { title: "At start", publishedAt: new Date(now.getTime() - 30 * H), firstSeenAt: new Date(now.getTime() - 24 * H) });
+    await mkInst(ORG, { title: "At end", publishedAt: new Date(now.getTime() - 30 * H), firstSeenAt: now });
     // 不进：24 小时前发现、已截标、合同、忽略 / 归档 / 历史、未来时间（防御）、别的组织
     await mkInst(ORG, { firstSeenAt: new Date(now.getTime() - 25 * H), title: "Old find" });
     await mkInst(ORG, { closingAt: new Date(now.getTime() - 1000), title: "Closed" });
@@ -84,16 +89,19 @@ async function main() {
     const WATCHING = await mkInst(ORG, { triageStatus: "WATCHING", title: "Watching one" });
 
     const r = await sendNoticeBrief(ORG, TZ, { now });
-    ok(r.skipped === null && r.total === 8, "总数：6 条 + 截标未知 1 条 + 已关注 1 条", r);
+    ok(r.skipped === null && r.total === 9, "总数：6 条 + 截标未知 1 条 + 窗口起点 1 条 + 已关注 1 条", r);
     ok(r.day === "2026-11-16", "当地日期", r.day);
     ok(r.recipients === 2 && r.sent === 2, "发给开启人与创建人（已离开的成员不算）", r);
     const ns = await notes(ORG);
     ok(ns.length === 2 && ns.every((n) => [ADMIN, CREATOR].includes(n.userId)), "通知只给两人", ns.map((n) => n.userId));
     const n0 = ns[0];
-    ok(n0.title === "今日新标 8 条", "标题", n0.title);
+    ok(n0.title === "今日新标 9 条", "标题", n0.title);
     const lines = (n0.summary ?? "").split("\n");
-    ok(lines.filter((l) => l.startsWith("· ")).length === 5 && lines.includes("另有 3 条"), "列 5 条 + 另有 3 条", lines);
-    ok(lines[0].startsWith("· Brief notice 1（截标 11-30 14:00）"), "最新发布排第一、截标按多伦多时间", lines[0]);
+    ok(lines.filter((l) => l.startsWith("· ")).length === 5 && lines.includes("另有 4 条"), "列 5 条 + 另有 4 条", lines);
+    ok(lines[0] === "· Pub 1h ago（截标 11-30 14:00）", "最新发布排第一、截标按多伦多时间", lines[0]);
+    ok(lines.slice(0, 5).join("|").startsWith("· Pub 1h ago（截标 11-30 14:00）|· Pub 2h ago（截标 11-30 14:00）|· Pub 3h ago"), "按发布时间新到旧", lines.slice(0, 5));
+    ok(!(n0.summary ?? "").includes("Closing unknown"), "没有发布日期的不排前面", lines);
+    ok(!(n0.summary ?? "").includes("At end"), "正好今天 07:00 发现的不算今天", lines);
     ok(!(n0.summary ?? "").match(/Old find|Closed|Award|IGNORED|ARCHIVED|HISTORY|Future|Other org/), "不该出现的都不在", n0.summary);
     ok(n0.entityType === "procurement_new_notices" && n0.entityId === "2026-11-16" && n0.orgId === ORG && n0.category === "procurement_watch", "跳转对象与分类", n0);
     ok(n0.sourceKey === noticeBriefSourceKey(ORG, "2026-11-16", n0.userId), "去重键");
@@ -103,10 +111,10 @@ async function main() {
     const again = await sendNoticeBrief(ORG, TZ, { now: new Date(now.getTime() + 30 * 60_000) });
     ok(again.sent === 0 && (await notes(ORG)).length === 2, "同一天再跑不重复", again);
 
-    // 第二天：只含第一条早报之后发现的（Future，08:00 发现）——前后两天不重不漏
+    // 第二天：只含今天 07:00 之后发现的（Future 08:00、At end 正好 07:00）——前后两天不重不漏
     const next = await sendNoticeBrief(ORG, TZ, { now: new Date(now.getTime() + 24 * H) });
     const nextNote = (await notes(ORG)).find((n) => n.sourceKey?.includes("2026-11-17"));
-    ok(next.total === 1 && next.sent === 2 && nextNote?.title === "今日新标 1 条" && (nextNote?.summary ?? "").includes("Future"), "第二天只含昨天早报之后发现的", { next, s: nextNote?.summary });
+    ok(next.total === 2 && next.sent === 2 && nextNote?.title === "今日新标 2 条" && (nextNote?.summary ?? "").includes("Future") && (nextNote?.summary ?? "").includes("At end"), "第二天只含今天 07:00 之后发现的（含正好 07:00 的）", { next, s: nextNote?.summary });
     // 第三天：没有新发现就不发
     const third = await sendNoticeBrief(ORG, TZ, { now: new Date(now.getTime() + 48 * H) });
     ok(third.skipped === "no_new_notices" && third.sent === 0, "没有新发现不发", third);
@@ -130,7 +138,19 @@ async function main() {
     ok(off.skipped === "schema_not_ready", "闸关不发", off);
     process.env.PROCUREMENT_RECORDS_SCHEMA_READY = "1";
 
-    // 收件人都不在组织了：不发
+    // 账号停用（成员关系仍是在用）：不发给他（审查 L2）
+    await db.user.update({ where: { id: OUT }, data: { status: "disabled" } });
+    await db.organizationMember.create({ data: { orgId: ORG_C, userId: CREATOR, role: "org_admin", status: "active" } });
+    await db.procurementWatch.updateMany({ where: { orgId: ORG_C }, data: { enabled: true, enabledById: OUT, createdById: CREATOR } });
+    const disabled = await sendNoticeBrief(ORG_C, TZ, { now });
+    const cNotes = await notes(ORG_C);
+    ok(disabled.recipients === 1 && cNotes.length === 1 && cNotes[0].userId === CREATOR, "停用账号不发", { disabled, to: cNotes.map((n) => n.userId) });
+    await db.notification.deleteMany({ where: { orgId: ORG_C } });
+    await db.user.update({ where: { id: OUT }, data: { status: "active" } });
+    await db.organizationMember.deleteMany({ where: { orgId: ORG_C, userId: CREATOR } });
+    await db.procurementWatch.updateMany({ where: { orgId: ORG_C }, data: { createdById: OUT } });
+
+    // 收件人都不在组织了（创建人 OUT 的成员关系改为已移除，开启人 GONE 不是本组织成员）：不发
     await db.organizationMember.updateMany({ where: { orgId: ORG_C }, data: { status: "removed" } });
     await db.procurementWatch.updateMany({ where: { orgId: ORG_C }, data: { enabled: true, enabledById: GONE } });
     const gone = await sendNoticeBrief(ORG_C, TZ, { now });
