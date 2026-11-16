@@ -42,10 +42,11 @@ async function main() {
     ok("「已在目标阶段」与「不允许回退」两个分支先试补状态，补成了就返回（共两处）", (main.match(/const caught = await catchUpLaggingTenderStatus\(\{ project, currentStage, targetStage, input \}\);\s*if \(caught\) return caught;/g) ?? []).length === 2 && /if \(validation\.decision === "no_op"\) \{\s*const caught = await catchUpLaggingTenderStatus/.test(main) && /if \(validation\.decision === "deny"\) \{\s*const caught = await catchUpLaggingTenderStatus/.test(main));
     ok("「这一段时间已有值」的分支不再调用（前两个分支已经接住）", !/project\[timestampField as keyof typeof project\] != null\s*\) \{\s*const caught/.test(main));
     ok("只在人确认、项目是进行中、是招投标项目、状态落后于人确认的阶段时补", fn.includes('if (humanConfirmed !== true || project.status !== "active") return null;') && fn.includes('if ((project.workDomain ?? "").toLowerCase() !== "tender") return null;') && fn.includes("if (!newTenderStatus || !tenderStatusLagsBehind(project.tenderStatus, targetStage)) return null;") && fn.includes("const newTenderStatus = STAGE_TO_TENDER_STATUS[targetStage];"));
+    ok("带了发生时间或预期状态的调用（记录提交）不走补状态", fn.includes("if (input.occurredAt !== undefined || input.expected !== undefined) return null;") && fn.indexOf("input.occurredAt !== undefined") < fn.indexOf("await db.$transaction("));
     ok("提示语用招投标状态自己的中文名", fn.includes("招投标状态已同步为「${TENDER_STATUS_LABELS[newTenderStatus] ?? newTenderStatus}」"));
     ok("条件写入：读到的状态与进行中；只改招投标状态；没写成就不补", /where: \{ id: projectId, status: "active", tenderStatus: project\.tenderStatus \},\s*data: \{ tenderStatus: newTenderStatus \},/.test(fn) && fn.includes("if (claimed.count === 0) return null;") && fn.includes("if (!updated) return null;"));
     ok("写讨论区的状态变化、审计（标明补状态与人确认），有来源系统才发回调", fn.includes("await emitProjectPatchEvents(") && fn.includes("statusCatchUp: true,") && fn.includes("humanConfirmed,") && /if \(project\.sourceSystem\) \{\s*notifyProjectStatusChange\(\{/.test(fn));
-    ok("不写阶段时间、不碰任务、不发「已推进」的成员通知、不写「推进到某某」的讨论区消息", !/onStageAdvancedTasks|notifyProjectMembers|onStageAdvanced\(|timestampField|occurredAt/.test(fn) && (fn.match(/updateMany\(/g) ?? []).length === 1);
+    ok("不写阶段时间、不碰任务、不发「已推进」的成员通知、不写「推进到某某」的讨论区消息", !/onStageAdvancedTasks|notifyProjectMembers|onStageAdvanced\(|timestampField|occurredAt ?\?\?|data\[/.test(fn) && (fn.match(/updateMany\(/g) ?? []).length === 1);
     ok("不调模型、不发别的请求", !/createCompletion|openai|anthropic|fetch\(/i.test(fn));
   }
 
