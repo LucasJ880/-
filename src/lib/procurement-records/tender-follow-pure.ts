@@ -54,7 +54,8 @@ const clean = (s: string | null | undefined) => (s && s.trim() ? s.trim() : null
 export function projectFieldsFromInstrument(inst: FollowInstrument, evidence: FollowEvidence[]): FollowProjectFields {
   const withUrl = evidence.filter((e) => clean(e.sourceUrl));
   const notice = withUrl.find((e) => e.sourceType === "CANADABUYS_TENDER_NOTICES") ?? withUrl[0] ?? null;
-  const platformFrom = evidence.find((e) => FOLLOW_SOURCE_PLATFORM[e.sourceType])?.sourceType;
+  // 来源平台与公告链接取同一条证据（审查 L：避免链接来自 CanadaBuys、平台却写「人工导入」）
+  const platformFrom = notice && FOLLOW_SOURCE_PLATFORM[notice.sourceType] ? notice.sourceType : evidence.find((e) => FOLLOW_SOURCE_PLATFORM[e.sourceType])?.sourceType;
   const sourcePlatform = platformFrom ? FOLLOW_SOURCE_PLATFORM[platformFrom] : inst.origin === "MANUAL" ? "人工导入" : "采购监控";
   return {
     name: (clean(inst.title) ?? clean(inst.officialNumber) ?? inst.id).slice(0, 200),
@@ -69,10 +70,19 @@ export function projectFieldsFromInstrument(inst: FollowInstrument, evidence: Fo
 
 export type FollowButton = { kind: "follow" } | { kind: "followed"; projectId: string } | { kind: "none" };
 
-/** 候选卡片上的按钮（design D5）：已有「本项目」关联 → 已跟进；招标公告且未截标 → 跟这个标；其它不显示 */
-export function followButtonState(c: { instrumentClass: string; closingAt: string | null; tenderLinks?: Array<{ projectId: string; relation: string }> | null }, now: Date): FollowButton {
+/**
+ * 候选卡片上的按钮（design D5）：只对招标公告——已有「本项目」关联 → 已跟进（取最早的一条；列表按建立时间排好）；
+ * 未截标 → 跟这个标；其它（含不是招标公告、只读成员）不显示。
+ */
+export function followButtonState(
+  c: { instrumentClass: string; closingAt: string | null; tenderLinks?: Array<{ projectId: string; relation: string }> | null },
+  now: Date,
+  opts: { canFollow?: boolean } = {},
+): FollowButton {
+  if (c.instrumentClass !== "SOLICITATION") return { kind: "none" };
   const current = (c.tenderLinks ?? []).find((l) => l.relation === "CURRENT");
   if (current) return { kind: "followed", projectId: current.projectId };
+  if (opts.canFollow === false) return { kind: "none" };
   const closing = c.closingAt ? new Date(c.closingAt) : null;
   if (followEligibility({ instrumentClass: c.instrumentClass, closingAt: closing && !Number.isNaN(closing.getTime()) ? closing : null }, now).ok) return { kind: "follow" };
   return { kind: "none" };

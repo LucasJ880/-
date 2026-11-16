@@ -45,6 +45,7 @@ async function main() {
   const DAY = 86_400_000;
   const now = new Date();
   const createdProjects: string[] = [];
+  let DEL_ID = "", DEL_PROJECT = "";
 
   const cookie = async (uid: string) => `qy_session=${await createSession({ sub: uid, email: email(uid), role: "user" })}`;
   const follow = async (id: string, uid = MEMBER) => {
@@ -105,7 +106,9 @@ async function main() {
     ok(meta.noticeUrl === "https://canadabuys.canada.ca/en/tender-opportunities/tender-notice/new" && meta.procurementInstrumentId === OPEN, "公告链接取最新一条 CanadaBuys 来源", meta);
     const link = await db.procurementTenderLink.findMany({ where: { instrumentId: OPEN } });
     ok(link.length === 1 && link[0].projectId === P && link[0].relation === "CURRENT" && link[0].orgId === ORG && link[0].createdById === MEMBER, "公告关联到新项目（本项目）", link);
-    ok(inst?.triageStatus === "WATCHING" && inst?.triagedById === MEMBER, "公告改为关注");
+    ok(inst?.triageStatus === "WATCHING" && inst?.triagedById === MEMBER && !!inst?.triagedAt && Math.abs(inst.triagedAt.getTime() - Date.now()) < 120_000, "公告改为关注（记下谁、什么时候）");
+    const cal = await db.calendarEvent.count({ where: { projectId: P, userId: MEMBER } });
+    ok(cal >= 1, "截标日已写进负责人的日程（里程碑同步）", { cal });
     ok((await db.projectDocument.count({ where: { projectId: P } })) === 0, "项目不带文件");
     const audits = await db.auditLog.findMany({ where: { orgId: ORG, projectId: P }, select: { action: true } });
     ok(audits.some((a) => a.action === "create") && audits.some((a) => a.action === "procurement_instrument.follow_tender"), "记审计：建项目 + 跟标", audits);
@@ -144,6 +147,47 @@ async function main() {
     const r4 = await follow(HIST);
     ok(r4.status === 201 && r4.body.created === true && r4.body.projectId !== manual.id, "只有历史关联：照样新建", r4);
 
+    // 跟标建出的项目，关联被手工改成「前序」：再跟仍返回原项目（审查 H2）
+    const tenderLinkRoute = await import("@/app/api/procurement/instruments/[id]/tender-link/route");
+    const relink = await tenderLinkRoute.POST(new NextRequest(`http://localhost/api/procurement/instruments/${OPEN}/tender-link`, { method: "POST", headers: { cookie: await cookie(MEMBER), "content-type": "application/json" }, body: JSON.stringify({ projectId: P, relation: "PREDECESSOR" }) }), { params: Promise.resolve({ id: OPEN }) });
+    const r6 = await follow(OPEN, MEMBER2);
+    ok(relink.status === 200 && r6.status === 200 && r6.body.created === false && r6.body.projectId === P, "关联被改成「前序」后再跟：仍返回原项目，不建第二个", { relink: relink.status, r6 });
+    // 手工把别的项目关联为「本项目」：跟标建过的项目优先
+    await db.procurementTenderLink.create({ data: { orgId: ORG, projectId: String(manual.id), instrumentId: OPEN, relation: "CURRENT", createdById: ADMIN } });
+    const r7 = await follow(OPEN);
+    ok(r7.status === 200 && r7.body.created === false && r7.body.projectId === manual.id, "改关联后又手工关联了别的「本项目」：返回那个项目（与卡片一致），不新建", r7);
+    // 项目被删：关联不算数，可以重新跟；候选列表也不再指向被删的项目（审查 M1）
+    const DEL = await mkInst(ORG);
+    const d1 = await follow(DEL);
+    const dp = String(d1.body.projectId);
+    await db.projectMessage.deleteMany({ where: { projectId: dp } });
+    await db.calendarEvent.deleteMany({ where: { projectId: dp } });
+    await db.environment.deleteMany({ where: { projectId: dp } });
+    await db.projectMember.deleteMany({ where: { projectId: dp } });
+    await db.project.delete({ where: { id: dp } });
+    DEL_ID = DEL; DEL_PROJECT = dp;
+    const d2 = await follow(DEL);
+    ok(d1.status === 201 && d2.status === 201 && d2.body.created === true && d2.body.projectId !== dp, "项目被删后再跟：新建一个", { d1, d2 });
+    // 已跟过的公告截标后再点：返回原项目
+    await db.procurementInstrument.update({ where: { id: RACE }, data: { closingAt: new Date(now.getTime() - DAY) } });
+    const r8 = await follow(RACE, MEMBER2);
+    ok(r8.status === 200 && r8.body.created === false && r8.body.projectId === a.body.projectId, "已跟过的公告截标后再点：返回原项目", r8);
+    // 合同即使被手工关联为「本项目」：也不能跟
+    await db.procurementTenderLink.create({ data: { orgId: ORG, projectId: String(manual.id), instrumentId: AWARD, relation: "CURRENT", createdById: ADMIN } });
+    const r9 = await follow(AWARD);
+    ok(r9.status === 400 && r9.body.code === "NOT_SOLICITATION", "合同有「本项目」关联也是 400", r9);
+    await db.procurementTenderLink.deleteMany({ where: { instrumentId: AWARD } });
+    // 台账开着：建项写一条 project.created（与手工新建相同）
+    const prevSchema = process.env.T2_LEDGER_SCHEMA_READY, prevProd = process.env.T2_LEDGER_PRODUCERS_ENABLED;
+    process.env.T2_LEDGER_SCHEMA_READY = "1";
+    process.env.T2_LEDGER_PRODUCERS_ENABLED = "1";
+    const LED = await mkInst(ORG);
+    const l1 = await follow(LED);
+    if (prevSchema === undefined) delete process.env.T2_LEDGER_SCHEMA_READY; else process.env.T2_LEDGER_SCHEMA_READY = prevSchema;
+    if (prevProd === undefined) delete process.env.T2_LEDGER_PRODUCERS_ENABLED; else process.env.T2_LEDGER_PRODUCERS_ENABLED = prevProd;
+    const evs = await db.projectEvent.findMany({ where: { projectId: String(l1.body.projectId) }, select: { eventType: true, actorId: true } as never });
+    ok(l1.status === 201 && evs.length === 1 && (evs[0] as Rec).eventType === "project.created", "台账开着：写且只写一条 project.created", evs);
+
     /* ---------- 4. 不能跟 ---------- */
     const before = await db.project.count({ where: { orgId: { in: orgs } } });
     const c1 = await follow(CLOSED);
@@ -180,11 +224,23 @@ async function main() {
     const items = (lj.items ?? lj.candidates ?? []) as Rec[];
     const stateOf = (id: string) => { const c = items.find((x) => x.id === id); return c ? followButtonState({ instrumentClass: String(c.instrumentClass), closingAt: (c.closingAt as string | null) ?? null, tenderLinks: c.tenderLinks as never }, new Date()) : null; };
     const sOpen = stateOf(OPEN);
-    ok(sOpen?.kind === "followed" && sOpen.projectId === P, "候选列表：跟过的显示「已跟进」并指向项目", { sOpen, keys: Object.keys(lj) });
+    ok(sOpen?.kind === "followed" && sOpen.projectId === r7.body.projectId, "候选列表的「已跟进」与再点跟标返回的是同一个项目", { sOpen, r7: r7.body });
     ok(stateOf(HIST)?.kind === "followed" && stateOf(CLOSED)?.kind === "none" && stateOf(AWARD)?.kind === "none", "历史关联后跟进的显示已跟进；已截标、合同不显示");
+    const delItem = items.find((x) => x.id === DEL_ID);
+    ok(!!delItem && !((delItem.tenderLinks as Rec[]) ?? []).some((l) => l.projectId === DEL_PROJECT), "候选列表不展示指向已删项目的关联", delItem?.tenderLinks);
+    const sRace = stateOf(RACE);
+    ok(sRace?.kind === "followed" && sRace.projectId === a.body.projectId, "跟过（后来截标）的公告：卡片仍是已跟进，指向跟标建出的项目");
+    const wr = await (await import("@/app/api/procurement/watch/route")).GET(new NextRequest(`http://localhost/api/procurement/watch?orgId=${ORG}`, { headers: { cookie: await cookie(VIEWER) } }), { params: Promise.resolve({}) } as never);
+    const wj = (await wr.json()) as Rec;
+    const wm = (await (await import("@/app/api/procurement/watch/route")).GET(new NextRequest(`http://localhost/api/procurement/watch?orgId=${ORG}`, { headers: { cookie: await cookie(MEMBER) } }), { params: Promise.resolve({}) } as never).then((r) => r.json())) as Rec;
+    ok(wj.canFollow === false && wm.canFollow === true, "监控接口：只读成员 canFollow 为假，组织成员为真", { viewer: wj.canFollow, member: wm.canFollow });
   } finally {
     await db.auditLog.deleteMany({ where: { OR: [{ orgId: { in: orgs } }, { userId: { in: users } }] } });
     await db.procurementTenderLink.deleteMany({ where: { orgId: { in: orgs } } });
+    const evPids = (await db.project.findMany({ where: { orgId: { in: orgs } }, select: { id: true } })).map((p) => p.id);
+    await db.calendarEvent.deleteMany({ where: { projectId: { in: evPids } } });
+    await (db as unknown as { projectEventActor?: { deleteMany: (a: unknown) => Promise<unknown> } }).projectEventActor?.deleteMany({ where: { event: { projectId: { in: evPids } } } }).catch(() => undefined);
+    await db.projectEvent.deleteMany({ where: { projectId: { in: evPids } } }).catch(() => undefined);
     await db.procurementSourceEvidence.deleteMany({ where: { orgId: { in: orgs } } });
     await db.procurementInstrument.deleteMany({ where: { orgId: { in: orgs } } });
     const pids = (await db.project.findMany({ where: { orgId: { in: orgs } }, select: { id: true } })).map((p) => p.id);

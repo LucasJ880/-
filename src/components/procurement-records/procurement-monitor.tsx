@@ -44,6 +44,8 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const [view, setView] = useState<WatchView | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [canManage, setCanManage] = useState(false);
+  // P2-3a：只读成员不显示「跟这个标」（接口也会 403）
+  const [canFollow, setCanFollow] = useState(false);
   const [candidates, setCandidates] = useState<Json[]>([]);
   const [triage, setTriage] = useState("ALL");
   const [runId, setRunId] = useState<string | null>(null);
@@ -65,6 +67,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
     const w = r.body.watch as WatchView;
     setView(w);
     setCanManage(Boolean(r.body.canManage));
+    setCanFollow(r.body.canFollow === true);
     const f = w.config.filters;
     setForm({
       keywords: lines(f.keywords),
@@ -387,7 +390,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
                   )}
                   {c.triageStatus !== "WATCHING" ? <Btn onClick={() => void doTriage(String(c.id), "WATCHING")} busy={api.busy === `t-${String(c.id)}`}>关注</Btn> : null}
                   {c.triageStatus !== "IGNORED" ? <Btn variant="link" onClick={() => void doTriage(String(c.id), "IGNORED")}>忽略</Btn> : null}
-                  <FollowAction state={followButtonState({ instrumentClass: String(c.instrumentClass), closingAt: (c.closingAt as string | null) ?? null, tenderLinks: c.tenderLinks as Array<{ projectId: string; relation: string }> | null }, new Date())} busy={api.busy === `f-${String(c.id)}`} onFollow={() => void follow(String(c.id))} />
+                  <FollowAction state={followButtonState({ instrumentClass: String(c.instrumentClass), closingAt: (c.closingAt as string | null) ?? null, tenderLinks: c.tenderLinks as Array<{ projectId: string; relation: string }> | null }, new Date(), { canFollow })} busy={api.busy === `f-${String(c.id)}`} onFollow={() => void follow(String(c.id))} />
                 </div>
                 <details className="mt-1 text-[11px]">
                   <summary className="cursor-pointer text-muted">评分理由与更多信息</summary>

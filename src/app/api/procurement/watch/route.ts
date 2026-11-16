@@ -13,7 +13,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   if (gate) return gate;
   const a = await requireProcurementOrg(user, request.nextUrl.searchParams.get("orgId"), "org_viewer");
   if (a instanceof NextResponse) return a;
-  return NextResponse.json({ available: true, orgId: a.orgId, canManage: ["org_admin", "org_owner"].includes(a.orgRole), watch: await getWatchView(a.orgId) });
+  return NextResponse.json({ available: true, orgId: a.orgId, canManage: ["org_admin", "org_owner"].includes(a.orgRole), canFollow: a.orgRole !== "org_viewer", watch: await getWatchView(a.orgId) });
 });
 
 export const PUT = withAuth(async (request, _ctx, user) => {
