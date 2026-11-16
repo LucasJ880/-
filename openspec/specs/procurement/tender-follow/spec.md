@@ -1,7 +1,7 @@
 # procurement/tender-follow Specification
 
 ## Purpose
-TBD - created by archiving change tender-notice-follow. Update Purpose after archive.
+规定从采购监控的招标公告一键建招投标项目：谁能点、建出什么、怎么保证同一组织同一公告只建一次、什么情况不能跟、候选卡片上显示什么。
 
 ## Requirements
 
