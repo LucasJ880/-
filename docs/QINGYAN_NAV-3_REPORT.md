@@ -4,7 +4,7 @@ change：`nav-3-approval-draft-editable`（任务书 `docs/QINGYAN_NAV-1_PLAIN_N
 
 | 项 | 值 |
 |---|---|
-| 状态 | #501 待审；没有开关，合并即生效 |
+| 状态 | #501，2026-11-16 合并；archive `openspec/changes/archive/2026-11-16-nav-3-approval-draft-editable`；没有开关，已随合并生效 |
 | 改的能力 | `trade/inquiry-reply-entry`（改 1 条、加 4 条） |
 | 测试 | 新增 `approval-draft-edit.test.ts` 48 项（`scripts/test-all.sh:338`、`scripts/test-ci-unit.sh:362`）；`reply-entry-db.isolated.test.ts` 加第 5 组，28 → 42 |
 | 截图 | `docs/acceptance/nav-3/01–06`（本机临时库 + `next dev`，虚构企业与账号；没有发信、没有批准或拒绝任何草稿） |
