@@ -4,7 +4,7 @@
  */
 
 import type { Prisma } from "@prisma/client";
-import { noticeUrlOf } from "./tender-follow-pure";
+import { NOTICE_EVIDENCE_ORDER, noticeUrlOf } from "./tender-follow-pure";
 import { db } from "@/lib/db";
 import { EVENT_LABELS } from "./case-pure";
 import { institutionDisplayName, JURISDICTION_LABELS } from "./identity";
@@ -43,11 +43,13 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
     // P2-3a：按建立时间排（「已跟进」指向最早的「本项目」关联）
     db.procurementTenderLink.findMany({ where: { orgId, instrumentId: { in: ids } }, orderBy: { createdAt: "asc" }, select: { instrumentId: true, projectId: true, relation: true } }),
     db.recordsRequest.findMany({ where: { orgId, autoDraftKey: { in: ids.map((i) => `auto:${i}`) } }, select: { id: true, autoDraftKey: true, status: true } }),
-    // P2-1：公告链接（与跟标预填同一规则，按抓取时间新到旧）
-    db.procurementSourceEvidence.findMany({ where: { orgId, instrumentId: { in: ids }, sourceUrl: { not: null } }, orderBy: { fetchedAt: "desc" }, select: { instrumentId: true, sourceType: true, sourceUrl: true } }),
+    // P2-1：公告链接（只给招标公告；与跟标预填同一查询与规则）
+    db.procurementSourceEvidence.findMany({ where: { orgId, instrumentId: { in: rows.filter((r) => r.instrumentClass === "SOLICITATION").map((r) => r.id) }, sourceUrl: { not: null } }, orderBy: NOTICE_EVIDENCE_ORDER, select: { instrumentId: true, sourceType: true, sourceUrl: true } }),
   ]);
   // P2-3a：项目已删的关联不展示（关联表对项目没有外键）
   const aliveProjects = new Set(links.length ? (await db.project.findMany({ where: { orgId, id: { in: [...new Set(links.map((l) => l.projectId))] } }, select: { id: true } })).map((p) => p.id) : []);
+  const evidenceByInstrument = new Map<string, typeof urlEvidence>();
+  for (const e of urlEvidence) if (e.instrumentId) evidenceByInstrument.set(e.instrumentId, [...(evidenceByInstrument.get(e.instrumentId) ?? []), e]);
   const items = rows.map((r) => {
     const p = (r.priorityJson ?? null) as { score?: number; dimensions?: unknown[]; unknownsZh?: string[] } | null;
     return {
@@ -63,8 +65,9 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
       recordsHolderInstitution: r.recordsHolderInstitution,
       vendorName: r.vendorName,
       closingAt: iso(r.closingAt),
-      publishedAt: iso(r.publishedAt),
-      noticeUrl: noticeUrlOf(urlEvidence.filter((e) => e.instrumentId === r.id)),
+      // 发布日期是日历日期（CanadaBuys 只给日期，入库为 UTC 零点）：按日期返回，别再换时区（P2-1 审查 H1）
+      publishedAt: day(r.publishedAt),
+      noticeUrl: r.instrumentClass === "SOLICITATION" ? noticeUrlOf(evidenceByInstrument.get(r.id) ?? []) : null,
       currentExpiryAt: day(r.currentExpiryAt),
       remainingOptions: r.remainingOptions,
       confirmedRetenderDate: day(r.confirmedRetenderDate),

@@ -17,7 +17,7 @@ import { appendProjectEvent } from "@/lib/project-ledger/event-service";
 import { projectCreatedEventKey } from "@/lib/project-ledger/event-keys";
 import { isLedgerProducerActive } from "@/lib/project-ledger/flags";
 import { syncProjectMilestoneCalendars } from "@/lib/projects/sync-milestone-calendar";
-import { followEligibility, projectFieldsFromInstrument, ORG_ARCHIVED_ZH, type FollowRefusal } from "./tender-follow-pure";
+import { followEligibility, projectFieldsFromInstrument, ORG_ARCHIVED_ZH, NOTICE_EVIDENCE_ORDER, type FollowRefusal } from "./tender-follow-pure";
 
 /** 项目来源元数据里的公告 id（JSON.stringify 的固定写法；跟标建出的项目都带它） */
 export const followMarker = (instrumentId: string) => `"procurementInstrumentId":${JSON.stringify(instrumentId)}`;
@@ -65,10 +65,10 @@ export async function followTenderNotice(input: { orgId: string; user: AuthUser;
     // 已跟过的即使截标也返回原项目（上面）；新跟要求未截标
     const elig = followEligibility(inst, now);
     if (!elig.ok) return elig;
+    // 与候选列表同一查询（有链接的证据，新到旧，同时间按 id），保证预填的公告链接与列表里的一样（P2-1 审查 L1）
     const evidence = await tx.procurementSourceEvidence.findMany({
-      where: { orgId: input.orgId, instrumentId: inst.id },
-      orderBy: { fetchedAt: "desc" },
-      take: 20,
+      where: { orgId: input.orgId, instrumentId: inst.id, sourceUrl: { not: null } },
+      orderBy: NOTICE_EVIDENCE_ORDER,
       select: { sourceType: true, sourceUrl: true },
     });
     const f = projectFieldsFromInstrument(inst, evidence);

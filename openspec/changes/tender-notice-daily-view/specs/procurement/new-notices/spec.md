@@ -5,18 +5,18 @@
 ## ADDED Requirements
 
 ### Requirement: 新标视图
-`GET /api/procurement/candidates?view=new` SHALL 只返回本组织的招标公告中截标时间未过（或未知）、且没有被忽略或归档的，按发布日期从新到旧排（没有发布日期的按首次发现时间、排在有发布日期的之后），SHALL NOT 按资料申请优先级重排。候选页 SHALL 提供「新标（未截标的招标公告）」筛选并用这个视图。
+`GET /api/procurement/candidates?view=new` SHALL 只返回本组织的招标公告中截标时间未过（或未知）、且没有被忽略、归档或标为历史记录的，按发布日期从新到旧排（没有发布日期的按首次发现时间、排在有发布日期的之后），SHALL NOT 按资料申请优先级重排。候选页 SHALL 提供「新标（未截标的招标公告）」筛选并用这个视图。
 
 #### Scenario: 只看还能投的新标
-- **WHEN** 组织里有新标、已截标的公告、合同、被忽略的公告
-- **THEN** 新标视图只列新标，最新发布的在前（`npx tsx src/lib/procurement-records/__tests__/new-notices-db.isolated.test.ts`）
+- **WHEN** 组织里有新标、已截标的公告、合同、被忽略 / 归档 / 历史记录的公告
+- **THEN** 新标视图只列新标，最新发布的在前，同一天发布的按首次发现时间新到旧；按编号搜也不会把已截标的带出来（`npx tsx src/lib/procurement-records/__tests__/new-notices-db.isolated.test.ts`）
 
 #### Scenario: 别的组织
 - **WHEN** 另一个组织的成员请求新标视图
 - **THEN** 看不到本组织的任何公告（`new-notices-db.isolated.test.ts`）
 
 ### Requirement: 发布日期与公告链接
-候选接口的每一行 SHALL 带 `publishedAt` 与 `noticeUrl`；公告链接 SHALL 与「跟这个标」预填的链接取同一条证据（最新一条有链接的，优先 CanadaBuys 招标公告来源），没有就为空。候选卡片 SHALL 显示发布日期，有公告链接的招标公告 SHALL 显示「看公告」并在新窗口打开。
+候选接口的每一行 SHALL 带 `publishedAt`（日历日期 YYYY-MM-DD，不换时区）与 `noticeUrl`（只有招标公告才有，其它类别为空）；公告链接 SHALL 与「跟这个标」预填的链接取同一条证据（最新一条有链接的，优先 CanadaBuys 招标公告来源），没有就为空。候选卡片 SHALL 显示发布日期，有公告链接的招标公告 SHALL 显示「看公告」并在新窗口打开。
 
 #### Scenario: 有 CanadaBuys 链接
 - **WHEN** 一条公告有两条 CanadaBuys 证据和一条别的来源

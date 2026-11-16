@@ -66,6 +66,8 @@ console.log("说明文字");
   ok("七天：每天", describeSchedule({ weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 6, minute: 0 }, "America/Toronto").startsWith("每天 06:00（America/Toronto）"));
   ok("周一到周五：每个工作日", describeSchedule({ weekdays: [5, 4, 3, 2, 1], hour: 8, minute: 0 }, "America/Toronto").startsWith("每个工作日 08:00"));
   ok("其它照旧列星期几", describeSchedule({ weekdays: [4, 1], hour: 8, minute: 0 }, "America/Toronto").startsWith("每周一、周四 08:00"));
+  ok("六天：照样列星期几（不是「每天」）", describeSchedule({ weekdays: [0, 1, 2, 3, 4, 5], hour: 6, minute: 0 }, "UTC").startsWith("每周日、周一、周二、周三、周四、周五 06:00"));
+  ok("五天但不是周一到周五：照样列星期几（不是「每个工作日」）", describeSchedule({ weekdays: [0, 1, 2, 3, 6], hour: 6, minute: 0 }, "UTC").startsWith("每周日、周一、周二、周三、周六 06:00"));
   ok("重复的星期几不影响", describeSchedule({ weekdays: [0, 1, 2, 3, 4, 5, 6, 6], hour: 6, minute: 0 }, "UTC").startsWith("每天"));
 }
 
@@ -90,8 +92,8 @@ console.log("新标筛选");
 
 console.log("呈现");
 {
-  const h = renderToStaticMarkup(React.createElement(NoticeLine, { publishedAt: "2026-11-14T13:00:00.000Z", closingAt: "2026-12-01T19:00:00.000Z", noticeUrl: "https://canadabuys.canada.ca/n1" }));
-  ok("招标公告一行：发布日期、截标（多伦多时间）、看公告（新窗口）", h.includes("发布 2026-11-14") && h.includes("截标 2026-12-01 14:00") && h.includes(NOTICE_LINK_ZH) && h.includes('href="https://canadabuys.canada.ca/n1"') && h.includes('target="_blank"') && h.includes('rel="noreferrer noopener"'), h);
+  const h = renderToStaticMarkup(React.createElement(NoticeLine, { publishedAt: "2026-11-01", closingAt: "2026-12-01T19:00:00.000Z", noticeUrl: "https://canadabuys.canada.ca/n1" }));
+  ok("招标公告一行：发布日期原样（不退一天）、截标（多伦多时间）、看公告（新窗口）", h.includes("发布 2026-11-01") && !h.includes("2026-10-31") && h.includes("截标 2026-12-01 14:00") && h.includes(NOTICE_LINK_ZH) && h.includes('href="https://canadabuys.canada.ca/n1"') && h.includes('target="_blank"') && h.includes('rel="noreferrer noopener"'), h);
   const h2 = renderToStaticMarkup(React.createElement(NoticeLine, { publishedAt: null, closingAt: null, noticeUrl: null }));
   ok("都未知、没有链接：写未知，不出链接", h2.includes("发布 未知") && h2.includes("截标 未知") && !h2.includes("<a"));
   const e = renderToStaticMarkup(React.createElement(ScheduleEditor, { value: { weekdays: [0, 1, 2, 3, 4, 5, 6], time: "06:00" }, onChange: () => undefined, disabled: false }));
@@ -106,7 +108,10 @@ console.log("接线");
   const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
   const ui = read("src/components/procurement-records/procurement-monitor.tsx");
   ok("保存：先算排期，不合规就提示并不发；改过才放进请求", ui.includes("const sb = scheduleBodyIfChanged(sched, schedInitial);") && ui.includes("...(sb.schedule ? { schedule: sb.schedule } : {}),") && ui.indexOf("const sb = scheduleBodyIfChanged") < ui.indexOf('api.call("save"'));
-  ok("读回时同时更新表单与打开时的值", ui.includes("setSched(sf);") && ui.includes("setSchedInitial(sf);"));
+  ok("读回时同时更新表单与打开时的值（扫描结束后的刷新不覆盖正在改的）", ui.includes("setSched(sf);") && ui.includes("setSchedInitial(sf);") && ui.includes("if (!opts.keepEdits) {") && ui.includes("if (!opts.keepEdits) setForm({") && ui.includes("void load({ keepEdits: true });"));
+  ok("保存失败不重新读取（保留错误与正在改的）；成功先读再提示", /const r = await api\.call\("save"[\s\S]*?if \(!r\.ok\) return;[\s\S]*?await load\(\);\s*api\.setNote\(\{ tone: "good", text: enableAfter/.test(ui));
+  ok("人工导入成功：先读再提示", /const r = await api\.call\("import"[\s\S]*?await load\(\);\s*api\.setNote\(\{ tone: "good", text: "已人工导入/.test(ui));
+  ok("停用后的刷新不把接口返回值当成参数", ui.includes(".then(() => load())") && !ui.includes(".then(load)"));
   ok("候选读取用 candidatesQuery；下拉有「新标」", ui.includes("${candidatesQuery(triage)}") && ui.includes("<option value={NEW_VIEW_VALUE}>{NEW_VIEW_LABEL_ZH}</option>"));
   ok("招标公告的卡片显示发布 / 截标 / 看公告", ui.includes('c.instrumentClass === "SOLICITATION" ? <NoticeLine'));
   const pure = read("src/lib/procurement-records/new-notices-pure.ts");
@@ -114,7 +119,9 @@ console.log("接线");
   const route = read("src/app/api/procurement/candidates/route.ts");
   ok("候选接口把 view 传给取数", route.includes('view: sp.get("view")'));
   const views = read("src/lib/procurement-records/views.ts");
-  ok("取数：公告链接用 noticeUrlOf（与跟标同一规则）", views.includes("noticeUrl: noticeUrlOf(urlEvidence.filter((e) => e.instrumentId === r.id)),"));
+  ok("取数：只给招标公告公告链接，用 noticeUrlOf（与跟标同一规则）；发布日期按日期返回", views.includes('noticeUrl: r.instrumentClass === "SOLICITATION" ? noticeUrlOf(evidenceByInstrument.get(r.id) ?? []) : null,') && views.includes("publishedAt: day(r.publishedAt),"));
+  const follow = read("src/lib/procurement-records/tender-follow.ts");
+  ok("跟标与候选列表同一查询（有链接的证据、同一排序）", follow.includes("sourceUrl: { not: null } },\n      orderBy: NOTICE_EVIDENCE_ORDER,") && views.includes("sourceUrl: { not: null } }, orderBy: NOTICE_EVIDENCE_ORDER,"));
 }
 
 console.log(`\nnew-notices-pure: ${passed} passed`);

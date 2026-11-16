@@ -34,6 +34,7 @@ async function main() {
   const watchRoute = await import("@/app/api/procurement/watch/route");
   const followRoute = await import("@/app/api/procurement/instruments/[id]/follow/route");
   const { scheduleBodyIfChanged, scheduleFormOf, applyPreset } = await import("../new-notices-pure");
+  const { listCandidates } = await import("../views");
 
   console.log("P2-1 new notices — isolated DB");
   const stamp = Date.now().toString(36);
@@ -74,8 +75,9 @@ async function main() {
     await db.organizationMember.create({ data: { orgId: ORG, userId: MEMBER, role: "org_member", status: "active" } });
     await db.organizationMember.create({ data: { orgId: ORG_B, userId: OUTSIDER, role: "org_admin", status: "active" } });
 
-    // 新标：A（3 天前发布）、B（1 天前，已关注）、C（没有发布日期）、D（截标未知）
-    const A = await mkInst(ORG, { publishedAt: new Date(now.getTime() - 3 * DAY), priorityJson: { score: 90 } });
+    // 新标：A（3 天前发布，CanadaBuys 只给日期 → UTC 零点）、B（1 天前，已关注）、C（没有发布日期）、D（截标未知）
+    const aDay = new Date(now.getTime() - 3 * DAY).toISOString().slice(0, 10);
+    const A = await mkInst(ORG, { publishedAt: new Date(`${aDay}T00:00:00.000Z`), priorityJson: { score: 90 } });
     const B = await mkInst(ORG, { publishedAt: new Date(now.getTime() - 1 * DAY), triageStatus: "WATCHING", priorityJson: { score: 10 } });
     const C = await mkInst(ORG, { publishedAt: null, priorityJson: { score: 99 } });
     const D = await mkInst(ORG, { publishedAt: new Date(now.getTime() - 2 * DAY), closingAt: null });
@@ -85,6 +87,18 @@ async function main() {
     const IGN = await mkInst(ORG, { publishedAt: new Date(now.getTime() - DAY / 4), triageStatus: "IGNORED" });
     const ARCH = await mkInst(ORG, { publishedAt: new Date(now.getTime() - DAY / 5), triageStatus: "ARCHIVED" });
     const OTHER = await mkInst(ORG_B, { publishedAt: new Date(now.getTime() - DAY / 6) });
+    const HIST = await mkInst(ORG, { publishedAt: new Date(now.getTime() - DAY / 7), triageStatus: "HISTORY" });
+    // 同一天发布 / 都没有发布日期的：按首次发现时间新到旧
+    const tieDay = new Date(`${new Date(now.getTime() - 10 * DAY).toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const T_OLD = await mkInst(ORG, { publishedAt: tieDay, firstSeenAt: new Date(now.getTime() - 9 * DAY) });
+    const T_NEW = await mkInst(ORG, { publishedAt: tieDay, firstSeenAt: new Date(now.getTime() - 8 * DAY) });
+    const N_OLD = await mkInst(ORG, { publishedAt: null, firstSeenAt: new Date(now.getTime() - 7 * DAY) });
+    // 合同也有证据链接（开放数据接口地址），不该当成公告链接
+    await mkEv(ORG, AWARD, "OPEN_CANADA_CONTRACTS", "https://open.canada.ca/data/api/action/datastore_search?x", 0);
+    // 跟标与列表同一链接：一条旧的 CanadaBuys 链接 + 21 条更新的、没有链接的证据
+    const MANY = await mkInst(ORG, { publishedAt: new Date(now.getTime() - 20 * DAY) });
+    await mkEv(ORG, MANY, "CANADABUYS_TENDER_NOTICES", "https://canadabuys.canada.ca/many", 30);
+    for (let i = 0; i < 21; i++) await mkEv(ORG, MANY, "OPEN_CANADA_ATI_SUMMARIES", null, i);
     await mkEv(ORG, A, "OPEN_CANADA_CONTRACTS", "https://open.canada.ca/x", 0);
     await mkEv(ORG, A, "CANADABUYS_TENDER_NOTICES", "https://canadabuys.canada.ca/a-new", 1);
     await mkEv(ORG, A, "CANADABUYS_TENDER_NOTICES", "https://canadabuys.canada.ca/a-old", 4);
@@ -94,10 +108,26 @@ async function main() {
     const r = await getJson(candidatesRoute.GET, `/api/procurement/candidates?orgId=${ORG}&view=new`, MEMBER);
     const items = (r.body.items ?? []) as Rec[];
     const ids = items.map((x) => x.id);
-    ok(r.status === 200 && JSON.stringify(ids) === JSON.stringify([B, D, A, C]), "新标视图：只列未截标（含截标未知）、没被忽略 / 归档的招标公告；按发布日期新到旧，没有发布日期的排最后；不按优先级重排", { ids, expect: [B, D, A, C] });
-    ok(![CLOSED, AWARD, IGN, ARCH, OTHER].some((x) => ids.includes(x)), "已截标、合同、被忽略、归档、别的组织都不出现");
+    // C 与 N_OLD 都没有发布日期：C 首次发现更晚（刚建）排前
+    const expectIds = [B, D, A, T_NEW, T_OLD, MANY, C, N_OLD];
+    ok(r.status === 200 && JSON.stringify(ids) === JSON.stringify(expectIds), "新标视图：只列未截标（含截标未知）、没被忽略 / 归档 / 历史记录的招标公告；按发布日期新到旧，同一天的按首次发现新到旧，没有发布日期的排最后；不按优先级重排", { ids, expectIds });
+    ok(![CLOSED, AWARD, IGN, ARCH, OTHER, HIST].some((x) => ids.includes(x)), "已截标、合同、被忽略、归档、历史记录、别的组织都不出现");
+    ok((items.find((x) => x.id === A) as Rec).publishedAt === aDay, "发布日期按日历日期返回（UTC 零点不退一天）", { got: (items.find((x) => x.id === A) as Rec).publishedAt, aDay });
     const a = items.find((x) => x.id === A) as Rec;
-    ok(a.noticeUrl === "https://canadabuys.canada.ca/a-new" && typeof a.publishedAt === "string", "公告链接取最新一条 CanadaBuys；带发布日期", a);
+    ok(a.noticeUrl === "https://canadabuys.canada.ca/a-new", "公告链接取最新一条 CanadaBuys", a);
+    const allRows = ((await getJson(candidatesRoute.GET, `/api/procurement/candidates?orgId=${ORG}`, MEMBER)).body.items ?? []) as Rec[];
+    ok((allRows.find((x) => x.id === AWARD) as Rec).noticeUrl === null, "合同没有公告链接（证据里的开放数据接口地址不算）");
+    // 搜编号同时命中未截标与已截标：已截标的仍被排除
+    const closedNum = (await db.procurementInstrument.findUnique({ where: { id: CLOSED }, select: { officialNumber: true } }))!.officialNumber;
+    const qc = await getJson(candidatesRoute.GET, `/api/procurement/candidates?orgId=${ORG}&view=new&q=${encodeURIComponent(`NN${stamp}`)}`, MEMBER);
+    const qcIds = ((qc.body.items ?? []) as Rec[]).map((x) => x.id);
+    ok(qcIds.includes(A) && !qcIds.includes(CLOSED) && closedNum.startsWith(`NN${stamp}`), "按编号搜（同时命中已截标的）：已截标的仍不出现");
+    // 截标那一刻：算已截标
+    const closeAt = new Date(now.getTime() + 5 * DAY);
+    const EDGE = await mkInst(ORG, { closingAt: closeAt });
+    const atClose = (await listCandidates(ORG, { view: "new", now: closeAt })).map((x) => x.id);
+    const before = (await listCandidates(ORG, { view: "new", now: new Date(closeAt.getTime() - 1) })).map((x) => x.id);
+    ok(!atClose.includes(EDGE) && before.includes(EDGE), "截标那一刻起不在新标里，前一毫秒还在");
     ok((items.find((x) => x.id === B) as Rec).noticeUrl === null && (items.find((x) => x.id === C) as Rec).publishedAt === null, "没有链接、没有发布日期的都是空");
     const all = await getJson(candidatesRoute.GET, `/api/procurement/candidates?orgId=${ORG}`, MEMBER);
     const allIds = ((all.body.items ?? []) as Rec[]).map((x) => x.id);
@@ -113,6 +143,11 @@ async function main() {
     const fj = (await f.json()) as Rec;
     const proj = await db.project.findUnique({ where: { id: String(fj.projectId) }, select: { sourceMetadataJson: true } });
     ok(JSON.parse(proj?.sourceMetadataJson ?? "{}").noticeUrl === a.noticeUrl, "候选里的公告链接与跟标建出的项目里的相同");
+    const fm = await (followRoute.POST as unknown as (r: unknown, c: unknown) => Promise<Response>)(new NextRequest(`http://localhost/api/procurement/instruments/${MANY}/follow`, { method: "POST", headers: { cookie: await cookie(MEMBER) } }), { params: Promise.resolve({ id: MANY }) });
+    const fmj = (await fm.json()) as Rec;
+    const pm2 = await db.project.findUnique({ where: { id: String(fmj.projectId) }, select: { sourceMetadataJson: true } });
+    const manyRow = items.find((x) => x.id === MANY) as Rec;
+    ok(manyRow.noticeUrl === "https://canadabuys.canada.ca/many" && JSON.parse(pm2?.sourceMetadataJson ?? "{}").noticeUrl === manyRow.noticeUrl, "有 21 条更新的无链接证据时，跟标与列表仍是同一条 CanadaBuys 链接", { list: manyRow.noticeUrl, follow: JSON.parse(pm2?.sourceMetadataJson ?? "{}").noticeUrl });
 
     /* ---------- 3. 改扫描时间 ---------- */
     const w0 = await getJson(watchRoute.GET, `/api/procurement/watch?orgId=${ORG}`, ADMIN);

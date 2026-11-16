@@ -76,7 +76,8 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const api = useApiCall();
   const q = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
 
-  const load = useCallback(async () => {
+  // keepEdits：扫描结束后的刷新只更新状态与候选，不覆盖正在改的配置与扫描时间（P2-1 审查 L5）
+  const load = useCallback(async (opts: { keepEdits?: boolean } = {}) => {
     if (!orgId) return;
     const r = await api.call("load", `/api/procurement/watch${q}`);
     if (r.body.available === false) {
@@ -90,7 +91,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
     setCanManage(Boolean(r.body.canManage));
     setCanFollow(r.body.canFollow === true);
     const f = w.config.filters;
-    setForm({
+    if (!opts.keepEdits) setForm({
       keywords: lines(f.keywords),
       excludeKeywords: lines(f.excludeKeywords),
       institutions: lines(f.institutions),
@@ -100,9 +101,11 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
       maxNewDraftCards: w.config.limits.maxNewDraftCards,
       maxPagesPerSource: w.config.limits.maxPagesPerSource,
     });
-    const sf = scheduleFormOf(w.config.schedule);
-    setSched(sf);
-    setSchedInitial(sf);
+    if (!opts.keepEdits) {
+      const sf = scheduleFormOf(w.config.schedule);
+      setSched(sf);
+      setSchedInitial(sf);
+    }
     if (w.activeRun) setRunId(String(w.activeRun.id));
     const c = await api.call("cands", `/api/procurement/candidates${q}${candidatesQuery(triage)}`);
     if (c.ok) setCandidates((c.body.items as Json[]) ?? []);
@@ -124,7 +127,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
       if (["QUEUED", "RUNNING"].includes(String(r.run.status))) setTimeout(tick, 3000);
       else {
         setRunId(null);
-        void load();
+        void load({ keepEdits: true });
       }
     };
     void tick();
@@ -147,9 +150,14 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
         limits: { maxNewCandidates: Number(form.maxNewCandidates), maxNewDraftCards: Number(form.maxNewDraftCards), maxPagesPerSource: Number(form.maxPagesPerSource) },
       },
     });
-    if (r.ok && enableAfter) await api.call("enable", `/api/procurement/watch/enable${q}`, { method: "POST" });
-    if (r.ok) api.setNote({ tone: "good", text: enableAfter ? "已保存并启用：只授权配置内的只读检索、分析与内部草稿，不授权对政府发函或提交。" : "配置已保存（未改变启用状态）。" });
+    // 失败：保留错误提示与正在改的内容，不重新读取；成功：先重新读取再给提示（每次接口调用开始时都会清空提示）
+    if (!r.ok) return;
+    if (enableAfter) {
+      const e = await api.call("enable", `/api/procurement/watch/enable${q}`, { method: "POST" });
+      if (!e.ok) return;
+    }
     await load();
+    api.setNote({ tone: "good", text: enableAfter ? "已保存并启用：只授权配置内的只读检索、分析与内部草稿，不授权对政府发函或提交。" : "配置已保存（未改变启用状态）。" });
   };
 
   const runNow = async () => {
@@ -179,9 +187,9 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const importManual = async () => {
     const r = await api.call("import", `/api/procurement/candidates/import${q}`, { method: "POST", json: imp });
     if (r.ok) {
-      api.setNote({ tone: "good", text: "已人工导入（标「人工导入」，平台不等于申请接收机关；官方性待核实）。" });
       setImp({ ...imp, officialNumber: "", title: "", sourceUrl: "" });
       await load();
+      api.setNote({ tone: "good", text: "已人工导入（标「人工导入」，平台不等于申请接收机关；官方性待核实）。" });
     }
   };
 
@@ -213,7 +221,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
               </Btn>
               {canManage ? (
                 view.enabled ? (
-                  <Btn variant="danger" onClick={() => void api.call("disable", `/api/procurement/watch/disable${q}`, { method: "POST" }).then(load)}>
+                  <Btn variant="danger" onClick={() => void api.call("disable", `/api/procurement/watch/disable${q}`, { method: "POST" }).then(() => load())}>
                     停用
                   </Btn>
                 ) : (
@@ -550,11 +558,11 @@ export function ScheduleEditor({ value, onChange, disabled }: { value: ScheduleF
   );
 }
 
-/** P2-1 招标公告的一行：发布 / 截标（多伦多日期）与「看公告」 */
+/** P2-1 招标公告的一行：发布日期（日历日期，原样显示）/ 截标（多伦多时间）与「看公告」 */
 export function NoticeLine({ publishedAt, closingAt, noticeUrl }: { publishedAt: string | null; closingAt: string | null; noticeUrl: string | null }) {
   return (
     <p className="mt-0.5 text-[11px] text-muted" data-testid="notice-line">
-      发布 {publishedAt ? formatLocal(publishedAt).slice(0, 10) : "未知"} · 截标 {closingAt ? formatLocal(closingAt) : "未知"}
+      发布 {publishedAt ?? "未知"} · 截标 {closingAt ? formatLocal(closingAt) : "未知"}
       {noticeUrl ? (
         <>
           {" · "}

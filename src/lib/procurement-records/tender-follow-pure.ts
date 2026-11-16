@@ -57,6 +57,9 @@ export function pickNoticeEvidence<E extends FollowEvidence>(evidence: E[]): E |
   return withUrl.find((e) => e.sourceType === "CANADABUYS_TENDER_NOTICES") ?? withUrl[0] ?? null;
 }
 
+/** 挑公告链接时证据的排序（跟标预填与候选列表共用同一查询：有链接的、抓取时间新到旧、同时间按 id 新到旧） */
+export const NOTICE_EVIDENCE_ORDER = [{ fetchedAt: "desc" as const }, { id: "desc" as const }];
+
 /** 公告链接（去空格）；没有 → null */
 export const noticeUrlOf = (evidence: FollowEvidence[]): string | null => {
   const e = pickNoticeEvidence(evidence);
