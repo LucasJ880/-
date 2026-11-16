@@ -19,6 +19,10 @@ import {
   NEW_VIEW_HINT_ZH,
   NEW_VIEW_LABEL_ZH,
   NEW_VIEW_VALUE,
+  DATE_SORT_VALUE,
+  FIT_LABEL_ZH,
+  FIT_NOTE_ZH,
+  SORT_OPTIONS_ZH,
   initialTriageFromSearch,
   NOTICE_LINK_ZH,
   SCHEDULE_DAY_LABELS,
@@ -67,6 +71,8 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const [canFollow, setCanFollow] = useState(false);
   const [candidates, setCandidates] = useState<Json[]>([]);
   const [triage, setTriage] = useState("ALL");
+  // P2-2：新标视图的排序（发布日期 / 匹配度）
+  const [sort, setSort] = useState(DATE_SORT_VALUE);
   const [runId, setRunId] = useState<string | null>(null);
   const [run, setRun] = useState<Json | null>(null);
   const [form, setForm] = useState({ keywords: "", excludeKeywords: "", institutions: "", regions: "", lookbackDays: 120, maxNewCandidates: 5, maxNewDraftCards: 3, maxPagesPerSource: 5 });
@@ -108,10 +114,10 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
       setSchedInitial(sf);
     }
     if (w.activeRun) setRunId(String(w.activeRun.id));
-    const c = await api.call("cands", `/api/procurement/candidates${q}${candidatesQuery(triage)}`);
+    const c = await api.call("cands", `/api/procurement/candidates${q}${candidatesQuery(triage, sort)}`);
     if (c.ok) setCandidates((c.body.items as Json[]) ?? []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgId, q, triage]);
+  }, [orgId, q, triage, sort]);
 
   // P2-3b：从「今日新标」通知点进来（?view=new）时先切到新标视图；放在 effect 里避免服务端与客户端首屏不一致
   useEffect(() => {
@@ -392,19 +398,31 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
         hint={triage === NEW_VIEW_VALUE ? NEW_VIEW_HINT_ZH : ALL_VIEW_HINT_ZH}
         testId="candidates"
         actions={
-          <select className={`${inputCls} w-auto`} value={triage} onChange={(e) => setTriage(e.target.value)} aria-label="筛选">
-            <option value="ALL">全部</option>
-            <option value={NEW_VIEW_VALUE}>{NEW_VIEW_LABEL_ZH}</option>
-            <option value="CANDIDATE">候选</option>
-            <option value="WATCHING">已关注</option>
-            <option value="IGNORED">已忽略</option>
-          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className={`${inputCls} w-auto`} value={triage} onChange={(e) => setTriage(e.target.value)} aria-label="筛选">
+              <option value="ALL">全部</option>
+              <option value={NEW_VIEW_VALUE}>{NEW_VIEW_LABEL_ZH}</option>
+              <option value="CANDIDATE">候选</option>
+              <option value="WATCHING">已关注</option>
+              <option value="IGNORED">已忽略</option>
+            </select>
+            {triage === NEW_VIEW_VALUE ? (
+              <select className={`${inputCls} w-auto`} value={sort} onChange={(e) => setSort(e.target.value)} aria-label="排序" data-testid="fit-sort">
+                {SORT_OPTIONS_ZH.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            ) : null}
+          </div>
         }
       >
         {candidates.length === 0 ? <p className="text-xs text-muted">暂无候选。点「立即扫描」，或在下方手动添加。</p> : null}
         <ul className="divide-y divide-border">
           {candidates.map((c) => {
             const p = c.priority as { score?: number; dimensions?: Array<{ key: string; label: string; points: number; max: number; reasonZh: string }> } | null;
+            // P2-2：新标视图有匹配度时，分数与理由都换成匹配度
+            const fit = c.fit as { score: number; dimensions: Array<{ key: string; label: string; points: number; max: number; reasonZh: string }>; noteZh: string } | null | undefined;
+            const shown = fit ?? p;
             const ev = (c.evidenceCounts ?? {}) as Record<string, number>;
             const inst = String(c.buyingInstitution ?? c.contractingInstitution ?? "机构未知");
             return (
@@ -421,9 +439,9 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
                     </p>
                     {c.instrumentClass === "SOLICITATION" ? <NoticeLine publishedAt={(c.publishedAt as string | null) ?? null} closingAt={(c.closingAt as string | null) ?? null} noticeUrl={(c.noticeUrl as string | null) ?? null} /> : null}
                   </div>
-                  <div className="shrink-0 text-right" title="优先级分（不是中标概率）">
-                    <p className="text-lg font-semibold leading-none">{p?.score ?? "—"}</p>
-                    <p className="mt-0.5 text-[10px] text-muted">优先级</p>
+                  <div className="shrink-0 text-right" title={fit ? FIT_NOTE_ZH : "优先级分（不是中标概率）"} data-testid={fit ? "fit-score" : undefined}>
+                    <p className="text-lg font-semibold leading-none">{shown?.score ?? "—"}</p>
+                    <p className="mt-0.5 text-[10px] text-muted">{fit ? FIT_LABEL_ZH : "优先级"}</p>
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -442,9 +460,10 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
                 </div>
                 <details className="mt-1 text-[11px]">
                   <summary className="cursor-pointer text-muted">评分理由与更多信息</summary>
-                  {p?.dimensions ? (
-                    <ul className="mt-1 grid gap-1 sm:grid-cols-2">
-                      {p.dimensions.map((d) => (
+                  {fit ? <p className="mt-1 text-muted">{fit.noteZh}</p> : null}
+                  {shown?.dimensions ? (
+                    <ul className="mt-1 grid gap-1 sm:grid-cols-2" data-testid={fit ? "fit-reasons" : undefined}>
+                      {shown.dimensions.map((d) => (
                         <li key={d.key} className="text-muted">
                           <span className="text-foreground">{d.label} {d.points}/{d.max}</span>：{d.reasonZh}
                         </li>

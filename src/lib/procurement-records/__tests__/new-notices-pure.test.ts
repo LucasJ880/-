@@ -112,7 +112,7 @@ console.log("接线");
   ok("保存失败不重新读取（保留错误与正在改的）；成功先读再提示", /const r = await api\.call\("save"[\s\S]*?if \(!r\.ok\) return;[\s\S]*?await load\(\);\s*api\.setNote\(\{ tone: "good", text: enableAfter/.test(ui));
   ok("人工导入成功：先读再提示", /const r = await api\.call\("import"[\s\S]*?await load\(\);\s*api\.setNote\(\{ tone: "good", text: "已人工导入/.test(ui));
   ok("停用后的刷新不把接口返回值当成参数", ui.includes(".then(() => load())") && !ui.includes(".then(load)"));
-  ok("候选读取用 candidatesQuery；下拉有「新标」", ui.includes("${candidatesQuery(triage)}") && ui.includes("<option value={NEW_VIEW_VALUE}>{NEW_VIEW_LABEL_ZH}</option>"));
+  ok("候选读取用 candidatesQuery；下拉有「新标」", ui.includes("${candidatesQuery(triage, sort)}") /* P2-2 加了排序参数 */ && ui.includes("<option value={NEW_VIEW_VALUE}>{NEW_VIEW_LABEL_ZH}</option>"));
   ok("招标公告的卡片显示发布 / 截标 / 看公告", ui.includes('c.instrumentClass === "SOLICITATION" ? <NoticeLine'));
   const pure = read("src/lib/procurement-records/new-notices-pure.ts");
   ok("纯规则文件不引用任何模块（浏览器端也用）", !/^\s*import\s/m.test(pure));

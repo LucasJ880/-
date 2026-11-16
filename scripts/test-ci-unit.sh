@@ -453,6 +453,8 @@ npx tsx src/lib/procurement-records/__tests__/new-notices-pure.test.ts
 NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/new-notices-db.isolated.test.ts
 npx tsx src/lib/procurement-records/__tests__/notice-brief-pure.test.ts
 NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/notice-brief-db.isolated.test.ts
+npx tsx src/lib/procurement-records/__tests__/fit-score-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/fit-score-db.isolated.test.ts
 # P2-1b（openspec change canadabuys-closing-tz）：CanadaBuys 截标时间按东部当地时间
 npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts
 NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts

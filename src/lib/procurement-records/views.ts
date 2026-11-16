@@ -5,6 +5,8 @@
 
 import type { Prisma } from "@prisma/client";
 import { NOTICE_EVIDENCE_ORDER, noticeUrlOf } from "./tender-follow-pure";
+import { FIT_SORT_VALUE, compareByFit, computeFitScore, prepareFitProjects, type FitProject } from "./fit-score-pure";
+import { getVisibleProjectIds } from "@/lib/projects/visibility";
 import { db } from "@/lib/db";
 import { EVENT_LABELS } from "./case-pure";
 import { institutionDisplayName, JURISDICTION_LABELS } from "./identity";
@@ -19,7 +21,22 @@ const dec = (v: Prisma.Decimal | null) => (v === null ? null : v.toString());
 const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-export async function listCandidates(orgId: string, filter: { triage?: string | null; q?: string | null; take?: number; view?: string | null; now?: Date }) {
+/** P2-2：算匹配度用的本组织招投标项目（看的人可见的；最多 500 个，新到旧；价格不读，design D1 / D4） */
+async function fitProjectsFor(orgId: string, viewer: { id: string; role: string }): Promise<FitProject[]> {
+  const visible = await getVisibleProjectIds(viewer.id, viewer.role);
+  const rows = await db.project.findMany({
+    where: { orgId, workDomain: "tender", ...(visible ? { id: { in: visible } } : {}) },
+    orderBy: { updatedAt: "desc" },
+    take: 500,
+    select: { id: true, name: true, clientOrganization: true, tenderStatus: true, submittedAt: true },
+  });
+  return prepareFitProjects(rows);
+}
+
+export async function listCandidates(
+  orgId: string,
+  filter: { triage?: string | null; q?: string | null; take?: number; view?: string | null; sort?: string | null; viewer?: { id: string; role: string }; now?: Date },
+) {
   const where: Prisma.ProcurementInstrumentWhereInput = { orgId, NOT: { triageStatus: "HISTORY" } };
   // P2-1：新标视图——只看未截标（或未知）、没被忽略 / 归档的招标公告，按发布日期从新到旧
   const newView = filter.view === "new";
@@ -37,6 +54,9 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
     take: Math.min(filter.take ?? 100, 300),
   });
   const ids = rows.map((r) => r.id);
+  // P2-2：新标视图算匹配度（读时计算，按看的人可见的项目）
+  const fitNow = filter.now ?? new Date();
+  const fitProjects = newView && filter.viewer ? await fitProjectsFor(orgId, filter.viewer) : null;
   const [evCounts, callUps, links, requests, urlEvidence] = await Promise.all([
     db.procurementSourceEvidence.groupBy({ by: ["instrumentId", "sourceType"], where: { instrumentId: { in: ids } }, _count: { _all: true } }),
     db.procurementInstrument.groupBy({ by: ["parentInstrumentId"], where: { parentInstrumentId: { in: ids } }, _count: { _all: true } }),
@@ -85,9 +105,18 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
       callUpCount: callUps.find((c) => c.parentInstrumentId === r.id)?._count._all ?? 0,
       tenderLinks: links.filter((l) => l.instrumentId === r.id && aliveProjects.has(l.projectId)).map((l) => ({ projectId: l.projectId, relation: l.relation })),
       autoDraft: requests.find((q) => q.autoDraftKey === `auto:${r.id}`) ?? null,
+      // P2-2：只在新标视图给（别的视图没有匹配度）
+      fit: fitProjects
+        ? computeFitScore(
+            { title: r.title, buyingInstitution: r.buyingInstitution, contractingInstitution: r.contractingInstitution, closingAt: r.closingAt, match: (r.matchJson ?? null) as { productHits?: string[]; serviceHits?: string[]; categoryHits?: string[] } | null },
+            fitProjects,
+            fitNow,
+          )
+        : null,
     };
   });
   if (!newView) items.sort((a, b) => (b.priority?.score ?? -1) - (a.priority?.score ?? -1));
+  else if (filter.sort === FIT_SORT_VALUE) items.sort(compareByFit);
   return items;
 }
 
