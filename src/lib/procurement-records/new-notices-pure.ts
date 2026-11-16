@@ -79,6 +79,7 @@ export const SORT_OPTIONS_ZH: Array<{ value: string; label: string }> = [
   { value: FIT_SORT_VALUE, label: "按匹配度" },
 ];
 export const FIT_LABEL_ZH = "匹配度";
+export const NEW_VIEW_FIT_HINT_ZH = "未截标的招标公告，按匹配度从高到低（不是中标概率）。";
 export const FIT_NOTE_ZH = "匹配度（不是中标概率）：按你能看到的项目计算";
 
 export function candidatesQuery(filter: string, sort: string = DATE_SORT_VALUE): string {

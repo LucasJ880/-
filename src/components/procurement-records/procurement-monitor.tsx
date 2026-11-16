@@ -21,6 +21,8 @@ import {
   NEW_VIEW_VALUE,
   DATE_SORT_VALUE,
   FIT_LABEL_ZH,
+  FIT_SORT_VALUE,
+  NEW_VIEW_FIT_HINT_ZH,
   FIT_NOTE_ZH,
   SORT_OPTIONS_ZH,
   initialTriageFromSearch,
@@ -395,7 +397,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
 
       <Section
         title="候选项目"
-        hint={triage === NEW_VIEW_VALUE ? NEW_VIEW_HINT_ZH : ALL_VIEW_HINT_ZH}
+        hint={triage === NEW_VIEW_VALUE ? (sort === FIT_SORT_VALUE ? NEW_VIEW_FIT_HINT_ZH : NEW_VIEW_HINT_ZH) : ALL_VIEW_HINT_ZH}
         testId="candidates"
         actions={
           <div className="flex flex-wrap items-center gap-2">

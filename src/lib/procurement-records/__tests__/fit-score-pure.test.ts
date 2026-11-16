@@ -115,6 +115,7 @@ const route = readFileSync(join(process.cwd(), "src/app/api/procurement/candidat
 ok(/sort: sp\.get\("sort"\), viewer: \{ id: user\.id, role: user\.role \}/.test(route), "接口传排序与看的人（服务端身份）");
 const monitor = readFileSync(join(process.cwd(), "src/components/procurement-records/procurement-monitor.tsx"), "utf8");
 ok(/candidatesQuery\(triage, sort\)/.test(monitor) && /aria-label="排序"/.test(monitor), "页面有排序选择并带进查询");
+ok(/sort === FIT_SORT_VALUE \? NEW_VIEW_FIT_HINT_ZH : NEW_VIEW_HINT_ZH/.test(monitor), "按匹配度排时说明文字跟着改");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
