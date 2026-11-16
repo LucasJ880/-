@@ -16,7 +16,7 @@ export const SCHEDULE_PRESETS: ReadonlyArray<{ key: "daily" | "weekdays" | "defa
 export const SCHEDULE_DAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
 export const SCHEDULE_NEED_DAY_ZH = "扫描时间：至少选一天";
 export const SCHEDULE_BAD_TIME_ZH = "扫描时间：时刻格式 HH:MM（00:00–23:59）";
-export const SCHEDULE_HINT_ZH = "多伦多时间。由每小时 :25 的既有定时任务在这个时刻之后第一次执行；改成「每天」新标当天就能看到。";
+export const SCHEDULE_HINT_ZH = "多伦多时间。由每小时 :25 的既有定时任务在这个时刻之后第一次执行；改成「每天」后，前一天发布的新标第二天这个时候就能看到（默认要等到周一或周四）。";
 
 const norm = (days: number[]) => [...new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b);
 const pad = (n: number) => String(n).padStart(2, "0");

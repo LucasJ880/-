@@ -11,6 +11,7 @@ import {
   NEW_VIEW_VALUE,
   NOTICE_LINK_ZH,
   SCHEDULE_BAD_TIME_ZH,
+  SCHEDULE_HINT_ZH,
   SCHEDULE_NEED_DAY_ZH,
   SCHEDULE_PRESETS,
   applyPreset,
@@ -55,6 +56,7 @@ console.log("扫描时间");
   ok("一天都没选：不发，写明至少选一天", !r3.ok && r3.error === SCHEDULE_NEED_DAY_ZH);
   const r4 = scheduleBodyIfChanged({ weekdays: [1], time: "25:00" }, base);
   ok("时刻不合法：不发，写明格式", !r4.ok && r4.error === SCHEDULE_BAD_TIME_ZH);
+  ok("说明不夸大：每天扫一次，前一天的新标第二天看到", SCHEDULE_HINT_ZH.includes("前一天发布的新标第二天这个时候就能看到") && !SCHEDULE_HINT_ZH.includes("当天就能看到"));
   ok("三个快捷按钮：每天 / 工作日 / 默认（周一、周四）", SCHEDULE_PRESETS.map((p) => p.label).join("|") === "每天|工作日|默认（周一、周四）");
 }
 
