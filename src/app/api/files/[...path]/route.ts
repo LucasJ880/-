@@ -36,6 +36,7 @@ import { readBlobStream } from "@/lib/files/blob-access";
 import { authorize, humanPrincipal } from "@/lib/authorization";
 import { INSTALL_PHOTO_PREFIX, parseInstallPhotoPath } from "@/lib/install/closeout";
 import { installAppointmentIdsForOrder } from "@/lib/install/repair-service";
+import { fileResponseCsp } from "@/lib/security/csp";
 
 const notFound = () => NextResponse.json({ error: "文件不存在" }, { status: 404 });
 const forbidden = () => NextResponse.json({ error: "无权访问该文件" }, { status: 403 });
@@ -161,6 +162,9 @@ export const GET = withAuth<{ path: string[] }>(async (request, ctx, user) => {
     "Cache-Control": "private, max-age=3600",
     "X-Content-Type-Options": "nosniff",
   });
+  // 被直接打开时放进沙箱（PDF 除外）：存下的内容类型若是网页 / SVG，里面的脚本不执行（spec platform/content-security-policy）
+  const fileCsp = fileResponseCsp(blob.contentType, process.env);
+  if (fileCsp) headers.set("Content-Security-Policy", fileCsp);
   // 不手设 Content-Length：@vercel/blob get() 的 size 取自上游 content-length，
   // ① 上游分块/压缩传输时缺失 → SDK 报 0 → 客户端按 0 截断（生产实测：下载全部 0 字节）；
   // ② 即使非 0 也是压缩后长度，流吐的是解压字节 → 长度不符仍会截断。交给运行时 chunked 编码。

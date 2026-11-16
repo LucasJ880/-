@@ -1,0 +1,32 @@
+site-csp-baseline · 文件代理与三种运行模式的本地实测（2026-11-16）
+
+做法：本地 Postgres + next dev，文件存本地目录（PRODUCT_CONTENT_LOCAL_STORE=1）。
+1. 以企业负责人身份经真实上传接口 POST /api/product-content/upload 传入两份文件：
+   一份内容类型为 text/html、带一段把标题改成「RAN」的脚本；一份 application/pdf。接口都接受了。
+2. 以同企业另一名成员（销售）的身份，用 Chromium 直接打开网页文件的文件代理地址，
+   看响应头与标题有没有被脚本改掉（scriptRan）。
+3. 服务分别以 CSP_MODE 未配置 / off / report-only 启动，各跑一遍；顺带记录登录页的响应头。
+
+结论：强制与 report-only 模式下网页文件带 sandbox、脚本没有执行、文字照常显示；
+off 模式（等于改动之前）脚本执行了。PDF 三种模式都不带内容安全策略响应头。未登录一律 401。
+
+### CSP_MODE 未配置（强制）
+{"what":"另一名成员直接打开上传的网页","status":200,"contentType":"text/html","csp":"sandbox","titleAfterLoad":"orig","scriptRan":false,"text":"uploaded page"}
+{"what":"PDF","status":200,"contentType":"application/pdf","csp":null}
+{"what":"页面 /login","csp":"frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-src 'self'; connect-src 'self' ws://localhost:* ws://127.0.0.1:*; media-src 'self' blob: data:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'","cspReportOnly":null}
+{"what":"未登录打开同一个地址","status":401}
+### CSP_MODE=off（对照：关闭后）
+{"what":"另一名成员直接打开上传的网页","status":200,"contentType":"text/html","csp":null,"titleAfterLoad":"RAN","scriptRan":true,"text":"uploaded page"}
+{"what":"PDF","status":200,"contentType":"application/pdf","csp":null}
+{"what":"页面 /login","csp":null,"cspReportOnly":null}
+{"what":"未登录打开同一个地址","status":401}
+### CSP_MODE=report-only
+{"what":"另一名成员直接打开上传的网页","status":200,"contentType":"text/html","csp":"sandbox","titleAfterLoad":"orig","scriptRan":false,"text":"uploaded page"}
+{"what":"PDF","status":200,"contentType":"application/pdf","csp":null}
+{"what":"页面 /login","csp":null,"cspReportOnly":"frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-src 'self'; connect-src 'self' ws://localhost:* ws://127.0.0.1:*; media-src 'self' blob: data:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'"}
+{"what":"未登录打开同一个地址","status":401}
+### 生产构建（next build + next start），CSP_MODE 未配置
+{"what":"另一名成员直接打开上传的网页","status":200,"contentType":"text/html","csp":"sandbox","titleAfterLoad":"orig","scriptRan":false,"text":"uploaded page"}
+{"what":"PDF","status":200,"contentType":"application/pdf","csp":null}
+{"what":"页面 /login","csp":"frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-src 'self'; connect-src 'self'; media-src 'self' blob: data:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'","cspReportOnly":null}
+{"what":"未登录打开同一个地址","status":401}

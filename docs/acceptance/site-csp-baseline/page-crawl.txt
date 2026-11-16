@@ -1,0 +1,39 @@
+site-csp-baseline · 本地真实页面巡检（2026-11-16）
+
+做法：本地 Postgres + next dev（开发服务器，不是生产构建），CSP_MODE 未配置（强制执行）。
+用 Playwright 的 Chromium 以三种身份（未登录 / 企业负责人 lucas / 销售 lynn，均为本地生成的假账号）
+逐页打开，等网络空闲后再等 1.5 秒，记录：
+  status      页面响应的状态码
+  header      响应是否带 Content-Security-Policy
+  frames      页面里的文档数（含嵌入框架）
+  violations  浏览器在各文档里报告的 securitypolicyviolation 事件
+  consoleCsp  控制台里含「Content Security Policy」或「Refused to」的记录
+final 与 path 不同表示被站内路由重定向（如没有开通的模块）。
+
+结果：22 次访问，全部 200、全部带响应头，violations 与 consoleCsp 全部为空。
+
+没有覆盖的：全站其余页面；带 PDF 嵌入框架的公开报价页（无头 Chromium 不带 PDF 阅读器）；
+生产构建；预览 / 生产部署。
+
+{"who": "anon", "path": "/login", "final": "/login", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "anon", "path": "/register", "final": "/register", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "anon", "path": "/display", "final": "/display", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/", "final": "/", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/tasks", "final": "/tasks", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/settings/email", "final": "/settings/email", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/settings", "final": "/settings", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/assistant", "final": "/assistant", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/sales/customers/m2cwang_mwilyqks", "final": "/sales/customers/m2cwang_mwilyqks", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/sales/home", "final": "/sales/home", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/sales/quote-sheet", "final": "/sales/quote-sheet", "status": 200, "header": "yes", "frames": 2, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/sunny-quote.html", "final": "/sunny-quote.html", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/notifications", "final": "/notifications", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/organizations", "final": "/organizations", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/operations", "final": "/operations", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/trade/chat", "final": "/", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/settings/wechat", "final": "/settings/wechat", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lucas", "path": "/help", "final": "/help", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lynn", "path": "/sales/home", "final": "/sales/home", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lynn", "path": "/sales/customers/m2cwang_mwilyqks", "final": "/sales/customers/m2cwang_mwilyqks", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lynn", "path": "/settings/email", "final": "/settings/email", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
+{"who": "lynn", "path": "/sales/calendar", "final": "/sales/calendar", "status": 200, "header": "yes", "frames": 1, "violations": [], "consoleCsp": []}
