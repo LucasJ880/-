@@ -42,7 +42,16 @@ CanadaBuys 开放数据的截标时间写成 `2026-12-15T14:00:00`、不带时�
 
 变异 5 处（时区改 UTC、截标仍用旧解析、丢掉秒、去掉时 / 分 / 秒越界检查、秒变成必填）全部被发现；独立审查另做的变异里存活 3 处（只去掉 `second > 59`、去掉小数秒分组、跳变分支换偏移）——补了秒 60、小数秒、跳变中间 02:30 的用例。
 
-**门禁**：见 PR。
+**门禁**
+
+| 门禁 | 结果 |
+|---|---|
+| `npm run test:ci` | `CI unit subset PASS`（本机，CI 的环境变量） |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS |
+| `bash scripts/check-test-registry.sh` | OK |
+| `bash scripts/test-runtime-architecture.sh` | PASS |
+| `openspec validate canadabuys-closing-tz --strict` | valid |
 
 ## 4b. 独立审查
 
