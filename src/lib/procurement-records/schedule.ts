@@ -186,7 +186,9 @@ export function dueSlot(input: {
 
 /** 中文排程描述（如「每周一、周四 08:00（America/Toronto），由每小时 :25 的定时任务在其后首次执行」） */
 export function describeSchedule(schedule: WeeklySchedule, timeZone: string): string {
-  const days = [...schedule.weekdays].sort().map((d) => WEEKDAY_LABELS_ZH[d] ?? `?${d}`).join("、");
+  // P2-1：七天写「每天」，周一到周五写「每个工作日」，其它列出星期几
+  const set = [...new Set(schedule.weekdays)].sort();
+  const days = set.length === 7 ? "天" : set.join(",") === "1,2,3,4,5" ? "个工作日" : set.map((d) => WEEKDAY_LABELS_ZH[d] ?? `?${d}`).join("、");
   const hh = String(schedule.hour).padStart(2, "0");
   const mm = String(schedule.minute).padStart(2, "0");
   return `每${days} ${hh}:${mm}（${timeZone}）；由每小时 :25 的既有定时任务在该时刻后首次执行`;

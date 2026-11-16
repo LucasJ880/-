@@ -105,7 +105,7 @@
 | P2-0b | 情报中枢「竞争对手」「采购机构」两页接真实数据（授标事实 + 我方项目，只读 `GET /api/org/tender-intel-profiles`，项目经可见性过滤）；「周期采购」入口收起（页面保留） | P2-0 | 两页显示对手 / 机构画像、我方排除或标出；开关关闭时降级；导航无「周期采购」（`docs/QINGYAN_P2-0b_REPORT.md`） | [x]（#385；archive `2026-11-06-tender-intel-org-profiles`） |
 | P2-0c | 授标去重：同中标方 + 同买家、两条都有招标编号且不同 → 另一次招标（ACTIVE），不再判疑似重复；编号缺失或只差写法仍留人工 | — | 我方 / 对手在同一机构再次中标不落 NEEDS_REVIEW；买家周期用上全部样本（`docs/QINGYAN_P2-0c_REPORT.md`） | [x]（#386；archive `2026-11-06-award-dedupe-solicitation`） |
 | P2-0d | 授标记录人工处理（仅组织管理员）：「历史中标」页确认线索 / 疑似重复、撤回错误记录（原因必填、留痕、同事务审计）；撤回后重新标记结果可更正中标方 | P2-0, P2-0c | 非管理员无按钮且接口 403；确认 / 撤回留审计；撤回后更正写新记录、重放幂等（`docs/QINGYAN_P2-0d_REPORT.md`） | [x]（#387；archive `2026-11-09-award-record-review`） |
-| P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [ ] |
+| P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [G]（拉取由 PROC-1 交付（#382）；change `tender-notice-daily-view` 补页面上改扫描时间（每天 / 工作日 / 默认）与候选页「新标」视图、发布日期、看公告；报告 `docs/QINGYAN_P2-1_REPORT.md`） |
 | P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4 | [ ] |
 | P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |
 | P2-3a | 采购监控「跟这个标」：招标公告 → 建 `Project(workDomain=tender)` + 关联（本项目）+ 关注，同一组织同一公告只建一次（Web 版，Muse 已冻结） | P2-1（PROC-1 新标拉取） | 点一次建一个项目、字段预填、再点 / 并发不重复；只读成员看不到 | [x]（#496，2026-11-16 合并；archive `2026-11-16-tender-notice-follow`；`POST /api/procurement/instruments/{id}/follow`；报告 `docs/QINGYAN_P2-3a_REPORT.md`） |
