@@ -107,13 +107,14 @@
 | P2-0d | 授标记录人工处理（仅组织管理员）：「历史中标」页确认线索 / 疑似重复、撤回错误记录（原因必填、留痕、同事务审计）；撤回后重新标记结果可更正中标方 | P2-0, P2-0c | 非管理员无按钮且接口 403；确认 / 撤回留审计；撤回后更正写新记录、重放幂等（`docs/QINGYAN_P2-0d_REPORT.md`） | [x]（#387；archive `2026-11-09-award-record-review`） |
 | P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [x]（拉取由 PROC-1 交付（#382）；#502 2026-11-16 合并，archive `2026-11-16-tender-notice-daily-view` 补页面上改扫描时间（每天 / 工作日 / 默认）与候选页「新标」视图、发布日期、看公告；报告 `docs/QINGYAN_P2-1_REPORT.md`） |
 | P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4（当天公告快照只从 PROC-1 上线 2026-11-09 起才有，改为召回脚本 ≥ 8/10 达阈值，待 Lucas 给名单） | [~]（代码 #514 已于 2026-11-16 合并；archive `2026-11-16-tender-notice-fit-score`；规格 `procurement/notice-fit-score`；报告 `docs/QINGYAN_P2-2_REPORT.md`；**验收（召回 ≥ 8/10）待 Lucas 给 10 个历史投标项目 id**，跑 `scripts/p22-fit-recall.ts`） |
-| P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |
+| P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [~]（Muse 已冻结，改 Web 版：建项 = P2-3a（#496）、早报 = P2-3b（#511）已交付；拉文件包 = P2-3c 未做（先确认 CanadaBuys 哪些附件公开可下）；`brief.daily` 只在 `MUSE_BRIDGE_ENABLED` 时发，现不发） |
 | P2-3a | 采购监控「跟这个标」：招标公告 → 建 `Project(workDomain=tender)` + 关联（本项目）+ 关注，同一组织同一公告只建一次（Web 版，Muse 已冻结） | P2-1（PROC-1 新标拉取） | 点一次建一个项目、字段预填、再点 / 并发不重复；只读成员看不到 | [x]（#496，2026-11-16 合并；archive `2026-11-16-tender-notice-follow`；`POST /api/procurement/instruments/{id}/follow`；报告 `docs/QINGYAN_P2-3a_REPORT.md`） |
-| P2-3b | 早上 7 点「今日新标」通知：已启用采购监控的组织，过去 24 小时首次发现、未截标的招标公告，发给监控开启人与创建人，点开落在新标视图（Web 版，Muse 已冻结） | P2-1（新标视图） | 有新标时每天一条、同日不重复、没有新标不发；点通知进新标视图 | [x]（#511，2026-11-16 合并；archive `2026-11-16-tender-notice-brief`；规格 `procurement/notice-brief`；报告 `docs/QINGYAN_P2-3b_REPORT.md`） |
+| P2-3b | 早上 7 点「今日新标」通知：已启用采购监控的组织，前一天当地 07:00 到当天 07:00 首次发现、未截标的招标公告，发给监控开启人与创建人，点开落在新标视图（Web 版，Muse 已冻结） | P2-1（新标视图） | 有新标时每天一条、同日不重复、没有新标不发；点通知进新标视图 | [x]（#511，2026-11-16 合并；archive `2026-11-16-tender-notice-brief`；规格 `procurement/notice-brief`；报告 `docs/QINGYAN_P2-3b_REPORT.md`） |
 | P2-4 | `watch.ts` 升级为结构化 diff → 触发 `addendum-diff.ts` → `addendum.detected` | P0-5 | 变更≠Addenda 时文案仍诚实 | [ ] |
 | P2-1b | CanadaBuys 截标时间按东部当地时间解析（CSV 不带时区；原按服务器时区 UTC 解析，早 4–5 小时） | P2-1 | 截标时间与公告页一致；已入库的下次扫描改正；与进程时区无关 | [x]（#508，2026-11-16 合并；archive `2026-11-16-canadabuys-closing-tz`；规格并入 `procurement/watch-scan`；报告 `docs/QINGYAN_P2-1b_REPORT.md`；夏令时口径 2027-03-14（夏令时开始）前核对一次） |
 
 **GATE-2 验收**：一周内至少 1 条真实新标通过 Muse 早报 → 一键跟进 → 分析完成，全程无人工建项。
+（Muse 冻结后改为 Web：一周内至少 1 条真实新标经站内「今日新标」→ 采购监控「跟这个标」建项 → 上传文件包后分析完成；建项不需要人工填项目信息。见 `docs/QINGYAN_H7_INVESTIGATION.md` §5 第 2 问。）
 
 ---
 
