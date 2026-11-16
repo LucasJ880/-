@@ -636,7 +636,9 @@ async function supplierNamesOf(orgId: string, ids: string[]): Promise<Map<string
 
 async function handlePreferences(requestId: string, identity: MuseIdentity): Promise<MuseCommandResponse> {
   const prefs = await loadUserPrefs(identity.orgId, identity.userId);
-  return respond(requestId, preferencesAdvisory(prefs, await supplierNamesOf(identity.orgId, prefs.defaultSupplierIds)), { data: { preferences: prefs } });
+  // 本人没设催单天数时写出实际按的组织天数（W-2b 起组织可在页面上改，不再固定 3 天）
+  const orgChaseDays = await chaseDaysFor(identity, null);
+  return respond(requestId, preferencesAdvisory(prefs, await supplierNamesOf(identity.orgId, prefs.defaultSupplierIds), orgChaseDays), { data: { preferences: prefs } });
 }
 
 async function handleSetPreference(

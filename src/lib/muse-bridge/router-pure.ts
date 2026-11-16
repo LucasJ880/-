@@ -558,7 +558,8 @@ export function chaseAdvisory(projectId: string, run: ChaseRunView): Advisory {
 
 // ── preferences（P1-8） ─────────────────────────────────────────
 
-export function preferencesAdvisory(prefs: MuseUserPrefs, supplierNames: Map<string, string>): Advisory {
+/** orgChaseDays：本人没设催单天数时实际用的天数（组织设置 > 3，W-2b 起组织可在页面上改），由调用方用 resolveChaseAfterDays 算好传入 */
+export function preferencesAdvisory(prefs: MuseUserPrefs, supplierNames: Map<string, string>, orgChaseDays = 3): Advisory {
   const names = prefs.defaultSupplierIds.map((id) => supplierNames.get(id) ?? "（已删除的供应商）");
   const empty = !names.length && !prefs.defaultIncoterm && prefs.chaseAfterDays == null;
   return {
@@ -566,7 +567,7 @@ export function preferencesAdvisory(prefs: MuseUserPrefs, supplierNames: Map<str
     reasons: [
       `常用供应商：${names.length ? names.join("、") : "未设（选定供应商后自动记住）"}`,
       `默认贸易条款：${prefs.defaultIncoterm ?? "未设"}`,
-      `催单：${prefs.chaseAfterDays != null ? `${prefs.chaseAfterDays} 天没回` : "未设（默认 3 天）"}`,
+      `催单：${prefs.chaseAfterDays != null ? `${prefs.chaseAfterDays} 天没回` : `未设（按组织设置：${orgChaseDays} 天没回）`}`,
     ],
     nextStep: null,
     // 只在还没设默认条款时给一个示例按钮（已设就不重复建议）
