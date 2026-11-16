@@ -66,7 +66,7 @@
 
 ## 发现（不在本 change 里改）
 
-- 另有五处用 `iframe` 的 `srcDoc` 预览服务端模板渲染的邮件 / 证书（`revenue/[id]/page.tsx`、`settings/email/email-profile-card.tsx`、`accounting/warranty-panel.tsx` 等）。`sandbox=""` 不挡子资源加载。它们的内容来自服务端模板，模型或外部文字是否都经转义后才进模板，本次没有逐处核对。
+- `iframe` 预览已逐处核对（2026-11-16），结论是没有发现注入路径、不需要改：仓库里一共 6 个 `iframe`，其中 2 个用 `src` 指向站内地址（报价 PDF、粗报价工具），4 个用 `srcDoc`（3 个文件）——① `revenue/[id]/page.tsx` 的邮件效果：HTML 只由 `src/lib/revenue-spine/email-layout.ts` 的两个渲染函数生成，所有文字（含模型润色过的正文）逐行经 `escapeHtml`；图片与链接地址来自企业自己维护的发信档案与款号参考表，并限定为 `https://`（`safeUrl`），主色限定为 `#RRGGBB`；② `settings/email/email-profile-card.tsx` 的样例邮件：同一套模板加样例数据；③ `accounting/warranty-panel.tsx` 的质保邮件与证书（2 个）：没有模型写的文字，所有取值经 `esc`，模板里没有图片。这些预览会加载的外部资源只有企业自己配置的 Logo 与款式图片。没有核对的：有没有别的接口能把客户端传来的 HTML 写进待审批动作的载荷（只查了 `src/app/api/revenue` 下的路由）。`sandbox=""` 不挡子资源加载，所以这个结论靠的是模板的转义与地址来源，不是沙箱。
 - 全站仍然没有内容安全策略。
 
 ## Migration Plan
