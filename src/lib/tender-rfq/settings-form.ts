@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import type { CostEstimate, LandedCostSettings, FxRateSource } from "./landed-cost";
+import { RFQ_TIMING_DAYS_RANGE, RFQ_TIMING_KEYS, type CostEstimate, type LandedCostSettings, type FxRateSource, type RfqTimingKey } from "./landed-cost";
 
 export type EstimateMode = CostEstimate["mode"];
 
@@ -17,7 +17,10 @@ export type TenderRfqSettingsView = {
   fromName: string;
   fromEmail: string;
   mailboxEmail: string;
-  stored?: { fromName: boolean; fromEmail: boolean; mailboxEmail: boolean };
+  stored?: { fromName: boolean; fromEmail: boolean; mailboxEmail: boolean } & Partial<Record<RfqTimingKey, boolean>>;
+  /** W-2b：询价节奏三项的组织层生效值与默认值（旧接口没有时当作都没存） */
+  timing?: Record<RfqTimingKey, number>;
+  timingDefaults?: Record<RfqTimingKey, number>;
   landedCost: LandedCostSettings;
 };
 
@@ -32,6 +35,9 @@ export type TenderRfqSettingsForm = {
   mailboxEmail: string;
   /** 当前实际生效的值（含回退），只读 */
   effective: { fromName: string; fromEmail: string; mailboxEmail: string };
+  /** W-2b 询价节奏：组织自己存的天数（没存为空）；timingEffective 是当前生效的天数（没存就是默认），只读 */
+  timing: Record<RfqTimingKey, string>;
+  timingEffective: Record<RfqTimingKey, number | null>;
   fxRows: FxRow[];
   fxAsOf: string;
   fxSource: "" | FxRateSource;
@@ -66,6 +72,8 @@ export function formFromView(v: TenderRfqSettingsView): TenderRfqSettingsForm {
     fromEmail: stored.fromEmail ? v.fromEmail ?? "" : "",
     mailboxEmail: stored.mailboxEmail ? v.mailboxEmail ?? "" : "",
     effective: { fromName: v.fromName ?? "", fromEmail: v.fromEmail ?? "", mailboxEmail: v.mailboxEmail ?? "" },
+    timing: Object.fromEntries(RFQ_TIMING_KEYS.map((k) => [k, v.stored?.[k] && v.timing ? numStr(v.timing[k]) : ""])) as Record<RfqTimingKey, string>,
+    timingEffective: Object.fromEntries(RFQ_TIMING_KEYS.map((k) => [k, v.timing?.[k] ?? null])) as Record<RfqTimingKey, number | null>,
     fxRows: Object.entries(lc.fxRates ?? {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([currency, rate]) => ({ currency, rate: String(rate) })),
@@ -87,6 +95,9 @@ export type TenderRfqSettingsBody = {
   fromName?: string | null;
   fromEmail?: string | null;
   mailboxEmail?: string | null;
+  replyLeadDays?: number | null;
+  roundLockDays?: number | null;
+  chaseAfterDays?: number | null;
   landedCost?: {
     fxRates?: Record<string, number>;
     fxAsOf?: string | null;
@@ -165,6 +176,20 @@ export function bodyFromForm(form: TenderRfqSettingsForm, initial: TenderRfqSett
     initial.effective.mailboxEmail.trim() !== ""
   ) {
     body.mailboxEmail = initial.effective.mailboxEmail.trim().toLowerCase();
+  }
+
+  // 询价节奏（W-2b）：改过才发；空 = null（回到默认）；只收 1–60 的整数（与接口同一范围）
+  for (const f of RFQ_TIMING_FIELDS) {
+    const a = parseNum(form.timing[f.key]);
+    // 先比较、后校验：库里已有的旧值（如 0 或小数）不改就不发，也不拦别的项保存
+    if (a === parseNum(initial.timing[f.key])) continue;
+    // 只收纯数字写法（不收 1e1、0x0A 之类 Number() 认得的写法）
+    const digits = /^\d+$/.test(form.timing[f.key].trim());
+    if (a === "bad" || (a !== null && (!digits || !Number.isInteger(a) || a < RFQ_TIMING_DAYS_RANGE.min || a > RFQ_TIMING_DAYS_RANGE.max))) {
+      errors.push(`${f.label}：请填 ${RFQ_TIMING_DAYS_RANGE.min}–${RFQ_TIMING_DAYS_RANGE.max} 的整数（或留空用默认）`);
+      continue;
+    }
+    body[f.key] = a;
   }
 
   const lc: NonNullable<TenderRfqSettingsBody["landedCost"]> = {};
@@ -272,6 +297,18 @@ export const SETTINGS_PURPOSE_ZH =
   "这些是组织的估算参数，用于比价矩阵里的落地价（CAD）和报价表助手的成本建议；落地价会逐项标明用了哪一条参数。只有组织管理员能看、能改，每次保存都记审计。";
 export const MAILBOX_NOTE_ZH =
   "显示地址是供应商看到的发件人；授权邮箱是实际授权发信、读回信的那个邮箱账号（可以不同，例如在授权账号里把显示地址设为「以此地址发送」）。发信只按这里的授权邮箱找授权。";
+
+/** W-2b：询价节奏三项的名称与说明（页面逐项显示；说明写明管什么、什么时候生效） */
+export const RFQ_TIMING_FIELDS: ReadonlyArray<{ key: RfqTimingKey; label: string; note: string }> = [
+  { key: "replyLeadDays", label: "回复提前量", note: "供应商回复截止 = 截标日前这么多天（不早于起草后第 2 天）；只影响以后新建的询价，已起草等批的仍用原来的日期。" },
+  { key: "roundLockDays", label: "轮次锁天数", note: "同一项目上一轮已发出、还没结束时，从它建立起这么多天内不开新一轮（可以往已发的一轮加供应商）。" },
+  {
+    key: "chaseAfterDays",
+    label: "催单天数",
+    note: "发出满这么多天没回，就起草一封催单（交项目负责人批）；第二次催单、标「未响应」也按这个天数——回复截止已过、最后一次联系也满这么多天的，下一次检查会直接标未响应（不起草、不用批）。项目负责人自己设了催单天数时按个人设置；开了自动跟进且仍在生效的轮次按开的时候定下的天数。改了之后，其它在途询价下一次检查就按新天数。",
+  },
+];
+export const timingPlaceholder = (effective: number | null) => (effective == null ? "未单独设置，用默认值" : `未单独设置，默认 ${effective} 天`);
 
 export const PIN_MAILBOX_NOTE_ZH = "授权邮箱没有单独设置时会跟着显示地址走；只改显示地址时，页面会把授权邮箱固定为现在实际用的那个，发信账号不变。";
 

@@ -1,7 +1,8 @@
 /**
  * /api/organizations/[orgId]/tender-rfq-settings（org_admin）
- *   GET  → 询价发件设置 + 落地价换算设置（已解析，缺省为 null）+ stored（发件三项哪些是组织自己存的）
- *   PUT  { fromName?, fromEmail?, mailboxEmail?, landedCost?: { fxRates?, fxAsOf?, fxSource?, freightEstimate?,
+ *   GET  → 询价发件设置 + 落地价换算设置（已解析，缺省为 null）+ stored（发件三项与询价节奏三项哪些是组织自己存的）
+ *        + timing / timingDefaults（W-2b：回复提前量、轮次锁天数、催单天数的组织层生效值与默认值）
+ *   PUT  { fromName?, fromEmail?, mailboxEmail?, replyLeadDays?, roundLockDays?, chaseAfterDays?（1–60 整数）, landedCost?: { fxRates?, fxAsOf?, fxSource?, freightEstimate?,
  *          exportInlandEstimate?, insurancePct?, clearanceFlatCad?, projects?: { [projectId]: { dutyRatePct?, deliveryDeadline? } | null } } }
  *        → 写 Organization.settingsJson.tenderRfq（零 schema）。传了的键覆盖，没传的保留；传 null 清空。
  *
@@ -20,6 +21,7 @@ import {
   tenderRfqSettingsPutSchema,
 } from "@/lib/tender-rfq/landed-cost";
 import { readTenderRfqSettings } from "@/lib/tender-rfq/round-pure";
+import { readRfqTimingView } from "@/lib/tender-rfq/rfq-timing-view";
 
 type Params = { params: Promise<{ orgId: string }> };
 
@@ -28,11 +30,15 @@ function view(settingsJson: unknown) {
   // W-2：发件三项给的是解析后的值（没存就回退环境变量 / 默认值）；stored 说明哪几项是组织自己存的，页面据此区分「已设置」与「回退」
   const raw = ((settingsJson as { tenderRfq?: Record<string, unknown> } | null)?.tenderRfq ?? {}) as Record<string, unknown>;
   const isSet = (k: string) => typeof raw[k] === "string" && (raw[k] as string).trim() !== "";
+  // W-2b：询价节奏三项给组织层生效值与默认值；stored 同样说明哪几项是组织自己存的
+  const t = readRfqTimingView(settingsJson);
   return {
     fromName: rfq.fromName,
     fromEmail: rfq.fromEmail,
     mailboxEmail: rfq.mailboxEmail,
-    stored: { fromName: isSet("fromName"), fromEmail: isSet("fromEmail"), mailboxEmail: isSet("mailboxEmail") },
+    stored: { fromName: isSet("fromName"), fromEmail: isSet("fromEmail"), mailboxEmail: isSet("mailboxEmail"), ...t.stored },
+    timing: t.timing,
+    timingDefaults: t.timingDefaults,
     landedCost: readLandedCostSettings(settingsJson),
   };
 }

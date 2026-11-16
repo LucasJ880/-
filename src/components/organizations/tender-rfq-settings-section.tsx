@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * W-2 组织详情页「询价与落地价设置」一节（只对组织管理员 / 平台管理员、且组织在用时渲染；接口 tender-rfq-settings 只认 org_admin）
+ * W-2 组织详情页「询价与落地价设置」一节（W-2b 加了「询价节奏」三项）（只对组织管理员 / 平台管理员、且组织在用时渲染；接口 tender-rfq-settings 只认 org_admin）
  *
  * 读：GET /api/organizations/[orgId]/tender-rfq-settings；项目下拉：GET /api/organizations/[orgId]/projects（只列招投标项目）。
  * 存：PUT 同一个接口，只发改过的项（规则在 src/lib/tender-rfq/settings-form.ts）；状态变化全在 settings-section-state.ts 的 reducer 里。
@@ -15,7 +15,9 @@ import {
   FX_SOURCE_LABELS,
   MAILBOX_NOTE_ZH,
   PIN_MAILBOX_NOTE_ZH,
+  RFQ_TIMING_FIELDS,
   SETTINGS_PURPOSE_ZH,
+  timingPlaceholder,
   type EstimateForm,
   type TenderRfqSettingsView,
 } from "@/lib/tender-rfq/settings-form";
@@ -143,6 +145,20 @@ export function TenderRfqSettingsFields({ state, dispatch, onSave }: { state: Se
         {MAILBOX_NOTE_ZH}
         {state.initial && state.initial.mailboxEmail.trim() === "" ? ` ${PIN_MAILBOX_NOTE_ZH}` : ""}
       </p>
+
+      {/* 询价节奏（W-2b） */}
+      <h3 className="mt-5 text-xs font-medium text-foreground">询价节奏（天）</h3>
+      <div className="mt-2 grid gap-3 sm:grid-cols-3">
+        {RFQ_TIMING_FIELDS.map((f) => (
+          <div key={f.key} data-testid={`tender-rfq-timing-${f.key}`}>
+            <label className={labelCls}>
+              {f.label}
+              <input inputMode="numeric" disabled={busy} value={form.timing[f.key]} placeholder={timingPlaceholder(form.timingEffective[f.key])} onChange={(e) => dispatch({ type: "timing", key: f.key, value: e.target.value })} className={input} />
+            </label>
+            <p className="mt-0.5 text-[10px] text-muted">{f.note}</p>
+          </div>
+        ))}
+      </div>
 
       {/* 汇率 */}
       <h3 className="mt-5 text-xs font-medium text-foreground">汇率（1 单位外币 = ? CAD）</h3>
