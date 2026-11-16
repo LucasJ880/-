@@ -9,6 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { asJsonRec, patchRoomSummary } from "@/lib/tender-room/summary-json";
 import { db } from "@/lib/db";
 
 export type TenderWatchState = {
@@ -75,19 +76,28 @@ export async function checkTenderWatch(
     }
     const digest = computeWatchDigest(html);
     const now = new Date().toISOString();
-    const changed = Boolean(watch.lastHash && watch.lastHash !== digest);
-    const next: TenderWatchState = {
-      ...watch,
-      lastHash: digest,
-      lastCheckedAt: now,
-      ...(changed ? { lastChangedAt: now } : {}),
-    };
-    await db.bidIntelligenceRoom.update({
-      where: { id: room.id },
-      data: {
-        summaryJson: JSON.parse(JSON.stringify({ ...sj, tenderWatch: next })),
+    // FIX-11：抓取可能要十几秒，期间别的功能会写 summaryJson。锁项目行、重读，只改 tenderWatch；
+    // 抓取期间盯梢被停掉或换了 URL 就不写、不通知（不把停掉的盯梢写回来）。
+    let changed = false;
+    let written = false;
+    await patchRoomSummary({
+      projectId,
+      roomId: room.id,
+      patch: (latest) => {
+        const cur = asJsonRec(latest.tenderWatch) as Partial<TenderWatchState>;
+        if (cur.url !== watch.url) return {};
+        changed = Boolean(cur.lastHash && cur.lastHash !== digest);
+        written = true;
+        const next: TenderWatchState = {
+          ...(cur as TenderWatchState),
+          lastHash: digest,
+          lastCheckedAt: now,
+          ...(changed ? { lastChangedAt: now } : {}),
+        };
+        return { set: { tenderWatch: next } };
       },
     });
+    if (!written) return { status: "no_watch" };
     if (changed) {
       const project = await db.project.findUnique({
         where: { id: projectId },

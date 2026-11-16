@@ -16,6 +16,7 @@ import {
   type AwardSourceType,
 } from "@/lib/tender-intel/awards";
 import { isT4AwardSchemaReady } from "@/lib/tender-intel/award-flags";
+import { asJsonRec, patchRoomSummary, patchRoomSummaryTx } from "@/lib/tender-room/summary-json";
 import { EXTERNAL_INTEL_STATUS_KEY } from "@/lib/tender-intel/orchestrate";
 
 /**
@@ -112,7 +113,7 @@ export async function POST(
 
   const room = await db.bidIntelligenceRoom.findUnique({
     where: { projectId },
-    select: { id: true, orgId: true, summaryJson: true },
+    select: { id: true, orgId: true },
   });
   if (!room) {
     return NextResponse.json(
@@ -120,7 +121,6 @@ export async function POST(
       { status: 409 },
     );
   }
-  const sj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
 
   // M2：确认竞争对手线索（web 情报 → 人工确认后进入调查结论 competitors 列表）
   // 注：竞争对手提及 ≠ 授标事实，不落 AwardRecord；canonical 竞争对手只能由
@@ -128,17 +128,22 @@ export async function POST(
   if (body.kind === "competitor") {
     const name = (body.vendorName ?? "").trim();
     if (!name) return NextResponse.json({ error: "缺少名称" }, { status: 400 });
-    const prevExt = (sj.externalConfirmed as Record<string, unknown>) ?? {};
-    const prevList = Array.isArray(prevExt.competitors)
-      ? (prevExt.competitors as Array<{ name: string; url: string | null }>)
-      : [];
-    if (!prevList.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
-      prevList.push({ name, url: body.sourceUrl ?? null });
-    }
-    const externalConfirmed = { ...prevExt, competitors: prevList };
-    await db.bidIntelligenceRoom.update({
-      where: { id: room.id },
-      data: { summaryJson: { ...sj, externalConfirmed } },
+    // FIX-11：锁项目行、在最新的 externalConfirmed 上加这一家，只改这一个键
+    let externalConfirmed: Record<string, unknown> = {};
+    await patchRoomSummary({
+      projectId,
+      roomId: room.id,
+      patch: (latest) => {
+        const prevExt = asJsonRec(latest.externalConfirmed);
+        const prevList = Array.isArray(prevExt.competitors)
+          ? [...(prevExt.competitors as Array<{ name: string; url: string | null }>)]
+          : [];
+        if (!prevList.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+          prevList.push({ name, url: body.sourceUrl ?? null });
+        }
+        externalConfirmed = { ...prevExt, competitors: prevList };
+        return { set: { externalConfirmed } };
+      },
     });
     return NextResponse.json({ ok: true, externalConfirmed });
   }
@@ -170,8 +175,8 @@ export async function POST(
       ? `web:${sourceUrl}`
       : `manual:${projectId}:winner:${normalizeVendorName(vendor)}`;
 
-  const externalConfirmed = {
-    ...((sj.externalConfirmed as Record<string, unknown>) ?? {}),
+  // FIX-11：这次确认要写的字段；写入时锁项目行、并到最新的 externalConfirmed 上
+  const winnerFields = {
     previousWinner: vendor,
     historicalContractValue:
       body.contractValue != null
@@ -182,16 +187,18 @@ export async function POST(
     confirmedAt: new Date().toISOString(),
     sourceUrl,
   };
+  let externalConfirmed: Record<string, unknown> = {};
+  const winnerPatch = (latest: Record<string, unknown>) => {
+    externalConfirmed = { ...asJsonRec(latest.externalConfirmed), ...winnerFields };
+    return { set: { externalConfirmed } };
+  };
 
   // 生产激活闸（兼容策略 B）：T4 schema 未 ready → 保持 merge 前行为，
   // 仅写项目级调查结论（externalConfirmed），对 T4 表 0 次访问。
   // 一致性契约：externalConfirmed 保留全量结构化上下文（vendor/value/date/sourceUrl），
   // schema ready 后可按同一 sourceKey 推导规则幂等补偿 materialize（见 award-flags.ts）。
   if (!schemaReady) {
-    await db.bidIntelligenceRoom.update({
-      where: { id: room.id },
-      data: { summaryJson: { ...sj, externalConfirmed } },
-    });
+    await patchRoomSummary({ projectId, roomId: room.id, patch: winnerPatch });
     return NextResponse.json({
       ok: true,
       externalConfirmed,
@@ -202,6 +209,8 @@ export async function POST(
 
   try {
     const { materialized } = await db.$transaction(async (tx) => {
+      // 先锁项目行（与报价引擎同序），再沉淀授标记录；任一步失败整体回滚
+      await patchRoomSummaryTx(tx, { projectId, roomId: room.id, patch: winnerPatch });
       const materialized = await materializeWinnerConfirmation(
         {
           orgId: room.orgId,
@@ -228,10 +237,6 @@ export async function POST(
         },
         { client: tx as unknown as AwardsDbClient },
       );
-      await tx.bidIntelligenceRoom.update({
-        where: { id: room.id },
-        data: { summaryJson: { ...sj, externalConfirmed } },
-      });
       return { materialized };
     });
 

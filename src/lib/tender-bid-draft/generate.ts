@@ -5,7 +5,7 @@
  * （失败温和，不写半成品）。FLOW-H5：两道闸的开关开着时记下起草所用的分析与是否已批准，没批准的在草稿里加横幅
  * （不改输入与提示词）。deps.synthesize 只给测试注入假的合成用。
  */
-import { db } from "@/lib/db";
+import { patchRoomSummary } from "@/lib/tender-room/summary-json";
 import { UNCONFIRMED_BASIS_BANNER_EN, isDecisionGatesEnabledForOrg } from "@/lib/tender-decision-gates/gates";
 import { gatherBidDraftInputsWithBasis } from "./gather";
 import { bidDraftMetaOf } from "./meta";
@@ -25,14 +25,9 @@ export async function buildBidDraftDocument(
   if (!result) throw new Error(`起草失败（${errorCode ?? "unknown"}）`);
   const html = renderBidDraftHtml(inputs, result, { unconfirmedBasisBanner: gates && !basis.approved ? UNCONFIRMED_BASIS_BANNER_EN : null });
   try {
-    const room = await db.bidIntelligenceRoom.findUnique({ where: { projectId: input.projectId }, select: { id: true, summaryJson: true } });
-    if (room) {
-      const rsj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-      await db.bidIntelligenceRoom.update({
-        where: { id: room.id },
-        data: { summaryJson: JSON.parse(JSON.stringify({ ...rsj, bidDraft: bidDraftMetaOf(result, gates ? basis : null) })) },
-      });
-    }
+    // FIX-11：锁项目行、重读，只设 bidDraft（没有房间时不写）
+    const bidDraft = bidDraftMetaOf(result, gates ? basis : null);
+    await patchRoomSummary({ projectId: input.projectId, patch: () => ({ set: { bidDraft } }) });
   } catch {
     // 元信息落库失败不影响文档产出
   }
