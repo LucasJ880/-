@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
+import { buildSecurityHeaders } from "./src/lib/security/csp";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["jspdf", "jspdf-autotable", "@sparticuz/chromium", "puppeteer-core", "@expo-google-fonts/noto-sans-sc"],
@@ -36,6 +37,10 @@ const nextConfig: NextConfig = {
   // Next 自带的检查在编译之后另起进程、与仍占着大堆的编译进程同时存在，16GB 生产构建机在这一步被 SIGKILL（S3 合并后实测）。
   // 类型错误照样让构建失败——只是换成在编译之前失败。
   typescript: { ignoreBuildErrors: true },
+  // 全站内容安全策略基线（spec platform/content-security-policy）。CSP_MODE=report-only 只上报不拦截，=off 不发这个头。
+  async headers() {
+    return buildSecurityHeaders(process.env);
+  },
 };
 
 // Sentry 集成：仅当显式配置 SENTRY_DSN 时启用

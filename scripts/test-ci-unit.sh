@@ -435,6 +435,7 @@ npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts
 npx tsx src/lib/ai-markdown/__tests__/url-policy.test.ts
 npx tsx src/components/__tests__/ai-markdown.test.tsx
 npx tsx src/lib/common/__tests__/sanitize-html.test.ts
+npx tsx src/lib/security/__tests__/csp.test.ts
 npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
