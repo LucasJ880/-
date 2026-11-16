@@ -108,6 +108,7 @@
 | P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [ ] |
 | P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4 | [ ] |
 | P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |
+| P2-3a | 采购监控「跟这个标」：招标公告 → 建 `Project(workDomain=tender)` + 关联（本项目）+ 关注，同一组织同一公告只建一次（Web 版，Muse 已冻结） | P2-1（PROC-1 新标拉取） | 点一次建一个项目、字段预填、再点 / 并发不重复；只读成员看不到 | [G]（change `tender-notice-follow`；`POST /api/procurement/instruments/{id}/follow`；报告 `docs/QINGYAN_P2-3a_REPORT.md`） |
 | P2-4 | `watch.ts` 升级为结构化 diff → 触发 `addendum-diff.ts` → `addendum.detected` | P0-5 | 变更≠Addenda 时文案仍诚实 | [ ] |
 
 **GATE-2 验收**：一周内至少 1 条真实新标通过 Muse 早报 → 一键跟进 → 分析完成，全程无人工建项。

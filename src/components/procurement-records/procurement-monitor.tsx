@@ -13,6 +13,7 @@ import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { JURISDICTION_LABELS } from "@/lib/procurement-records/identity";
 import { RUN_STATUS_LABELS, SOURCE_STATUS_LABELS, SOURCE_TYPE_LABELS, TRIAGE_LABELS, type SourceStatus } from "@/lib/procurement-records/labels";
 import { Btn, Chip, Field, inputCls, Note, NotEnabled, Section, toneForStatus, Unknown, useApiCall, when } from "./primitives";
+import { FOLLOW_CREATED_ZH, FOLLOW_EXISTING_ZH, FOLLOW_LABEL_ZH, FOLLOWED_LABEL_ZH, followButtonState } from "@/lib/procurement-records/tender-follow-pure";
 
 type Json = Record<string, unknown>;
 interface SourceRow { key: string; label: string; mode: string; descriptionZh: string; officialUrl: string; enabled: boolean | null; lastResult: Json | null }
@@ -43,6 +44,8 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const [view, setView] = useState<WatchView | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [canManage, setCanManage] = useState(false);
+  // P2-3a：只读成员不显示「跟这个标」（接口也会 403）
+  const [canFollow, setCanFollow] = useState(false);
   const [candidates, setCandidates] = useState<Json[]>([]);
   const [triage, setTriage] = useState("ALL");
   const [runId, setRunId] = useState<string | null>(null);
@@ -64,6 +67,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
     const w = r.body.watch as WatchView;
     setView(w);
     setCanManage(Boolean(r.body.canManage));
+    setCanFollow(r.body.canFollow === true);
     const f = w.config.filters;
     setForm({
       keywords: lines(f.keywords),
@@ -129,6 +133,14 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const doTriage = async (id: string, status: string) => {
     await api.call(`t-${id}`, `/api/procurement/instruments/${id}/triage`, { method: "POST", json: { triageStatus: status } });
     await load();
+  };
+  // P2-3a「跟这个标」：招标公告 → 招投标项目（只建一次；已跟过返回原项目）
+  const follow = async (id: string) => {
+    const r = await api.call(`f-${id}`, `/api/procurement/instruments/${id}/follow`, { method: "POST" });
+    if (!r.ok) return;
+    // 先重新读取再给提示：每次接口调用开始时都会清空提示
+    await load();
+    api.setNote({ tone: "good", text: r.body.created ? FOLLOW_CREATED_ZH : FOLLOW_EXISTING_ZH });
   };
   const prepare = async (id: string) => {
     const r = await api.call(`p-${id}`, `/api/procurement/requests${q}`, { method: "POST", json: { instrumentIds: [id], pathType: "NEW_FORMAL_REQUEST" } });
@@ -378,6 +390,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
                   )}
                   {c.triageStatus !== "WATCHING" ? <Btn onClick={() => void doTriage(String(c.id), "WATCHING")} busy={api.busy === `t-${String(c.id)}`}>关注</Btn> : null}
                   {c.triageStatus !== "IGNORED" ? <Btn variant="link" onClick={() => void doTriage(String(c.id), "IGNORED")}>忽略</Btn> : null}
+                  <FollowAction state={followButtonState({ instrumentClass: String(c.instrumentClass), closingAt: (c.closingAt as string | null) ?? null, tenderLinks: c.tenderLinks as Array<{ projectId: string; relation: string }> | null }, new Date(), { canFollow })} busy={api.busy === `f-${String(c.id)}`} onFollow={() => void follow(String(c.id))} />
                 </div>
                 <details className="mt-1 text-[11px]">
                   <summary className="cursor-pointer text-muted">评分理由与更多信息</summary>
@@ -454,4 +467,25 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
       </details>
     </div>
   );
+}
+
+/** P2-3a 候选卡片上的跟标按钮：跟这个标 / 已跟进 · 打开项目 / 不显示（规则在 tender-follow-pure.ts） */
+export function FollowAction({ state, busy, onFollow }: { state: ReturnType<typeof followButtonState>; busy: boolean; onFollow: () => void }) {
+  if (state.kind === "followed") {
+    return (
+      <Link data-testid="procurement-followed" className="inline-flex min-h-[44px] items-center rounded-lg border border-border px-3 text-xs font-medium text-foreground hover:bg-accent/5" href={`/projects/${state.projectId}`}>
+        {FOLLOWED_LABEL_ZH}
+      </Link>
+    );
+  }
+  if (state.kind === "follow") {
+    return (
+      <span data-testid="procurement-follow">
+        <Btn variant="primary" onClick={onFollow} busy={busy}>
+          {FOLLOW_LABEL_ZH}
+        </Btn>
+      </span>
+    );
+  }
+  return null;
 }

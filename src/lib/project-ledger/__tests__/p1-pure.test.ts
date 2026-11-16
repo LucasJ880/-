@@ -212,6 +212,8 @@ test("producer 静态纪律：事务内 append + flag 门 + server-authored", ()
     "src/app/api/projects/[id]/route.ts",
     "src/app/api/projects/[id]/members/route.ts",
     "src/app/api/projects/[id]/members/[memberId]/route.ts",
+    // P2-3a 跟标建项：与 POST /api/projects 相同的建项步骤（同事务 append、producer-active 闸、actor 取服务端用户）
+    "src/lib/procurement-records/tender-follow.ts",
   ];
   for (const p of producers) {
     const src = readFileSync(p, "utf8");
