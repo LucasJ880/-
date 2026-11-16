@@ -4,7 +4,7 @@
  *
  * 规格里映射相关的每个场景至少一例；末尾是源码断言（导入模块与核对窗无网络调用、产出不含照片与面料资料键）。
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { calculateQuoteTotal } from "@/lib/blinds/pricing-engine";
 import { DEFAULT_DISCOUNTS } from "@/lib/blinds/pricing-data";
@@ -291,6 +291,9 @@ console.log("\n源码断言");
   const modules = ["types.ts", "validate.ts", "map.ts", "compare.ts", "audit.ts"].map((f) => `src/lib/sales/quote-import/${f}`);
   for (const p of modules) ok(!NETWORK.test(read(p)), `MAP-130: ${p.split("/").pop()} 没有任何网络请求调用`);
   ok(modules.every((p) => !/from\s+["'](?:react|next\/|@\/lib\/db|@\/lib\/api)/.test(read(p))), "MAP-131: 导入模块不引界面框架、数据库与请求封装");
+  const dialog = "src/app/(main)/sales/quote-sheet/import-review-dialog.tsx";
+  ok(existsSync(join(process.cwd(), dialog)) && !NETWORK.test(read(dialog)), "MAP-132: 核对窗 import-review-dialog.tsx 没有任何网络请求调用（文件只在浏览器里读）");
+  ok(existsSync(join(process.cwd(), dialog)) && /\.text\(\)|FileReader/.test(read(dialog)) && /\.size\b/.test(read(dialog)) && read(dialog).indexOf(".size") < read(dialog).search(/\.text\(\)|readAsText/), "MAP-133: 核对窗读文件前先判大小");
   const mapSrc = read("src/lib/sales/quote-import/map.ts") + read("src/lib/sales/quote-import/compare.ts");
   ok(!/windowPhotos|windowTrial|materialSelection|\bmaterials\b|planWindows/.test(mapSrc), "MAP-134: 映射与对照的源码里不出现照片 / 试装图 / 面料资料的键");
   const { mapped } = mapText(SINGLE);
