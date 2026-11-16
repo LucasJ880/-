@@ -218,6 +218,12 @@ async function main() {
     const i5 = await db.procurementInstrument.findUnique({ where: { id: NOCLOSE } });
     ok(r5.status === 201 && p5?.closeDate === null && p5?.name === i5?.officialNumber && p5?.sourcePlatform === "采购监控", "截标未知、没有标题：可以跟，名称用编号、截标日为空、没有证据写「采购监控」", p5);
 
+    // 跟标之后又手工关联了另一个「本项目」：卡片与再跟都指向最早那条（跟标建出的）
+    await new Promise((r) => setTimeout(r, 20));
+    await db.procurementTenderLink.create({ data: { orgId: ORG, projectId: String(manual.id), instrumentId: RACE, relation: "CURRENT", createdById: ADMIN } });
+    const r10 = await follow(RACE);
+    ok(r10.status === 200 && r10.body.projectId === a.body.projectId, "两条「本项目」关联：再跟返回最早那条（跟标建出的）", r10);
+
     /* ---------- 6. 候选列表 → 按钮状态 ---------- */
     const lr = await candidatesRoute.GET(new NextRequest(`http://localhost/api/procurement/candidates?orgId=${ORG}&triage=ALL`, { headers: { cookie: await cookie(MEMBER) } }), { params: Promise.resolve({}) } as never);
     const lj = (await lr.json()) as Rec;
@@ -229,7 +235,7 @@ async function main() {
     const delItem = items.find((x) => x.id === DEL_ID);
     ok(!!delItem && !((delItem.tenderLinks as Rec[]) ?? []).some((l) => l.projectId === DEL_PROJECT), "候选列表不展示指向已删项目的关联", delItem?.tenderLinks);
     const sRace = stateOf(RACE);
-    ok(sRace?.kind === "followed" && sRace.projectId === a.body.projectId, "跟过（后来截标）的公告：卡片仍是已跟进，指向跟标建出的项目");
+    ok(sRace?.kind === "followed" && sRace.projectId === a.body.projectId && sRace.projectId === r10.body.projectId, "两条「本项目」关联（后来还截标）：卡片指向最早那条，与再跟返回的一致", sRace);
     const wr = await (await import("@/app/api/procurement/watch/route")).GET(new NextRequest(`http://localhost/api/procurement/watch?orgId=${ORG}`, { headers: { cookie: await cookie(VIEWER) } }), { params: Promise.resolve({}) } as never);
     const wj = (await wr.json()) as Rec;
     const wm = (await (await import("@/app/api/procurement/watch/route")).GET(new NextRequest(`http://localhost/api/procurement/watch?orgId=${ORG}`, { headers: { cookie: await cookie(MEMBER) } }), { params: Promise.resolve({}) } as never).then((r) => r.json())) as Rec;
