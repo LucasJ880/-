@@ -25,7 +25,7 @@ import { PageHeader } from "@/components/page-header";
 import { apiFetch } from "@/lib/api-fetch";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
 import { getTradeProspectStageLabel } from "@/lib/trade/stage";
-import { replyButtonFor, replySubjectFor } from "@/lib/trade/reply-target";
+import { approvalRecipientDiffers, replyButtonFor, replySubjectFor, type ApprovalDraft } from "@/lib/trade/reply-target";
 
 interface AnalysisSummary {
   status: string;
@@ -113,10 +113,16 @@ interface ReplyTarget {
   useDraft: boolean;
   /** 深链已经取到全文时直接带进来，窗口不用再取 */
   lastInbound?: LastInbound | null;
+  /** NAV-3：从待批草稿卡进来时带的这份草稿原文；有它就按「改草稿再发」打开 */
+  approvalDraft?: ApprovalDraft | null;
 }
 
 /** NAV-6：只持查看外贸键的成员看到的说明（卡片不出回复按钮、草稿窗口只读、深链不开窗口） */
 const READ_ONLY_NOTICE = "你的岗位只能查看询盘，不能回复";
+/** NAV-3：带着待批草稿 id 进来，但这份草稿已经处理过、过期或不属于这位买家 */
+const APPROVAL_GONE_NOTICE = "这份待批草稿已经处理过或已失效，可以直接在下面写回复";
+/** NAV-3：「改草稿再发」窗口的说明 */
+const APPROVAL_EDIT_HINT = "这是等审批的那份 AI 草稿，改好后点「发送邮件」。发出后那份草稿自动作废，不用再去批准；从这里发出的是普通文本邮件。";
 
 const hasReplyDraft = (t: Thread) => t.analysis?.status === "done" && Boolean(t.analysis.replyDraft);
 
@@ -250,21 +256,32 @@ export default function TradeInboxPage() {
     const params = new URLSearchParams(window.location.search);
     const prospectId = params.get("prospect");
     const opportunityId = params.get("opportunity");
+    // NAV-3：从待批草稿卡进来时还带着这份草稿的 id
+    const approvalId = params.get("approval");
     if (!prospectId && !opportunityId) return;
     let cancelled = false;
     void (async () => {
       const target = prospectId ? `prospectId=${encodeURIComponent(prospectId)}` : `opportunityId=${encodeURIComponent(opportunityId ?? "")}`;
-      const res = await apiFetch(`/api/trade/inbox/focus?orgId=${encodeURIComponent(orgId)}&${target}`).catch(() => null);
+      const withApproval = approvalId ? `&approvalId=${encodeURIComponent(approvalId)}` : "";
+      const res = await apiFetch(`/api/trade/inbox/focus?orgId=${encodeURIComponent(orgId)}&${target}${withApproval}`).catch(() => null);
       if (cancelled) return;
       if (res?.ok) {
-        const data = (await res.json()) as { thread: Thread; lastInbound: LastInbound | null; capabilities?: { emailSend?: boolean; reply?: boolean } };
+        const data = (await res.json()) as { thread: Thread; lastInbound: LastInbound | null; approvalDraft?: ApprovalDraft | null; capabilities?: { emailSend?: boolean; reply?: boolean } };
         if (cancelled) return;
         if (data.capabilities) setEmailSend(Boolean(data.capabilities.emailSend));
+        const approvalDraft = approvalId ? (data.approvalDraft ?? null) : null;
         const mayReply = Boolean(data.capabilities?.reply);
         setCanReply(mayReply);
         // NAV-6：不能回复的成员不开回复窗口，只提示
         if (mayReply) {
-          setReplyFor({ thread: data.thread, useDraft: replyButtonFor({ replied: data.thread.replied, hasDraft: hasReplyDraft(data.thread) }).useDraft, lastInbound: data.lastInbound });
+          setReplyFor({
+            thread: data.thread,
+            // NAV-3：带着待批草稿 id 进来的，不预填收件箱自己的分析草稿——取到待批草稿就用它，没取到就空白
+            useDraft: approvalId ? false : replyButtonFor({ replied: data.thread.replied, hasDraft: hasReplyDraft(data.thread) }).useDraft,
+            lastInbound: data.lastInbound,
+            approvalDraft,
+          });
+          if (approvalId && !approvalDraft) setFocusNotice(APPROVAL_GONE_NOTICE);
         } else {
           setFocusNotice(READ_ONLY_NOTICE);
         }
@@ -532,7 +549,7 @@ export default function TradeInboxPage() {
 
       {replyFor && (
         <ReplyModal
-          key={`${replyFor.thread.prospectId}:${replyFor.useDraft ? "draft" : "blank"}`}
+          key={`${replyFor.thread.prospectId}:${replyFor.approvalDraft ? `approval:${replyFor.approvalDraft.pendingActionId}` : replyFor.useDraft ? "draft" : "blank"}`}
           target={replyFor}
           emailSend={emailSend}
           canReply={canReply}
@@ -630,9 +647,12 @@ function ReplyModal({
   onDone: (msg: string) => void;
 }) {
   const { thread } = target;
-  const draft = target.useDraft ? (thread.analysis?.replyDraft ?? null) : null;
-  const [subject, setSubject] = useState(draft ? draft.subject : replySubjectFor(thread.lastInboundSubject));
-  const [body, setBody] = useState(draft ? draft.body : "");
+  // NAV-3：带着待批草稿进来时，预填的是那份草稿的原文（不是收件箱自己的分析草稿）
+  const approval = target.approvalDraft ?? null;
+  const draft = approval ? null : target.useDraft ? (thread.analysis?.replyDraft ?? null) : null;
+  const [subject, setSubject] = useState(approval ? approval.subject : draft ? draft.subject : replySubjectFor(thread.lastInboundSubject));
+  const [body, setBody] = useState(approval ? approval.body : draft ? draft.body : "");
+  const recipientDiffers = approval ? approvalRecipientDiffers(approval.to, thread.contactEmail) : false;
   const [showZh, setShowZh] = useState(false);
   const [sending, setSending] = useState<"send" | "mark_sent" | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -667,7 +687,7 @@ function ReplyModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // fromAiDraft：正文来自 AI 草稿（改过也算）；手写为 false，留底消息不标成 AI 草稿
-        body: JSON.stringify({ orgId, subject, body, mode, fromAiDraft: Boolean(draft) }),
+        body: JSON.stringify({ orgId, subject, body, mode, fromAiDraft: Boolean(draft) || Boolean(approval) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -696,10 +716,12 @@ function ReplyModal({
       <div className="relative w-full max-w-2xl rounded-2xl border border-border bg-card-bg p-5 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-foreground">{draft ? "回复草稿" : "写回复"} · {thread.companyName}</h2>
+            <h2 className="text-base font-semibold text-foreground">{approval ? "改草稿再发" : draft ? "回复草稿" : "写回复"} · {thread.companyName}</h2>
             <p className="mt-0.5 text-xs text-muted">
               {!canReply
                 ? READ_ONLY_NOTICE
+                : approval
+                ? APPROVAL_EDIT_HINT
                 : draft
                 ? `AI 起草，你改定后再发。${draft.askedQuestions.length ? `已包含追问：${draft.askedQuestions.slice(0, 3).join("；")}` : ""}`
                 : "自己写回复；发出后记入时间线，这位买家还在等审批的 AI 草稿会自动作废。"}
@@ -711,6 +733,12 @@ function ReplyModal({
             </button>
           )}
         </div>
+        {/* NAV-3：草稿原定的收件邮箱与这位买家在收件箱里的邮箱不同——从这里发，发给的是后者 */}
+        {approval && recipientDiffers && (
+          <p data-reply-recipient-differs className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
+            这份草稿原本发给 {approval.to}；从这里发送会发给 {thread.contactEmail}。
+          </p>
+        )}
         {/* 买家来信原文（只读）：边看边回 */}
         {hasInbound && (
           <div data-reply-inbound className="mt-3 rounded-lg border border-border/60 bg-background/60 px-3 py-2">
@@ -727,14 +755,14 @@ function ReplyModal({
               {draft.bodyZh || "（无中文对照）"}
             </div>
           ) : (
-            <textarea value={body} readOnly={!canReply} onChange={(e) => setBody(e.target.value)} rows={draft ? 14 : 10} placeholder={draft ? undefined : "在这里写给买家的回复…"} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed text-foreground focus:border-blue-500 focus:outline-none" />
+            <textarea value={body} readOnly={!canReply} onChange={(e) => setBody(e.target.value)} rows={draft || approval ? 14 : 10} placeholder={draft || approval ? undefined : "在这里写给买家的回复…"} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed text-foreground focus:border-blue-500 focus:outline-none" />
           )}
         </div>
         {err && <p className="mt-2 text-xs text-red-500">{err}</p>}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
           <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">取消</button>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void copy()} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent">{draft ? "复制草稿" : "复制内容"}</button>
+            <button type="button" onClick={() => void copy()} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent">{draft || approval ? "复制草稿" : "复制内容"}</button>
             {canReply && (
               <>
                 <button type="button" disabled={sending !== null || !body.trim()} onClick={() => void submit("mark_sent")} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:border-accent/50 hover:text-accent disabled:opacity-50">

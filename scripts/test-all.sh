@@ -334,6 +334,8 @@ run_test "外贸收件人 / 营收中心按外贸键（PERM-6c）" "npx tsx src/
 run_test "回复入口：客户时间线 / 询盘收件箱 / 审批面（NAV-1c）" "npx tsx src/lib/trade/__tests__/reply-entry.test.ts"
 # NAV-6（openspec change nav-6-inbox-reply-clarity）：阶段 replied 的显示名与同源、收件箱「我方已回复」、回复能力标记与只读成员的页面，纯函数 + 源码断言，无 DB
 run_test "询盘收件箱：谁回复了谁 / 不能回复的成员（NAV-6）" "npx tsx src/lib/trade/__tests__/reply-clarity.test.ts"
+# NAV-3（openspec change nav-3-approval-draft-editable）：待批草稿能不能带进回复窗口、单会话接口按草稿 id 返回原文、「改草稿再发」窗口、审批面链接，纯函数 + 源码断言，无 DB
+run_test "审批草稿可改：从待批草稿进询盘收件箱（NAV-3）" "npx tsx src/lib/trade/__tests__/approval-draft-edit.test.ts"
 run_test "岗位绑定界面（PERM-7）" "npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts"
 run_test "梦馨落岗位（PERM-6b）" "npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts"
 run_test "平台 admin 退役（PERM-7b）" "npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts"

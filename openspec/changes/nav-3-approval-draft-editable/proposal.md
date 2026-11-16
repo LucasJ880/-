@@ -1,6 +1,6 @@
 # Proposal：审批草稿可改——从待批草稿进收件箱时带上这份草稿（NAV-3）
 
-TASKFLOW：NAV-3（Phase N；任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TASKBRIEF.md` 附录「后续队列」NAV-3，前置 NAV-1c 已合并归档）。核对基线：main `43be745f`（2026-11-16）。四件套待审，审核通过前不动业务代码。
+TASKFLOW：NAV-3（Phase N；任务书 `docs/QINGYAN_NAV-1_PLAIN_NAV_REPLY_TASKBRIEF.md` 附录「后续队列」NAV-3，前置 NAV-1c 已合并归档）。核对基线：main `43be745f`（2026-11-16）。四件套审核：Lucas 2026-11-16「按推荐做」，design「审核关注点」Q1–Q6 全部按推荐。
 
 ## Why
 

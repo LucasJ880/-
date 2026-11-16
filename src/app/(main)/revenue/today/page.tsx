@@ -244,6 +244,16 @@ function ApprovalRow({
               打开商机详情（RFQ、评分、来信原文）
             </Link>
           ) : null}
+          {/* NAV-3：带着这份草稿去询盘收件箱改完再发。放在展开的草稿下面——和批准一样，先看过草稿（含风险提示）才出现。
+              发出后同商机的待批草稿由系统作废（既有行为） */}
+          {canWriteInInbox && o ? (
+            <Link
+              href={inboxReplyHref({ opportunityId: o.opportunityId, approvalId: item.pendingActionId })}
+              className="flex min-h-11 items-center text-xs text-muted underline"
+            >
+              想改一改再发？去询盘收件箱改这份草稿（发出后这份草稿自动作废）
+            </Link>
+          ) : null}
         </div>
       ) : null}
       <div className="mt-2 flex gap-2">
@@ -267,12 +277,6 @@ function ApprovalRow({
         </button>
       </div>
       {!open ? <div className="mt-1 text-[11px] text-muted">展开看完草稿后才能批准或拒绝</div> : null}
-      {/* NAV-1c：不想用这份草稿的出路。发出后同商机的待批草稿由系统作废（既有行为） */}
-      {canWriteInInbox && o ? (
-        <Link href={inboxReplyHref({ opportunityId: o.opportunityId })} className="mt-1 inline-flex min-h-11 items-center text-xs text-muted underline">
-          不想用这份？去询盘收件箱自己写（发出后这份草稿自动作废）
-        </Link>
-      ) : null}
     </li>
   );
 }

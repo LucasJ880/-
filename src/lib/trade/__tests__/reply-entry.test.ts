@@ -128,14 +128,15 @@ console.log("\n5. 打开不等于发送");
 
 console.log("\n6. 审批面");
 {
-  const LINK = "不想用这份？去询盘收件箱自己写（发出后这份草稿自动作废）";
+  // NAV-3：链接改为带着这份草稿去改（文字、草稿 id、今日询盘上的位置见 approval-draft-edit.test.ts）
+  const LINK = "想改一改再发？去询盘收件箱改这份草稿（发出后这份草稿自动作废）";
   const today = code("src/app/(main)/revenue/today/page.tsx");
-  ok(today.includes(LINK) && /canWriteInInbox && o \? \(\s*<Link href=\{inboxReplyHref\(\{ opportunityId: o\.opportunityId \}\)\}/.test(today), "今日询盘：待批卡的链接指向该商机的收件箱回复窗口");
+  ok(today.includes(LINK) && /canWriteInInbox && o \? \(\s*<Link\s+href=\{inboxReplyHref\(\{ opportunityId: o\.opportunityId, approvalId: item\.pendingActionId \}\)\}/.test(today), "今日询盘：待批卡的链接指向该商机的收件箱回复窗口");
   ok(/useNavigationAccess\(\)\.canOpen\("\/trade\/inbox"\)/.test(today), "今日询盘：链接只在询盘收件箱放行时出现");
   const detail = code("src/app/(main)/revenue/[id]/page.tsx");
   ok(detail.includes(LINK) && /p\.status === "pending" && canWriteInInbox \?/.test(detail), "商机详情：待批草稿卡带同一链接");
   ok(/尚无草稿[\s\S]{0,200}canWriteInInbox \?[\s\S]{0,200}去询盘收件箱写回复/.test(detail), "商机详情：没有草稿时显示「去询盘收件箱写回复」");
-  ok(/useNavigationAccess\(\)\.canOpen\("\/trade\/inbox"\)/.test(detail) && (detail.match(/inboxReplyHref\(\{ opportunityId: o\.id \}\)/g) ?? []).length === 2, "商机详情：两处链接都指向该商机，且只在收件箱放行时出现");
+  ok(/useNavigationAccess\(\)\.canOpen\("\/trade\/inbox"\)/.test(detail) && (detail.match(/inboxReplyHref\(\{ opportunityId: o\.id(?:, approvalId: p\.id)? \}\)/g) ?? []).length === 2, "商机详情：两处链接都指向该商机，且只在收件箱放行时出现");
   ok(detail.includes('placeholder="把买家在别处发来的内容贴到这里，AI 会重新起草回复"') && !/CUSTOMER_REPLIED|重跑 FDE/.test(read("src/app/(main)/revenue/[id]/page.tsx").match(/placeholder="[^"]*"/g)?.join("\n") ?? ""), "商机详情：占位文字改为白话，不再含 CUSTOMER_REPLIED 与 FDE");
 }
 

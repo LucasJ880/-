@@ -272,6 +272,92 @@ async function main() {
       { params: Promise.resolve({ prospectId }) },
     );
     ok(viewerReply.status === 403 && (await db.tradeMessage.count({ where: { prospectId } })) === messagesBefore, "只持查看外贸键的成员提交回复仍是 403，没有留底（标记不代替服务端校验）", viewerReply.status);
+
+    // ───────── [5] 审批草稿可改（NAV-3）─────────
+    console.log("\n[5] 从待批草稿进入：取草稿原文、改后发出、原草稿作废");
+    const { withOnboardingTestTag } = await import("@/lib/organizations/onboarding-rules");
+    type DraftJson = { pendingActionId?: string; subject?: string; body?: string; to?: string } | null | undefined;
+    const DRAFT_BODY = "Dear Mark,\n\nOur MOQ for blackout curtains is 500 pcs per colour. Lead time is 35 days.\n\nBest regards,\nExample Textiles";
+    const mkDraft = async (orgId: string, userId: string, oppId: string, custId: string, body = DRAFT_BODY) =>
+      db.pendingAction.create({
+        data: {
+          type: INQUIRY_REPLY_ACTION_TYPE,
+          title: "发送询盘回复：fixture",
+          preview: "⚠ 风险提示：价格未核实\n\nRe: Blackout curtains\n\nDear Mark…\n\n——— 中文对照 ———\n…",
+          payload: { opportunityId: oppId, customerId: custId, to: "mark@maple-hotels.fixture.test", subject: "Re: Blackout curtains for hotel project", body, html: "<!doctype html><p>Dear Mark</p>", language: "en", metadata: { orgId, opportunityId: oppId, customerId: custId } },
+          status: "pending",
+          createdById: userId,
+          orgId,
+          expiresAt: new Date(Date.now() + 3 * 86_400_000),
+        },
+        select: { id: true },
+      });
+    const draftA = await mkDraft(HT, CATHY, opportunityId, customerId);
+    const snapshotA = async () => db.pendingAction.findUnique({ where: { id: draftA.id }, select: { status: true, payload: true, preview: true, decidedById: true, decidedAt: true, failureReason: true } });
+    const beforeA = await snapshotA();
+
+    const byOpp = await focus(CATHY, HT, `opportunityId=${opportunityId}&approvalId=${draftA.id}`);
+    const got = byOpp.body.approvalDraft as DraftJson;
+    ok(
+      byOpp.status === 200 && got?.pendingActionId === draftA.id && got.subject === "Re: Blackout curtains for hotel project" && got.body === DRAFT_BODY && got.to === "mark@maple-hotels.fixture.test",
+      "按商机 id + 草稿 id：approvalDraft 的主题、正文、收件邮箱与草稿载荷逐项相等",
+      got,
+    );
+    ok(got != null && Object.keys(got).sort().join(",") === "body,pendingActionId,subject,to", "approvalDraft 只有四个字段（没有 HTML 版、预览、内部元数据）", got && Object.keys(got));
+    const byProspect = await focus(CATHY, HT, `prospectId=${prospectId}&approvalId=${draftA.id}`);
+    ok(JSON.stringify(byProspect.body.approvalDraft) === JSON.stringify(got), "按线索 id + 草稿 id：同一份草稿");
+    const plain = await focus(CATHY, HT, `opportunityId=${opportunityId}`);
+    ok(plain.status === 200 && !("approvalDraft" in plain.body) && JSON.stringify(plain.body.thread) === JSON.stringify(byOpp.body.thread), "不带草稿 id：响应里没有 approvalDraft 字段，其余相同");
+
+    // 四种不可用 + 入驻测试买家
+    const otherOrgDraft = await mkDraft(HT2, OTHER, opportunityId, customerId); // 别的企业的草稿，载荷里写着同一个商机 id
+    const otherBuyerDraft = await mkDraft(HT, CATHY, mail.opportunityId, mail.customerId); // 本企业、另一位买家的草稿
+    const unusable = await Promise.all([
+      focus(CATHY, HT, `opportunityId=${opportunityId}&approvalId=${otherOrgDraft.id}`),
+      focus(CATHY, HT, `opportunityId=${opportunityId}&approvalId=${otherBuyerDraft.id}`),
+      focus(CATHY, HT, `opportunityId=${opportunityId}&approvalId=${draft.id}`), // 第 3 组里已被系统作废的那份
+      focus(CATHY, HT, `opportunityId=${opportunityId}&approvalId=${id("nope")}`),
+    ]);
+    ok(
+      unusable.every((r) => r.status === 200 && "approvalDraft" in r.body && r.body.approvalDraft === null) && new Set(unusable.map((r) => JSON.stringify(r.body))).size === 1,
+      "别的企业的草稿 / 另一位买家的草稿 / 已作废的草稿 / 不存在的 id：approvalDraft 都为空，四个响应完全相同",
+      unusable.map((r) => r.body.approvalDraft),
+    );
+    const mapleCustomer = await db.salesCustomer.findUnique({ where: { id: customerId }, select: { tags: true } });
+    await db.salesCustomer.update({ where: { id: customerId }, data: { tags: withOnboardingTestTag(mapleCustomer?.tags ?? null) } });
+    const testBuyer = await focus(CATHY, HT, `opportunityId=${opportunityId}&approvalId=${draftA.id}`);
+    await db.salesCustomer.update({ where: { id: customerId }, data: { tags: mapleCustomer?.tags ?? null } });
+    ok(testBuyer.status === 200 && testBuyer.body.approvalDraft === null, "买家带入驻测试标记：同一份待批草稿也不给原文", testBuyer.body.approvalDraft);
+    const viewerDraft = await focus(VIEWER, HT, `opportunityId=${opportunityId}&approvalId=${draftA.id}`);
+    ok(viewerDraft.status === 200 && (viewerDraft.body.capabilities as Caps | undefined)?.reply === false, "只能查看的成员：接口照常只读返回，reply 仍为假（页面据此不开窗口）");
+    ok(JSON.stringify(await snapshotA()) === JSON.stringify(beforeA), "读了这么多次之后：这份待批草稿的状态、载荷、预览、审批人、时间都没有变");
+
+    // 改后发出
+    const EDITED = `${DRAFT_BODY}\n\nP.S. Samples can ship this week.`;
+    const sendEdited = await replyRoute.POST(
+      await req(CATHY, `/api/trade/inbox/${prospectId}/reply`, { method: "POST", body: { orgId: HT, subject: got?.subject, body: EDITED, mode: "mark_sent", fromAiDraft: true } }),
+      { params: Promise.resolve({ prospectId }) },
+    );
+    const sentBody = (await sendEdited.json()) as { messageId?: string };
+    const sentMsg = await db.tradeMessage.findUnique({ where: { id: sentBody.messageId ?? "none" }, select: { aiDraft: true, content: true, subject: true, direction: true } });
+    ok(sendEdited.status === 200 && sentMsg?.direction === "outbound" && sentMsg.content.startsWith(EDITED) && sentMsg.subject === "Re: Blackout curtains for hotel project" && sentMsg.aiDraft === true, "改后经回复接口提交：留底是改后的文字，AI 草稿标记为真", { status: sendEdited.status, sentMsg });
+    const afterA = await snapshotA();
+    ok(afterA?.status === "failed" && /^SUPERSEDED_BY_MANUAL_REPLY/.test(afterA.failureReason ?? ""), "这份待批草稿被系统作废（人工已回复）", { status: afterA?.status, reason: afterA?.failureReason });
+    ok(afterA?.decidedById === null && (afterA?.payload as { body?: string } | null)?.body === DRAFT_BODY, "它没有被批准（没有审批人），载荷里的正文仍是原文——改过的文字没有写回草稿", { decidedById: afterA?.decidedById });
+    const gone = await focus(CATHY, HT, `opportunityId=${opportunityId}&approvalId=${draftA.id}`);
+    ok(gone.status === 200 && gone.body.approvalDraft === null, "发出之后再带着这份草稿 id 进来：approvalDraft 为空（页面会提示已处理并打开空白窗口）");
+
+    // 正文上限
+    const postLong = async (n: number) => {
+      const res = await replyRoute.POST(
+        await req(CATHY, `/api/trade/inbox/${prospectId}/reply`, { method: "POST", body: { orgId: HT, subject: "long", body: "x".repeat(n), mode: "mark_sent" } }),
+        { params: Promise.resolve({ prospectId }) },
+      );
+      const m = await db.tradeMessage.findUnique({ where: { id: ((await res.json()) as { messageId?: string }).messageId ?? "none" }, select: { content: true } });
+      return (m?.content.match(/^x+/)?.[0] ?? "").length;
+    };
+    ok((await postLong(9500)) === 9500, "9500 字的正文不被截短");
+    ok((await postLong(10_500)) === 10_000, "超过 10000 字的部分截断");
   } finally {
     // ── 清理（只删本次夹具）──
     const { db: d } = await import("@/lib/db");

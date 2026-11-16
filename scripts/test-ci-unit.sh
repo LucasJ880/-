@@ -358,6 +358,8 @@ npx tsx src/lib/trade/__tests__/trade-recipients.test.ts
 npx tsx src/lib/trade/__tests__/reply-entry.test.ts
 # NAV-6（openspec change nav-6-inbox-reply-clarity）：阶段显示名、收件箱说法、回复能力标记——纯函数 + 源码断言，无 DB
 npx tsx src/lib/trade/__tests__/reply-clarity.test.ts
+# NAV-3（openspec change nav-3-approval-draft-editable）：审批草稿可改——纯函数 + 源码断言，无 DB
+npx tsx src/lib/trade/__tests__/approval-draft-edit.test.ts
 npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts
 npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts
 npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts
