@@ -56,7 +56,17 @@ PROC-1 每周从 CanadaBuys 官方开放数据拉新标、按关键词筛进「�
 | `followed.png` | 点了之后：「已建投标项目；上传招标文件后会自动分析。」，按钮变成「已跟进 · 打开项目」 |
 | `project.png` | 新项目：名称、发布 / 截标日期、距截标天数；「最近变化」写「从采购监控跟进了采购公告「…」」；推荐下一步是上传招标文件 |
 
-**门禁**：见 PR（本机 `test:ci`、typecheck、lint:baseline、测试注册、runtime-arch、`openspec validate tender-notice-follow --strict`、`next build --webpack`）。
+**门禁**
+
+| 门禁 | 结果 |
+|---|---|
+| `npm run test:ci` | `CI unit subset PASS`（本机，CI 的环境变量） |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS |
+| `bash scripts/check-test-registry.sh` | OK |
+| `bash scripts/test-runtime-architecture.sh` | PASS |
+| `openspec validate tender-notice-follow --strict` | valid |
+| `next build --webpack`（本地，CI 的环境变量） | 退出码 0；路由表里有 `/api/procurement/instruments/[id]/follow` |
 
 ## 5. 独立审查
 
