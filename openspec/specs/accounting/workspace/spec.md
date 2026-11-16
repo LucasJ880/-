@@ -1,7 +1,7 @@
 # accounting/workspace Specification
 
 ## Purpose
-会计页面 `/accounting` 的入口：谁能看到导航、谁默认落地在这里、页签怎样按权限显示。
+会计页面 `/accounting` 的入口：谁能看到导航里的"会计视图"、谁默认落地在这里、四个页签怎样按权限显示，以及 URL 参数 `tab` 怎样直达页签。
 
 ## Requirements
 
