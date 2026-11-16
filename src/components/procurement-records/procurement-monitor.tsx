@@ -14,6 +14,24 @@ import { JURISDICTION_LABELS } from "@/lib/procurement-records/identity";
 import { RUN_STATUS_LABELS, SOURCE_STATUS_LABELS, SOURCE_TYPE_LABELS, TRIAGE_LABELS, type SourceStatus } from "@/lib/procurement-records/labels";
 import { Btn, Chip, Field, inputCls, Note, NotEnabled, Section, toneForStatus, Unknown, useApiCall, when } from "./primitives";
 import { FOLLOW_CREATED_ZH, FOLLOW_EXISTING_ZH, FOLLOW_LABEL_ZH, FOLLOWED_LABEL_ZH, followButtonState } from "@/lib/procurement-records/tender-follow-pure";
+import {
+  ALL_VIEW_HINT_ZH,
+  NEW_VIEW_HINT_ZH,
+  NEW_VIEW_LABEL_ZH,
+  NEW_VIEW_VALUE,
+  NOTICE_LINK_ZH,
+  SCHEDULE_DAY_LABELS,
+  SCHEDULE_HINT_ZH,
+  SCHEDULE_PRESETS,
+  applyPreset,
+  candidatesQuery,
+  presetOf,
+  scheduleBodyIfChanged,
+  scheduleFormOf,
+  toggleDay,
+  type ScheduleForm,
+} from "@/lib/procurement-records/new-notices-pure";
+import { formatLocal } from "@/lib/procurement-records/schedule";
 
 type Json = Record<string, unknown>;
 interface SourceRow { key: string; label: string; mode: string; descriptionZh: string; officialUrl: string; enabled: boolean | null; lastResult: Json | null }
@@ -51,6 +69,9 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   const [runId, setRunId] = useState<string | null>(null);
   const [run, setRun] = useState<Json | null>(null);
   const [form, setForm] = useState({ keywords: "", excludeKeywords: "", institutions: "", regions: "", lookbackDays: 120, maxNewCandidates: 5, maxNewDraftCards: 3, maxPagesPerSource: 5 });
+  // P2-1：扫描时间（打开时的值另记，保存时只在改过时才发）
+  const [sched, setSched] = useState<ScheduleForm>({ weekdays: [1, 4], time: "08:00" });
+  const [schedInitial, setSchedInitial] = useState<ScheduleForm>({ weekdays: [1, 4], time: "08:00" });
   const [imp, setImp] = useState({ jurisdiction: "CA-ON", instrumentClass: "SOLICITATION", officialNumber: "", title: "", contractingInstitution: "", sourceUrl: "", platform: "" });
   const api = useApiCall();
   const q = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
@@ -79,8 +100,11 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
       maxNewDraftCards: w.config.limits.maxNewDraftCards,
       maxPagesPerSource: w.config.limits.maxPagesPerSource,
     });
+    const sf = scheduleFormOf(w.config.schedule);
+    setSched(sf);
+    setSchedInitial(sf);
     if (w.activeRun) setRunId(String(w.activeRun.id));
-    const c = await api.call("cands", `/api/procurement/candidates${q}${triage !== "ALL" ? `&triage=${triage}` : ""}`);
+    const c = await api.call("cands", `/api/procurement/candidates${q}${candidatesQuery(triage)}`);
     if (c.ok) setCandidates((c.body.items as Json[]) ?? []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, q, triage]);
@@ -110,9 +134,15 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
   }, [runId, orgId, q, load]);
 
   const save = async (enableAfter: boolean) => {
+    const sb = scheduleBodyIfChanged(sched, schedInitial);
+    if (!sb.ok) {
+      api.setNote({ tone: "bad", text: sb.error });
+      return;
+    }
     const r = await api.call("save", `/api/procurement/watch${q}`, {
       method: "PUT",
       json: {
+        ...(sb.schedule ? { schedule: sb.schedule } : {}),
         filters: { keywords: parseLines(form.keywords), excludeKeywords: parseLines(form.excludeKeywords), institutions: parseLines(form.institutions), regions: parseLines(form.regions), lookbackDays: Number(form.lookbackDays) },
         limits: { maxNewCandidates: Number(form.maxNewCandidates), maxNewDraftCards: Number(form.maxNewDraftCards), maxPagesPerSource: Number(form.maxPagesPerSource) },
       },
@@ -233,6 +263,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
               <Field label="地区（空 = 不限）">
                 <textarea className={`${inputCls} h-12`} value={form.regions} onChange={(e) => setForm({ ...form, regions: e.target.value })} disabled={!canManage} />
               </Field>
+              <ScheduleEditor value={sched} onChange={setSched} disabled={!canManage} />
               <details className="text-xs">
                 <summary className="cursor-pointer text-muted">回看天数与每轮上限</summary>
                 <div className="mt-2 grid grid-cols-2 gap-2">
@@ -343,11 +374,12 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
 
       <Section
         title="候选项目"
-        hint="按优先级排序（不是中标概率）。"
+        hint={triage === NEW_VIEW_VALUE ? NEW_VIEW_HINT_ZH : ALL_VIEW_HINT_ZH}
         testId="candidates"
         actions={
           <select className={`${inputCls} w-auto`} value={triage} onChange={(e) => setTriage(e.target.value)} aria-label="筛选">
             <option value="ALL">全部</option>
+            <option value={NEW_VIEW_VALUE}>{NEW_VIEW_LABEL_ZH}</option>
             <option value="CANDIDATE">候选</option>
             <option value="WATCHING">已关注</option>
             <option value="IGNORED">已忽略</option>
@@ -372,6 +404,7 @@ export function ProcurementMonitor({ mode = "candidates" }: { mode?: "candidates
                     <p className="mt-0.5 text-[11px] text-muted">
                       {inst} · 到期 <Unknown value={c.currentExpiryAt as string | null} /> · 供应商 {c.vendorName ? String(c.vendorName) : "未知"}
                     </p>
+                    {c.instrumentClass === "SOLICITATION" ? <NoticeLine publishedAt={(c.publishedAt as string | null) ?? null} closingAt={(c.closingAt as string | null) ?? null} noticeUrl={(c.noticeUrl as string | null) ?? null} /> : null}
                   </div>
                   <div className="shrink-0 text-right" title="优先级分（不是中标概率）">
                     <p className="text-lg font-semibold leading-none">{p?.score ?? "—"}</p>
@@ -488,4 +521,48 @@ export function FollowAction({ state, busy, onFollow }: { state: ReturnType<type
     );
   }
   return null;
+}
+
+/** P2-1 设置页「扫描时间」：星期几多选 + 时刻 + 快捷按钮（规则在 new-notices-pure.ts） */
+export function ScheduleEditor({ value, onChange, disabled }: { value: ScheduleForm; onChange: (v: ScheduleForm) => void; disabled: boolean }) {
+  const active = presetOf(value.weekdays);
+  return (
+    <div className="rounded-lg border border-border p-2" data-testid="schedule-editor">
+      <p className="text-[11px] text-muted">扫描时间</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {SCHEDULE_PRESETS.map((p) => (
+          <button key={p.key} type="button" disabled={disabled} data-testid={`schedule-preset-${p.key}`} aria-pressed={active === p.key} onClick={() => onChange(applyPreset(value, p.key))} className={`rounded-full border px-2.5 py-0.5 text-[11px] ${active === p.key ? "border-accent bg-accent/10 text-accent" : "border-border text-foreground/80"} disabled:opacity-50`}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+        {SCHEDULE_DAY_LABELS.map((label, d) => (
+          <label key={d} className="flex items-center gap-1">
+            <input type="checkbox" disabled={disabled} checked={value.weekdays.includes(d)} onChange={() => onChange(toggleDay(value, d))} aria-label={label} />
+            {label}
+          </label>
+        ))}
+        <input type="time" aria-label="扫描时刻" disabled={disabled} value={value.time} onChange={(e) => onChange({ ...value, time: e.target.value })} className={`${inputCls} w-auto`} />
+      </div>
+      <p className="mt-1 text-[10px] text-muted">{SCHEDULE_HINT_ZH}</p>
+    </div>
+  );
+}
+
+/** P2-1 招标公告的一行：发布 / 截标（多伦多日期）与「看公告」 */
+export function NoticeLine({ publishedAt, closingAt, noticeUrl }: { publishedAt: string | null; closingAt: string | null; noticeUrl: string | null }) {
+  return (
+    <p className="mt-0.5 text-[11px] text-muted" data-testid="notice-line">
+      发布 {publishedAt ? formatLocal(publishedAt).slice(0, 10) : "未知"} · 截标 {closingAt ? formatLocal(closingAt) : "未知"}
+      {noticeUrl ? (
+        <>
+          {" · "}
+          <a href={noticeUrl} target="_blank" rel="noreferrer noopener" className="text-accent underline" data-testid="notice-link">
+            {NOTICE_LINK_ZH}
+          </a>
+        </>
+      ) : null}
+    </p>
+  );
 }

@@ -49,11 +49,25 @@ export type FollowProjectFields = {
 const clean = (s: string | null | undefined) => (s && s.trim() ? s.trim() : null);
 
 /**
- * 项目预填（design D3）。evidence 按新到旧传入；公告链接取最新一条有链接的，优先 CanadaBuys 招标公告来源。
+ * 挑公告链接用哪条证据（P2-3a 预填与 P2-1 候选列表共用）：evidence 按新到旧传入；
+ * 取最新一条有链接的，优先 CanadaBuys 招标公告来源；都没有链接 → null。
+ */
+export function pickNoticeEvidence<E extends FollowEvidence>(evidence: E[]): E | null {
+  const withUrl = evidence.filter((e) => clean(e.sourceUrl));
+  return withUrl.find((e) => e.sourceType === "CANADABUYS_TENDER_NOTICES") ?? withUrl[0] ?? null;
+}
+
+/** 公告链接（去空格）；没有 → null */
+export const noticeUrlOf = (evidence: FollowEvidence[]): string | null => {
+  const e = pickNoticeEvidence(evidence);
+  return e ? clean(e.sourceUrl) : null;
+};
+
+/**
+ * 项目预填（design D3）。evidence 按新到旧传入；公告链接见 pickNoticeEvidence。
  */
 export function projectFieldsFromInstrument(inst: FollowInstrument, evidence: FollowEvidence[]): FollowProjectFields {
-  const withUrl = evidence.filter((e) => clean(e.sourceUrl));
-  const notice = withUrl.find((e) => e.sourceType === "CANADABUYS_TENDER_NOTICES") ?? withUrl[0] ?? null;
+  const notice = pickNoticeEvidence(evidence);
   // 来源平台与公告链接取同一条证据（审查 L：避免链接来自 CanadaBuys、平台却写「人工导入」）
   const platformFrom = notice && FOLLOW_SOURCE_PLATFORM[notice.sourceType] ? notice.sourceType : evidence.find((e) => FOLLOW_SOURCE_PLATFORM[e.sourceType])?.sourceType;
   const sourcePlatform = platformFrom ? FOLLOW_SOURCE_PLATFORM[platformFrom] : inst.origin === "MANUAL" ? "人工导入" : "采购监控";
