@@ -4,6 +4,7 @@
  */
 
 import { randomUUID } from "crypto";
+import { patchRoomSummaryTx } from "@/lib/tender-room/summary-json";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import {
@@ -137,14 +138,15 @@ export async function startBidIntelligence(
         });
       }
     } else if (!room.summaryText) {
-      room = await tx.bidIntelligenceRoom.update({
-        where: { id: room.id },
-        data: {
-          summaryText: summary.text,
-          summaryJson: summary.json as object,
-          summaryStatus: summary.status,
-        },
+      // FIX-10：房间可能是投标工作区 / 报价表助手先建的，summaryJson 里已有它们的键。
+      // 原来整块换成初始摘要会把它们冲掉；现在锁项目行、重读，只设初始摘要的键。
+      await patchRoomSummaryTx(tx, {
+        projectId: project.id,
+        roomId: room.id,
+        data: { summaryText: summary.text, summaryStatus: summary.status },
+        patch: () => ({ set: summary.json as Record<string, unknown> }),
       });
+      room = await tx.bidIntelligenceRoom.findUniqueOrThrow({ where: { id: room.id } });
     }
 
     let modulesEnsured = 0;
