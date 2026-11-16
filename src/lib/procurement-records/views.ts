@@ -27,9 +27,12 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
   const [evCounts, callUps, links, requests] = await Promise.all([
     db.procurementSourceEvidence.groupBy({ by: ["instrumentId", "sourceType"], where: { instrumentId: { in: ids } }, _count: { _all: true } }),
     db.procurementInstrument.groupBy({ by: ["parentInstrumentId"], where: { parentInstrumentId: { in: ids } }, _count: { _all: true } }),
-    db.procurementTenderLink.findMany({ where: { orgId, instrumentId: { in: ids } }, select: { instrumentId: true, projectId: true, relation: true } }),
+    // P2-3a：按建立时间排（「已跟进」指向最早的「本项目」关联）
+    db.procurementTenderLink.findMany({ where: { orgId, instrumentId: { in: ids } }, orderBy: { createdAt: "asc" }, select: { instrumentId: true, projectId: true, relation: true } }),
     db.recordsRequest.findMany({ where: { orgId, autoDraftKey: { in: ids.map((i) => `auto:${i}`) } }, select: { id: true, autoDraftKey: true, status: true } }),
   ]);
+  // P2-3a：项目已删的关联不展示（关联表对项目没有外键）
+  const aliveProjects = new Set(links.length ? (await db.project.findMany({ where: { orgId, id: { in: [...new Set(links.map((l) => l.projectId))] } }, select: { id: true } })).map((p) => p.id) : []);
   const items = rows.map((r) => {
     const p = (r.priorityJson ?? null) as { score?: number; dimensions?: unknown[]; unknownsZh?: string[] } | null;
     return {
@@ -60,7 +63,7 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
       firstSeenAt: iso(r.firstSeenAt),
       evidenceCounts: Object.fromEntries(evCounts.filter((e) => e.instrumentId === r.id).map((e) => [e.sourceType, e._count._all])),
       callUpCount: callUps.find((c) => c.parentInstrumentId === r.id)?._count._all ?? 0,
-      tenderLinks: links.filter((l) => l.instrumentId === r.id).map((l) => ({ projectId: l.projectId, relation: l.relation })),
+      tenderLinks: links.filter((l) => l.instrumentId === r.id && aliveProjects.has(l.projectId)).map((l) => ({ projectId: l.projectId, relation: l.relation })),
       autoDraft: requests.find((q) => q.autoDraftKey === `auto:${r.id}`) ?? null,
     };
   });

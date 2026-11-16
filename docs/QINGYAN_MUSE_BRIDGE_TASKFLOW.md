@@ -81,7 +81,7 @@
 |---|---|---|---|---|
 | W-1 | 项目页「问供应商要价」：入口前置判断（七种不可发原因 + 出路）→ 抽屉选供应商 / 条款 → 与 Muse 同一 `prepareRfqRound`（`source=web`）建 `tender.send_rfq` → 原地批准 / 驳回（审批中心既有接口）→ 轮次状态行与「从发起到发出」耗时；待批轮次禁止手工标记发送；旧单封直发 `email/send`、`email/generate` 下线（410） | P1-1..P1-8 | OpenSpec change `rfq-web-entry`；`web-entry-pure` 81 项测试注册；报告 `docs/QINGYAN_W-1_REPORT.md`；staging GATE-W 见任务书 §6 | [x]（#389；archive `2026-11-07-rfq-web-entry`） |
 | W-2 | RFQ 设置页：fromName / fromEmail / mailboxEmail / 回复提前量 / 轮次锁 / 催单天数 / 落地成本 FX（现只有 `PUT /api/organizations/[orgId]/tender-rfq-settings`） | W-1 | 页面保存 = 现有 PUT 的效果；非 org_admin 不可见 | [x]（#487，2026-11-15 合并；archive `2026-11-15-tender-rfq-settings-page`；组织页「询价与落地价设置」：发件三项、汇率连同日期与来源、运费 / 保险 / 清关、项目关税率与交付截止；只发改过的项；接口 GET 多返回 `stored`、删除项目设置不校验归属；报告 `docs/QINGYAN_W-2_REPORT.md`。回复提前量 / 轮次锁 / 催单天数现有接口不收，另列 W-2b） |
-| W-2b | RFQ 设置页补上回复提前量 / 轮次锁天数 / 催单天数：先扩 `PUT tender-rfq-settings`（现在只读、有默认值），再加到组织页那一节 | W-2 | 页面保存 = PUT 的效果；默认值不变；非 org_admin 不可见 | [ ] |
+| W-2b | RFQ 设置页补上回复提前量 / 轮次锁天数 / 催单天数：先扩 `PUT tender-rfq-settings`（现在只读、有默认值），再加到组织页那一节 | W-2 | 页面保存 = PUT 的效果；默认值不变；非 org_admin 不可见 | [x]（#492，2026-11-16 合并；archive `2026-11-16-rfq-timing-settings`；`PUT tender-rfq-settings` 收 replyLeadDays / roundLockDays / chaseAfterDays（1–60 整数，null 回默认），GET 多返回生效值、默认值、stored；组织页「询价节奏」三项；Muse 查看偏好写出组织催单天数；报告 `docs/QINGYAN_W-2b_REPORT.md`） |
 | W-3 | 比价矩阵所选供应商落地价接进定价助手成本线（Web 化 `projectScenariosForMuse`，决定 A 不变） | W-1 | 定价助手出现「来自比价矩阵」成本来源；手填可覆盖 | [x]（由 FLOW-H2 实现，#476） |
 
 ---
@@ -93,7 +93,7 @@
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
 | T-1 | 询价进展站内通知：报价了 / 回信无报价 / 催单待批（一轮一次扫描一条；15 分钟未读发升级邮件）/ 未响应；收件人为项目负责人 ∪ 本轮发起人（催单待批只给负责人）；点开到该轮（`?tab=bid#rfq-round-<id>`），催单 / 追问卡在轮次里原地批准；两条入站提醒归入询价类别 | W-1 | 任务书 §2.6：带价回信后负责人铃铛出现「报价了」并展开到该轮；定时检查起草催单 → 一条「等你批准」，点开就是审批面板；30 分钟未读收到【青砚】升级邮件；通知与邮件无金额 | [x]（#391；archive `2026-11-08-rfq-tracking-notify`） |
-| T-2 | 询价追踪页 `/bids/rfq` + `/bids` 汇总卡（需要我处理 / 等回复 / 已报价 / 未响应；下次自动催的日期与 `decideChases` 一致；落地价取比价矩阵）；首页「供应商未回复」改查 `sent`；`batch-followup` → 410 | T-1 | 任务书 §3.5 | [G]（change `rfq-tracker`；`/bids/rfq` + `/bids` 汇总卡、`GET /api/org/tender-rfq/tracker`、`POST …/tender-rfq/chase`、首页建议改口径、batch-followup 410；价格按项目读权限可见；报告 `docs/QINGYAN_T-2_REPORT.md`） |
+| T-2 | 询价追踪页 `/bids/rfq` + `/bids` 汇总卡（需要我处理 / 等回复 / 已报价 / 未响应；下次自动催的日期与 `decideChases` 一致；落地价取比价矩阵）；首页「供应商未回复」改查 `sent`；`batch-followup` → 410 | T-1 | 任务书 §3.5 | [x]（#491，2026-11-15 合并；archive `2026-11-15-rfq-tracker`；`/bids/rfq` + `/bids` 汇总卡、`GET /api/org/tender-rfq/tracker`、`POST …/tender-rfq/chase`、首页建议改口径、batch-followup 410；价格按项目读权限可见；报告 `docs/QINGYAN_T-2_REPORT.md`） |
 
 ---
 
@@ -108,6 +108,7 @@
 | P2-1 | CanadaBuys tender notices 开放数据每日拉取（CKAN / CSV，只读；复用 `tender-intel` 的"候选→人工确认"契约） | P0 | 拉取幂等；不触碰任何登录页 | [ ] |
 | P2-2 | 匹配打分：`tenderProfile` + bid-fit + buyer memory → 预评分 | P2-1 | 对历史 10 个已投标，Top-5 召回 ≥ 4 | [ ] |
 | P2-3 | `brief.daily` 事件 + `follow_tender` 意图：命中 → 建 `Project(workDomain=tender)` → 拉文件包 → 幂等 enqueue | P2-2, P0-7 | Muse 早报点「跟这个标」→ 中午收到 `analysis.ready` | [ ] |
+| P2-3a | 采购监控「跟这个标」：招标公告 → 建 `Project(workDomain=tender)` + 关联（本项目）+ 关注，同一组织同一公告只建一次（Web 版，Muse 已冻结） | P2-1（PROC-1 新标拉取） | 点一次建一个项目、字段预填、再点 / 并发不重复；只读成员看不到 | [G]（change `tender-notice-follow`；`POST /api/procurement/instruments/{id}/follow`；报告 `docs/QINGYAN_P2-3a_REPORT.md`） |
 | P2-4 | `watch.ts` 升级为结构化 diff → 触发 `addendum-diff.ts` → `addendum.detected` | P0-5 | 变更≠Addenda 时文案仍诚实 | [ ] |
 
 **GATE-2 验收**：一周内至少 1 条真实新标通过 Muse 早报 → 一键跟进 → 分析完成，全程无人工建项。

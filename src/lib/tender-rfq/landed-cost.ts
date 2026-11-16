@@ -449,12 +449,22 @@ export function evaluateQuoteChecks(q: ChecksInput, t: TenderTimeline): ChecksRe
 const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式 YYYY-MM-DD");
 const estimateSchema = z.object({ mode: z.enum(["per_unit", "per_shipment", "pct_of_goods"]), value: z.number().min(0) }).strict();
 
+/** W-2b：询价节奏三项的取值范围（与催单天数现有的两层校验同一范围） */
+export const RFQ_TIMING_DAYS_RANGE = { min: 1, max: 60 } as const;
+export const RFQ_TIMING_KEYS = ["replyLeadDays", "roundLockDays", "chaseAfterDays"] as const;
+export type RfqTimingKey = (typeof RFQ_TIMING_KEYS)[number];
+const rfqTimingDaysSchema = z.number().int().min(RFQ_TIMING_DAYS_RANGE.min).max(RFQ_TIMING_DAYS_RANGE.max);
+
 export const tenderRfqSettingsPutSchema = z
   .object({
     fromName: z.string().trim().min(1).max(120).nullable().optional(),
     fromEmail: z.string().trim().email().max(200).nullable().optional(),
     /** 授权 Gmail 账号（可与显示地址 fromEmail 不同）；null 清空 → 回退 env / fromEmail */
     mailboxEmail: z.string().trim().email().max(200).nullable().optional(),
+    /** W-2b 询价节奏：1–60 的整数；null 清空 → 回到默认（读取规则见 round-pure.ts / chase-pure.ts，不变） */
+    replyLeadDays: rfqTimingDaysSchema.nullable().optional(),
+    roundLockDays: rfqTimingDaysSchema.nullable().optional(),
+    chaseAfterDays: rfqTimingDaysSchema.nullable().optional(),
     landedCost: z
       .object({
         fxRates: z.record(z.string().regex(/^[A-Z]{3}$/, "币种用三位大写代码"), z.number().positive()).optional(),
@@ -502,6 +512,7 @@ export function applyTenderRfqSettingsUpdate(
   if (body.fromName !== undefined) tenderRfq.fromName = body.fromName;
   if (body.fromEmail !== undefined) tenderRfq.fromEmail = body.fromEmail?.toLowerCase() ?? null;
   if (body.mailboxEmail !== undefined) tenderRfq.mailboxEmail = body.mailboxEmail?.toLowerCase() ?? null;
+  for (const k of RFQ_TIMING_KEYS) if (body[k] !== undefined) tenderRfq[k] = body[k];
 
   if (body.landedCost) {
     const lc = { ...asObject(tenderRfq.landedCost) };

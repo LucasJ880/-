@@ -265,7 +265,7 @@ console.log("接线");
   ok("读失败按状态码交给 reducer（403 才隐藏）", sec.includes('if (!res.ok) dispatch({ type: "loadFailed", status: res.status });'));
   ok("保存成功用接口返回的设置，失败带上逐项说明", sec.includes('dispatch({ type: "saveSucceeded", view: json as unknown as TenderRfqSettingsView })') && sec.includes("issues: Array.isArray(json.issues)"));
   ok("项目下拉只列招投标项目；读失败交给 reducer", sec.includes('.filter((p) => p.workDomain === "tender")') && sec.includes('dispatch({ type: "projectsFailed" })'));
-  ok("接口：读取多返回 stored（哪几项是组织自己存的）", route.includes("stored: { fromName: isSet(\"fromName\"), fromEmail: isSet(\"fromEmail\"), mailboxEmail: isSet(\"mailboxEmail\") }"));
+  ok("接口：读取多返回 stored（哪几项是组织自己存的）", route.includes("stored: { fromName: isSet(\"fromName\"), fromEmail: isSet(\"fromEmail\"), mailboxEmail: isSet(\"mailboxEmail\"), ...t.stored }"));
   ok("接口：删除项目设置（null）不校验项目归属；写入的仍校验", route.includes(".filter(([, v]) => v !== null)") && route.includes("projects 里有不属于本组织的项目"));
 }
 
