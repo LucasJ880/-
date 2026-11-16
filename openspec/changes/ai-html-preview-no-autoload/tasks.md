@@ -15,7 +15,8 @@
 ## 4. 文档与全量验证
 
 - [x] 4.1 更新 `docs/QINGYAN_MAIL-1_REPORT.md` §9 与 `docs/QINGYAN_MAIL-2_REPORT.md` §11（邮件 HTML 预览一处改为已修，写明没有审的 `iframe srcDoc` 预览与没有内容安全策略）。verify：两份文档里有 `ai-html-preview-no-autoload`
-- [ ] 4.2 全量验证。verify：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`openspec validate ai-html-preview-no-autoload --strict` 通过；`git diff --stat main -- src/app/api prisma vercel.json` 为空；`npm test` 的失败集合与 main 对照
+- [x] 4.2 全量验证。verify：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`openspec validate ai-html-preview-no-autoload --strict` 通过；`git diff --stat main -- src/app/api prisma vercel.json` 为空；`npm test` 的失败集合与 main 对照
+  - 实施备注：`npm test` 666 / 679 通过，13 个失败全部在此前 main 的基线失败集合里（缺 `DATABASE_URL` 等环境原因），没有新增；main 的基线是 2026-11-15 `0925ec9d` 那一轮跑的，之后 main 上修掉了其中 1 项，这次没有在最新 main 上重跑基线。新测试连同真实浏览器段通过（56 项，没有跳过）。
 
 ## Workflow follow-up
 
