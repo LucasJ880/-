@@ -7,6 +7,7 @@
  */
 
 import { db } from "@/lib/db";
+import { patchRoomSummary } from "@/lib/tender-room/summary-json";
 import { callStructured, createUnifiedRuntimeInvoker, type LlmInvoker } from "@/lib/tender-understanding/llm";
 import {
   ANALYST_MEMO_V2_VERSION,
@@ -57,13 +58,9 @@ async function loadState(projectId: string): Promise<{ roomId: string; state: Me
   return { roomId: room.id, state: (sj[MEMO_STATE_KEY] as MemoV2State | undefined) ?? null };
 }
 
-async function saveState(roomId: string, state: MemoV2State): Promise<void> {
-  const room = await db.bidIntelligenceRoom.findUnique({ where: { id: roomId }, select: { summaryJson: true } });
-  const sj = ((room?.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  await db.bidIntelligenceRoom.update({
-    where: { id: roomId },
-    data: { summaryJson: JSON.parse(JSON.stringify({ ...sj, [MEMO_STATE_KEY]: state })) },
-  });
+/** FIX-11：锁项目行、重读，只设备忘状态这一个键（每步都落一次，期间别的功能也在写 summaryJson） */
+async function saveState(projectId: string, roomId: string, state: MemoV2State): Promise<void> {
+  await patchRoomSummary({ projectId, roomId, patch: () => ({ set: { [MEMO_STATE_KEY]: state } }) });
 }
 
 const READ_SYSTEM =
@@ -108,7 +105,7 @@ export async function runMemoV2Step(input: { projectId: string; runId: string; d
 
   const persist = async () => {
     state = { ...state, updatedAt: new Date().toISOString() };
-    await saveState(roomId, state);
+    await saveState(input.projectId, roomId, state);
   };
 
   // ── Pass 1 深读（逐块） ──

@@ -4,6 +4,7 @@
  */
 
 import type { Prisma } from "@prisma/client";
+import { NOTICE_EVIDENCE_ORDER, noticeUrlOf } from "./tender-follow-pure";
 import { db } from "@/lib/db";
 import { EVENT_LABELS } from "./case-pure";
 import { institutionDisplayName, JURISDICTION_LABELS } from "./identity";
@@ -18,21 +19,37 @@ const dec = (v: Prisma.Decimal | null) => (v === null ? null : v.toString());
 const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-export async function listCandidates(orgId: string, filter: { triage?: string | null; q?: string | null; take?: number }) {
+export async function listCandidates(orgId: string, filter: { triage?: string | null; q?: string | null; take?: number; view?: string | null; now?: Date }) {
   const where: Prisma.ProcurementInstrumentWhereInput = { orgId, NOT: { triageStatus: "HISTORY" } };
-  if (filter.triage && filter.triage !== "ALL") where.triageStatus = filter.triage;
+  // P2-1：新标视图——只看未截标（或未知）、没被忽略 / 归档的招标公告，按发布日期从新到旧
+  const newView = filter.view === "new";
+  if (newView) {
+    const now = filter.now ?? new Date();
+    where.instrumentClass = "SOLICITATION";
+    where.triageStatus = { notIn: ["IGNORED", "ARCHIVED", "HISTORY"] };
+    where.AND = [{ OR: [{ closingAt: null }, { closingAt: { gt: now } }] }];
+    delete where.NOT;
+  } else if (filter.triage && filter.triage !== "ALL") where.triageStatus = filter.triage;
   if (filter.q?.trim()) where.OR = [{ title: { contains: filter.q.trim(), mode: "insensitive" } }, { officialNumber: { contains: filter.q.trim(), mode: "insensitive" } }];
-  const rows = await db.procurementInstrument.findMany({ where, orderBy: [{ updatedAt: "desc" }], take: Math.min(filter.take ?? 100, 300) });
+  const rows = await db.procurementInstrument.findMany({
+    where,
+    orderBy: newView ? [{ publishedAt: { sort: "desc", nulls: "last" } }, { firstSeenAt: "desc" }] : [{ updatedAt: "desc" }],
+    take: Math.min(filter.take ?? 100, 300),
+  });
   const ids = rows.map((r) => r.id);
-  const [evCounts, callUps, links, requests] = await Promise.all([
+  const [evCounts, callUps, links, requests, urlEvidence] = await Promise.all([
     db.procurementSourceEvidence.groupBy({ by: ["instrumentId", "sourceType"], where: { instrumentId: { in: ids } }, _count: { _all: true } }),
     db.procurementInstrument.groupBy({ by: ["parentInstrumentId"], where: { parentInstrumentId: { in: ids } }, _count: { _all: true } }),
     // P2-3a：按建立时间排（「已跟进」指向最早的「本项目」关联）
     db.procurementTenderLink.findMany({ where: { orgId, instrumentId: { in: ids } }, orderBy: { createdAt: "asc" }, select: { instrumentId: true, projectId: true, relation: true } }),
     db.recordsRequest.findMany({ where: { orgId, autoDraftKey: { in: ids.map((i) => `auto:${i}`) } }, select: { id: true, autoDraftKey: true, status: true } }),
+    // P2-1：公告链接（只给招标公告；与跟标预填同一查询与规则）
+    db.procurementSourceEvidence.findMany({ where: { orgId, instrumentId: { in: rows.filter((r) => r.instrumentClass === "SOLICITATION").map((r) => r.id) }, sourceUrl: { not: null } }, orderBy: NOTICE_EVIDENCE_ORDER, select: { instrumentId: true, sourceType: true, sourceUrl: true } }),
   ]);
   // P2-3a：项目已删的关联不展示（关联表对项目没有外键）
   const aliveProjects = new Set(links.length ? (await db.project.findMany({ where: { orgId, id: { in: [...new Set(links.map((l) => l.projectId))] } }, select: { id: true } })).map((p) => p.id) : []);
+  const evidenceByInstrument = new Map<string, typeof urlEvidence>();
+  for (const e of urlEvidence) if (e.instrumentId) evidenceByInstrument.set(e.instrumentId, [...(evidenceByInstrument.get(e.instrumentId) ?? []), e]);
   const items = rows.map((r) => {
     const p = (r.priorityJson ?? null) as { score?: number; dimensions?: unknown[]; unknownsZh?: string[] } | null;
     return {
@@ -48,6 +65,9 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
       recordsHolderInstitution: r.recordsHolderInstitution,
       vendorName: r.vendorName,
       closingAt: iso(r.closingAt),
+      // 发布日期是日历日期（CanadaBuys 只给日期，入库为 UTC 零点）：按日期返回，别再换时区（P2-1 审查 H1）
+      publishedAt: day(r.publishedAt),
+      noticeUrl: r.instrumentClass === "SOLICITATION" ? noticeUrlOf(evidenceByInstrument.get(r.id) ?? []) : null,
       currentExpiryAt: day(r.currentExpiryAt),
       remainingOptions: r.remainingOptions,
       confirmedRetenderDate: day(r.confirmedRetenderDate),
@@ -67,7 +87,7 @@ export async function listCandidates(orgId: string, filter: { triage?: string | 
       autoDraft: requests.find((q) => q.autoDraftKey === `auto:${r.id}`) ?? null,
     };
   });
-  items.sort((a, b) => (b.priority?.score ?? -1) - (a.priority?.score ?? -1));
+  if (!newView) items.sort((a, b) => (b.priority?.score ?? -1) - (a.priority?.score ?? -1));
   return items;
 }
 

@@ -206,9 +206,9 @@ Lucas 的原话：「1. 你可以直接连接我的 gmail 去看一下 sales@sun
 
 | 项 | 现状 | 卡在哪 / 下一步 |
 |---|---|---|
-| 待确认 E：`sales@` 来信的真实邮件头 | **没有做成** | 写这份报告的会话没有连接 Gmail 的工具（云端会话只能用启动时已连接的连接器）。需要 Lucas 在 claude.ai 的连接器设置里连上 Gmail，再开一个新会话；届时只看一封 `sales@` 来信的邮件头（`From` / `Reply-To` / `X-Original-From` / `Delivered-To` / `Return-Path`），不读正文。结论只影响 `src/lib/mail-watch/pure.ts` 的 `senderAddress` 一个函数 |
+| 待确认 E：`sales@` 来信的真实邮件头 | **已有结论（2026-11-16）：发件人没有被改写，按 `From` 匹配可用，`senderAddress` 不需要改** | Lucas 连接 Gmail 后在同一会话里核对，只看了元数据（发件人、收件人、时间、标签），没有读任何正文。最近 30 天发到 `sales@` 的来信都在 Lucas 邮箱的收件箱里；抽看的 8 个线程里，发件人都是原始的外部发件人（包括发件域名对伪造管得严的通知类邮件），没有变成 `sales@` 或某个转发地址，收件人一栏是 `sales@`。没有看原始邮件头的全文（那需要取整封邮件），所以 `Reply-To` / `X-Original-From` 没有逐项核对——`From` 既然保留，规则 1 用不到它们。顺带一点：其中 1 封被 Gmail 归到「促销」分类，按设计会被跳过、不提醒。`info@`（Marty 的邮箱）没有核对，那需要 Marty 本人的授权 |
 | Marty 的可见范围 | 已确认（口头）：除招投标外都能看 | 无 |
 | 真实环境验收（真实 Gmail / 微信 / staging） | **没有做成** | 这个会话到不了 staging：预览地址从容器里连不上，没有 staging 的登录账号，也没有改 Vercel 环境变量的权限（验收要在 staging 上打开 `MAIL_READ_ENABLED`、`MAIL_WATCH_ENABLED`、`QINGYAN_ALLOW_CRON_NON_PROD`，并要一个绑定了真实 Gmail 的测试账号）。要跑需要：staging 上的这几个开关、一个测试账号的登录方式、容器对 staging 域名的网络放行。验收步骤照 §6 的表逐条走 |
-| 助手回答里的外链图片会自动加载（§3.3） | **已修并合并**：change `ai-markdown-image-allowlist`（#486，2026-11-15 合并；archive `2026-11-15-ai-markdown-image-allowlist`；主规格 `agents/ai-output-rendering`） | 在另一个会话里实施，合并前由这边审过 diff、另用一批变形地址试过判定、核对了放行的站内文件代理（需登录、只读、不跳转外部）。范围是五个按 Markdown 渲染模型输出的页面；外部链接后面会显示真实主机名。**没有关的同类问题**：AI 起草的邮件 HTML 预览（`src/lib/common/sanitize.ts` 允许 `img` 与 `style`），未改、未做浏览器实测；全站没有内容安全策略。部署到生产之后这一项才算生效 |
+| 助手回答里的外链图片会自动加载（§3.3） | **已修并合并**：change `ai-markdown-image-allowlist`（#486，2026-11-15 合并；archive `2026-11-15-ai-markdown-image-allowlist`；主规格 `agents/ai-output-rendering`） | 在另一个会话里实施，合并前由这边审过 diff、另用一批变形地址试过判定、核对了放行的站内文件代理（需登录、只读、不跳转外部）。范围是五个按 Markdown 渲染模型输出的页面；外部链接后面会显示真实主机名。AI 起草的邮件 HTML 预览这一处同类问题已由 change `ai-html-preview-no-autoload` 修掉（2026-11-16，真实浏览器对照：外部请求由 1 变 0）。`iframe srcDoc` 的模板预览（4 个，3 个文件）已逐处核对，没有发现注入路径，不需要改（细节见 `docs/QINGYAN_MAIL-1_REPORT.md` §9 的补记）。**仍然开着的**：全站没有内容安全策略。部署到生产之后这一项才算生效 |
 
-外链图片已修（见上表）。在待确认 E 有结论、staging 验收跑过之前，仍不建议在生产打开 `MAIL_READ_ENABLED`；`MAIL_WATCH_ENABLED` 不读正文，受影响的只有待确认 E（公共地址来信可能归未匹配）。
+外链图片已修、待确认 E 已有结论（见上表）。在 staging 验收跑过之前，仍不建议在生产打开 `MAIL_READ_ENABLED`。`MAIL_WATCH_ENABLED` 不读正文；`sales@` 这条线已确认可按发件人匹配，`info@` 没有核对。

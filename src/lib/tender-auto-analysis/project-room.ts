@@ -6,6 +6,7 @@
  */
 
 import { db } from "@/lib/db";
+import { patchRoomSummary, type RoomSummaryPatch } from "@/lib/tender-room/summary-json";
 import { INTELLIGENCE_MODULES } from "@/lib/bid-workflow/constants";
 
 export type ProjectRoomInput = {
@@ -44,6 +45,30 @@ async function resolveRoom(
     select: { id: true, goDecision: true },
   });
   return byProject;
+}
+
+/** 上一次投影写进 summaryJson 的分析键（下次投影据此去掉这一次没有的旧键） */
+export const PROJECTED_KEYS_KEY = "projectedKeys" as const;
+const PROJECTION_META_KEYS = new Set<string>(["projectedFromRunId", PROJECTED_KEYS_KEY]);
+
+/**
+ * 纯函数：分析投影在最新 summaryJson 上要改的键（FIX-10）。
+ * 设这次分析摘要里的键 + projectedFromRunId + 记下这次写了哪些键；
+ * 只去掉「上一次投影记下的、这一次没有的」键——别的功能写的键一概不碰。
+ */
+export function projectionPatch(
+  latest: Record<string, unknown>,
+  runSummary: Record<string, unknown>,
+  runId: string,
+): RoomSummaryPatch {
+  const keys = Object.keys(runSummary).filter((k) => !PROJECTION_META_KEYS.has(k));
+  const prevRaw = latest[PROJECTED_KEYS_KEY];
+  const prev = Array.isArray(prevRaw) ? prevRaw.filter((k): k is string => typeof k === "string") : [];
+  const set: Record<string, unknown> = {};
+  for (const k of keys) set[k] = runSummary[k];
+  set.projectedFromRunId = runId;
+  set[PROJECTED_KEYS_KEY] = keys;
+  return { set, unset: prev.filter((k) => !keys.includes(k) && !PROJECTION_META_KEYS.has(k)) };
 }
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -268,20 +293,22 @@ export async function projectAnalysisToRoom(
     });
   }
 
-  await db.bidIntelligenceRoom.update({
-    where: { id: room.id },
+  // FIX-10：只改投影自己的键。summaryJson 里还有报价表助手、报价引擎镜像的我方报价、投标工作区、跟标等别的功能的键，
+  // 原来整块换成这次分析的摘要，每次重新分析都把它们冲掉。现在：锁项目行、重读，设这次分析的键，
+  // 只去掉上一次投影写过、这一次没有的分析键（记在 PROJECTED_KEYS_KEY 里），其余原样保留。
+  const projected = await patchRoomSummary({
+    projectId: input.projectId,
+    roomId: room.id,
     data: {
       summaryText: run.summaryText ?? undefined,
-      summaryJson: {
-        ...(typeof run.summaryJson === "object" && run.summaryJson
-          ? (run.summaryJson as object)
-          : {}),
-        projectedFromRunId: input.runId,
-      },
       summaryStatus: "investigating",
       // 刻意不更新 goDecision / goDecisionById / goDecidedAt
     },
+    patch: (latest) => projectionPatch(latest, summary, input.runId),
   });
+  if (!projected) {
+    return { projected: false, roomId: null, reason: "room_missing_no_autocreate" };
+  }
 
   // 回写 run.roomId（若空）
   if (!input.roomId) {

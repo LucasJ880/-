@@ -84,6 +84,10 @@ npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts
 npx tsx src/lib/tender-pricing/__tests__/pricing-helper.test.ts
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-save-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-lock-db.isolated.test.ts
+npx tsx src/lib/tender-room/__tests__/summary-json.test.ts
+NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-merge-db.isolated.test.ts
+npx tsx src/lib/tender-room/__tests__/summary-write-guard.test.ts
+NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-writers-db.isolated.test.ts
 npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts
 npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx
@@ -358,6 +362,8 @@ npx tsx src/lib/trade/__tests__/trade-recipients.test.ts
 npx tsx src/lib/trade/__tests__/reply-entry.test.ts
 # NAV-6（openspec change nav-6-inbox-reply-clarity）：阶段显示名、收件箱说法、回复能力标记——纯函数 + 源码断言，无 DB
 npx tsx src/lib/trade/__tests__/reply-clarity.test.ts
+# NAV-3（openspec change nav-3-approval-draft-editable）：审批草稿可改——纯函数 + 源码断言，无 DB
+npx tsx src/lib/trade/__tests__/approval-draft-edit.test.ts
 npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts
 npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts
 npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts
@@ -428,6 +434,7 @@ npx tsx src/lib/agent-core/tools/__tests__/mail-tools.test.ts
 npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts
 npx tsx src/lib/ai-markdown/__tests__/url-policy.test.ts
 npx tsx src/components/__tests__/ai-markdown.test.tsx
+npx tsx src/lib/common/__tests__/sanitize-html.test.ts
 npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mentions.test.ts
 npx tsx src/lib/notifications/__tests__/collab-mention-input.test.ts
@@ -440,6 +447,9 @@ npx tsx src/lib/procurement-records/__tests__/records-request-pure.test.ts
 # P2-3a（openspec change tender-notice-follow）：采购监控「跟这个标」
 npx tsx src/lib/procurement-records/__tests__/tender-follow-pure.test.ts
 NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/tender-follow-db.isolated.test.ts
+# P2-1（openspec change tender-notice-daily-view）：新标视图与扫描时间
+npx tsx src/lib/procurement-records/__tests__/new-notices-pure.test.ts
+NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/new-notices-db.isolated.test.ts
 # P2-1b（openspec change canadabuys-closing-tz）：CanadaBuys 截标时间按东部当地时间
 npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts
 NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts

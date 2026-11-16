@@ -5,6 +5,7 @@ import {
   requireProjectWriteAccess,
 } from "@/lib/projects/access";
 import { isValidWatchUrl, checkTenderWatch } from "@/lib/tender-intel/watch";
+import { patchRoomSummary } from "@/lib/tender-room/summary-json";
 
 /** 公告盯梢配置：GET 读状态 / POST 设 URL（并立即基线检查）/ DELETE 停止 */
 export async function GET(
@@ -46,16 +47,13 @@ export async function POST(
     where: { projectId },
     create: { orgId: project.orgId, projectId },
     update: {},
-    select: { id: true, summaryJson: true },
+    select: { id: true },
   });
-  const sj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  await db.bidIntelligenceRoom.update({
-    where: { id: room.id },
-    data: {
-      summaryJson: JSON.parse(
-        JSON.stringify({ ...sj, tenderWatch: { url, lastHash: null, lastCheckedAt: null } }),
-      ),
-    },
+  // FIX-11：锁项目行、重读，只设 tenderWatch（summaryJson 里还有报价、投标工作区等别的功能的键）
+  await patchRoomSummary({
+    projectId,
+    roomId: room.id,
+    patch: () => ({ set: { tenderWatch: { url, lastHash: null, lastCheckedAt: null } } }),
   });
   // 立即做一次基线抓取（此次只记 hash 不通知——变更检测从下一次起生效）
   const first = await checkTenderWatch(projectId);
@@ -69,16 +67,7 @@ export async function DELETE(
   const { id: projectId } = await params;
   const access = await requireProjectWriteAccess(request, projectId);
   if (access instanceof NextResponse) return access;
-  const room = await db.bidIntelligenceRoom.findUnique({
-    where: { projectId },
-    select: { id: true, summaryJson: true },
-  });
-  if (!room) return NextResponse.json({ ok: true });
-  const sj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  delete sj.tenderWatch;
-  await db.bidIntelligenceRoom.update({
-    where: { id: room.id },
-    data: { summaryJson: JSON.parse(JSON.stringify(sj)) },
-  });
+  // FIX-11：锁项目行、重读，只去掉 tenderWatch；没有房间时什么都不写
+  await patchRoomSummary({ projectId, patch: () => ({ unset: ["tenderWatch"] }) });
   return NextResponse.json({ ok: true });
 }

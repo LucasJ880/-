@@ -35,7 +35,8 @@ export async function POST(
   const { prospect } = loaded;
 
   const subject = typeof body.subject === "string" ? body.subject.trim().slice(0, 200) : "";
-  const text = typeof body.body === "string" ? body.body.trim().slice(0, 8000) : "";
+  // NAV-3：上限与待批草稿的正文上限一致（10000），带进来的长草稿不被静默截短
+  const text = typeof body.body === "string" ? body.body.trim().slice(0, 10_000) : "";
   const mode = body.mode === "send" ? "send" : "mark_sent";
   if (!text) return NextResponse.json({ error: "回复内容不能为空" }, { status: 400 });
 

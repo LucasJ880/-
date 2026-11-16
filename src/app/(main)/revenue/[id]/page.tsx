@@ -320,10 +320,10 @@ export default function RevenueOpportunityPage() {
                   )
                 ) : null}
                 {p.failureReason ? <div className="mt-1 text-red-400">{p.failureReason}</div> : null}
-                {/* NAV-1c：不想用这份草稿的出路。发出后同商机的待批草稿由系统作废（既有行为） */}
+                {/* NAV-3：带着这份草稿去询盘收件箱改完再发。发出后同商机的待批草稿由系统作废（既有行为） */}
                 {p.status === "pending" && canWriteInInbox ? (
-                  <Link href={inboxReplyHref({ opportunityId: o.id })} className="mt-2 block text-muted underline">
-                    不想用这份？去询盘收件箱自己写（发出后这份草稿自动作废）
+                  <Link href={inboxReplyHref({ opportunityId: o.id, approvalId: p.id })} className="mt-2 block text-muted underline">
+                    想改一改再发？去询盘收件箱改这份草稿（发出后这份草稿自动作废）
                   </Link>
                 ) : null}
                 {p.status === "pending" ? (

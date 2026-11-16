@@ -21,6 +21,7 @@
  */
 
 import { db } from "@/lib/db";
+import { patchRoomSummary } from "@/lib/tender-room/summary-json";
 import {
   isExternalIntelEnabled,
   deriveAwardQueries,
@@ -111,23 +112,8 @@ async function persistStatusIfRoomExists(
   projectId: string,
   status: ExternalIntelStatus,
 ): Promise<void> {
-  const room = await db.bidIntelligenceRoom.findUnique({
-    where: { projectId },
-    select: { id: true, summaryJson: true },
-  });
-  if (!room) return;
-  const sj = ((room.summaryJson as Record<string, unknown>) ?? {}) as Record<
-    string,
-    unknown
-  >;
-  await db.bidIntelligenceRoom.update({
-    where: { id: room.id },
-    data: {
-      summaryJson: JSON.parse(
-        JSON.stringify({ ...sj, [EXTERNAL_INTEL_STATUS_KEY]: status }),
-      ),
-    },
-  });
+  // FIX-11：锁项目行、重读，只设外部情报状态；没有房间时不写
+  await patchRoomSummary({ projectId, patch: () => ({ set: { [EXTERNAL_INTEL_STATUS_KEY]: status } }) });
 }
 
 export async function runExternalIntelForProject(input: {
@@ -513,13 +499,18 @@ export async function runExternalIntelForProject(input: {
       marketPriced,
     };
 
-    await db.bidIntelligenceRoom.update({
-      where: { id: room.id },
-      data: {
-        summaryJson: JSON.parse(
-          JSON.stringify({
-            ...rsj,
-            ...(pricingModelToPersist ? { pricingModel: pricingModelToPersist } : {}),
+    // FIX-11：上面的检索、分析可能要几分钟，期间报价表助手、报价引擎、投标工作区都可能写 summaryJson。
+    // 锁项目行、重读，只设外部情报自己的键；报价模型只在最新值里还没有同版本的有效模型时才写（不盖人工模型）。
+    await patchRoomSummary({
+      projectId: project.id,
+      roomId: room.id,
+      patch: (latest) => {
+        const pm = latest.pricingModel as { version?: unknown; priceWeightPct?: unknown } | undefined;
+        const toPersist = pricingModelToPersist as { version?: unknown } | null;
+        const hasModel = !!pm && typeof pm.priceWeightPct === "number" && !!toPersist && pm.version === toPersist.version;
+        return {
+          set: {
+            ...(toPersist && !hasModel ? { pricingModel: toPersist } : {}),
             ...(auto?.ok ? { externalCandidates: auto } : {}),
             ...(web?.ok ? { webIntel: web } : {}),
             ...(externalAnalysis ? { externalAnalysis } : {}),
@@ -540,8 +531,8 @@ export async function runExternalIntelForProject(input: {
               standardsResearched,
               marketPriced,
             } satisfies ExternalIntelStatus,
-          }),
-        ),
+          },
+        };
       },
     });
     console.log(

@@ -183,6 +183,7 @@ run_test "读信工具：作用域/错误码/审计/不落库（MAIL-1）" "npx 
 run_test "邮件内容不可信：固定提示/写入封锁/清单冻结（MAIL-1）" "npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts"
 run_test "模型输出 Markdown 地址判定：图片允许清单/链接去向（ai-markdown-image-allowlist）" "npx tsx src/lib/ai-markdown/__tests__/url-policy.test.ts"
 run_test "模型输出 Markdown 渲染：外部图片不加载/站内图片显示/五个页面统一（ai-markdown-image-allowlist）" "npx tsx src/components/__tests__/ai-markdown.test.tsx"
+run_test "模型起草的 HTML 预览不自动加载外部资源（ai-html-preview-no-autoload；真实浏览器段缺 Chromium 则跳过）" "npx tsx src/lib/common/__tests__/sanitize-html.test.ts"
 run_test "来信观察纯函数与读接口（MAIL-2）" "npx tsx src/lib/mail-watch/__tests__/mail-watch-pure.test.ts"
 run_test "来信观察 DB 端到端（MAIL-2；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/mail-watch/__tests__/mail-watch-db.isolated.test.ts"
 run_test "AI收敛P0 AgentScope/Context隔离" "npx tsx src/lib/agent-scope/__tests__/agent-scope.test.ts"
@@ -334,6 +335,8 @@ run_test "外贸收件人 / 营收中心按外贸键（PERM-6c）" "npx tsx src/
 run_test "回复入口：客户时间线 / 询盘收件箱 / 审批面（NAV-1c）" "npx tsx src/lib/trade/__tests__/reply-entry.test.ts"
 # NAV-6（openspec change nav-6-inbox-reply-clarity）：阶段 replied 的显示名与同源、收件箱「我方已回复」、回复能力标记与只读成员的页面，纯函数 + 源码断言，无 DB
 run_test "询盘收件箱：谁回复了谁 / 不能回复的成员（NAV-6）" "npx tsx src/lib/trade/__tests__/reply-clarity.test.ts"
+# NAV-3（openspec change nav-3-approval-draft-editable）：待批草稿能不能带进回复窗口、单会话接口按草稿 id 返回原文、「改草稿再发」窗口、审批面链接，纯函数 + 源码断言，无 DB
+run_test "审批草稿可改：从待批草稿进询盘收件箱（NAV-3）" "npx tsx src/lib/trade/__tests__/approval-draft-edit.test.ts"
 run_test "岗位绑定界面（PERM-7）" "npx tsx src/lib/authorization/__tests__/position-binding-console.test.ts"
 run_test "梦馨落岗位（PERM-6b）" "npx tsx src/lib/authorization/__tests__/mengxin-positions.test.ts"
 run_test "平台 admin 退役（PERM-7b）" "npx tsx src/lib/rbac/__tests__/platform-admin-scope.test.ts"
@@ -570,6 +573,10 @@ run_test "合规矩阵可用性批次" "npx tsx src/lib/tender-auto-analysis/__t
 run_test "报价表助手 计算与推导" "npx tsx src/lib/tender-pricing/__tests__/pricing-helper.test.ts"
 run_test "FIX-8 报价表助手保存保留报价引擎镜像的我方报价 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-save-db.isolated.test.ts"
 run_test "FIX-9 报价表助手写入与报价同步串行（强制交错）DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-lock-db.isolated.test.ts"
+run_test "FIX-10 调查室 summaryJson 写入（纯函数与接线）" "npx tsx src/lib/tender-room/__tests__/summary-json.test.ts"
+run_test "FIX-10 分析投影与开始调查不再整块替换调查室 summaryJson DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-merge-db.isolated.test.ts"
+run_test "FIX-11 调查室 summaryJson 只经写入入口写（守卫）" "npx tsx src/lib/tender-room/__tests__/summary-write-guard.test.ts"
+run_test "FIX-11 调查室 summaryJson 其它写入方与报价同步串行（强制交错）DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-writers-db.isolated.test.ts"
 run_test "RFI 问题清单导出" "npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts"
 run_test "投标文件起草" "npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts"
 run_test "两道闸：No-Go 提醒与未批准分析起草的标注（FLOW-H5）" "npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx"
@@ -771,6 +778,8 @@ run_test "披露抽取与按口径分析纯函数（PROC-1）" "npx tsx src/lib/
 run_test "采购情报与资料申请 DB 端到端（隔离库执行，否则跳过；PROC-1）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts"
 run_test "采购监控 跟这个标（P2-3a）" "npx tsx src/lib/procurement-records/__tests__/tender-follow-pure.test.ts"
 run_test "采购监控 跟这个标 DB（隔离库执行，否则跳过，P2-3a）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/tender-follow-db.isolated.test.ts"
+run_test "采购监控 新标视图与扫描时间（P2-1）" "npx tsx src/lib/procurement-records/__tests__/new-notices-pure.test.ts"
+run_test "采购监控 新标视图与扫描时间 DB（隔离库执行，否则跳过，P2-1）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/new-notices-db.isolated.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间（P2-1b）" "npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间 DB（隔离库执行，否则跳过，P2-1b）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts"
 
