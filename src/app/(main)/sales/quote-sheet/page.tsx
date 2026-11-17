@@ -26,6 +26,7 @@ import {
   X,
   Zap,
   ClipboardList,
+  FileUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
@@ -53,7 +54,9 @@ import type {
   ShutterOrderLine,
   DrapeOrderLine,
   QuoteFormState,
+  QuoteImportSource,
   InstallMode,
+  ProductName,
 } from "./types";
 import { INSTALL_PRICES, SERVICE_ADDONS, HST_RATE, generateOrderNumber } from "./types";
 
@@ -97,6 +100,9 @@ import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { RoughQuotePanel } from "./rough-quote-panel";
 import { CustomerCombobox } from "./customer-combobox";
 import { NewCustomerDialog, type CreatedCustomer } from "../new-customer-dialog";
+import { ImportReviewDialog } from "./import-review-dialog";
+import type { ImportFormFill } from "@/lib/sales/quote-import/map";
+import { canonicalSku, ensureSkuCatalogLoaded, getSkusByProduct } from "@/lib/blinds/sku-catalog";
 import { QuoteSentNextSteps } from "@/components/sales-command-center/quote-sent-next-steps";
 import { reviewQuoteWorkflow } from "@/lib/digital-employees/quote-review";
 import { QuoteDigitalEmployeeReview } from "./quote-digital-employee-review";
@@ -324,6 +330,12 @@ function QuoteSheetPageInner() {
   // QUOTE-1a：载入内容的定价口径标记（新建 = 当前口径；载入已存报价 / 草稿时取其值，缺省 1）
   const [loadedPricingRev, setLoadedPricingRev] = useState<number>(ORDER_PRICING_REV);
   const [woodNoticeDismissed, setWoodNoticeDismissed] = useState(false);
+  // QUOTE-1b：导入留痕，随表单数据原样保存；手工录入的报价为 null
+  const [importSource, setImportSource] = useState<QuoteImportSource | null>(null);
+  // QUOTE-1b：「导入报价文件」核对窗；SKU 目录加载完才做「SKU 不在目录」的提醒
+  const [importOpen, setImportOpen] = useState(false);
+  const [skuCatalogReady, setSkuCatalogReady] = useState(false);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
   // 首屏检查完成前不允许自动保存，避免把刚挂载的空表覆盖掉尚未恢复的草稿
   const [draftReady, setDraftReady] = useState(false);
 
@@ -680,6 +692,7 @@ function QuoteSheetPageInner() {
           specialPromotion,
           // 草稿原样带着载入时的口径标记：恢复后仍能判断要不要提醒
           orderPricingRev: loadedPricingRev,
+          ...(importSource ? { importSource } : {}),
         },
         orgId,
         currentUser.id,
@@ -697,7 +710,7 @@ function QuoteSheetPageInner() {
     partCServices, partCAddOns,
     shadeOrders, shutterOrders, drapeOrders,
     shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
-    installMode, taxRate, sunnyMotorPrice, specialPromotion, loadedPricingRev,
+    installMode, taxRate, sunnyMotorPrice, specialPromotion, loadedPricingRev, importSource,
   ]);
 
   // 当 customerId 或 customers 变化时派生候选地址列表
@@ -777,6 +790,7 @@ function QuoteSheetPageInner() {
     // QUOTE-1a：改动前保存的内容没有口径标记 → 1；据此决定是否提醒检查 Part B
     setLoadedPricingRev(readOrderPricingRev(d.orderPricingRev));
     setWoodNoticeDismissed(false);
+    setImportSource(d.importSource ?? null);
   }, []);
 
   const handleRestoreDraft = useCallback(() => {
@@ -784,6 +798,88 @@ function QuoteSheetPageInner() {
     applyFormState(pendingDraft);
     setPendingDraft(null);
   }, [pendingDraft, applyFormState]);
+
+  // ── QUOTE-1b：导入报价文件 ───────────────────────────────────────
+  const openImportDialog = useCallback(async () => {
+    // SKU 目录是站内静态文件；加载失败只是少一类提醒，不挡导入
+    try {
+      await ensureSkuCatalogLoaded();
+      setSkuCatalogReady(true);
+    } catch {
+      setSkuCatalogReady(false);
+    }
+    setImportOpen(true);
+  }, []);
+
+  const isSkuInCatalog = useCallback(
+    (product: ProductName, sku: string) => {
+      if (!skuCatalogReady) return true;
+      const wanted = canonicalSku(sku);
+      return getSkusByProduct(product).some((e) => !e.isCategoryFallback && (e.sku === sku || e.sku === wanted));
+    },
+    [skuCatalogReady],
+  );
+
+  /** 核对窗「填入表单」：导入覆盖的字段取文件映射结果，其余保持页面当前值，统一经 applyFormState 灌入 */
+  const handleImportFill = useCallback(
+    (fill: ImportFormFill, info: { matchedCustomer: boolean; rowCount: number }) => {
+      applyFormState({
+        v: 1,
+        savedAt: Date.now(),
+        customerId: fill.customerId,
+        customerName: fill.customerName,
+        customerPhone: fill.customerPhone,
+        customerEmail: fill.customerEmail,
+        customerAddress: fill.customerAddress,
+        heardUsOn,
+        opportunityId: "",
+        date, salesRep, measureSequence,
+        partALines,
+        partBAddons: fill.partBAddons,
+        partBNotes: fill.partBNotes,
+        paymentMethod, depositAmount, balanceAmount, financeEligible, financeApproved, financeDifference,
+        partCServices, partCAddOns,
+        shadeOrders: fill.shadeOrders,
+        shutterOrders: fill.shutterOrders,
+        drapeOrders: fill.drapeOrders,
+        shutterMaterial: fill.shutterMaterial ?? shutterMaterial,
+        shutterLouverSize, shadeValanceType, shadeBracketType,
+        installMode: fill.installMode,
+        taxRate: fill.taxRate ?? taxRate,
+        sunnyMotorPrice,
+        specialPromotion: fill.specialPromotion,
+        // 导入的行按当前定价口径构造，不需要「检查 Part B」的提醒
+        orderPricingRev: ORDER_PRICING_REV,
+        importSource: fill.importSource,
+      });
+      setOpportunities([]);
+      setLastSaved(null);
+      setImportOpen(false);
+      setActiveTab(fill.shadeOrders.length > 0 ? "shades" : fill.shutterOrders.length > 0 ? "shutters" : fill.drapeOrders.length > 0 ? "drapes" : "partB");
+      setImportNotice(
+        info.matchedCustomer
+          ? `已从报价文件填入 ${info.rowCount} 行，并按电话 / 邮箱选中了已有客户，请核对后保存。`
+          : `已从报价文件填入 ${info.rowCount} 行；没有唯一匹配的客户，请在上方选择或新建客户后保存。`,
+      );
+      // 与手动选客户相同：取该客户的商机（只带客户 id，不带任何文件内容）
+      if (fill.customerId) {
+        void (async () => {
+          try {
+            const data = await apiJson<{ opportunities?: { id: string; title: string; stage: string }[] }>(`/api/sales/customers/${fill.customerId}/opportunities`);
+            const opps = data.opportunities ?? [];
+            setOpportunities(opps);
+            if (opps.length === 1) setOpportunityId(opps[0].id);
+          } catch { /* ignore */ }
+        })();
+      }
+    },
+    [
+      applyFormState, heardUsOn, date, salesRep, measureSequence, partALines,
+      paymentMethod, depositAmount, balanceAmount, financeEligible, financeApproved, financeDifference,
+      partCServices, partCAddOns, shutterMaterial, shutterLouverSize, shadeValanceType, shadeBracketType,
+      taxRate, sunnyMotorPrice,
+    ],
+  );
 
   const handleDiscardDraft = useCallback(() => {
     if (orgId && currentUser?.id) clearDraft(orgId, currentUser.id);
@@ -932,6 +1028,8 @@ function QuoteSheetPageInner() {
         installMode, taxRate, sunnyMotorPrice,
         // QUOTE-1a：本次保存按当前定价口径构造报价行
         orderPricingRev: ORDER_PRICING_REV,
+        // QUOTE-1b：导入留痕原样带上，服务端据此写一次审计
+        ...(importSource ? { importSource } : {}),
       };
 
       // PRICE-3：Part B 已选且数量 > 0 的行作为附加项目提交，库里报价金额从此含 Part B（design D4）
@@ -1066,6 +1164,7 @@ function QuoteSheetPageInner() {
     promoBlocked, promoRatio, promoMaxPct,
     depositMinPct, depositUnlocked, isSuperAdmin,
     productsSubtotal, subtotalB, subtotalC,
+    importSource,
     editingQuoteId,
     orgId, orgLoading, ambiguous,
   ]);
@@ -1580,7 +1679,28 @@ function QuoteSheetPageInner() {
             ? "现场快速估价 · 保存进青砚"
             : "完整 Order Form · 签字 / PDF / 成单"}
         </span>
+        {/* QUOTE-1b：把报价工具导出的 .json 导入详细订单（文件只在浏览器里读） */}
+        {workspaceMode === "order" && (
+          <button
+            type="button"
+            data-testid="import-quote-file"
+            onClick={() => void openImportDialog()}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-card-bg px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/60"
+          >
+            <FileUp className="h-3.5 w-3.5" />
+            导入报价文件
+          </button>
+        )}
       </div>
+
+      {workspaceMode === "order" && importNotice && (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-xs text-teal-800" data-testid="import-notice">
+          <span>{importNotice}</span>
+          <button type="button" onClick={() => setImportNotice(null)} className="min-h-0 shrink-0 text-teal-700 hover:underline">
+            知道了
+          </button>
+        </div>
+      )}
 
       {editingLoading && (
         <div className="rounded-lg border border-teal-200 bg-teal-50/60 px-3 py-2 text-xs text-teal-700">
@@ -2231,6 +2351,24 @@ function QuoteSheetPageInner() {
         open={showNewCustomer}
         onOpenChange={setShowNewCustomer}
         onSuccess={applyCreatedCustomer}
+      />
+
+      {/* QUOTE-1b：导入报价文件的核对窗（纯前端；填入后走现有保存） */}
+      <ImportReviewDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        settings={{
+          orgDiscounts: discounts,
+          cordlessPolicy,
+          sunnyMotorPrice,
+          minInstallFee,
+          deliveryFee,
+          addonPrices,
+          taxRate,
+        }}
+        customers={customers}
+        isSkuInCatalog={isSkuInCatalog}
+        onFill={handleImportFill}
       />
     </div>
   );

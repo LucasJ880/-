@@ -15,13 +15,19 @@ import { DEFAULT_DISCOUNTS } from "@/lib/blinds/pricing-data";
 import { skuToPricingFabric } from "@/lib/blinds/sku-catalog";
 import {
   ORDER_PRICING_REV,
+  applyShadeProductChange,
+  applyShadeSkuChange,
   effectiveShadeValance,
+  lineDiscountLabel,
+  lineDiscountOverride,
   needsWoodRepriceNotice,
   readOrderPricingRev,
   shadeLinePricingFabric,
   shutterPricingFabric,
+  skuSelectOptions,
   woodRepriceNoticeText,
 } from "@/lib/blinds/order-form-pricing";
+import type { SkuEntry } from "@/lib/blinds/sku-catalog";
 import { mapQuoteFormToProcessOrder } from "@/lib/sunny-process/quote-mapping";
 import { DEFAULT_CORDLESS_POLICY, DEFAULT_SUNNY_MOTOR_PRICE } from "@/lib/blinds/pricing-data";
 import {
@@ -391,6 +397,136 @@ console.log("⑤ 口径标记与实木旧报价提醒");
   ok(!!d1 && readOrderPricingRev(d1.orderPricingRev) === 1 && !!d2 && readOrderPricingRev(d2.orderPricingRev) === 2 && !!d0 && readOrderPricingRev(d0.orderPricingRev) === 1,
     "REV-10: 本地草稿往返——带 1 读 1、带 2 读 2、改动前的旧草稿（无字段）读 1", [d1?.orderPricingRev, d2?.orderPricingRev, d0?.orderPricingRev]);
   delete (globalThis as unknown as { window?: unknown }).window;
+}
+
+// ── ⑦ 行上定价面料（QUOTE-1b）──────────────────────────────
+console.log("⑦ 行上定价面料");
+{
+  const emptyForm = { shadeOrders: [], shutterOrders: [], drapeOrders: [], shutterMaterial: "Vinyl" as const, shadeValanceType: "" };
+  const priceOf = (l: ShadeOrderLine, fv = "") => {
+    const p = computeShadeLinePrice(l, "default", DEFAULT_DISCOUNTS, DEFAULT_SUNNY_MOTOR_PRICE, DEFAULT_CORDLESS_POLICY, fv);
+    if (!p || p.error) throw new Error(`预览报错：${p?.error ?? "null"}`);
+    return r2(p.merch);
+  };
+  const savedOf = (l: ShadeOrderLine, fv = "") => {
+    const items = buildOrderFormItems({ ...emptyForm, shadeValanceType: fv, shadeOrders: [l] });
+    const calc = calculateQuoteTotal({ items: applyOrgDiscountDefaults(items, DEFAULT_DISCOUNTS), installMode: "default", cordlessPolicy: DEFAULT_CORDLESS_POLICY });
+    return { fabric: items[0]!.fabric, sku: items[0]!.sku, merch: r2(calc.merchSubtotal), override: items[0]!.discountOverridePct };
+  };
+  const bo = priceFor("Zebra", "Blackout", 48, 60, DEFAULT_DISCOUNTS.Zebra);
+  const lf = priceFor("Zebra", "Light Filtering", 48, 60, DEFAULT_DISCOUNTS.Zebra);
+  if ("error" in bo || "error" in lf) throw new Error("引擎报错");
+  const ssb = shadeLine({ product: "Zebra", sku: "SSB01", widthWhole: "48", heightWhole: "60", pricingFabric: "Blackout" });
+  ok(shadeLinePricingFabric(ssb, "") === "Blackout" && priceOf(ssb) === r2(bo.price) && savedOf(ssb).fabric === "Blackout" && savedOf(ssb).sku === "SSB01" && savedOf(ssb).merch === r2(bo.price),
+    "PF-01: Zebra SSB01 + 定价面料 Blackout → 预览与保存都按 Blackout 表，SKU 仍是 SSB01", [priceOf(ssb), savedOf(ssb)]);
+  const ssbNo = shadeLine({ product: "Zebra", sku: "SSB01", widthWhole: "48", heightWhole: "60" });
+  ok(savedOf(ssbNo).fabric === "Light Filtering" && priceOf(ssbNo) === r2(lf.price) && r2(bo.price) !== r2(lf.price), "PF-02: 去掉定价面料 → 按 SKU 推断为 Light Filtering（两档金额不同）", [r2(bo.price), r2(lf.price)]);
+
+  const roller = (valance: string) => shadeLine({ sku: SKU_BO, pricingFabric: "Blackout w Cassette", valance });
+  ok(priceOf(roller("Cassette")) === 271.88 && savedOf(roller("Cassette")).fabric === "Blackout w Cassette", "PF-03a: Roller 定价面料 Blackout w Cassette + 行上 Cassette → 271.88");
+  ok(priceOf(roller("None")) === 221.88 && savedOf(roller("None")).fabric === "Blackout (Open Roll)", "PF-03b: 行上改 None → 221.88（Roller 仍随罩型）");
+  ok(priceOf(roller("Fascia")) === 271.88 && savedOf(roller("Fascia")).fabric === "Blackout w Fascia", "PF-03c: 行上改 Fascia → Blackout w Fascia");
+  ok(savedOf(roller("")).fabric === "Blackout w Cassette" && savedOf(roller(""), "Cassette").fabric === "Blackout w Cassette", "PF-03d: 无生效罩型时定价面料原样；表底部 Cassette 时同为带罩");
+
+  const bad = shadeLine({ product: "Zebra", sku: "PRADO-WHITE-LF", widthWhole: "40", heightWhole: "50", pricingFabric: "Blackout w Cassette" });
+  ok(shadeLinePricingFabric(bad, "") === "Light Filtering", "PF-04: 定价面料不是该产品的面料档 → 忽略，按 SKU 推断");
+  ok(shadeLinePricingFabric(shadeLine({ product: "Zebra", sku: "PRADO-WHITE-LF", pricingFabric: "  " }), "") === "Light Filtering", "PF-04b: 空白的定价面料等于没有");
+
+  const changed = applyShadeSkuChange(ssb, "MILAN-GREY-BO");
+  ok(changed.sku === "MILAN-GREY-BO" && changed.pricingFabric === undefined && changed.widthWhole === "48", "PF-05a: 手动换 SKU → 定价面料清除，其它字段不动");
+  const toRoller = applyShadeProductChange({ ...ssb, cordless: true }, "Roller");
+  const toShangri = applyShadeProductChange({ ...ssb, cordless: true }, "SHANGRILA");
+  ok(toRoller.product === "Roller" && toRoller.sku === "" && toRoller.pricingFabric === undefined && toRoller.cordless === true && toShangri.cordless === false,
+    "PF-05b: 手动换产品 → SKU 与定价面料清空；无绳只对 Zebra / Roller 保留");
+}
+
+// ── ⑧ 行级折扣（QUOTE-1b）──────────────────────────────────
+console.log("⑧ 行级折扣");
+{
+  const emptyForm = { shadeOrders: [], shutterOrders: [], drapeOrders: [], shutterMaterial: "Vinyl" as const, shadeValanceType: "" };
+  const drapeLine = (o: Partial<DrapeOrderLine>): DrapeOrderLine => ({
+    id: "d", location: "Dining",
+    drapeWidthWhole: "", drapeWidthFrac: "0", drapeHeightWhole: "", drapeHeightFrac: "0", drapeFabricSku: "",
+    drapeFullness: "180", drapePanels: "S", drapePleatStyle: "", drapeLiner: false, drapeBracket: "",
+    sheerWidthWhole: "", sheerWidthFrac: "0", sheerHeightWhole: "", sheerHeightFrac: "0", sheerFabricSku: "",
+    sheerFullness: "180", sheerPanels: "S", sheerPleatStyle: "", sheerBracket: "", accessoriesSku: "", note: "", ...o,
+  });
+  ok(lineDiscountOverride(0.15) === 0.15 && lineDiscountOverride(0) === 0 && lineDiscountOverride(1) === 1, "LD-01a: 0–1 的有限数是合法的行级折扣");
+  ok([1.5, -0.1, NaN, Infinity, "0.15", null, undefined].every((v) => lineDiscountOverride(v) === null), "LD-01b: 越界 / 非数字 / 缺失 → 无行级折扣");
+  ok(lineDiscountLabel(0.15) === "15% off · 导入" && lineDiscountLabel(0.125) === "12.5% off · 导入", "LD-01c: 显示文字", [lineDiscountLabel(0.15), lineDiscountLabel(0.125)]);
+
+  const zebra = (o: Partial<ShadeOrderLine>) => shadeLine({ product: "Zebra", sku: "PRADO-WHITE-LF", widthWhole: "40", heightWhole: "50", ...o });
+  const preview = (l: ShadeOrderLine, discounts = DEFAULT_DISCOUNTS) => computeShadeLinePrice(l, "default", discounts, DEFAULT_SUNNY_MOTOR_PRICE, DEFAULT_CORDLESS_POLICY, "")!;
+  const save = (form: Parameters<typeof buildOrderFormItems>[0], discounts = DEFAULT_DISCOUNTS) => {
+    const items = buildOrderFormItems(form);
+    return { items, calc: calculateQuoteTotal({ items: applyOrgDiscountDefaults(items, discounts), installMode: "default", cordlessPolicy: DEFAULT_CORDLESS_POLICY }) };
+  };
+  const s15 = save({ ...emptyForm, shadeOrders: [zebra({ lineDiscountPct: 0.15 })] });
+  ok(r2(preview(zebra({ lineDiscountPct: 0.15 })).merch) === 234.72 && s15.items[0]!.discountOverridePct === 0.15 && r2(s15.calc.merchSubtotal) === 234.72 && s15.calc.itemResults[0]!.discountPct === 0.15,
+    "LD-02a: Zebra 40×50 行级折扣 15% → 预览与保存都是 234.72，随行提交 discountOverridePct = 0.15", [preview(zebra({ lineDiscountPct: 0.15 })).merch, s15.calc.merchSubtotal]);
+  const s0 = save({ ...emptyForm, shadeOrders: [zebra({})] });
+  ok(r2(preview(zebra({})).merch) === 151.88 && s0.items[0]!.discountOverridePct === undefined && r2(s0.calc.merchSubtotal) === 151.88, "LD-02b: 清除后回到企业默认 45% → 151.88，不再随行提交折扣");
+  ok(save({ ...emptyForm, shadeOrders: [zebra({ lineDiscountPct: 1.5 })] }).items[0]!.discountOverridePct === undefined && r2(preview(zebra({ lineDiscountPct: 1.5 })).merch) === 151.88, "LD-02c: 非法的行级折扣被忽略（预览与保存一致）");
+
+  // 无绳行：行级覆盖优先于无绳折扣
+  const cl = zebra({ cordless: true, lineDiscountPct: 0.2, widthWhole: "90", heightWhole: "60", sku: "MILAN-GREY-BO" });
+  const ref = priceFor("Zebra", "Blackout", 90, 60, 0.2, true, DEFAULT_CORDLESS_POLICY);
+  const refPolicy = priceFor("Zebra", "Blackout", 90, 60, null, true, DEFAULT_CORDLESS_POLICY);
+  const sCl = save({ ...emptyForm, shadeOrders: [cl] });
+  ok(!("error" in ref) && !("error" in refPolicy) && near(preview(cl).merch, ref.price) && near(sCl.calc.merchSubtotal, ref.price) && !near(ref.price, refPolicy.price),
+    "LD-03: 无绳行带行级折扣 20% → 按 20% 计价，不套企业无绳折扣；预览 = 保存", [preview(cl).merch, sCl.calc.merchSubtotal]);
+
+  // 布帘 / 纱帘：预览 = 保存（缺省与非缺省企业折扣）
+  const drape = drapeLine({ drapeFabricSku: "With liner (Black out)", drapeLiner: true, drapeWidthWhole: "100", drapeHeightWhole: "108", drapeLineDiscountPct: 0.2 });
+  const sheer = drapeLine({ sheerFabricSku: "Light Filtering", sheerWidthWhole: "100", sheerHeightWhole: "108", sheerFullness: "230", sheerLineDiscountPct: 0.1 });
+  const both = drapeLine({ drapeFabricSku: "Without liner", drapeWidthWhole: "60", drapeHeightWhole: "96", drapeLineDiscountPct: 0.25, sheerFabricSku: "Light Filtering", sheerWidthWhole: "60", sheerHeightWhole: "96", sheerLineDiscountPct: 0.3 });
+  const bad: unknown[] = [];
+  for (const discounts of [{ ...DEFAULT_DISCOUNTS }, { ...DEFAULT_DISCOUNTS, Drapery: 0.4, Sheer: 0.3, Zebra: 0.4 }]) {
+    for (const l of [drape, sheer, both]) {
+      const p = computeDrapeLinePrice(l, "default", discounts)!;
+      const s = save({ ...emptyForm, drapeOrders: [l] }, discounts);
+      if (p.error || s.calc.errors.length || !near(p.drapeMerch + p.sheerMerch, s.calc.merchSubtotal)) bad.push({ p, saved: s.calc.merchSubtotal });
+    }
+    const z = zebra({ lineDiscountPct: 0.15 });
+    if (!near(preview(z, discounts).merch, save({ ...emptyForm, shadeOrders: [z] }, discounts).calc.merchSubtotal)) bad.push({ zebra: true });
+  }
+  ok(bad.length === 0, "LD-04: 带行级折扣的 Shades / 布帘 / 纱帘行，预览 = 保存（缺省与非缺省企业折扣各一轮）", bad);
+  const dSaved = save({ ...emptyForm, drapeOrders: [both] });
+  ok(dSaved.items.length === 2 && dSaved.items[0]!.discountOverridePct === 0.25 && dSaved.items[1]!.discountOverridePct === 0.3, "LD-05: 布帘与纱帘各带各的行级折扣", dSaved.items.map((i) => i.discountOverridePct));
+  const d20 = priceFor("Drapery", "With liner (Black out)", 100, 108, 0.2, false, undefined, 1.8);
+  ok(!("error" in d20) && near(computeDrapeLinePrice(drape, "default", DEFAULT_DISCOUNTS)!.drapeMerch, d20.price), "LD-06: 布帘行级折扣 20% 代替企业默认 35%");
+
+  // MSRP 合计不看行级折扣
+  const m0 = sumAllMsrp([zebra({})], [], "Vinyl", [drapeLine({ drapeFabricSku: "Without liner", drapeWidthWhole: "60", drapeHeightWhole: "96" })]);
+  const m1 = sumAllMsrp([zebra({ lineDiscountPct: 0.15 })], [], "Vinyl", [drapeLine({ drapeFabricSku: "Without liner", drapeWidthWhole: "60", drapeHeightWhole: "96", drapeLineDiscountPct: 0.25 })]);
+  ok(near(m0, m1) && m0 > 0, "LD-07: MSRP 合计不随行级折扣变", [m0, m1]);
+}
+
+// ── ⑨ SKU 下拉选项（QUOTE-1b）──────────────────────────────
+console.log("⑨ SKU 下拉显示目录外的当前值");
+{
+  const entries: SkuEntry[] = [
+    { sku: "CABO-WHITE-BO", product: "Roller", thumbUrl: "", readable: "Cabo · White · Blackout" },
+    { sku: "ADORO-CREAMY-LF", product: "Roller", thumbUrl: "", readable: "Adoro · Creamy · Light Filtering" },
+  ];
+  const inCat = skuSelectOptions(entries, "CABO-WHITE-BO");
+  ok(inCat.length === 2 && !inCat.some((o) => o.outOfCatalog) && inCat[0]!.label === "CABO-WHITE-BO · Cabo · White · Blackout", "SKU-01: 目录内的当前值 → 没有「目录外」选项，标签不变", inCat);
+  ok(skuSelectOptions(entries, "").length === 2 && skuSelectOptions(entries, "  ").every((o) => !o.outOfCatalog), "SKU-02: 当前值为空 → 与之前相同");
+  const fallback: SkuEntry[] = [{ sku: "Standard", product: "Cordless Cellular", thumbUrl: "", readable: "Standard", isCategoryFallback: true }];
+  const out = skuSelectOptions(fallback, "B01-38-BO100");
+  ok(out.length === 2 && out[0]!.outOfCatalog === true && out[0]!.value === "B01-38-BO100" && out[0]!.label.includes("B01-38-BO100") && out[0]!.label.includes("目录外") && out[1]!.label === "Standard (type only)",
+    "SKU-03: 目录外的当前值 → 最前面多一项，文字含该 SKU 与「目录外」", out);
+  const csv = readFileSync(join(process.cwd(), "public/sku-catalog.csv"), "utf8");
+  ok(csv.includes(",CABO-WHITE-BO,") && !csv.includes("B01-38-BO100"), "SKU-04: 目录文件里有 CABO-WHITE-BO、没有 B01-38-BO100（与上面两例的前提一致）");
+  const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
+  const dir = "src/app/(main)/sales/quote-sheet";
+  const skuSelect = read(`${dir}/sku-select.tsx`);
+  const orderShades = read(`${dir}/order-shades.tsx`);
+  const orderDrapes = read(`${dir}/order-drapes.tsx`);
+  ok(skuSelect.includes("skuSelectOptions(entries, value)"), "SRC-11: SKU 下拉的选项由 skuSelectOptions 给出");
+  ok(orderShades.includes("applyShadeSkuChange(") && orderShades.includes("applyShadeProductChange(") && !orderShades.includes('updateLine(line.id, "sku"'), "SRC-12: Shades 表换 SKU / 产品都经清除定价面料的函数");
+  ok(orderShades.includes("lineDiscountLabel(") && orderShades.includes('"lineDiscountPct", undefined') && orderDrapes.includes("lineDiscountLabel(") && !/type="number"[^>]*lineDiscount/.test(orderShades + orderDrapes),
+    "SRC-13: 表单显示行级折扣并可清除，不提供录入框");
 }
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);

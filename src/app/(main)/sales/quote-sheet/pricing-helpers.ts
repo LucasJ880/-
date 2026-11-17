@@ -12,7 +12,12 @@ import {
   DEFAULT_CORDLESS_POLICY,
   INSTALL_RULES,
 } from "@/lib/blinds/pricing-data";
-import { effectiveShadeValance, shadeLinePricingFabric, shutterPricingFabric } from "@/lib/blinds/order-form-pricing";
+import {
+  effectiveShadeValance,
+  lineDiscountOverride,
+  shadeLinePricingFabric,
+  shutterPricingFabric,
+} from "@/lib/blinds/order-form-pricing";
 import type { ProductName, CordlessPolicy } from "@/lib/blinds/pricing-types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 
@@ -59,8 +64,9 @@ export function sumAllMsrp(
   /** Shades 表底部的 Valance Type（行上 Valance 为空时生效） */
   formValance = "",
 ): number {
+  // MSRP 之和不看行级折扣（QUOTE-1b）：先去掉行上的折扣再按 0 折扣求和
   const shades = sumShadeTotals(
-    shadeOrders,
+    shadeOrders.map((l) => (l.lineDiscountPct == null ? l : { ...l, lineDiscountPct: undefined })),
     "pickup",
     ZERO_DISCOUNTS,
     sunnyMotorPrice,
@@ -68,7 +74,15 @@ export function sumAllMsrp(
     formValance,
   ).merch;
   const shutters = sumShutterTotals(shutterOrders, shutterMaterial, "pickup", ZERO_DISCOUNTS).merch;
-  const drapes = sumDrapeTotals(drapeOrders, "pickup", ZERO_DISCOUNTS).merch;
+  const drapes = sumDrapeTotals(
+    drapeOrders.map((l) =>
+      l.drapeLineDiscountPct == null && l.sheerLineDiscountPct == null
+        ? l
+        : { ...l, drapeLineDiscountPct: undefined, sheerLineDiscountPct: undefined },
+    ),
+    "pickup",
+    ZERO_DISCOUNTS,
+  ).merch;
   return shades + shutters + drapes;
 }
 
@@ -140,12 +154,14 @@ export function computeShadeLinePrice(
   const fabric = shadeLinePricingFabric(line, effectiveShadeValance(line.valance, formValance));
   // PRICE-2：无绳只看 Cordless 开关（Zebra / Roller）；无绳行不套产品折扣，按企业无绳策略（与服务端同源）
   const cordless = line.cordless === true && isCordlessEligible(line.product);
+  // 行级折扣（QUOTE-1b）优先于企业默认与无绳折扣——与引擎「行级覆盖优先」、保存时随行提交一致
+  const lineDiscount = lineDiscountOverride(line.lineDiscountPct);
   const table = priceFor(
     line.product,
     fabric,
     w,
     h,
-    cordless ? null : pick(discounts, line.product),
+    lineDiscount ?? (cordless ? null : pick(discounts, line.product)),
     cordless,
     cordlessPolicy,
   );
@@ -273,7 +289,7 @@ export function computeDrapeLinePrice(
     const h = fractionToInches(line.drapeHeightWhole, line.drapeHeightFrac);
     if (w && h) {
       // PRICE-2：Fullness 180 / 230 → 褶皱率 1.8 / 2.3（与工艺单同一字段）
-      const r = priceFor("Drapery", draperyFabric, w, h, pick(discounts, "Drapery"), false, undefined, fullnessFromPercent(line.drapeFullness));
+      const r = priceFor("Drapery", draperyFabric, w, h, lineDiscountOverride(line.drapeLineDiscountPct) ?? pick(discounts, "Drapery"), false, undefined, fullnessFromPercent(line.drapeFullness));
       if ("error" in r) {
         error = `Drape: ${r.error}`;
       } else {
@@ -288,7 +304,7 @@ export function computeDrapeLinePrice(
     const w = fractionToInches(line.sheerWidthWhole, line.sheerWidthFrac);
     const h = fractionToInches(line.sheerHeightWhole, line.sheerHeightFrac);
     if (w && h) {
-      const r = priceFor("Sheer", line.sheerFabricSku, w, h, pick(discounts, "Sheer"), false, undefined, fullnessFromPercent(line.sheerFullness));
+      const r = priceFor("Sheer", line.sheerFabricSku, w, h, lineDiscountOverride(line.sheerLineDiscountPct) ?? pick(discounts, "Sheer"), false, undefined, fullnessFromPercent(line.sheerFullness));
       if ("error" in r) {
         error = error ? `${error}; Sheer: ${r.error}` : `Sheer: ${r.error}`;
       } else {

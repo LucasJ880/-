@@ -164,6 +164,13 @@ export interface ShadeOrderLine {
    * 旧表单数据没有该字段 → 视为关。
    */
   cordless?: boolean;
+  /**
+   * 定价面料（QUOTE-1b）：导入时以文件的面料档为准（如无后缀的遮光 SKU → "Blackout"）。
+   * 是该产品的面料档时定价以它为准，不再由 SKU 后缀推断；销售手动换 SKU / 产品时清除。
+   */
+  pricingFabric?: string;
+  /** 行级折扣 0–1（QUOTE-1b，只来自导入）：代替该产品的企业默认折扣，保存时随行提交；表单上只能清除 */
+  lineDiscountPct?: number;
 }
 
 export interface ShutterOrderLine {
@@ -209,6 +216,24 @@ export interface DrapeOrderLine {
   sheerBracket: "C" | "W" | "";
   accessoriesSku: string;
   note: string;
+  /** 布帘 / 纱帘部分的行级折扣 0–1（QUOTE-1b，只来自导入） */
+  drapeLineDiscountPct?: number;
+  sheerLineDiscountPct?: number;
+}
+
+/** 导入留痕（QUOTE-1b）：只读，随 formDataJson 保存；服务端据此写一次审计 quote_imported */
+export interface QuoteImportSource {
+  tool: "sunny-quote-studio";
+  fileVersion: number;
+  quoteId: string;
+  quoteNumber: string;
+  plan: string;
+  exportedAt: string;
+  pricelistVersion: string;
+  fileGrandTotal: number | null;
+  importedAt: string;
+  pricelistMatch: boolean;
+  rowCount: number;
 }
 
 export interface QuoteFormState {
@@ -252,6 +277,8 @@ export interface QuoteFormState {
    * 旧表单没有该字段 → 视为 1，打开时按需提醒检查 Part B。只落 formDataJson，零 schema。
    */
   orderPricingRev?: number;
+  /** 导入留痕（QUOTE-1b）；手工录入的报价没有 */
+  importSource?: QuoteImportSource;
 }
 
 // ── Order number generation ──

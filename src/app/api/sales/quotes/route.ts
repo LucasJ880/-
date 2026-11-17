@@ -18,6 +18,7 @@ import { stampPricelistVersion } from '@/lib/blinds/pricelist-version';
 import { costRateForProduct, snapshotCostPrice } from '@/lib/blinds/cost-rates';
 import { isPlatformSuperAdmin } from '@/lib/rbac/roles';
 import { logAudit } from '@/lib/audit/logger';
+import { QUOTE_IMPORTED_AUDIT_ACTION, importAuditPayload } from '@/lib/sales/quote-import/audit';
 import { authorize, humanPrincipal } from '@/lib/authorization';
 import { loadPricingPolicy } from '@/lib/sales/pricing-policy';
 import { decideDiscountTier, promotionApprovalDataForTier } from '@/lib/sales/discount-tier';
@@ -315,6 +316,19 @@ export const POST = withAuth(async (request, _ctx, user) => {
         maxPct: quoteSettings.promoMaxPct,
         leadMaxPct: pricingPolicy.leadMaxPct,
       },
+    });
+  }
+
+  // QUOTE-1b：表单数据带导入留痕时写一条审计（新建一定是这次导入的第一次保存）
+  const importAudit = importAuditPayload(formDataJson, null);
+  if (importAudit) {
+    await logAudit({
+      userId: user.id,
+      orgId: requestOrgId,
+      action: QUOTE_IMPORTED_AUDIT_ACTION,
+      targetType: 'sales_quote',
+      targetId: quote.id,
+      afterData: { ...importAudit },
     });
   }
 

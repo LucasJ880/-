@@ -5,6 +5,12 @@ import type { ShadeOrderLine, InstallMode } from "./types";
 import { FRACTION_OPTIONS } from "./types";
 import { cn } from "@/lib/utils";
 import { valanceOptionsFor } from "@/lib/blinds/valance-options";
+import {
+  applyShadeProductChange,
+  applyShadeSkuChange,
+  lineDiscountLabel,
+  lineDiscountOverride,
+} from "@/lib/blinds/order-form-pricing";
 import { Plus, Trash2 } from "lucide-react";
 import { type PencilCanvasRef } from "@/components/pencil-canvas";
 import type { ProductName } from "@/lib/blinds/pricing-types";
@@ -110,6 +116,10 @@ export function OrderShadesForm({
     },
     [lines, onChange]
   );
+
+  // 手动换 SKU：行上定价面料随之清除（QUOTE-1b）
+  const changeSku = (id: string, sku: string) =>
+    onChange(lines.map((l) => (l.id === id ? applyShadeSkuChange(l, sku) : l)));
 
   const addLine = () => onChange([...lines, emptyLine()]);
 
@@ -229,18 +239,9 @@ export function OrderShadesForm({
                       value={line.product}
                       onChange={(e) => {
                         const newProduct = e.target.value as ProductName;
+                        // 换产品：SKU 与行上定价面料清空；无绳只对 Zebra / Roller 保留（PRICE-2 / QUOTE-1b）
                         onChange(
-                          lines.map((l) =>
-                            l.id === line.id
-                              ? {
-                                  ...l,
-                                  product: newProduct,
-                                  sku: "",
-                                  // PRICE-2：无绳只对 Zebra / Roller；换到其它产品清掉
-                                  cordless: newProduct === "Zebra" || newProduct === "Roller" ? l.cordless : false,
-                                }
-                              : l
-                          )
+                          lines.map((l) => (l.id === line.id ? applyShadeProductChange(l, newProduct) : l)),
                         );
                       }}
                       className="w-full bg-transparent border-0 outline-none text-[10px] min-h-[44px]"
@@ -257,7 +258,7 @@ export function OrderShadesForm({
                       <input
                         type="text"
                         value={line.sku}
-                        onChange={(e) => updateLine(line.id, "sku", e.target.value)}
+                        onChange={(e) => changeSku(line.id, e.target.value)}
                         className="w-full bg-transparent border-0 outline-none text-xs min-h-[44px] px-1"
                         placeholder="SKU"
                       />
@@ -265,7 +266,7 @@ export function OrderShadesForm({
                       <SkuSelect
                         product={line.product}
                         value={line.sku}
-                        onChange={(v) => updateLine(line.id, "sku", v)}
+                        onChange={(v) => changeSku(line.id, v)}
                         className="w-full"
                       />
                     )}
@@ -361,6 +362,19 @@ export function OrderShadesForm({
                         <div className="font-mono text-[11px] font-semibold text-teal-700">
                           {formatCAD(p.merch)}
                         </div>
+                        {lineDiscountOverride(line.lineDiscountPct) != null && (
+                          <div className="flex items-center justify-end gap-1 text-[9px] font-medium text-amber-700">
+                            <span>{lineDiscountLabel(lineDiscountOverride(line.lineDiscountPct)!)}</span>
+                            <button
+                              type="button"
+                              title="清除行级折扣，回到企业默认折扣"
+                              onClick={() => updateLine(line.id, "lineDiscountPct", undefined)}
+                              className="rounded px-0.5 text-muted-foreground hover:text-red-500"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
                         {allowsManualSellingPrice(line.product) && (
                           <div className="flex items-center justify-end gap-0.5" title="可选：手动成交单价（留空按价表）">
                             <span className="text-[9px] text-muted-foreground">手动$</span>

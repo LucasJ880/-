@@ -302,7 +302,7 @@
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
 | QUOTE-1a | 详细订单定价口径对齐：Roller 行的定价键 = 基础面料 + 生效罩型（行上 Valance，空则取表底部 Valance Type，与工艺单同口径；Cassette / Fascia 加价 25 / 50）；实木百叶窗表单材质 `Wooden` 按价表键 `Wood` 计价；页面预览、PDF 与保存时的行构造用同一个纯函数取定价键，PDF 的 Valance 列显示生效罩型；补经「表单行 → 企业默认折扣 → 引擎」完整路径的对照测试；口径标记 `formDataJson.orderPricingRev` + 打开改动前保存的实木报价时提醒检查 Part B；已存报价不重算。Door Screen Sheer 不套企业折扣一项未实施（判断点 1 拍板「先不变」） | 判断点 3；罩型同口径、实木提醒取 B（Lucas 2026-11-15） | OpenSpec change `quote-order-form-pricing-parity`；`order-form-pricing-parity` 测试（72 条）注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`、158 条黄金用例不变；截图 `docs/acceptance/quote-1a/`；BREAKING（金额，只影响新建与再次保存的报价）；报告 `docs/QINGYAN_QUOTE-1a_REPORT.md` | [x]（#456；archive `2026-11-15-quote-order-form-pricing-parity`） |
-| QUOTE-1b | 导入工具报价文件（`.sunny-quote.json`，格式 `sunny-quote-studio` v1）：浏览器内读文件、不上传原文件 → 校验 → 多方案选一套 → 核对窗（逐行对照文件金额 / 青砚金额 + 阻断 / 提醒清单）→ 填入详细订单 → 走现有保存与让利三档；行级折扣低于企业默认的保留到行上，其余差额累加进特别让利；`formDataJson.importSource` 留痕 + 审计 `quote_imported` | QUOTE-1a；褶皱率非 180 / 230 的行怎么落（判断点 2「先不变」之后的导入规则） | OpenSpec change `quote-import-studio-file`；校验 / 映射 / 16 行样例对照测试注册；报告 `docs/QINGYAN_QUOTE-1b_REPORT.md` | [ ] |
+| QUOTE-1b | 导入工具报价文件（`.sunny-quote.json`，格式 `sunny-quote-studio` v1）：浏览器内读文件、不上传原文件 → 校验 → 多方案选一套 → 核对窗（逐行对照文件金额 / 青砚金额 + 阻断 / 提醒清单）→ 填入详细订单 → 走现有保存与让利三档；行级折扣低于企业默认的保留到行上，其余差额累加进特别让利；`formDataJson.importSource` 留痕 + 审计 `quote_imported` | QUOTE-1a；褶皱率非 180 / 230 的行怎么落（判断点 2「先不变」之后的导入规则） | OpenSpec change `quote-import-studio-file`；校验 / 映射 / 16 行样例对照测试注册；报告 `docs/QINGYAN_QUOTE-1b_REPORT.md` | [G]（实施完成，PR #520 待审；校验 73 / 映射 118 / 对照 67 项测试已注册，16 行样例：文件 8224.50、青砚 8134.62、让利 29.38（第 12 行选 180）；九项走查中第 ⑨ 项用两份 toolcode 文件代替，**尚未用界面导出的真实文件验证**；报告 `docs/QINGYAN_QUOTE-1b_REPORT.md`） |
 
 ---
 

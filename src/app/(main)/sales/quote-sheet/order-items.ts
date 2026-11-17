@@ -11,6 +11,7 @@ import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 import { allowsManualSellingPrice, fullnessFromPercent } from "@/lib/blinds/pricing-engine";
 import {
   effectiveShadeValance,
+  lineDiscountOverride,
   shadeLinePricingFabric,
   shutterPricingFabric,
 } from "@/lib/blinds/order-form-pricing";
@@ -68,6 +69,8 @@ export function buildOrderFormItems({
     // 与页面预览同一个取值（order-form-pricing.ts）。
     const pricingFabric = shadeLinePricingFabric(l, effectiveShadeValance(l.valance, shadeValanceType));
     const manualOverride = allowsManualSellingPrice(l.product) ? parseFloat(l.manualPrice ?? "") : NaN;
+    // 行级折扣（QUOTE-1b，只来自导入）：随行提交，服务端不再套企业默认折扣
+    const lineDiscount = lineDiscountOverride(l.lineDiscountPct);
     items.push({
       product: l.product,
       fabric: pricingFabric,
@@ -80,6 +83,7 @@ export function buildOrderFormItems({
       sku: l.sku,
       // Allusion：手动成交单价覆盖随行上传，服务端用同一纯函数套用
       ...(Number.isFinite(manualOverride) && manualOverride > 0 ? { manualPrice: manualOverride } : {}),
+      ...(lineDiscount != null ? { discountOverridePct: lineDiscount } : {}),
     });
   }
 
@@ -116,6 +120,7 @@ export function buildOrderFormItems({
           location: l.location,
           sku: l.drapeFabricSku,
           ...(fullnessFromPercent(l.drapeFullness) != null ? { fullness: fullnessFromPercent(l.drapeFullness)! } : {}),
+          ...(lineDiscountOverride(l.drapeLineDiscountPct) != null ? { discountOverridePct: lineDiscountOverride(l.drapeLineDiscountPct)! } : {}),
         });
       }
     }
@@ -131,6 +136,7 @@ export function buildOrderFormItems({
           location: l.location,
           sku: l.sheerFabricSku,
           ...(fullnessFromPercent(l.sheerFullness) != null ? { fullness: fullnessFromPercent(l.sheerFullness)! } : {}),
+          ...(lineDiscountOverride(l.sheerLineDiscountPct) != null ? { discountOverridePct: lineDiscountOverride(l.sheerLineDiscountPct)! } : {}),
         });
       }
     }

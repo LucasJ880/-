@@ -18,6 +18,7 @@ import { loadPricingPolicy } from "@/lib/sales/pricing-policy";
 import { decideDiscountTier } from "@/lib/sales/discount-tier";
 import { parseAgreedPaymentFromFormDataJson } from "@/lib/sales/quote-agreed-payment";
 import { logAudit } from "@/lib/audit/logger";
+import { QUOTE_IMPORTED_AUDIT_ACTION, importAuditPayload, readImportSource } from "@/lib/sales/quote-import/audit";
 import { settleQuotePromotionApprovalAction } from "@/lib/pending-actions/quote-promotion-settle";
 
 export type QuoteUpdateBody = {
@@ -191,6 +192,14 @@ export async function commitQuoteUpdate(input: {
 }) {
   const { orgId, quoteId, existing, body, prepared, actor } = input;
   const { installMode, notes, orderNumber, formDataJson, totalMsrp, opportunityId } = body;
+  // QUOTE-1b：带导入留痕时先读保存前的表单数据，用来判断是不是同一次导入（同一次只写一条审计）
+  const importAudit =
+    formDataJson !== undefined && readImportSource(formDataJson)
+      ? importAuditPayload(
+          formDataJson,
+          (await db.salesQuote.findFirst({ where: { id: quoteId, orgId }, select: { formDataJson: true } }))?.formDataJson,
+        )
+      : null;
   const {
     quoteSettings,
     addonLines,
@@ -356,6 +365,18 @@ export async function commitQuoteUpdate(input: {
 
     return q;
   });
+
+  // QUOTE-1b：这次保存带来了一次新的导入（之前没有留痕，或不是同一次导入）→ 写一条审计
+  if (importAudit) {
+    await logAudit({
+      userId: actor.userId,
+      orgId,
+      action: QUOTE_IMPORTED_AUDIT_ACTION,
+      targetType: "sales_quote",
+      targetId: quoteId,
+      afterData: { ...importAudit },
+    });
+  }
 
   // 签名作废时清理旧的已签署 PDF 存档（失败不阻断）
   if (invalidateSignature && existing.signedPdfPath) {

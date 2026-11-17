@@ -26,6 +26,7 @@ import type {
   ShutterOrderLine,
   DrapeOrderLine,
   InstallMode,
+  QuoteImportSource,
 } from "./types";
 import { isManualPriceShadeProduct } from "@/lib/blinds/pricing-types";
 
@@ -94,6 +95,9 @@ export interface QuoteDraftV1 {
 
   /** 载入这份内容时的定价口径标记（QUOTE-1a）；旧草稿没有 → 视为 1 */
   orderPricingRev?: number;
+
+  /** 导入留痕（QUOTE-1b）；手工录入的草稿没有 */
+  importSource?: QuoteImportSource;
 }
 
 export function loadDraft(orgId?: string, userId?: string): QuoteDraftV1 | null {
