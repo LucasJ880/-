@@ -194,6 +194,15 @@ async function main() {
     expectedCalls[P11] = 0;
     ok(!r11.success && r11.decision === "deny" && (await proj(P11)).tenderStatus === "new", "同样的情形但没有人确认：照原来「不允许回退」", r11);
 
+    /* ---------- 8b. 带了发生时间或预期状态的调用（FLOW-H4a 的记录提交）：不补 ---------- */
+    const P12 = await mkProject();
+    const r12 = await advanceProjectStage({ projectId: P12, targetStage: "supplier_quote", reason: "fixture", source: "manual", actor, humanConfirmed: true, occurredAt: new Date(Date.now() - DAY) });
+    const P13 = await mkProject();
+    const r13 = await advanceProjectStage({ projectId: P13, targetStage: "supplier_quote", reason: "fixture", source: "manual", actor, humanConfirmed: true, expected: { status: "active", tenderStatus: "supplier_inquiry" } });
+    await sleep(200);
+    expectedCalls[P12] = 0; expectedCalls[P13] = 0;
+    ok(r12.decision === "no_op" && r13.decision === "no_op" && (await proj(P12)).tenderStatus === "supplier_inquiry" && (await proj(P13)).tenderStatus === "supplier_inquiry" && (await audits(P12)).length === 0 && (await audits(P13)).length === 0, "带了发生时间或预期状态的调用：照原来「无需重复推进」，不补状态、不发回调", { r12, r13 });
+
     /* ---------- 9. 回调总数 ---------- */
     await sleep(800);
     const mismatched = Object.entries(expectedCalls).filter(([pid, n]) => callsFor(pid).length !== n);
