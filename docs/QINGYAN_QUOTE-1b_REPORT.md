@@ -1,6 +1,6 @@
 # QUOTE-1b 报告 — 导入报价工具导出的文件（`.sunny-quote.json`）
 
-change：`openspec/changes/quote-import-studio-file/`。规格增量：新能力 `sales/quote-file-import`（16 条要求）、`sales/price-list` 新增 3 条；design D1–D13（D2 有「核对结果」）；tasks 8 / 8。
+change：`openspec/changes/archive/2026-11-17-quote-import-studio-file/`（PR #520，2026-11-17 合并；已归档）。规格增量：新能力 `sales/quote-file-import`（16 条要求）、`sales/price-list` 新增 3 条；design D1–D13（D2 有「核对结果」）；tasks 8 / 8。
 任务书：`docs/QINGYAN_QUOTE-1_QUOTE_FILE_IMPORT_TASKBRIEF.md`（What · QUOTE-1b）。拍板（TASKFLOW Phase Q，Lucas 2026-11-15）：Door Screen Sheer 继续套纱帘的企业折扣，导入后以青砚金额为准、差额只列提醒；详细订单的褶皱率仍只有 180 / 230，文件里不是这两档的行由销售在核对窗里选一档，选之前不能填入表单。
 零 schema：新数据只落 `formDataJson`（行上的 `pricingFabric` / `lineDiscountPct` / `drapeLineDiscountPct` / `sheerLineDiscountPct`、`importSource`）与 AuditLog（`quote_imported`）。不新增接口、路由、权限键；无出站、无 LLM、无新 cron / 队列；导入全程不上传文件。
 
@@ -180,3 +180,27 @@ change：`openspec/changes/quote-import-studio-file/`。规格增量：新能力
 - 核对生产的最低安装费、各品类折扣、让利上限（任务书「不确定处」）。核对窗读的是当时的企业设置，这些数值不影响代码。
 - 拿到界面导出的真实文件后各导一次（§8 第一条）。
 - 告知销售：导入后 Door Screen Sheer 行以青砚的低价为准；褶皱率不是 1.8 / 2.3 的行要在核对窗里选档。
+
+## 10. 交接（2026-11-17）
+
+状态：实现 PR #520 已合并，change 已归档（`openspec/changes/archive/2026-11-17-quote-import-studio-file/`）；主规格 `sales/quote-file-import`（16 条要求、45 个场景）与 `sales/price-list`（+3 条，共 32 条）已生效。TASKFLOW QUOTE-1b 为 `[x]`。没有进行中的 change，没有开着的 PR。
+
+接手的人按 `CLAUDE.md` 的顺序读完之后，这件事还剩下这些：
+
+| 事项 | 谁 | 说明 |
+|---|---|---|
+| 用界面导出的真实文件各导一次 | Lucas 提供文件；谁接手谁导 | **至今没有验证过。** 需要 2–3 份：一份多方案、一份带照片、一份带试装图或面料资料（`windowTrial` / `materials`）。导入时若被拒绝或某行被阻断，把文件结构与 design D2「核对结果」对一遍——那张表是照两份 toolcode 文件写的，界面才会产生的字段形状未知。要改校验就另起 change，样本脱敏后加进 `src/lib/sales/quote-import/__tests__/fixtures/` |
+| 核对生产的企业运费 | Lucas / Evan | 代码缺省 75，工具默认 50。若生产是 75，每份含安装的导入会多 25 的让利（核对窗的让利明细里单列「运费差」）。在驾驶舱「报价附加价格」里改，不用改代码 |
+| 核对生产的最低安装费、各品类折扣、让利上限 | Lucas / Evan | 核对窗读的是当时的企业设置；数值不影响代码 |
+| 告知销售 | Lucas | ① Door Screen Sheer 行导入后以青砚的低价为准（核对窗会提醒差额）；② 褶皱率不是 1.8 / 2.3 的行要在核对窗里逐行选 180 或 230，选完才能填入；③「填入表单」是替换不是追加 |
+| 没有测过的 | 谁接手谁测 | 35 MB 级文件在浏览器里的解析耗时；手机宽度下的核对窗；`npm run build` 下的页面（CI 的构建通过，没有在生产构建里点过） |
+
+本机复现走查：起一个本机 Postgres，`npx prisma migrate deploy`，然后按 `scripts/quote-1b-local-acceptance-seed.ts` 文件头的说明建夹具（只允许隔离库），`next dev` 起服务后在「报价 → 详细订单」点「导入报价文件」，选 `src/lib/sales/quote-import/__tests__/fixtures/` 下的文件。走查脚本本身没有入库，逐项读到的值在 `docs/acceptance/quote-1b/walkthrough.txt`。
+
+实施中发现、不属于本 change、没有处理的：
+
+- 粗报价工具页（`/sunny-quote.html`）在生产构建下会请求三个不存在的 CSV（`零售用.csv`、`FABRIC.csv`、`ADDONS.csv`）并一直挂着（做 `site-csp-baseline` 时看到，与内容安全策略无关，原因没有查）。
+- `src/app/api/product-content/upload/route.ts` 不限制上传的文件类型（`site-csp-baseline` design「发现」第 2 点）；文件代理的沙箱已挡住脚本执行，上传侧的类型限制还没补。
+- 行级折扣在服务端没有上限（任务书附录 B 把它放在 QUOTE-2）。
+
+后续队列（任务书附录 B，都还没有任务书）：QUOTE-2 原生快速报价、QUOTE-3 系列折扣、QUOTE-4 客户报价输出、QUOTE-5 多方案、QUOTE-6 窗户照片与试装。
