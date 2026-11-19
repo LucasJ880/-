@@ -21,15 +21,27 @@ const REASON_TEXT: Record<string, string> = {
   stale_run: "分析长时间没有进展",
   worker_failed: "分析过程中出错",
   empty_analysis: "模型调用全部失败，未产出有效分析",
+  // CHAIN-0c：AI 数字员工（workforce）Job 停下时带过来的错误码
+  model_failed: "分析多次尝试后仍未完成",
+  step_attempts_exhausted: "分析多次尝试后仍未完成",
+  external_timeout: "分析长时间没有进展",
+  stale_running_exhausted: "分析长时间没有进展",
+  tool_failed: "分析过程中出错",
+  needs_human: "分析卡住，需要处理",
+  workforce_failed: "分析过程中出错",
 };
 
 export function tenderFailureSummary(input: {
   projectName: string | null;
   errorCode: string | null;
   attemptCount: number;
+  /** CHAIN-0c：分析记录上写的「卡在第 N 步〈…〉：…」（确定性中文）；有就用它，替代按错误码查的那句 */
+  stopReason?: string | null;
 }): string {
   const reason =
-    (input.errorCode && REASON_TEXT[input.errorCode]) || "分析未能完成";
+    (input.stopReason && input.stopReason.startsWith("卡在第") ? input.stopReason : null) ||
+    (input.errorCode && REASON_TEXT[input.errorCode]) ||
+    "分析未能完成";
   const proj = input.projectName ? `「${input.projectName}」` : "该招标项目";
   // 包2：workforce 域 run 的 attemptCount 恒 0（重试在 Job 层）——不显示误导性次数
   const attempts =
@@ -65,6 +77,7 @@ export async function notifyTenderRunFailed(runId: string): Promise<void> {
         projectId: true,
         status: true,
         errorCode: true,
+        errorMessageSanitized: true,
         attemptCount: true,
         createdById: true,
         project: { select: { name: true, ownerId: true } },
@@ -84,6 +97,7 @@ export async function notifyTenderRunFailed(runId: string): Promise<void> {
       projectName: run.project?.name ?? null,
       errorCode: run.errorCode,
       attemptCount: run.attemptCount,
+      stopReason: run.errorMessageSanitized,
     });
 
     for (const userId of recipients) {

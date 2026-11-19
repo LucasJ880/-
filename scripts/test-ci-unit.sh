@@ -50,6 +50,7 @@ npx tsx src/lib/workforce-runtime/read-model/__tests__/projection-golden.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/service-read-only.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/api-access.test.ts
 npx tsx src/lib/workforce-runtime/read-model/__tests__/list-service.test.ts
+npx tsx src/lib/workforce-runtime/read-model/__tests__/stop-reason.test.ts
 npx tsx 'src/app/(main)/workforce/__tests__/operator-ux.test.ts'
 npx tsx src/lib/tender-workforce/__tests__/t1b-pure.test.ts
 npx tsx src/lib/workforce-runtime/__tests__/t5-plan-seam.test.ts
@@ -541,6 +542,7 @@ npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
 
+npx tsx src/lib/tender-workforce/__tests__/job-failure-surfacing.test.ts
 # 测试注册校验（fix-taskflow-status-drift）：只加进本 CI 子集、没注册进 scripts/test-all.sh 的测试文件直接让 CI 失败
 bash scripts/check-test-registry.sh
 

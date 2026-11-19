@@ -42,6 +42,7 @@ import {
 } from "./constants";
 import type { RuntimeExecutionBudget } from "@/lib/agent-runtime-v2/adapters";
 import { isWorkforceProcessingEnabled } from "./flags";
+import { onWorkforceJobStopped } from "./domain-hooks";
 
 export const WORKFORCE_LEASE_MS = 3 * 60_000;
 export const WORKFORCE_MAX_ATTEMPTS = 5;
@@ -196,11 +197,16 @@ export async function processWorkforceJobSlice(
   // BLOCKER 1：fence 传入 V2 执行路径——executor/verifier 的所有
   // AgentRun/AgentRunStep/AgentRunVerification 写入经原子防栅栏
   const fence = createRunFence(holder);
+  let result: WorkforceSliceResult;
   try {
-    return await runClaimedSlice();
+    result = await runClaimedSlice();
   } finally {
     heartbeat.stop();
   }
+  // CHAIN-0c：这次认领处理完之后，由钩子按**库里的** Job 状态判断是否停在 failed / needs_human 并做域收尾
+  // （执行器 / 验证器会自己写终态，内存里的 result 可能是 lost_lease，不能只信它）。钩子自身吞掉所有错误，不改 result。
+  await onWorkforceJobStopped({ runId });
+  return result;
 
   async function runClaimedSlice(): Promise<WorkforceSliceResult> {
 
@@ -749,6 +755,8 @@ export async function processQueuedWorkforceJobs(
         payload: { exhausted: true },
         visibleToUser: true,
       });
+      // CHAIN-0c：清扫写成 failed 的也要收尾（钩子只认确实停在 failed 的 Job，自身吞错）
+      await onWorkforceJobStopped({ runId: r.id });
     }
   }
 

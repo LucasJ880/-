@@ -135,6 +135,7 @@ run_test "Workforce 2B-1 Task/Handoff DB 集成" "npx tsx src/lib/workforce-runt
 run_test "Workforce 2B-1 审批×Handoff 回归" "npx tsx src/lib/workforce-runtime/__tests__/phase2b1-approval-handoff.test.ts"
 # 2D-1 Operator UX（列表服务 + 展示层，纯逻辑零 DB）
 run_test "Workforce 列表服务 L1-L9（2D-1）" "npx tsx src/lib/workforce-runtime/read-model/__tests__/list-service.test.ts"
+run_test "Workforce Read Model — 停在哪一步、为什么（CHAIN-0c）" "npx tsx src/lib/workforce-runtime/read-model/__tests__/stop-reason.test.ts"
 run_test "Workforce Operator UX D1-D10（2D-1）" "npx tsx 'src/app/(main)/workforce/__tests__/operator-ux.test.ts'"
 # P0 Runtime Execution Alignment（#88/#89/#90A）
 run_test "P0 Alignment 纯逻辑不变量（Catalog/HardFloor/Synthesis 契约）" "npx tsx src/lib/agent-runtime-v2/__tests__/p0-alignment-pure.test.ts"
@@ -146,6 +147,8 @@ run_test "Workforce 2B-2 Final Gate（Synthesis×Parallel/SECRET_X/P6b/预算）
 # Tender T1B — Workforce Integration
 run_test "Tender T1B 纯逻辑不变量（Scope/Flag/契约/状态隔离）" "npx tsx src/lib/tender-workforce/__tests__/t1b-pure.test.ts"
 run_test "Tender T1B Workforce 集成（触发/幂等/管线/隔离/取消）" "npx tsx src/lib/tender-workforce/__tests__/t1b-integration.test.ts"
+run_test "招投标 AI 分析 Job 停下时的原因与收尾接线（CHAIN-0c）" "npx tsx src/lib/tender-workforce/__tests__/job-failure-surfacing.test.ts"
+run_test "招投标 AI 分析 Job 停下后的收尾 DB 端到端（needs_human / failed / 清扫 / 幂等 / 项目卡片，隔离库执行，否则跳过，CHAIN-0c）" "NODE_ENV=test npx tsx src/lib/tender-workforce/__tests__/job-failure-surfacing-db.isolated.test.ts"
 run_test "记忆 org 隔离与 Session 摘要" "npx tsx src/lib/ai/__tests__/memory-org.test.ts"
 run_test "记忆 Supersede 时间线" "npx tsx src/lib/ai/__tests__/memory-supersede.test.ts"
 run_test "AgentPlan 结构化路由" "npx tsx src/lib/agent-runtime/__tests__/plan.test.ts"

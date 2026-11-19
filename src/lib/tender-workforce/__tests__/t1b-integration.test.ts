@@ -727,11 +727,13 @@ async function main(): Promise<void> {
           projectId: projectC,
           analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,
         },
-        select: { status: true },
+        select: { status: true, errorMessageSanitized: true },
       });
+      // CHAIN-0c：Job 停在 needs_human 时域 run 收尾为 AGENT_FAILED（不再停在「分析中」），仍绝不假 REVIEW_REQUIRED
       ok(
-        domainC?.status === TENDER_AGENT_RUN_STATUS.running,
-        "T1B-11: 域 run 停留 AGENT_ANALYZING（绝不假 REVIEW_REQUIRED）",
+        domainC?.status === TENDER_AGENT_RUN_STATUS.failed &&
+          (domainC.errorMessageSanitized ?? "").startsWith("卡在第"),
+        "T1B-11: 域 run 收尾为 AGENT_FAILED 并写明卡在哪一步（绝不假 REVIEW_REQUIRED；CHAIN-0c）",
       );
       installRiskStub();
     }

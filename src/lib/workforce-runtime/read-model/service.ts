@@ -60,6 +60,7 @@ export type WorkforceReadModelReader = {
         stepKey: true;
         title: true;
         status: true;
+        errorCode: true;
         inputJson: true;
         startedAt: true;
         completedAt: true;
@@ -175,6 +176,8 @@ export async function getWorkforceJobView(
         stepKey: true,
         title: true,
         status: true,
+        // CHAIN-0c：停止原因查表用（errorMessage 刻意不选）
+        errorCode: true,
         inputJson: true,
         startedAt: true,
         completedAt: true,
