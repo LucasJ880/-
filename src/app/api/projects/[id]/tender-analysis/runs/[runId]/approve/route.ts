@@ -7,6 +7,7 @@ import {
 } from "@/lib/tender-auto-analysis/api-access";
 import { approveAnalysisRun } from "@/lib/tender-auto-analysis/review";
 import { maybeAutoDraftRfq } from "@/lib/tender-rfq/auto-draft-service";
+import { maybeAutoSupplierRun } from "@/lib/tender-intel/auto-supplier-run";
 
 /**
  * POST — REVIEW_REQUIRED → APPROVED（需项目写权限）
@@ -50,6 +51,8 @@ export async function POST(
   }
 
   // RFQ-AUTO-2：要求都审完了就替人起草第 1 轮询价的待批卡（开关关闭 → null，响应里不带这个字段；重复批准不触发）
+  // CHAIN-2：先建供应商候选池（开关关闭 → 立即返回；出错只记日志，不影响批准与后面的自动起草；重复批准不触发）
+  if (!result.idempotent) await maybeAutoSupplierRun({ orgId, projectId, runId: result.runId, userId: access.user.id });
   const rfqAutoDraft = result.idempotent
     ? null
     : await maybeAutoDraftRfq({ orgId, projectId, runId: result.runId, userId: access.user.id, trigger: "approve_run" });

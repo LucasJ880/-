@@ -14,6 +14,7 @@ import { ProjectOrgRulesCard } from "@/components/project-org-rules/project-org-
 import type { ProjectContextTarget } from "@/components/project-detail/project-context-panel";
 import type { ProjectDetail } from "@/components/project-detail/project-detail-types";
 import { OrgAwardIntelSlots } from "@/components/tender-intel/org-award-intel-slots";
+import { SourcingSuggestionsCard } from "@/components/tender-intel/sourcing-suggestions-card";
 import { TenderWatchCard } from "@/components/tender-intel/tender-watch-card";
 import { TenderProcurementCard } from "@/components/procurement-records/tender-procurement-card";
 
@@ -90,6 +91,9 @@ export function IntelTab({
 
       {/* PROC-1：历史采购与资料申请（只读；暗合并闸关时不渲染） */}
       <TenderProcurementCard projectId={projectId} />
+
+      {/* CHAIN-2：寻源建议（推荐型号 + 价格对照三栏；开关关闭时接口 404、卡不显示） */}
+      <SourcingSuggestionsCard projectId={projectId} />
 
       {/* 企业历史情报：七槽位接 T4 组织级授标情报投影（情报阶段1） */}
       <OrgAwardIntelSlots

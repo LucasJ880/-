@@ -8,6 +8,7 @@
  */
 
 import { rfqAttachmentAutoDraftFailedZh } from "./attachment-view";
+import { intelRecipientsNoteZh } from "./intel-recipients";
 import type { SupplierGroupMatch } from "./supplier-groups";
 import type { EntryAction, EntryBlockReason } from "./web-entry-pure";
 import { identityLeakMessageZh, type IdentityHit } from "@/lib/bid-workflow/project-identity-messages";
@@ -151,11 +152,29 @@ export const autoDraftRoundHref = (projectId: string, inquiryId: string) => `${b
 export type AutoDraftGroupSource = { groupName: string; keyword: string };
 const groupSourceZh = (g: AutoDraftGroupSource) => `分组「${g.groupName}」（项目名称里有「${g.keyword}」）`;
 
-export function autoDraftDone(input: { projectId: string; inquiryId: string; roundNumber: number; supplierCount: number; skippedCount: number; unconfirmedCount: number; withFollowUp?: boolean; group?: AutoDraftGroupSource | null }): RfqAutoDraftResult {
+export function autoDraftDone(input: {
+  projectId: string;
+  inquiryId: string;
+  roundNumber: number;
+  supplierCount: number;
+  skippedCount: number;
+  unconfirmedCount: number;
+  withFollowUp?: boolean;
+  group?: AutoDraftGroupSource | null;
+  /** CHAIN-2：并入的供应商情报推荐（名称，按名次）；没有并入时不传或空 */
+  intelSupplierNames?: readonly string[];
+}): RfqAutoDraftResult {
   // RFQ-AUTO-3：卡上带跟进授权时在这里就说清楚——批准它不只是批准首封
   const followUp = input.withFollowUp ? "这张卡带自动跟进授权：批准它会一并批准后面的催单和追问。" : "";
   const skipped = input.skippedCount > 0 ? `（${input.group ? "这一组" : "常用供应商"}里有 ${input.skippedCount} 家停用、没有邮箱或超出上限，已跳过）` : "";
-  const who = input.group ? `${input.supplierCount} 家供应商，取自${groupSourceZh(input.group)}` : `${input.supplierCount} 家常用供应商`;
+  const intel = input.intelSupplierNames ?? [];
+  const ownCount = input.supplierCount - intel.length;
+  const ownSource = input.group ? groupSourceZh(input.group) : "常用供应商";
+  const who = intel.length
+    ? `${input.supplierCount} 家供应商（${ownCount > 0 ? `${ownCount} 家取自${ownSource}，` : ""}${intelRecipientsNoteZh(intel)}）`
+    : input.group
+      ? `${input.supplierCount} 家供应商，取自${groupSourceZh(input.group)}`
+      : `${input.supplierCount} 家常用供应商`;
   // 批准分析即视为审核完成：询价单只带已确认的要求，没确认的不带——这里说清楚有几条没带上
   const unconfirmed = input.unconfirmedCount > 0 ? `询价单只带已确认的要求，另有 ${input.unconfirmedCount} 条没有确认的没带上。` : "";
   return {
@@ -235,10 +254,17 @@ export const AUTO_DRAFT_TITLE_PREFIX = "自动起草：";
 /** 摘要里那一行的固定开头：轮次列表靠它把这一行从卡的摘要里取出来，显示在原地审批处 */
 export const AUTO_DRAFT_PREVIEW_PREFIX = "系统在招标分析批准后自动起草";
 export const AUTO_DRAFT_NOTE_FALLBACK = "系统在招标分析批准后自动起草，供应商取自操作者的常用供应商。请核对收件人与正文后再批准。";
-export function autoDraftPreviewLineZh(userName: string, counts: { confirmedCount: number; unconfirmedCount: number }, group?: AutoDraftGroupSource | null): string {
+export function autoDraftPreviewLineZh(
+  userName: string,
+  counts: { confirmedCount: number; unconfirmedCount: number },
+  group?: AutoDraftGroupSource | null,
+  /** CHAIN-2：并入的供应商情报推荐（名称）；没有时输出与本功能之前相同 */
+  intelSupplierNames?: readonly string[] | null,
+): string {
   const unconfirmed = counts.unconfirmedCount > 0 ? `，另有 ${counts.unconfirmedCount} 条没有确认的没带上` : "";
   const source = group ? groupSourceZh(group) : "常用供应商";
-  return `${AUTO_DRAFT_PREVIEW_PREFIX}；供应商取自 ${userName || "操作者"} 的${source}；询价单带了 ${counts.confirmedCount} 条已确认的要求${unconfirmed}。请核对收件人与正文后再批准。`;
+  const intel = intelSupplierNames?.length ? `；${intelRecipientsNoteZh(intelSupplierNames)}` : "";
+  return `${AUTO_DRAFT_PREVIEW_PREFIX}；供应商取自 ${userName || "操作者"} 的${source}${intel}；询价单带了 ${counts.confirmedCount} 条已确认的要求${unconfirmed}。请核对收件人与正文后再批准。`;
 }
 
 /**

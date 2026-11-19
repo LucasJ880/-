@@ -30,6 +30,9 @@ import { prepareRfqRound } from "./service";
 import { findGroup, matchSupplierGroup, type SupplierGroupMatch } from "./supplier-groups";
 import { loadActiveSupplierGroups } from "./supplier-groups-service";
 import { loadRfqWebEntry } from "./web-entry";
+import { isSupplierIntelEnabledForOrg } from "@/lib/supplier-intel/flags";
+import { isRfqIntelRecipientsEnabledForOrg } from "./intel-recipients-flags";
+import { intelRecommendedSupplierIds, mergeIntelRecipients } from "./intel-recipients";
 
 export type MaybeAutoDraftInput = {
   orgId: string;
@@ -101,13 +104,17 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     ? await db.supplier.findMany({ where: { orgId: input.orgId, id: { in: listIds } }, select: { id: true, name: true, contactEmail: true, status: true } })
     : [];
   const { picked, skipped } = pickAutoDraftSuppliers(listIds, supplierRows);
+  // CHAIN-2（判断点 4 B）：情报推荐开关打开时，在操作者名单之后并入本项目推荐排名里的供应商（开关关闭 → null，与之前相同）
+  const intel = await loadIntelRecipients({ orgId: input.orgId, userId: input.userId, projectId: input.projectId, picked, hasGroups, groupMatch });
+  const recipients = intel ? intel.merged : picked;
+  const intelNames = intel ? intel.intelAdded.map((x) => x.name) : [];
 
   const decision = decideAutoDraft({
     flagEnabled: true,
     run: runFacts,
     roundCount,
     entryBlock: entry.state.enabled ? null : entry.state.reason,
-    pickedSupplierCount: picked.length,
+    pickedSupplierCount: recipients.length,
     groupMatch,
   });
   if (!decision.draft) {
@@ -127,10 +134,11 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     orgId: input.orgId,
     userId: input.userId,
     source: "auto",
-    supplierIds: picked.map((p) => p.id),
+    supplierIds: recipients.map((p) => p.id),
     onlyIfFirstRound: true,
     ...(followUpOptIn ? { autoFollowUp: true } : {}),
     ...(group ? { autoDraftGroup: group } : {}),
+    ...(intelNames.length ? { autoDraftIntelSuppliers: intelNames } : {}),
     now: input.now,
   });
   if (!prepared.ok) {
@@ -148,7 +156,7 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     action: AUTO_DRAFT_AUDIT_ACTION,
     targetType: AUDIT_TARGET,
     targetId: prepared.inquiryId,
-    afterData: auditData({ input, actionId: prepared.actionId, roundNumber: prepared.roundNumber, suppliers: prepared.suppliers, skipped, unconfirmedCount, withFollowUp: !!prepared.followUpPolicy, group, groupsVersion: group ? storedGroups.version : null }),
+    afterData: auditData({ input, actionId: prepared.actionId, roundNumber: prepared.roundNumber, suppliers: prepared.suppliers, skipped, unconfirmedCount, withFollowUp: !!prepared.followUpPolicy, group, groupsVersion: group ? storedGroups.version : null, intelSupplierIds: intel ? intel.intelAdded.map((x) => x.id) : [] }),
   });
 
   return autoDraftDone({
@@ -161,7 +169,37 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     // 以卡上实际写了什么为准（而不是开关的值）
     withFollowUp: !!prepared.followUpPolicy,
     group,
+    ...(intelNames.length ? { intelSupplierNames: intelNames } : {}),
   });
+}
+
+/**
+ * CHAIN-2：本项目推荐排名里主选 / 备选、强制闸通过、在用有邮箱的供应商，补在操作者名单之后（合计 ≤ 8）。
+ * 开关关闭、供应商情报关闭、有分组但确定不了用哪一组（照旧不起草）、没有可并入的、取数出错 → null（与之前相同）。
+ */
+async function loadIntelRecipients(a: {
+  orgId: string;
+  userId: string;
+  projectId: string;
+  picked: Array<{ id: string; name: string }>;
+  hasGroups: boolean;
+  groupMatch: SupplierGroupMatch | null;
+}): Promise<{ merged: Array<{ id: string; name: string }>; intelAdded: Array<{ id: string; name: string }> } | null> {
+  if (!isRfqIntelRecipientsEnabledForOrg(a.orgId) || !isSupplierIntelEnabledForOrg(a.orgId)) return null;
+  if (a.hasGroups && a.groupMatch?.kind !== "one") return null;
+  try {
+    const { loadProjectSupplierRanking } = await import("@/lib/supplier-intel/project-supplier-ranking");
+    const view = await loadProjectSupplierRanking({ orgId: a.orgId, userId: a.userId }, a.projectId);
+    const ids = intelRecommendedSupplierIds(view.ranked);
+    if (!ids.length) return null;
+    const rows = await db.supplier.findMany({ where: { orgId: a.orgId, id: { in: ids } }, select: { id: true, name: true, contactEmail: true, status: true } });
+    const ordered = ids.map((id) => rows.find((r) => r.id === id)).filter((r): r is (typeof rows)[number] => !!r);
+    const res = mergeIntelRecipients({ picked: a.picked, intelOrdered: ordered });
+    return res.intelAdded.length ? res : null;
+  } catch (err) {
+    console.warn("[rfq-auto-draft] intel recipients skipped:", err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200));
+    return null;
+  }
 }
 
 function auditData(a: {
@@ -174,6 +212,8 @@ function auditData(a: {
   withFollowUp: boolean;
   group: { groupName: string; keyword: string } | null;
   groupsVersion: string | null;
+  /** CHAIN-2：并入的供应商情报推荐 */
+  intelSupplierIds: string[];
 }) {
   return {
     // 这一轮不是人在抽屉里发起的：是人的审核动作触发、系统按他的常用供应商起草的
@@ -191,5 +231,7 @@ function auditData(a: {
     unconfirmedRequirementCount: a.unconfirmedCount,
     // 这张卡带不带跟进授权（带 = 触发起草的人事先开启了个人开关）
     withFollowUpAuthorization: a.withFollowUp,
+    // CHAIN-2：并入的供应商情报推荐（没有并入时不写这个键）
+    ...(a.intelSupplierIds.length ? { intelRecommendedSupplierIds: a.intelSupplierIds } : {}),
   };
 }

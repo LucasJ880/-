@@ -69,6 +69,8 @@ export type PrepareRfqInput = {
    * 只写进审批卡摘要里那一句给内部人看的说明——不进询价单、不进邮件。
    */
   autoDraftGroup?: { groupName: string; keyword: string } | null;
+  /** CHAIN-2：自动起草并入的供应商情报推荐（名称）；只写进审批卡摘要那一句，不进询价单、不进邮件 */
+  autoDraftIntelSuppliers?: string[] | null;
   now?: Date;
 };
 
@@ -304,7 +306,7 @@ async function draftRoundCard(input: PrepareRfqInput, c: DraftRoundContext): Pro
       ? autoDraftPreviewLineZh((await db.user.findUnique({ where: { id: input.userId }, select: { name: true } }))?.name ?? "", {
           confirmedCount: doc.lineItems.length,
           unconfirmedCount: requirements.filter((r) => r.reviewStatus === "AI_EXTRACTED").length,
-        }, input.autoDraftGroup ?? null)
+        }, input.autoDraftGroup ?? null, input.autoDraftIntelSuppliers ?? null)
       : null;
 
   const payload: TenderSendRfqPayload = {

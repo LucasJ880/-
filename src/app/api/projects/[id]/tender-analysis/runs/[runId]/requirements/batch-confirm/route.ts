@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit/logger";
 import { BATCH_CONFIRM_AUDIT_ACTION, BATCH_CONFIRM_LIMIT } from "@/lib/tender-auto-analysis/requirement-batch-confirm";
 import { batchConfirmRequirements } from "@/lib/tender-auto-analysis/review";
 import { maybeAutoDraftRfq } from "@/lib/tender-rfq/auto-draft-service";
+import { maybeAutoSupplierRun } from "@/lib/tender-intel/auto-supplier-run";
 
 /**
  * POST body: { requirementIds: string[], onlyWhileInReview?: boolean }
@@ -70,6 +71,8 @@ export async function POST(
   });
 
   // RFQ-AUTO-2：这一批确认完如果要求都审完了，替人起草第 1 轮询价的待批卡
+  // CHAIN-2：分析已批准且还没有候选池时先建（开关关闭 → 立即返回；出错只记日志）
+  await maybeAutoSupplierRun({ orgId, projectId, runId, userId: access.user.id });
   const rfqAutoDraft = await maybeAutoDraftRfq({ orgId, projectId, runId, userId: access.user.id, trigger: "batch_confirm" });
   return NextResponse.json({
     ok: true,
