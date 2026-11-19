@@ -48,8 +48,8 @@
 | 测试 | 开工前 | 结束 |
 |---|---|---|
 | `tender-rfq/__tests__/auto-draft-pure.test.ts` | 68 | 68（不改期望） |
-| 隔离库 `auto-draft-db` | 75 / 76 | 待全量结果 |
-| 隔离库 `supplier-groups-db` | 全过 | 待全量结果 |
+| 隔离库 `auto-draft-db` | 75 / 76 | 75 / 76（不改期望；失败那 1 项「关闭之前已批准的那一轮……照常自动发第 2 次催单」是既有失败，main 上同样） |
+| 隔离库 `supplier-groups-db` | 53 / 53 | 53 / 53（不改期望） |
 | `sourcing-suggestions.test.ts`（新） | — | 55 |
 | `intel-recipients.test.ts`（新） | — | 14 |
 | 隔离库 `sourcing-suggestions-db`（新） | — | 36 |
@@ -58,8 +58,8 @@
 
 | 项 | 结果 |
 |---|---|
-| `npm test`（本机，带隔离库） | 待全量结果 |
-| `npm run test:ci` | 待结果 |
+| `npm test`（本机，带隔离库，第二轮修复之后） | `699/710 通过, 11 失败`，11 项全是既有失败：来信观察 DB、Mention Gateway M2-A Identity DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB（75 / 76）——与 CHAIN-4a / 4b / 0c 报告同一批 |
+| `npm run test:ci` | PASS（注册校验：已注册 677 个，历史欠账 66 条） |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（无新增指纹）；改动文件 `eslint` 零告警 |
 | `openspec validate tender-auto-supplier-run --strict` | valid |
