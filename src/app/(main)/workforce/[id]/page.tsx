@@ -265,6 +265,7 @@ function JobDetail({
       />
 
       {job.needsYou ? <NeedsYouCard job={job} /> : null}
+      {job.status === "FAILED" ? <StoppedCard job={job} /> : null}
 
       {/* 桌面双栏：主内容 + 时间线侧栏；移动端自动叠为单列 */}
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -337,6 +338,18 @@ function NeedsYouCard({ job }: { job: WorkforceJobViewModel }) {
           </Link>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/** CHAIN-0c：失败的 Job 写明停在哪一步、为什么；算不出就写「系统未记录原因」，不留空白 */
+function StoppedCard({ job }: { job: WorkforceJobViewModel }) {
+  return (
+    <div className="mt-4 rounded-xl border border-danger/30 bg-danger-bg p-4" data-testid="workforce-stopped-card">
+      <p className="text-sm font-semibold text-foreground">任务未能完成</p>
+      <p className="mt-1 break-words text-[13px] leading-relaxed text-foreground/80">
+        {job.stopReason?.sentenceZh ?? "系统未记录原因"}
+      </p>
     </div>
   );
 }

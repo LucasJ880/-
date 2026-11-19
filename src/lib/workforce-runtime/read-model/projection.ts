@@ -15,6 +15,7 @@
  */
 
 import { readWorkforceTaskSpec } from "../task-contract";
+import { projectStopReason, stopReasonSentenceZh, STOP_REASON_UNRECORDED_ZH } from "./stop-reason";
 import type {
   WorkforceBusinessRef,
   WorkforceBusinessRefType,
@@ -596,8 +597,24 @@ export function buildWorkforceJobViewModel(input: {
   if (run.startedAt) view.startedAt = iso(run.startedAt);
   if (run.completedAt) view.completedAt = iso(run.completedAt);
 
+  // CHAIN-0c：停在哪一步、为什么（只看步骤标题 / 顺序 / 错误码，不读错误原文）
+  if (run.status === "failed" || run.status === "needs_human") {
+    const reason = projectStopReason(
+      orderedSteps.map((s) => ({ title: s.title, status: s.status, errorCode: s.errorCode ?? null })),
+      { status: run.status, errorCode: run.errorCode },
+    );
+    if (reason) view.stopReason = { ...reason, sentenceZh: stopReasonSentenceZh(reason) };
+  }
+
   const needsYou = projectNeedsYou(run, events, pendingActions);
-  if (needsYou) view.needsYou = needsYou;
+  if (needsYou) {
+    // 「需要人工处理」却没有任何结构化说明时，用停在哪一步兜底；连步骤都没有就写「系统未记录原因」
+    // 只给泛泛的「需要人工处理 / 未知」两类兜底；澄清、权限等类型的标题本身已说清楚，detail 保持结构化来源
+    if (!needsYou.detail && run.status === "needs_human" && (needsYou.type === "CONFLICT_REQUIRES_HUMAN" || needsYou.type === "UNKNOWN_HUMAN_INTERVENTION")) {
+      needsYou.detail = view.stopReason?.sentenceZh ?? STOP_REASON_UNRECORDED_ZH;
+    }
+    view.needsYou = needsYou;
+  }
 
   const finalSummary = projectFinalSummary(events);
   if (finalSummary) view.finalSummary = finalSummary;

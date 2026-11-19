@@ -42,6 +42,7 @@ import {
 } from "./constants";
 import type { RuntimeExecutionBudget } from "@/lib/agent-runtime-v2/adapters";
 import { isWorkforceProcessingEnabled } from "./flags";
+import { onWorkforceJobStopped } from "./domain-hooks";
 
 export const WORKFORCE_LEASE_MS = 3 * 60_000;
 export const WORKFORCE_MAX_ATTEMPTS = 5;
@@ -197,7 +198,13 @@ export async function processWorkforceJobSlice(
   // AgentRun/AgentRunStep/AgentRunVerification 写入经原子防栅栏
   const fence = createRunFence(holder);
   try {
-    return await runClaimedSlice();
+    const result = await runClaimedSlice();
+    // CHAIN-0c：Job 这一次确实停在 failed / needs_human（写入成功、没丢租约）→ 域收尾
+    // （招投标：把项目上的分析记录收尾为「AI 分析未完成」并通知）。钩子自身吞掉所有错误，不改 result。
+    if (result.claimed && !result.lostLease && (result.status === "failed" || result.status === "needs_human")) {
+      await onWorkforceJobStopped({ runId });
+    }
+    return result;
   } finally {
     heartbeat.stop();
   }
@@ -749,6 +756,8 @@ export async function processQueuedWorkforceJobs(
         payload: { exhausted: true },
         visibleToUser: true,
       });
+      // CHAIN-0c：清扫写成 failed 的也要收尾（钩子只认确实停在 failed 的 Job，自身吞错）
+      await onWorkforceJobStopped({ runId: r.id });
     }
   }
 

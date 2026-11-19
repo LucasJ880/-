@@ -289,6 +289,8 @@ export type TenderAnalysisAgentStatus = {
     status: string;
     summaryText: string | null;
     completedAt: string | null;
+    /** CHAIN-0c：分析未完成时写下的原因（「卡在第 N 步〈…〉：…」，确定性中文）；用户主动取消的不给 */
+    failureReason?: string;
   } | null;
 };
 
@@ -340,8 +342,14 @@ export async function getTenderWorkforceAnalysisStatus(input: {
       status: true,
       summaryText: true,
       completedAt: true,
+      errorCode: true,
+      errorMessageSanitized: true,
     },
   });
+  const failureReason =
+    latestRun?.status === TENDER_AGENT_RUN_STATUS.failed && latestRun.errorCode !== "cancelled" && latestRun.errorMessageSanitized?.trim()
+      ? latestRun.errorMessageSanitized.trim()
+      : null;
 
   return {
     enabled,
@@ -352,6 +360,7 @@ export async function getTenderWorkforceAnalysisStatus(input: {
           status: latestRun.status,
           summaryText: latestRun.summaryText,
           completedAt: latestRun.completedAt?.toISOString() ?? null,
+          ...(failureReason ? { failureReason } : {}),
         }
       : null,
   };

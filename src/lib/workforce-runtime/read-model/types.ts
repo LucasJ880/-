@@ -155,6 +155,11 @@ export type WorkforceJobViewModel = {
   /** 全部任务（plan 顺序） */
   tasks: WorkforceTaskView[];
   needsYou?: WorkforceNeedsYouView;
+  /**
+   * CHAIN-0c：Job 失败或需要人工处理时停在哪一步、为什么（步骤标题 + 顺序 + 错误码查表，
+   * 不读任何错误原文）。算不出（没有步骤）时不出现，界面写「系统未记录原因」。
+   */
+  stopReason?: { stepIndex: number; stepTitle: string; reasonZh: string; sentenceZh: string };
   /** 用户层 timeline（visibleToUser ∩ 事件白名单，sequence ASC） */
   timeline: WorkforceTimelineItem[];
   businessRefs?: WorkforceBusinessRef[];
@@ -236,6 +241,8 @@ export type WorkforceStepSnapshot = {
   stepKey: string;
   title: string;
   status: string;
+  /** CHAIN-0c：只用于停止原因查表（错误码 → 中文），永不透出；errorMessage 不进读模型 */
+  errorCode?: string | null;
   inputJson: unknown;
   startedAt: Date | null;
   completedAt: Date | null;

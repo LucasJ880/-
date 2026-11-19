@@ -46,6 +46,8 @@ type AgentStatusPayload = {
     status: string;
     summaryText: string | null;
     completedAt: string | null;
+    /** CHAIN-0c：分析未完成时的原因 */
+    failureReason?: string;
   } | null;
 };
 
@@ -202,6 +204,12 @@ export function TenderAnalysisAgentCard({ projectId, onAnalysisFinished }: Props
           {job?.status === "NEEDS_YOU" && job.needsYou?.detail ? (
             <div className="mt-1 text-xs text-muted-foreground">
               {job.needsYou.detail}
+            </div>
+          ) : null}
+          {/* CHAIN-0c：分析未完成时写明卡在哪一步、为什么；按钮仍是右边的「重新分析」 */}
+          {run?.status === "AGENT_FAILED" && job?.status !== "WORKING" && job?.status !== "QUEUED" ? (
+            <div className="mt-1 text-xs text-muted-foreground" data-testid="tender-analysis-failure-reason">
+              {run.failureReason ?? "系统未记录原因"}
             </div>
           ) : null}
           {job?.status === "COMPLETED" && job.finalSummary ? (
