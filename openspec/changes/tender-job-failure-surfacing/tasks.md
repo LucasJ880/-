@@ -15,8 +15,8 @@
 ## 3. 端到端与收尾
 
 - [x] 3.1 新增隔离库 `src/lib/tender-workforce/__tests__/job-failure-surfacing-db.isolated.test.ts`（needs_human 与 failed 两条路径、两人各一条通知、审计一条、重放不重复、非招投标不触发、已待审阅不改、清扫路径、项目卡片接口带原因）并注册；verify：本机隔离库全部通过
-- [ ] 3.2 全量门禁：`npm test`（与 main 对照失败名单）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`openspec validate tender-job-failure-surfacing --strict`；`git diff --stat main -- prisma/ vercel.json` 为空；verify：输出写进报告
-- [ ] 3.3 写 `docs/QINGYAN_CHAIN-0c_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` CHAIN-0c 状态列；verify：两个文件在 PR diff 里
+- [x] 3.2 全量门禁：`npm test`（与 main 对照失败名单）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`openspec validate tender-job-failure-surfacing --strict`；`git diff --stat main -- prisma/ vercel.json` 为空；verify：输出写进报告
+- [x] 3.3 写 `docs/QINGYAN_CHAIN-0c_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` CHAIN-0c 状态列；verify：两个文件在 PR diff 里
 
 ## Workflow follow-up
 

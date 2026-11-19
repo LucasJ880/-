@@ -135,8 +135,20 @@ async function main() {
     // —— 5. 非招投标 Job 不触发 ——
     const j5 = await mkJob(null, { tender: false });
     await db.agentRun.update({ where: { id: j5 }, data: { status: "failed" } });
+    const n5Before = await db.notification.count({ where: { orgId: ORG, type: "runtime_failed" } });
     await onWorkforceJobStopped({ runId: j5 });
-    ok((await auditsOf(j5)) === 0, "非招投标（general 域）Job 失败：没有审计");
+    const n5 = (await db.notification.count({ where: { orgId: ORG, type: "runtime_failed" } })) - n5Before;
+    ok((await auditsOf(j5)) === 0 && n5 === 0, "非招投标（general 域）Job 失败：没有审计、没有招投标失败通知");
+
+    // —— 5b. 发起人为空：审计主体用项目负责人 ——
+    const p5 = await mkProject();
+    const j5b = await mkJob(p5);
+    const r5b = await mkRun(p5, j5b);
+    await db.tenderAnalysisRun.update({ where: { id: r5b.id }, data: { createdById: null } });
+    await db.agentRun.update({ where: { id: j5b }, data: { status: "failed" } });
+    await onWorkforceJobStopped({ runId: j5b });
+    const a5b = await db.auditLog.findFirst({ where: { orgId: ORG, action: TENDER_JOB_FAILED_SURFACED_AUDIT_ACTION, targetId: j5b }, select: { userId: true } });
+    ok((await runOf(r5b.id)).status === "AGENT_FAILED" && a5b?.userId === LEAD, "发起人为空：照样收尾，审计记在项目负责人名下", a5b);
 
     // —— 6. 清扫：租约过期且重试耗尽 → failed → 收尾 ——
     const p6 = await mkProject();

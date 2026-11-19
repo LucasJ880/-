@@ -12,8 +12,10 @@ import { db } from "@/lib/db";
 
 export async function onWorkforceJobStopped(input: { runId: string }): Promise<void> {
   try {
-    const run = await db.agentRun.findUnique({ where: { id: input.runId }, select: { metadata: true } });
-    const meta = (run?.metadata && typeof run.metadata === "object" ? run.metadata : {}) as Record<string, unknown>;
+    // 以库里的状态为准：只有确实停在 failed / needs_human 的才收尾（其余一次查询即返回）
+    const run = await db.agentRun.findUnique({ where: { id: input.runId }, select: { status: true, metadata: true } });
+    if (!run || (run.status !== "failed" && run.status !== "needs_human")) return;
+    const meta = (run.metadata && typeof run.metadata === "object" ? run.metadata : {}) as Record<string, unknown>;
     if (meta.workDomain === "tender") {
       const { surfaceTenderJobStopped } = await import("@/lib/tender-workforce/job-failure-surfacing");
       await surfaceTenderJobStopped(input.runId);

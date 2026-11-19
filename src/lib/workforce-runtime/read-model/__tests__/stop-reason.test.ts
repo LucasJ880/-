@@ -47,6 +47,8 @@ console.log("stop-reason");
   const noFail = findStoppedStep([step(1, "校验输入", "completed"), step(2, "解析投标文件", "running")]);
   ok(!!noFail && noFail[0] === 2, "没有失败的 → 第一个没完成的");
   ok(findStoppedStep([]) === null, "没有步骤 → null");
+  const done = projectStopReason([step(1, "校验输入", "completed"), step(2, "汇总", "completed")], { status: "needs_human", errorCode: "verification_failed" });
+  ok(done?.stepIndex === 2 && done.reasonZh === "结果没有通过校验", "每一步都完成 → 算在最后一步、原因取 Job 错误码", done);
   ok(stopReasonFromCodes({ stepErrorCode: "tool_failed", jobErrorCode: "model_failed", jobStatus: "failed" }) === "工具执行失败", "步骤错误码优先");
   ok(stopReasonFromCodes({ stepErrorCode: null, jobErrorCode: "external_timeout", jobStatus: "failed" }) === "长时间没有进展", "其次 Job 错误码");
   ok(stopReasonFromCodes({ stepErrorCode: "weird_code", jobErrorCode: null, jobStatus: "failed" }) === "执行出错", "不认识 → 执行出错（不显示原码）");

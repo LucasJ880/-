@@ -28,11 +28,17 @@ console.log("job-failure-surfacing");
   ok(empty === "卡在第 3 步〈Canonical V2 包级分析〉：模型调用全部失败，未产出有效分析", "已知标记 ANALYSIS_EMPTY → 固定中文", empty);
   ok(!empty.includes("ANALYSIS_EMPTY") && !empty.includes("12/12"), "不复述原始错误文本");
 
-  const limited = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "OpenAI error 429: Rate limit reached")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
+  const limited = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "OpenAI error status 429: Rate limit reached")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
   ok(limited.endsWith("：模型调用被限流"), "429 / rate limit → 模型调用被限流", limited);
   const timeout = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "request timed out after 180000ms")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
   ok(timeout.endsWith("：单次调用超时"), "timed out → 单次调用超时", timeout);
 
+  const page429 = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "第 429 页解析失败；Transaction already closed: timeout expired")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
+  ok(page429.endsWith("：工具执行失败"), "「第 429 页」「Transaction … timeout」不误认为限流 / 超时", page429);
+  const jobLevel = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "boom")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: "ANALYSIS_EMPTY: 来自 Job 层" });
+  ok(jobLevel.endsWith("：工具执行失败"), "只认停住那一步自己的错误文本，不认 Job 层的", jobLevel);
+  const allDone = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "completed")], jobStatus: "needs_human", jobErrorCode: "verification_failed", jobErrorMessage: null });
+  ok(allDone === "卡在第 3 步〈Canonical V2 包级分析〉：结果没有通过校验", "每一步都完成（验证器最后判 needs_human）→ 算在最后一步、原因取 Job 错误码", allDone);
   const stack = "TypeError: Cannot read properties of undefined (reading 'x')\n    at analyze (/var/task/.next/server/chunks/123.js:1:2)";
   const unknown = tenderJobStopMessageZh({ steps: [s("校验输入", "completed"), s("解析投标文件", "failed", "weird_code", stack)], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: stack });
   ok(unknown === "卡在第 2 步〈解析投标文件〉：执行出错", "不认识的错误 → 执行出错", unknown);
@@ -61,7 +67,8 @@ console.log("job-failure-surfacing");
   const root = process.cwd();
   const read = (f: string) => readFileSync(path.join(root, f), "utf8");
   const proc = read("src/lib/workforce-runtime/processor.ts");
-  ok(/const result = await runClaimedSlice\(\);[\s\S]{0,400}result\.claimed && !result\.lostLease && \(result\.status === "failed" \|\| result\.status === "needs_human"\)[\s\S]{0,120}await onWorkforceJobStopped\(\{ runId \}\);[\s\S]{0,20}return result;/.test(proc), "处理器：只在确实停在 failed / needs_human 且未丢租约时调用钩子，返回值不变");
+  ok(/result = await runClaimedSlice\(\);\s*\} finally \{\s*heartbeat\.stop\(\);\s*\}[\s\S]{0,300}await onWorkforceJobStopped\(\{ runId \}\);\s*return result;/.test(proc), "处理器：认领处理完（心跳停止之后）都交给钩子判断，返回值不变");
+  ok(/status: true, metadata: true[\s\S]{0,200}run\.status !== "failed" && run\.status !== "needs_human"/.test(read("src/lib/workforce-runtime/domain-hooks.ts")), "钩子按库里的 Job 状态判断（不信内存里的 result）");
   ok(/eventType: "job\.failed",\s*title: "Workforce Job 失败（超时且重试耗尽）"[\s\S]{0,200}await onWorkforceJobStopped\(\{ runId: r\.id \}\);/.test(proc), "处理器：清扫写成 failed 后也调用钩子");
   const hook = read("src/lib/workforce-runtime/domain-hooks.ts");
   ok(/try \{[\s\S]*\} catch \(err\) \{[\s\S]*console\.warn/.test(hook) && !/throw /.test(hook), "钩子整体 try/catch，只记日志不抛");
@@ -72,7 +79,8 @@ console.log("job-failure-surfacing");
   }
   ok(/failWorkforceTenderAnalysisRun\(/.test(mod) && /if \(!updated\) return/.test(mod), "收尾走既有 failWorkforceTenderAnalysisRun，只有改到了才写审计");
   const card = read("src/components/tender-analysis/agent-card.tsx");
-  ok(/run\?\.status === "AGENT_FAILED"/.test(card) && /run\.failureReason \?\? "系统未记录原因"/.test(card), "项目卡片：分析未完成时显示原因，没有就写「系统未记录原因」");
+  ok(/run\?\.status === "AGENT_FAILED" && run\.failureReason/.test(card), "项目卡片：分析未完成且有原因时显示原因（取消的不显示）");
+  ok(/job\.needsYou\?\.detail && !run\?\.failureReason/.test(card), "项目卡片：有原因时不再另外显示需要你处理的说明（只一句）");
   ok(/重新分析/.test(card), "项目卡片：按钮仍是「重新分析」");
   const svc = read("src/lib/tender-workforce/trigger-service.ts");
   ok(/latestRun\.errorCode !== "cancelled"/.test(svc), "项目卡片接口：用户主动取消的不给原因");

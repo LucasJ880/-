@@ -197,17 +197,16 @@ export async function processWorkforceJobSlice(
   // BLOCKER 1：fence 传入 V2 执行路径——executor/verifier 的所有
   // AgentRun/AgentRunStep/AgentRunVerification 写入经原子防栅栏
   const fence = createRunFence(holder);
+  let result: WorkforceSliceResult;
   try {
-    const result = await runClaimedSlice();
-    // CHAIN-0c：Job 这一次确实停在 failed / needs_human（写入成功、没丢租约）→ 域收尾
-    // （招投标：把项目上的分析记录收尾为「AI 分析未完成」并通知）。钩子自身吞掉所有错误，不改 result。
-    if (result.claimed && !result.lostLease && (result.status === "failed" || result.status === "needs_human")) {
-      await onWorkforceJobStopped({ runId });
-    }
-    return result;
+    result = await runClaimedSlice();
   } finally {
     heartbeat.stop();
   }
+  // CHAIN-0c：这次认领处理完之后，由钩子按**库里的** Job 状态判断是否停在 failed / needs_human 并做域收尾
+  // （执行器 / 验证器会自己写终态，内存里的 result 可能是 lost_lease，不能只信它）。钩子自身吞掉所有错误，不改 result。
+  await onWorkforceJobStopped({ runId });
+  return result;
 
   async function runClaimedSlice(): Promise<WorkforceSliceResult> {
 

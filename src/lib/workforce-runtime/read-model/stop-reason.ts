@@ -55,6 +55,11 @@ export function findStoppedStep<T extends StopReasonStep>(steps: readonly T[]): 
   return at >= 0 ? [at + 1, ordered[at]] : null;
 }
 
+/** 每一步都已完成（如验证器在最后才判 needs_human）时，算在最后一步上，原因取 Job 的错误码 */
+export function findStoppedStepOrLast<T extends StopReasonStep>(steps: readonly T[]): [number, T] | null {
+  return findStoppedStep(steps) ?? (steps.length > 0 ? [steps.length, steps[steps.length - 1]] : null);
+}
+
 /** 按错误码查表（步骤的优先，其次 Job 的）；Job 停在需要人工处理时兜底「需要人工处理」 */
 export function stopReasonFromCodes(input: { stepErrorCode: string | null; jobErrorCode: string | null; jobStatus: string }): string {
   for (const code of [input.stepErrorCode, input.jobErrorCode]) {
@@ -68,7 +73,7 @@ export function projectStopReason(
   steps: readonly StopReasonStep[],
   run: { status: string; errorCode: string | null },
 ): WorkforceStopReason | null {
-  const found = findStoppedStep(steps);
+  const found = findStoppedStepOrLast(steps);
   if (!found) return null;
   const [stepIndex, step] = found;
   return {

@@ -15,7 +15,7 @@
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import {
-  findStoppedStep,
+  findStoppedStepOrLast,
   stopReasonFromCodes,
   stopReasonSentenceZh,
   type StopReasonStep,
@@ -26,10 +26,11 @@ import { buildWorkforceTenderIdempotencyKey, failWorkforceTenderAnalysisRun, TEN
 export const TENDER_JOB_FAILED_SURFACED_AUDIT_ACTION = "tender.workforce.failed_surfaced" as const;
 
 /** 招投标工具在错误文本里会写的已知标记 → 固定中文（只输出固定文字，不复述原文） */
+// 只认停住那一步自己的错误文本；模式收紧，避免「第 429 页」「Transaction timeout」这类误认
 const KNOWN_TENDER_MARKERS: ReadonlyArray<[RegExp, string]> = [
-  [/ANALYSIS_EMPTY/, "模型调用全部失败，未产出有效分析"],
-  [/\b429\b|rate[\s_-]?limit/i, "模型调用被限流"],
-  [/timed?[\s_-]?out|timeout|ETIMEDOUT/i, "单次调用超时"],
+  [/\bANALYSIS_EMPTY\b/, "模型调用全部失败，未产出有效分析"],
+  [/(?:HTTP|status|code)[\s:=]*429\b|\b429 Too Many Requests|\brate[\s_-]?limit(?:ed|_exceeded)?\b/i, "模型调用被限流"],
+  [/\bETIMEDOUT\b|\b(?:request|call|model|LLM) timed out\b/i, "单次调用超时"],
 ];
 
 export type TenderStopStep = StopReasonStep & { errorMessage: string | null };
@@ -41,10 +42,10 @@ export function tenderJobStopReason(input: {
   jobErrorCode: string | null;
   jobErrorMessage: string | null;
 }): WorkforceStopReason | null {
-  const found = findStoppedStep(input.steps);
+  const found = findStoppedStepOrLast(input.steps);
   if (!found) return null;
   const [stepIndex, step] = found;
-  const text = `${step.errorMessage ?? ""}\n${input.jobErrorMessage ?? ""}`;
+  const text = step.status === "failed" ? step.errorMessage ?? "" : "";
   const marker = KNOWN_TENDER_MARKERS.find(([re]) => re.test(text));
   return {
     stepIndex,
@@ -87,11 +88,13 @@ export async function surfaceTenderJobStopped(runId: string): Promise<SurfaceRes
 
   const run = await db.tenderAnalysisRun.findFirst({
     where: { orgId: job.orgId, analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION, idempotencyKey: buildWorkforceTenderIdempotencyKey(job.id) },
-    select: { id: true, projectId: true, createdById: true },
+    select: { id: true, projectId: true, createdById: true, project: { select: { ownerId: true } } },
   });
-  if (run?.createdById) {
+  // 审计主体：发起人；为空时用项目负责人（系统收尾，afterData.actor 写明 system）
+  const auditUserId = run?.createdById ?? run?.project?.ownerId ?? null;
+  if (run && auditUserId) {
     await logAudit({
-      userId: run.createdById,
+      userId: auditUserId,
       orgId: job.orgId,
       projectId: run.projectId,
       action: TENDER_JOB_FAILED_SURFACED_AUDIT_ACTION,
