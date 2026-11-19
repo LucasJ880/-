@@ -70,7 +70,21 @@ staging 仍需按「上线顺序」用测试邮箱收一封、在邮件客户端
 
 ## 5. 门禁
 
-（全量结果见下方，PR 前填）
+| 项 | 结果 |
+|---|---|
+| `npm test`（本机，带隔离库，修正后最后一轮） | `696/707 通过, 11 失败`，11 项全是既有失败（见下） |
+| `npm run test:ci` | 见下方补记（审查修正后重跑） |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS（无新增指纹；相对基线少 15 处） |
+| `bash scripts/check-test-registry.sh` | 已注册 674 个，历史欠账 66 条 |
+| `openspec validate rfq-supplier-attachment --strict` | valid |
+| `git diff origin/main -- prisma/ vercel.json` | 空 |
+
+全量 11 项失败与 CHAIN-4b / 0c 报告同一批，没改过的 main 上同样失败：来信观察 DB、Mention Gateway M2-A Identity DB（隔离库里早先并行跑留下的数据）、Sunny 工艺单 DB、Phase3A-3 / 3A-4 Governance / 3A-4 Acceptance / 3A-5、Autopilot A2-P0（与执行顺序有关）、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB（75 / 76）。
+
+修正过程中由本次引起、已修的两项：
+- `pdf/__tests__/cjk-pdf.test.ts` CJK-CFG-05（数 `next.config.ts` 里字体包 package.json 出现次数）——共享常量后多出一处；改为 generate-pdf 引用同一常量（内容与顺序不变），不改那条测试的期望。
+- `preview/__tests__/preview.test.ts`「所有会写库的 GET 都已登记预览下的行为」——预览接口的限流计数被算作写入；在登记表补一条「只写限流计数，不写业务数据」（登记表就是给新接口登记用的）。
 
 ## 5a. 交叉审查
 
