@@ -9,17 +9,21 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Compass } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
+import { SCORE_COMPONENT_LABELS } from "@/lib/supplier-intel/evaluation-display";
 import type { AwardColumn, LandedColumn, MarketColumn, ScoreSet, SourcingSuggestionsView } from "@/lib/tender-intel/sourcing-suggestions-pure";
 
 type State = { kind: "loading" } | { kind: "hidden" } | { kind: "error" } | { kind: "ok"; view: SourcingSuggestionsView };
 
-const num = (n: number | null) => (n === null || !Number.isFinite(n) ? "—" : String(Math.round(n * 10) / 10));
-const money = (n: number) => n.toLocaleString("en-CA", { maximumFractionDigits: 2 });
+export const SOURCING_CARD_ERROR_ZH = "寻源建议暂时读不出来，请稍后刷新。";
+
+const score = (n: number | null) => (n === null || !Number.isFinite(n) ? "待核实" : String(Math.round(n * 10) / 10));
+const money = (n: number) => n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function Scores({ s }: { s: ScoreSet }) {
+  const parts = (["technical", "commercial", "reliability", "importRisk"] as const).map((k) => `${SCORE_COMPONENT_LABELS[k].label} ${score(s[k])}`);
   return (
     <span className="text-[11px] text-muted">
-      技术 {num(s.technical)} · 商务 {num(s.commercial)} · 可靠性 {num(s.reliability)} · 进口风险 {num(s.importRisk)} · 总分 {num(s.total)}
+      {parts.join(" · ")} · 总分 {s.total === null ? "待核实" : `${score(s.total)} / 100`}
     </span>
   );
 }
@@ -28,11 +32,11 @@ function AwardsCol({ c }: { c: AwardColumn }) {
   if (c.status === "missing") return <p className="text-xs text-muted">{c.messageZh}</p>;
   return (
     <ul className="space-y-1 text-xs">
-      {c.groups.map((g, i) => (
-        <li key={`${g.scope}-${g.currency}-${i}`}>
+      {c.groups.map((g) => (
+        <li key={`${g.scope}-${g.currency}`}>
           <span className="text-foreground">{g.scope}</span>
           <span className="text-muted">
-            {" "}· {g.currency} · {g.sampleSize} 个样本：{money(g.min)}–{money(g.max)}（中位 {money(g.median)}）{g.from || g.to ? ` · ${g.from ?? "?"} 至 ${g.to ?? "?"}` : ""}
+            {" "}· {g.sampleSize} 个：{g.currency} {money(g.min)} 至 {money(g.max)}（中位 {money(g.median)}）{g.from || g.to ? ` · ${g.from ?? "?"} 至 ${g.to ?? "?"}` : ""}
           </span>
         </li>
       ))}
@@ -50,7 +54,8 @@ function MarketCol({ c }: { c: MarketColumn }) {
             <span className="text-foreground">{b.productName}</span>
             <span className="text-muted">
               {b.vendor ? ` · ${b.vendor}` : ""} · {b.priceRaw}
-              {b.currency ? ` ${b.currency}` : ""}
+              {/* 原文价格里已写了币种时不再重复 */}
+              {b.currency && !b.priceRaw.toUpperCase().includes(b.currency.toUpperCase()) ? ` ${b.currency}` : ""}
               {b.unit ? ` / ${b.unit}` : ""}
             </span>
           </li>
@@ -64,10 +69,18 @@ function MarketCol({ c }: { c: MarketColumn }) {
 function LandedCol({ c }: { c: LandedColumn }) {
   if (c.status === "missing") return <p className="text-xs text-muted">{c.messageZh}</p>;
   return (
-    <p className="text-xs">
-      <span className="text-foreground">CAD {money(c.landedCadTotal)}</span>
-      <span className="text-muted">（第 {c.roundNumber} 轮选定：{c.supplierName}）</span>
-    </p>
+    <div className="space-y-0.5 text-xs">
+      <p>
+        <span className="text-foreground">CAD {money(c.landedCadTotal)}</span>
+        <span className="text-muted">（第 {c.roundNumber} 轮选定：{c.supplierName}）</span>
+      </p>
+      <p className="text-[11px] text-muted">到目的地，含关税；{c.taxNoteZh}。{c.basisZh}。</p>
+      {c.warnings.map((w, i) => (
+        <p key={i} className="text-[11px] text-amber-700">
+          {w}
+        </p>
+      ))}
+    </div>
   );
 }
 
@@ -81,7 +94,8 @@ export function SourcingSuggestionsCard({ projectId }: { projectId: string }) {
         if (cancelled) return;
         if (res.status === 404) return setState({ kind: "hidden" });
         if (!res.ok) return setState({ kind: "error" });
-        setState({ kind: "ok", view: (await res.json()) as SourcingSuggestionsView });
+        const view = (await res.json()) as SourcingSuggestionsView;
+        if (!cancelled) setState({ kind: "ok", view });
       })
       .catch(() => !cancelled && setState({ kind: "error" }));
     return () => {
@@ -89,7 +103,10 @@ export function SourcingSuggestionsCard({ projectId }: { projectId: string }) {
     };
   }, [projectId]);
 
-  if (state.kind === "hidden" || state.kind === "loading") return null;
+  if (state.kind === "hidden") return null;
+
+  const rec = state.kind === "ok" ? state.view.recommendations : null;
+  const landed = state.kind === "ok" ? state.view.prices.landed : undefined;
 
   return (
     <section className="rounded-xl border border-border/70 bg-background/40 p-4" data-testid="sourcing-suggestions-card">
@@ -97,56 +114,68 @@ export function SourcingSuggestionsCard({ projectId }: { projectId: string }) {
         <Compass size={14} className="text-accent" />
         寻源建议
       </h3>
-      {state.kind === "error" ? (
-        <p className="mt-2 text-xs text-muted">寻源建议暂时读不出来，请稍后刷新。</p>
+      {state.kind === "loading" ? (
+        <p className="mt-2 text-xs text-muted">正在读取…</p>
+      ) : state.kind === "error" ? (
+        <p className="mt-2 text-xs text-muted">{SOURCING_CARD_ERROR_ZH}</p>
       ) : (
         <div className="mt-3 space-y-4">
           <div>
             <p className="text-xs font-medium text-foreground">推荐型号（来自已完成的评估）</p>
-            {state.view.recommendations.status === "ready" ? (
+            {rec?.status === "ready" ? (
               <ol className="mt-1.5 space-y-1.5">
-                {state.view.recommendations.items.map((r, i) => (
-                  <li key={`${r.supplierName}-${r.offeringSku ?? r.offeringName ?? i}`} className="text-xs">
-                    <span className="mr-1 rounded border border-border px-1 py-px text-[10px] text-muted">{r.section === "PRIMARY" ? "主选" : "备选"}</span>
+                {rec.items.map((r) => (
+                  <li key={r.candidateId} className="text-xs">
+                    {r.rank !== null ? <span className="mr-1 text-muted">第 {r.rank} 名</span> : null}
+                    <span className="mr-1 rounded border border-border px-1 py-px text-[10px] text-muted">{r.section === "PRIMARY" ? "首选" : "备选"}</span>
                     <span className="text-foreground">{r.supplierName}</span>
-                    {r.offeringName ? <span className="text-foreground/80"> · {r.offeringName}{r.offeringSku ? `（${r.offeringSku}）` : ""}</span> : null}
-                    <span className="text-muted"> · 强制要求有证据 {r.mandatoryEvidence.withEvidence} / {r.mandatoryEvidence.total} 条</span>
+                    {r.offeringName ? (
+                      <span className="text-foreground/80">
+                        {" "}
+                        · {r.offeringName}
+                        {r.offeringSku ? `（${r.offeringSku}）` : ""}
+                      </span>
+                    ) : null}
+                    <span className="text-muted"> · {r.mandatoryZh}</span>
                     <div>
                       <Scores s={r.scores} />
                     </div>
                   </li>
                 ))}
               </ol>
-            ) : (
-              <p className="mt-1 text-xs text-muted">{state.view.recommendations.messageZh}</p>
-            )}
-            {state.view.recommendations.href ? (
-              <Link href={state.view.recommendations.href} className="mt-1 inline-block text-xs text-accent underline-offset-2 hover:underline">
-                去供应链页
+            ) : rec ? (
+              <p className="mt-1 text-xs text-muted">{rec.messageZh}</p>
+            ) : null}
+            {rec?.poolNoteZh ? <p className="mt-1 text-[11px] text-muted">{rec.poolNoteZh}</p> : null}
+            {rec?.href && rec.hrefLabelZh ? (
+              <Link href={rec.href} className="mt-1 inline-block text-xs text-accent underline-offset-2 hover:underline">
+                {rec.hrefLabelZh}
               </Link>
             ) : null}
           </div>
 
-          <div>
-            <p className="text-xs font-medium text-foreground">价格对照</p>
-            <p className="mt-0.5 text-[11px] text-muted">{state.view.noteZh}</p>
-            <div className="mt-2 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-md border border-border/60 p-2">
-                <p className="mb-1 text-[11px] font-medium text-foreground/80">可比授标（同采购方、同口径）</p>
-                <AwardsCol c={state.view.prices.awards} />
-              </div>
-              <div className="rounded-md border border-border/60 p-2">
-                <p className="mb-1 text-[11px] font-medium text-foreground/80">市场价格基准（原币）</p>
-                <MarketCol c={state.view.prices.market} />
-              </div>
-              {state.view.prices.landed ? (
+          {state.kind === "ok" ? (
+            <div>
+              <p className="text-xs font-medium text-foreground">价格对照</p>
+              <p className="mt-0.5 text-[11px] text-muted">{state.view.noteZh}</p>
+              <div className={`mt-2 grid gap-3 ${landed ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                 <div className="rounded-md border border-border/60 p-2">
-                  <p className="mb-1 text-[11px] font-medium text-foreground/80">我方落地价（比价矩阵选定）</p>
-                  <LandedCol c={state.view.prices.landed} />
+                  <p className="mb-1 text-[11px] font-medium text-foreground/80">历史中标总额（其他供应商，同采购方、同口径）</p>
+                  <AwardsCol c={state.view.prices.awards} />
                 </div>
-              ) : null}
+                <div className="rounded-md border border-border/60 p-2">
+                  <p className="mb-1 text-[11px] font-medium text-foreground/80">网上公开单价（原文照录）</p>
+                  <MarketCol c={state.view.prices.market} />
+                </div>
+                {landed ? (
+                  <div className="rounded-md border border-border/60 p-2">
+                    <p className="mb-1 text-[11px] font-medium text-foreground/80">我方落地成本（加元，比价矩阵选定）</p>
+                    <LandedCol c={landed} />
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       )}
     </section>

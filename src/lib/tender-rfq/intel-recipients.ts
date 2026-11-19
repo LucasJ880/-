@@ -2,8 +2,9 @@
  * CHAIN-2 — 情报推荐并入自动起草收件人的合并规则（纯函数，判断点 4 B）
  *
  * 推荐 = 本项目推荐排名里分区为主选 / 备选、强制闸通过的候选所属供应商（按名次，同一家只算一次）。
- * 并入规则：操作者自己的名单在前（顺序不变），推荐补在后面；已在名单里的不重复；
- * 只并入在用且有邮箱的；合计最多 8 家（与自动起草的上限相同）。
+ * 并入规则：操作者自己的名单里至少有一家能发时才并入（名单为空照旧不起草）；名单在前（顺序不变），
+ * 推荐补在后面；已在名单里的不重复；只并入在用且有邮箱的——就绪规则与 round-pure.partitionSuppliers
+ * 逐字一致（原始 contactEmail 过同一正则，不先 trim），这里并入的建轮次时一定能发；合计最多 8 家。
  */
 
 export const INTEL_RECIPIENTS_MAX = 8;
@@ -34,17 +35,18 @@ export function mergeIntelRecipients(input: { picked: ReadonlyArray<{ id: string
   const max = input.max ?? INTEL_RECIPIENTS_MAX;
   const merged = input.picked.slice(0, max);
   const intelAdded: Array<{ id: string; name: string }> = [];
+  if (merged.length === 0) return { merged, intelAdded };
   for (const s of input.intelOrdered) {
     if (merged.length >= max) break;
     if (merged.some((m) => m.id === s.id)) continue;
-    if (s.status !== "active" || !s.contactEmail || !EMAIL_RE.test(s.contactEmail.trim())) continue;
+    if (s.status !== "active" || !s.contactEmail || !EMAIL_RE.test(s.contactEmail)) continue;
     merged.push({ id: s.id, name: s.name });
     intelAdded.push({ id: s.id, name: s.name });
   }
   return { merged, intelAdded };
 }
 
-/** 「其中 N 家来自供应商情报推荐：甲、乙」；没有并入时为空串 */
+/** 「另外补了 N 家供应商情报推荐的：甲、乙」；没有并入时为空串 */
 export function intelRecipientsNoteZh(names: readonly string[]): string {
-  return names.length ? `其中 ${names.length} 家来自供应商情报推荐：${names.join("、")}` : "";
+  return names.length ? `另外补了 ${names.length} 家供应商情报推荐的：${names.join("、")}` : "";
 }

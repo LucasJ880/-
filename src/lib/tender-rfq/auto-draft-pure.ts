@@ -167,14 +167,12 @@ export function autoDraftDone(input: {
   // RFQ-AUTO-3：卡上带跟进授权时在这里就说清楚——批准它不只是批准首封
   const followUp = input.withFollowUp ? "这张卡带自动跟进授权：批准它会一并批准后面的催单和追问。" : "";
   const skipped = input.skippedCount > 0 ? `（${input.group ? "这一组" : "常用供应商"}里有 ${input.skippedCount} 家停用、没有邮箱或超出上限，已跳过）` : "";
+  // CHAIN-2：并入了情报推荐时先说自己名单里的几家（跳过的紧跟其后），再说另外补了哪几家
   const intel = input.intelSupplierNames ?? [];
   const ownCount = input.supplierCount - intel.length;
-  const ownSource = input.group ? groupSourceZh(input.group) : "常用供应商";
   const who = intel.length
-    ? `${input.supplierCount} 家供应商（${ownCount > 0 ? `${ownCount} 家取自${ownSource}，` : ""}${intelRecipientsNoteZh(intel)}）`
-    : input.group
-      ? `${input.supplierCount} 家供应商，取自${groupSourceZh(input.group)}`
-      : `${input.supplierCount} 家常用供应商`;
+    ? `${input.supplierCount} 家供应商——${input.group ? `${ownCount} 家取自${groupSourceZh(input.group)}` : `${ownCount} 家常用供应商`}${skipped}，${intelRecipientsNoteZh(intel)}`
+    : `${input.group ? `${input.supplierCount} 家供应商，取自${groupSourceZh(input.group)}` : `${input.supplierCount} 家常用供应商`}${skipped}`;
   // 批准分析即视为审核完成：询价单只带已确认的要求，没确认的不带——这里说清楚有几条没带上
   const unconfirmed = input.unconfirmedCount > 0 ? `询价单只带已确认的要求，另有 ${input.unconfirmedCount} 条没有确认的没带上。` : "";
   return {
@@ -184,7 +182,7 @@ export function autoDraftDone(input: {
     skippedCount: input.skippedCount,
     unconfirmedCount: input.unconfirmedCount,
     withFollowUp: input.withFollowUp === true,
-    messageZh: `已为你起草第 ${input.roundNumber} 轮询价：${who}${skipped}。${unconfirmed}${followUp}还没有发出，批准后才发。`,
+    messageZh: `已为你起草第 ${input.roundNumber} 轮询价：${who}。${unconfirmed}${followUp}还没有发出，批准后才发。`,
     href: autoDraftRoundHref(input.projectId, input.inquiryId),
     quiet: false,
   };
@@ -263,7 +261,7 @@ export function autoDraftPreviewLineZh(
 ): string {
   const unconfirmed = counts.unconfirmedCount > 0 ? `，另有 ${counts.unconfirmedCount} 条没有确认的没带上` : "";
   const source = group ? groupSourceZh(group) : "常用供应商";
-  const intel = intelSupplierNames?.length ? `；${intelRecipientsNoteZh(intelSupplierNames)}` : "";
+  const intel = intelSupplierNames?.length ? `，${intelRecipientsNoteZh(intelSupplierNames)}` : "";
   return `${AUTO_DRAFT_PREVIEW_PREFIX}；供应商取自 ${userName || "操作者"} 的${source}${intel}；询价单带了 ${counts.confirmedCount} 条已确认的要求${unconfirmed}。请核对收件人与正文后再批准。`;
 }
 

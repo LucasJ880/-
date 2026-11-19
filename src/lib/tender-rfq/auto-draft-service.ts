@@ -175,7 +175,8 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
 
 /**
  * CHAIN-2：本项目推荐排名里主选 / 备选、强制闸通过、在用有邮箱的供应商，补在操作者名单之后（合计 ≤ 8）。
- * 开关关闭、供应商情报关闭、有分组但确定不了用哪一组（照旧不起草）、没有可并入的、取数出错 → null（与之前相同）。
+ * 开关关闭、供应商情报关闭、操作者名单里没有能发的（照旧不起草）、有分组但确定不了用哪一组（照旧不起草）、
+ * 没有可并入的、取数出错 → null（与之前相同）。
  */
 async function loadIntelRecipients(a: {
   orgId: string;
@@ -186,6 +187,7 @@ async function loadIntelRecipients(a: {
   groupMatch: SupplierGroupMatch | null;
 }): Promise<{ merged: Array<{ id: string; name: string }>; intelAdded: Array<{ id: string; name: string }> } | null> {
   if (!isRfqIntelRecipientsEnabledForOrg(a.orgId) || !isSupplierIntelEnabledForOrg(a.orgId)) return null;
+  if (a.picked.length === 0) return null;
   if (a.hasGroups && a.groupMatch?.kind !== "one") return null;
   try {
     const { loadProjectSupplierRanking } = await import("@/lib/supplier-intel/project-supplier-ranking");
