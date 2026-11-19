@@ -277,12 +277,13 @@
 
 ### Phase F（续）— 情报串联
 
-任务书：`docs/QINGYAN_CHAIN_TENDER_INTEL_CHAIN_TASKBRIEF.md`（Evan 2026-11-19 需求：分析完自己往下走——查历史中标、推荐型号、预计价格、反查中标者的供货商、起草带脱敏附件的询价，人只决定发不发）。规则：**查的、算的全自动；对外发的一律人批；查不到的照实说**。实现差距分析 §12 的 TI-5、N5 与 TI-7「寻源到询价的交接」，不重做 TI-1～TI-4c；Gate A 十项拍板继续有效。判断点 1–7 待拍板；按任务书「上线顺序」合并：CHAIN-0 → 4b → 4a → 1 → 2 → 3。
+任务书：`docs/QINGYAN_CHAIN_TENDER_INTEL_CHAIN_TASKBRIEF.md`（Evan 2026-11-19 需求：分析完自己往下走——查历史中标、推荐型号、预计价格、反查中标者的供货商、起草带脱敏附件的询价，人只决定发不发）。规则：**查的、算的全自动；对外发的一律人批；查不到的照实说**。实现差距分析 §12 的 TI-5、N5 与 TI-7「寻源到询价的交接」，不重做 TI-1～TI-4c；Gate A 十项拍板继续有效。判断点 1–8 待拍板（2026-11-19 13:05 修订版：新增 CHAIN-0c 与判断点 8，未拍板前按 A）；按任务书「上线顺序」合并：CHAIN-0 → 0c → 4b → 4a → 1 → 2 → 3（4b 因已先完成而先合）。
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| CHAIN-0 | 开关核查与提速（运维，不写代码；有 Vercel 生产权限的人做）：续跑自触发、并行步骤数、外部情报总门（恰好 `1`）、授标入库、Tavily、供应商情报（只对 Sunny）；三个询价开关等 CHAIN-4b 合并后再开 | — | `docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 逐项「原值 → 新值 → 日期」；150 页以上标包 ≤ 20 分钟、让出到下一次认领 ≤ 15 秒；TBS 24062-27-057 的 `externalIntelStatus.status = "ran"` | [ ]（核查表骨架已入库，待填） |
-| CHAIN-4b | 询价不再带出招标身份：项目专属禁出清单（编号 / 采购方 / 截标日期 / 交货地址 / 项目名称）+ 邮箱与电话格式检查，发给供应商的询价邮件与生成文件命中即整份失败并写明类别；询价标题与称呼改中性询价编号；「供应商询价与符合性确认表」对外抬头 | — | OpenSpec change `rfq-supplier-identity-guard`；任务书「验收 · 泄露」两条；报告 `docs/QINGYAN_CHAIN-4b_REPORT.md` | [G]（#522 待审；Q1–Q7 按推荐，Lucas 2026-11-19；实施完成：新增测试 66 + 隔离库 21 已注册，顺带堵住旧路径把预估金额 / 我方报价 / 中标价印给供应商的口子；**没有开关，合并即生效**；staging 真实标包实测未做，见报告 §6） |
+| CHAIN-0 | 开关核查与提速（运维，不写代码；有 Vercel 生产权限的人做）：续跑自触发（第 1 项生产已配置、已验证，2026-11-19 运行日志 `outcome: 'accepted'`）、并行步骤数、外部情报总门（恰好 `1`）、授标入库、Tavily、供应商情报（只对 Sunny）；三个询价开关等 CHAIN-4b 合并后再开 | — | `docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 逐项「原值 → 新值 → 日期」；150 页以上标包 ≤ 20 分钟、让出到下一次认领 ≤ 15 秒；TBS 24062-27-057 的 `externalIntelStatus.status = "ran"` | [~]（第 1 项已验证；2–7 项待有 Vercel 权限的人填核查表） |
+| CHAIN-0c | 分析失败立刻告诉人：招投标 Job 失败 / 卡住（`needs_human`，判断点 8 按 A）时把项目上的分析收尾为「AI 分析未完成」、写明卡在第几步与原因、发既有失败通知；详情页与项目页显示原因与「重新发起分析」。起因：2026-11-19「12-01 21C31-254242」第 3 步失败后项目页 1 小时 40 分钟仍显示「分析中」、没有通知 | — | OpenSpec change `tender-job-failure-surfacing`；报告 `docs/QINGYAN_CHAIN-0c_REPORT.md` | [ ] |
+| CHAIN-4b | 询价不再带出招标身份：项目专属禁出清单（编号 / 采购方 / 截标日期 / 交货地址 / 项目名称）+ 邮箱与电话格式检查，发给供应商的询价邮件与生成文件命中即整份失败并写明类别；询价标题与称呼改中性询价编号；「供应商询价与符合性确认表」对外抬头 | — | OpenSpec change `rfq-supplier-identity-guard`；任务书「验收 · 泄露」两条；报告 `docs/QINGYAN_CHAIN-4b_REPORT.md` | [x]（#522，2026-11-19 合并；archive `2026-11-19-rfq-supplier-identity-guard`；主规格 `tender/supplier-identity-guard` 14 条、`tender/rfq-web-entry` 改 2 条；**没有开关，已随合并生效**；顺带堵住旧路径把预估金额 / 我方报价 / 中标价印给供应商的口子。**staging 真实标包实测未做**（见报告 §6）——做完之前不开 CHAIN-0 第 7 项） |
 | CHAIN-4a | 询价邮件带一份重排的 PDF 附件（只来自已确认的供应商侧要求）；附件字节进审批哈希，执行前重算比对 | CHAIN-4b | OpenSpec change `rfq-supplier-attachment`；报告 `docs/QINGYAN_CHAIN-4a_REPORT.md` | [ ] |
 | CHAIN-1 | Alberta 授标（APC 匿名公告）进同一条外部情报自动流；design 第一步核查匿名可读与使用条款，遇登录 / 人机验证即停 | CHAIN-0 第 3–5 项 | OpenSpec change `tender-award-source-apc`；报告 `docs/QINGYAN_CHAIN-1_REPORT.md` | [ ] |
 | CHAIN-2 | 批准分析后自动建供应商情报 run，给出推荐型号（最多 3 个，带强制闸证据）与价格对照卡（三种口径并排、不合并） | CHAIN-0 第 6 项 | OpenSpec change `tender-auto-supplier-run`；报告 `docs/QINGYAN_CHAIN-2_REPORT.md` | [ ] |
