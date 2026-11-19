@@ -28,7 +28,7 @@
 | 角色 | 做什么 |
 |---|---|
 | Claude（chat） | 写 proposal 粒度的任务书（Why / What / 受影响意图 / Out of scope / 验收）；审 `/opsx:propose` 产出的四件套；GATE 审核 |
-| Claude Code | `/opsx:propose <change>` → 四件套回传审核 → `/opsx:apply` → `npm test` → `/opsx:verify <change>` → 开 PR；PR 合并后 `/opsx:archive <change> --yes`（独立小 PR） |
+| Claude Code | `/opsx:propose <change>` → 四件套回传审核 → `/opsx:apply` → `npm test` → `/opsx:verify <change>` → 多维审查（多个子 agent 各审一个维度，逐条核实后修）→ 开 PR；PR 合并后 `/opsx:archive <change> --yes`（独立小 PR） |
 | Evan | 拍板合并；对 `openspec/config.yaml` 里的约定有异议直接改 |
 
 GATE 审核项固定多一条：`openspec validate <change>` 通过，且 specs 增量覆盖了本次改动的全部对外行为。
@@ -41,7 +41,8 @@ GATE 审核项固定多一条：`openspec validate <change>` 通过，且 specs 
 /opsx:apply <name>     # 按 tasks 实施，逐条打勾
 npm test               # 全量；新测试必须已注册
 /opsx:verify <name>    # 完整性 / 正确性 / 一致性报告
-开 PR（一个 change = 一个 PR）
+多维审查               # 并行派多个子 agent 各审一个维度 → 逐条核实 → 修 → 重跑测试（规则见 openspec/config.yaml「多维审查」）
+开 PR（一个 change = 一个 PR；正文含「多维审查」一节）
    ↓ 合并
-/opsx:archive <name> --yes   # specs 增量合入 openspec/specs/**；同步 TASKFLOW 状态列；独立小 PR
+/opsx:archive <name> --yes   # specs 增量合入 openspec/specs/**；同步 TASKFLOW 状态列；独立小 PR（至少一个子 agent 核对主规格与 delta 一致）
 ```
