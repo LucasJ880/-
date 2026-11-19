@@ -645,6 +645,9 @@ run_test "Muse 桥接 询问与回复 DB 端到端（隔离库执行，否则跳
 run_test "Muse 桥接 跟进（权限/状态/提醒计划/建议动作）" "npx tsx src/lib/muse-bridge/__tests__/followup-pure.test.ts"
 run_test "Muse 桥接 跟进 DB 端到端（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/muse-bridge/__tests__/followup-db.isolated.test.ts"
 run_test "招标询价 RFQ 结构化生成器" "npx tsx src/lib/tender-rfq/__tests__/build.test.ts"
+# CHAIN-4b：发给供应商的内容不带出招标身份
+run_test "供应商侧招标身份禁出清单（类别/派生/比对/邮箱电话/询价编号/城市级目的地）" "npx tsx src/lib/bid-workflow/__tests__/project-identity-deny.test.ts"
+run_test "国内供应商简报（China Brief）取材：敏感金额、身份信息、编辑备注" "npx tsx src/lib/bid-workflow/__tests__/china-supplier-brief.test.ts"
 run_test "招标询价 轮次锁/发件人解析（mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/round-pure.test.ts"
 run_test "招标询价 入站解析（证据闸/附件文本化）" "npx tsx src/lib/tender-rfq/__tests__/inbound-parse.test.ts"
 run_test "招标询价 入站写入规则（只填空/幂等/缺字段）" "npx tsx src/lib/tender-rfq/__tests__/inbound-apply.test.ts"
@@ -665,6 +668,7 @@ run_test "招标询价 自动起草第 1 轮 DB 端到端（隔离库执行，�
 run_test "招标询价 自动起草带跟进授权的个人开关：读写（RFQ-AUTO-3）" "npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts"
 run_test "招标询价 供应商分组：校验、比对与抽屉预选（RFQ-AUTO-5）" "npx tsx src/lib/tender-rfq/__tests__/supplier-groups.test.ts"
 run_test "招标询价 供应商分组 DB（隔离库执行，否则跳过，RFQ-AUTO-5）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-groups-db.isolated.test.ts"
+run_test "招标询价 身份防护 DB 端到端（送审 / 第 2 轮编号 / 命中零轮次 / 发送前复核，隔离库执行，否则跳过，CHAIN-4b）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/supplier-identity-guard-db.isolated.test.ts"
 run_test "招标询价 发出之后分析更新过的提示（FLOW-H3）" "npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx"
 run_test "招标询价 发出之后分析更新过的提示 DB（隔离库执行，否则跳过，FLOW-H3）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts"
 run_test "报价表助手 比价矩阵成本来源（FLOW-H2）" "npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx"

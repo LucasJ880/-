@@ -12,10 +12,20 @@
  *   3. 任何字段命中 china-supplier-brief 的敏感模式 → 整个文档 build 失败（不是 scrub）。
  *      供应商永远看不到估值、我方报价、毛利、预算。
  *   4. 文档里没写的（数量、交付地）保持 null，渲染为「请报价时注明/按贵司标准」，不编造。
+ *   5. CHAIN-4b：对供应商只用中性询价编号称呼项目（不写项目名）；目的地只写人工填写的或
+ *      分析地点里的「城市, 省」；任何字段命中本项目的禁出清单或邮箱 / 电话格式 → 整个文档失败。
  */
 
 import type { RequirementCategoryV2 } from "@/lib/tender-understanding/contract";
 import { containsSensitiveSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
+import {
+  cityLevelDestination,
+  identityLeakMessageZh,
+  scanIdentity,
+  type IdentityHit,
+  type IdentitySegment,
+  type ProjectIdentityDenyList,
+} from "@/lib/bid-workflow/project-identity-deny";
 
 export const RFQ_CONTRACT_VERSION = "tender-rfq/v1" as const;
 
@@ -73,7 +83,11 @@ export type RfqFactInput = {
 };
 
 export type RfqBuildInput = {
-  projectName: string;
+  /**
+   * CHAIN-4b：本项目的禁出清单与对供应商的中性询价编号（project-identity-sources 读出）。必填——
+   * 任何调用方都绕不过身份检查；项目名称不再是入参，询价单无从印出它。
+   */
+  identity: { denyList: ProjectIdentityDenyList; reference: string };
   /** 我方对供应商的抬头（tenderProfile.quoteHeader.companyName；缺省用项目所属组织名） */
   buyerDisplayName: string;
   /** 投标截标日（ISO）；回复截止 = 截标 − replyLeadDays，且不早于今天+2 */
@@ -107,7 +121,8 @@ export type RfqQuestion = { seq: number; text: string; relatedCodes: string[] };
 
 export type RfqDocument = {
   contractVersion: typeof RFQ_CONTRACT_VERSION;
-  projectName: string;
+  /** 对供应商的中性询价编号（RFQ-{组织}-{年份}-{5 位码}） */
+  reference: string;
   buyerDisplayName: string;
   scopeNote: string | null;
   lineItems: RfqLineItem[];
@@ -126,7 +141,9 @@ export type RfqDocument = {
 
 export type RfqBuildResult =
   | { ok: true; doc: RfqDocument }
-  | { ok: false; errorCode: "NO_CONFIRMED_REQUIREMENTS" | "SENSITIVE_LEAK"; message: string; offending?: string[] };
+  | { ok: false; errorCode: "NO_CONFIRMED_REQUIREMENTS" | "SENSITIVE_LEAK"; message: string; offending?: string[] }
+  /** CHAIN-4b：命中招标身份；hits 只有类别与位置，不含原文 */
+  | { ok: false; errorCode: "IDENTITY_LEAK"; message: string; hits: IdentityHit[] };
 
 const DAY = 86_400_000;
 
@@ -239,12 +256,15 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
 
   const deliveryFact = fact(input.facts, "delivery");
   const locationFact = fact(input.facts, "location");
-  const destination = input.destination ?? locationFact?.contentZh ?? null;
+  // CHAIN-4b：人工填写的目的地照用；没填时只取分析地点里的「城市, 省」，地点原文（常是精确地址）不再印进询价
+  const humanDestination = input.destination?.trim() || null;
+  const destination =
+    humanDestination ?? cityLevelDestination(locationFact?.contentOriginal) ?? cityLevelDestination(locationFact?.contentZh) ?? null;
   const requiredLeadTimeNote = deliveryFact ? deliveryFact.contentZh : null;
 
   const doc: RfqDocument = {
     contractVersion: RFQ_CONTRACT_VERSION,
-    projectName: input.projectName,
+    reference: input.identity.reference,
     buyerDisplayName: input.buyerDisplayName,
     scopeNote: input.scopeNote?.trim() || null,
     lineItems: items,
@@ -263,8 +283,8 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
   //  - 人工自由文本（范围说明/自定义问题/抬头/目的地）用 china-supplier-brief 的全量模式（含 cost/budget/金额）；
   //  - 招标原文行项只用"我方内部字段"窄模式——招标文件本身常含 "at no additional cost" / "$" 这类合法词，
   //    不能因此拒发；而估值/我方报价/毛利/预算这些永远不该出现在要求原文里，出现即说明数据被污染。
-  const freeText = [doc.buyerDisplayName, doc.scopeNote ?? "", doc.destination ?? "", ...(input.extraQuestions ?? [])];
-  const specText = [doc.projectName, doc.requiredLeadTimeNote ?? "", ...doc.lineItems.flatMap((i) => [i.specZh, i.specOriginal])];
+  const freeText = [doc.buyerDisplayName, doc.scopeNote ?? "", humanDestination ?? "", ...(input.extraQuestions ?? [])];
+  const specText = [doc.requiredLeadTimeNote ?? "", ...doc.lineItems.flatMap((i) => [i.specZh, i.specOriginal])];
   const offending = [
     ...freeText.filter((t) => containsSensitiveSupplierBriefText(t)),
     ...specText.filter((t) => INTERNAL_FIELD_PATTERNS.some((re) => re.test(t))),
@@ -277,7 +297,25 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
       offending: offending.map((t) => t.slice(0, 80)),
     };
   }
+
+  // CHAIN-4b：招标身份（敏感词之后）。逐字段扫，位置精确到栏目 / 要求编号；项目名称只查我方撰写与人工填写的部分。
+  const hits = scanIdentity(input.identity.denyList, rfqIdentitySegments(doc, input, humanDestination));
+  if (hits.length) return { ok: false, errorCode: "IDENTITY_LEAK", message: identityLeakMessageZh(hits), hits };
   return { ok: true, doc };
+}
+
+/** 询价单里每一处供应商看得到的文字，标明是我方撰写、人工填写还是招标原文 */
+function rfqIdentitySegments(doc: RfqDocument, input: RfqBuildInput, humanDestination: string | null): IdentitySegment[] {
+  const segs: IdentitySegment[] = [
+    { where: "询价编号", text: doc.reference, kind: "authored" },
+    { where: "我方抬头", text: doc.buyerDisplayName, kind: "authored" },
+    { where: "补充说明", text: doc.scopeNote ?? "", kind: "human" },
+    { where: "目的地", text: doc.destination ?? "", kind: humanDestination ? "human" : "tender" },
+    ...(input.extraQuestions ?? []).map((q, i): IdentitySegment => ({ where: `第 ${i + 1} 条附加问题`, text: q, kind: "human" })),
+    { where: "交付要求", text: doc.requiredLeadTimeNote ?? "", kind: "tender" },
+    ...doc.lineItems.map((i): IdentitySegment => ({ where: `要求 ${i.requirementCode}`, text: `${i.specZh}\n${i.specOriginal}`, kind: "tender" })),
+  ];
+  return segs;
 }
 
 /* ---------------------------------- 渲染 ---------------------------------- */
@@ -287,11 +325,12 @@ export function renderRfqEmail(doc: RfqDocument, opts?: { supplierName?: string 
   subject: string;
   body: string;
 } {
-  const subject = `询价：${doc.projectName}${opts?.roundNumber ? `（第 ${opts.roundNumber} 轮）` : ""}${doc.replyBy ? ` — 请于 ${doc.replyBy} 前回复` : ""}`;
+  // CHAIN-4b：只用中性询价编号称呼项目；标题与正文都不出现项目名称
+  const subject = `询价 ${doc.reference}${opts?.roundNumber ? `（第 ${opts.roundNumber} 轮）` : ""}${doc.replyBy ? ` — 请于 ${doc.replyBy} 前回复` : ""}`;
   const L: string[] = [];
   L.push(`${opts?.supplierName ? `${opts.supplierName} ` : ""}您好：`);
   L.push("");
-  L.push(`${doc.buyerDisplayName} 正在为项目「${doc.projectName}」采购，请按以下清单报价。`);
+  L.push(`${doc.buyerDisplayName} 现就询价 ${doc.reference} 邀请贵司报价，请按以下清单逐项回复。`);
   if (doc.scopeNote) L.push(`范围说明：${doc.scopeNote}`);
   L.push("");
   L.push("一、规格要求（请逐条确认）");

@@ -6,6 +6,9 @@
  * 与 prepareRfqRound / execTenderSendRfq 用的是同一套函数（decideRoundLock / buildRfqDocument / resolveSender）。
  */
 
+// CHAIN-4b：只引说明文字那一半（不依赖 Node）；禁出清单本身在服务端
+import { identityLeakFieldMessageZh, identityLeakMessageZh, type IdentityHit } from "@/lib/bid-workflow/project-identity-messages";
+
 /* ---------------------------------- 类型 ---------------------------------- */
 
 export type EntryBlockReason =
@@ -13,6 +16,7 @@ export type EntryBlockReason =
   | "recently_sent"
   | "no_confirmed_requirements"
   | "sensitive_leak"
+  | "identity_leak"
   | "sender_not_connected"
   | "sender_no_compose_scope"
   | "no_ready_suppliers";
@@ -47,8 +51,10 @@ export type RfqEntryFacts = {
   confirmedRequirementCount: number;
   /** 有有效邮箱且 active 的供应商数（与 partitionSuppliers 同一规则） */
   readySupplierCount: number;
-  /** buildRfqDocument 预构建的失败码（只关心这两种；其余视为可发） */
-  buildError: "NO_CONFIRMED_REQUIREMENTS" | "SENSITIVE_LEAK" | null;
+  /** buildRfqDocument 预构建的失败码（只关心这三种；其余视为可发） */
+  buildError: "NO_CONFIRMED_REQUIREMENTS" | "SENSITIVE_LEAK" | "IDENTITY_LEAK" | null;
+  /** CHAIN-4b：IDENTITY_LEAK 时命中的类别与位置（不含原文） */
+  identityHits?: IdentityHit[] | null;
   sender: { ok: true } | { ok: false; errorCode: "SENDER_NOT_CONNECTED" | "SENDER_NO_COMPOSE_SCOPE" };
   hasReadScope: boolean;
   mailboxEmail: string;
@@ -151,6 +157,13 @@ export function decideRfqEntryState(f: RfqEntryFacts): RfqEntryState {
       href: requirementsHref(f.projectId),
     });
   }
+  // CHAIN-4b：招标编号 / 采购方 / 截标日期 / 交货地址 / 项目名称 / 邮箱与电话
+  if (f.buildError === "IDENTITY_LEAK") {
+    return block("identity_leak", identityLeakMessageZh(f.identityHits ?? []), {
+      label: "去「需求」检查",
+      href: requirementsHref(f.projectId),
+    });
+  }
   if (!f.sender.ok && f.sender.errorCode === "SENDER_NOT_CONNECTED") {
     return block(
       "sender_not_connected",
@@ -190,6 +203,7 @@ export type PrepareRfqErrorCode =
   | "SUPPLIERS_NOT_READY"
   | "NO_CONFIRMED_REQUIREMENTS"
   | "SENSITIVE_LEAK"
+  | "IDENTITY_LEAK"
   | "DRAFT_FAILED";
 
 /** 路由层在调 prepareRfqRound 之前自己判出来的（人工填写的栏目含内部词） */
@@ -201,7 +215,7 @@ export type UserMessage = { message: string; action: EntryAction | null };
 
 export function rfqErrorToUserMessage(
   code: RfqEntryErrorCode,
-  ctx: { projectId: string; now: Date; timeZone: string; blockedSuppliers?: BlockedSupplier[]; field?: string },
+  ctx: { projectId: string; now: Date; timeZone: string; blockedSuppliers?: BlockedSupplier[]; field?: string; identityHits?: IdentityHit[] },
 ): UserMessage {
   switch (code) {
     case "FREE_TEXT_SENSITIVE":
@@ -236,6 +250,13 @@ export function rfqErrorToUserMessage(
         message: "要求里含有不能发给供应商的内容（如我方价格或内部备注），本轮整单不发。",
         action: { label: "去「需求」检查", href: requirementsHref(ctx.projectId) },
       };
+    case "IDENTITY_LEAK": {
+      // CHAIN-4b：第一处命中在发起人填写的栏目 → 指明是哪一栏，不引去「需求」
+      const hits = ctx.identityHits ?? [];
+      const first = hits[0];
+      if (first?.kind === "human") return { message: identityLeakFieldMessageZh(first, hits), action: null };
+      return { message: identityLeakMessageZh(hits), action: { label: "去「需求」检查", href: requirementsHref(ctx.projectId) } };
+    }
     case "PROJECT_NOT_FOUND":
       return { message: "这个项目不是投标项目，或你没有权限。", action: { label: "返回项目列表", href: "/projects" } };
     case "DRAFT_FAILED":

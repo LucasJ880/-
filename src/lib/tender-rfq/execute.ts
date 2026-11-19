@@ -16,7 +16,9 @@ import { markItemSent } from "@/lib/inquiry/service";
 import { INQUIRY_STATUS } from "@/lib/inquiry/types";
 import { formatRfqContactNotes } from "./inbound-contract";
 import { hashRfqPayloadItems, readTenderRfqSettings, resolveSender } from "./round-pure";
-import type { TenderSendRfqPayload } from "./types";
+import { RFQ_IDENTITY_GUARD_VERSION, type TenderSendRfqPayload } from "./types";
+import { loadProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
+import { describeIdentityHits, scanOutboundRfqEmail } from "@/lib/bid-workflow/project-identity-deny";
 
 export type ExecTenderSendRfqContext = { userId: string; role: string | null | undefined; orgId?: string | null };
 export type ExecTenderSendRfqResult = { ok: boolean; resultRef?: string; message?: string; error?: string; errorCode?: string };
@@ -36,6 +38,26 @@ export async function execTenderSendRfq(
   const project = await db.project.findUnique({ where: { id: payload.projectId }, select: { orgId: true, name: true, org: { select: { settingsJson: true } } } });
   if (!project) return { ok: false, error: "项目不存在", errorCode: "PROJECT_NOT_FOUND" };
   if (ctx.orgId && project.orgId !== ctx.orgId) return { ok: false, error: "跨组织动作，拒绝执行", errorCode: "CROSS_ORG" };
+
+  // CHAIN-4b：发第一封之前复核招标身份。防护上线前起草的卡（没有标记）一律拒发；
+  // 有标记的按执行时的项目资料与当前分析重建禁出清单，逐家再查（标题全查、正文不查项目名称）。
+  // 两种拒发都不发任何一封、不动询价项状态。催单 / 追问卡不走这里。
+  if (payload.identityGuard !== RFQ_IDENTITY_GUARD_VERSION) {
+    return {
+      ok: false,
+      error: "这张询价卡在询价身份防护上线前起草，可能带有项目名或招标编号，请驳回后重新起草",
+      errorCode: "RFQ_IDENTITY_UNGUARDED",
+    };
+  }
+  const identity = await loadProjectIdentity(payload.projectId);
+  const identityHits = identity ? payload.items.flatMap((it, i) => scanOutboundRfqEmail(identity.denyList, it, `第 ${i + 1} 家`)) : [];
+  if (identityHits.length) {
+    return {
+      ok: false,
+      error: `询价内容含招标身份信息（命中：${describeIdentityHits(identityHits)}），整张卡拒发，请驳回后重新起草`,
+      errorCode: "RFQ_IDENTITY_LEAK",
+    };
+  }
 
   // 发件账号：组织配置的授权邮箱（mailboxEmail，从 org settings 读，不信 payload）；From / Reply-To 仍是 payload.fromEmail
   const { mailboxEmail } = readTenderRfqSettings(project.org?.settingsJson);

@@ -32,7 +32,15 @@ export type TenderSendRfqPayload = {
    * 缺省 / null = 不带授权，催单与追问逐张待批。整个对象被这张卡的载荷哈希覆盖。
    */
   followUpPolicy?: RfqFollowUpPolicy | null;
+  /**
+   * CHAIN-4b：起草时已过招标身份防护（中性询价编号 + 禁出清单）。没有这个标记的卡是防护上线前起草的，
+   * 执行器一律拒发；有标记的执行前按当时的项目资料再查一遍。不进 rfqDocHash（哈希保护的是邮件内容本身）。
+   */
+  identityGuard?: typeof RFQ_IDENTITY_GUARD_VERSION;
 };
+
+/** CHAIN-4b 防护标记的当前版本 */
+export const RFQ_IDENTITY_GUARD_VERSION = 1 as const;
 
 /** RFQ-AUTO-1：随发询价卡一并批准的后续邮件范围（批准时定格） */
 export type RfqFollowUpPolicy = {

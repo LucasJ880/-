@@ -2,8 +2,11 @@
  * FB-4/5 — 内部决策备忘录 vs 供应商 RFQ 语义分离（纯测）
  * 运行：npx tsx src/lib/projects/generate/__tests__/tender-doc-html.test.ts
  */
-import { buildInternalDecisionMemoHtml, buildSupplierRfqHtml } from "../tender-doc-html";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { buildInternalDecisionMemoHtml, buildSupplierRfqHtml, htmlToText, supplierRfqScanSegments } from "../tender-doc-html";
 import type { TenderAnalystSynthesisV1 } from "@/lib/tender-analyst/contract";
+import { buildProjectIdentityDenyList, scanIdentity } from "@/lib/bid-workflow/project-identity-deny";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, n: string) => { if (c) { pass++; console.log("  ✓ " + n); } else { fail++; console.error("  ✗ " + n); } };
@@ -30,11 +33,13 @@ const syn = {
   evidenceIndex: {}, telemetry: { analystLatencyMs: 0, reviewLatencyMs: 0, totalLlmCalls: 0, llmFailures: 0, model: null },
 } as unknown as TenderAnalystSynthesisV1;
 
-const h = { projectName: "测试项目", clientOrganization: "Buyer", solicitationNumber: "COS-1", closeDate: "2026-09-04", orgName: "Sunny", generatedAt: "2026-08-13" };
+const h = { projectName: "测试项目", clientOrganization: "Buyer Agency", solicitationNumber: "COS-1", closeDate: "2026-09-04", orgName: "Sunny", generatedAt: "2026-08-13" };
+// CHAIN-4b：供应商询价表只收对外抬头（询价编号 + 生成日期）
+const supplierH = { reference: "RFQ-SUNNY-2026-7KQ4M", generatedAt: "2026-08-13" };
 
 console.log("tender-doc-html");
 const memo = buildInternalDecisionMemoHtml(h, syn);
-const rfq = buildSupplierRfqHtml(h, syn);
+const rfq = buildSupplierRfqHtml(supplierH, syn);
 ok(memo.includes("MANAGEMENT DECISION MEMO"), "内部=决策备忘录");
 ok(memo.includes("有条件推进"), "建议结论映射中文");
 ok(memo.includes("报价前必须解决的前置条件") && memo.includes("Schedule 1"), "前置条件表");
@@ -45,5 +50,36 @@ ok(!rfq.includes("MANAGEMENT DECISION MEMO") && !rfq.includes("风险与缺口")
 ok(!rfq.includes("CONFIDENTIAL"), "供应商文件无内部密级头");
 ok(rfq.includes("泡沫密度要求") && !rfq.includes("【F-011"), "RFQ 含技术要求且无引用码");
 ok(memo !== rfq, "两类文档内容不同");
+
+// —— CHAIN-4b：供应商侧文件不带招标身份 ——
+ok(rfq.includes("供应商询价与符合性确认表（Supplier RFQ）") && rfq.includes("询价编号 RFQ-SUNNY-2026-7KQ4M") && rfq.includes("生成于 2026-08-13"), "供应商询价表：对外抬头只有文件名、询价编号与生成日期");
+ok(!["测试项目", "COS-1", "Buyer Agency", "2026-09-04"].some((x) => rfq.includes(x)), "供应商询价表：不印项目名称、项目编号、采购方、投标截止");
+ok(["测试项目", "COS-1", "Buyer Agency", "2026-09-04"].every((x) => memo.includes(x)), "内部决策备忘录：照旧印项目名称、项目编号、采购方、投标截止");
+const deny = buildProjectIdentityDenyList({
+  projectName: "测试项目", solicitationNumber: "COS-1", clientOrganization: "Buyer Agency", closeDate: new Date("2026-09-04T16:00:00Z"), timeZone: "America/Toronto",
+  facts: { tenderNumber: [], buyer: [], projectTitle: [], closingDatetime: [], location: [] }, allowedEmails: [],
+});
+const before = readFileSync(path.join(process.cwd(), "src/lib/projects/generate/__tests__/fixtures/supplier-rfq-before-chain-4b.html"), "utf8");
+const beforeHits = scanIdentity(deny, [{ where: "文件抬头", text: htmlToText(before), kind: "authored" }]).map((x) => x.category);
+ok(["tender_number", "buyer_name", "close_date"].every((c) => beforeHits.includes(c as never)), "改前的抬头（夹具）过同一项目的禁出清单：命中招标编号、采购方名称、截标日期");
+ok(scanIdentity(deny, supplierRfqScanSegments(supplierH, syn)).length === 0, "改后的供应商询价表过同一份清单：不命中");
+ok(scanIdentity(deny, supplierRfqScanSegments({ ...supplierH, generatedAt: "2026-09-04" }, syn)).length === 0, "截标当天生成：抬头的生成日期不参与比对，不拦");
+const leakySyn = { ...syn, technicalRequirements: [{ ...syn.technicalRequirements[0], explanationZh: "Buyer Agency 要求密度不低于 50kg/m3。" }] } as TenderAnalystSynthesisV1;
+const leakHits = scanIdentity(deny, supplierRfqScanSegments(supplierH, leakySyn));
+ok(leakHits.length === 1 && leakHits[0].category === "buyer_name" && leakHits[0].where === "第 1 条要求", "分析里的要求写了采购方：命中采购方名称·第 1 条要求");
+const genericSyn = { ...syn, technicalRequirements: [{ ...syn.technicalRequirements[0], titleZh: "测试项目泡沫要求" }] } as TenderAnalystSynthesisV1;
+ok(scanIdentity(deny, supplierRfqScanSegments(supplierH, genericSyn)).length === 0, "要求行里出现项目名称不拦（只查我方撰写的抬头与固定文字）");
+
+// 源码断言：供应商侧旧路径不再拼项目 AI 上下文、项目名称与描述
+const src = readFileSync(path.join(process.cwd(), "src/lib/projects/generate/generate-docs.ts"), "utf8");
+const block = (from: string, to: string) => src.slice(src.indexOf(from), src.indexOf(to, src.indexOf(from)));
+const legacyRfq = block(`if (input.docType === "supplier_rfq") {`, `} else if (input.docType === "internal_analysis") {`);
+const techConfirm = block(`} else if (input.docType === "tech_confirm") {`, `} else if (input.docType === "bid_draft") {`);
+ok(legacyRfq.length > 0 && !/ctx|project\.name|project\.description/.test(legacyRfq), "国内供应商询价旧路径：不拼 ctx、项目名称、项目描述");
+ok(techConfirm.length > 0 && !/ctx|project\.name|project\.description/.test(techConfirm), "供应商技术确认表：不拼 ctx、项目名称、项目描述");
+const route = readFileSync(path.join(process.cwd(), "src/app/api/projects/[id]/generate-pdf/route.ts"), "utf8");
+ok(/e instanceof SupplierIdentityLeakError/.test(route) && /errorCode: e\.errorCode \}, \{ status: 422 \}/.test(route), "生成接口：身份命中返回 422 与 errorCode（其它错误仍是 500）");
+ok(/throw new SupplierIdentityLeakError/.test(src) && src.indexOf("throw new SupplierIdentityLeakError") < src.indexOf("async function persistGeneratedHtml"), "供应商侧文件命中时在写文件之前抛出（不写文件、不建记录）");
+ok(/const ctx = supplierFacing \? "" :/.test(src) && /supplierFacing\s*\?\s*`\$\{DOC_TITLES\[input\.docType\]\}\\n\\n\$\{textBody\}`/.test(src), "供应商侧文件不读项目 AI 上下文，正文开头不写 Project: 项目名");
 console.log(`\ntender-doc-html: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

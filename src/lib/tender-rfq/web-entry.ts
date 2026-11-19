@@ -23,6 +23,7 @@ import { buildRfqDocument } from "./build";
 import { chaseTemplateHash, resolveChaseAfterDays } from "./chase-pure";
 import { readTenderRfqSettings, resolveSender } from "./round-pure";
 import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
+import { loadProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
 import { buildSupplierGroupsEntry, supplierIdsInGroups, type SupplierGroupsEntry } from "./supplier-groups";
 import { isRfqSupplierGroupsEnabledForOrg } from "./supplier-groups-flags";
 import { loadActiveSupplierGroups } from "./supplier-groups-service";
@@ -119,9 +120,11 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   const storedGroups = await loadActiveSupplierGroups(input.orgId, input.userId);
   const groupSupplierIds = supplierIdsInGroups(storedGroups.doc);
 
-  const [lockState, reqInputs, providers, recentSupplierRows, groupSupplierRows, executed, chaseRows] = await Promise.all([
+  const [lockState, reqInputs, identity, providers, recentSupplierRows, groupSupplierRows, executed, chaseRows] = await Promise.all([
     loadRfqRoundLockState({ orgId: input.orgId, projectId: project.id, now, roundLockDays: settings.roundLockDays }),
     loadRfqRequirementInputs(project.id),
+    // CHAIN-4b：与 prepareRfqRound 同一个加载器，入口判定与送审一致
+    loadProjectIdentity(project.id),
     db.emailProvider.findMany({
       where: { type: "gmail", accountEmail: { equals: settings.mailboxEmail, mode: "insensitive" } },
       select: { userId: true, accountEmail: true, grantedScopes: true },
@@ -172,8 +175,9 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
 
   // ── 内存预构建（与 prepareRfqRound 的 buildRfqDocument 入参一致；不传人工可选项） ──
   const term = pickRfqIncoterm(null, prefs);
+  if (!identity) return { available: false, reason: "not_tender" };
   const built = buildRfqDocument({
-    projectName: project.name,
+    identity: { denyList: identity.denyList, reference: identity.reference },
     buyerDisplayName: settings.fromName,
     closeDate: project.closeDate ? project.closeDate.toISOString() : null,
     now,
@@ -217,6 +221,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     confirmedRequirementCount,
     readySupplierCount: suppliers.filter((s) => s.ready).length,
     buildError: built.ok ? null : built.errorCode,
+    identityHits: !built.ok && built.errorCode === "IDENTITY_LEAK" ? built.hits : null,
     sender: sender.ok ? { ok: true } : { ok: false, errorCode: sender.errorCode },
     hasReadScope,
     mailboxEmail: settings.mailboxEmail,

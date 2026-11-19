@@ -9,6 +9,7 @@
 
 import type { SupplierGroupMatch } from "./supplier-groups";
 import type { EntryAction, EntryBlockReason } from "./web-entry-pure";
+import { identityLeakMessageZh, type IdentityHit } from "@/lib/bid-workflow/project-identity-messages";
 
 /** 自动起草的审批卡来源标记（写进审批卡载荷的元数据，供审计与轮次列表识别） */
 export const AUTO_DRAFT_TOOL_NAME = "tender_send_rfq_auto" as const;
@@ -25,6 +26,8 @@ export const AUTO_DRAFT_REASONS = [
   "ROUND_EXISTS",
   "NO_CONFIRMED_REQUIREMENTS",
   "SENSITIVE_LEAK",
+  // CHAIN-4b：询价内容含招标身份信息（编号 / 采购方 / 截标日期 / 交货地址 / 项目名称 / 邮箱与电话）
+  "IDENTITY_LEAK",
   "SENDER_NOT_READY",
   "NO_DEFAULT_SUPPLIERS",
   // RFQ-AUTO-5：操作者有分组，但按项目名称确定不了用哪一组（零组或多组对上）
@@ -102,6 +105,7 @@ const ENTRY_BLOCK_TO_REASON: Record<EntryBlockReason, AutoDraftReason> = {
   recently_sent: "ROUND_EXISTS",
   no_confirmed_requirements: "NO_CONFIRMED_REQUIREMENTS",
   sensitive_leak: "SENSITIVE_LEAK",
+  identity_leak: "IDENTITY_LEAK",
   sender_not_connected: "SENDER_NOT_READY",
   sender_no_compose_scope: "SENDER_NOT_READY",
   // 组织里一家就绪的供应商都没有 → 操作者自然也没有就绪的常用供应商
@@ -167,7 +171,7 @@ export function autoDraftDone(input: { projectId: string; inquiryId: string; rou
 /** 没起草：原因 → 一句话 + 去处。审核过程中必然反复出现的原因标为 quiet，避免每点一下都提示。 */
 export function autoDraftBlocked(
   reason: Exclude<AutoDraftReason, "FLAG_OFF">,
-  ctx: { projectId: string; trigger: AutoDraftTrigger; groupMatch?: SupplierGroupMatch | null; groupsUnreadable?: boolean },
+  ctx: { projectId: string; trigger: AutoDraftTrigger; groupMatch?: SupplierGroupMatch | null; groupsUnreadable?: boolean; identityHits?: readonly IdentityHit[]; identityMessageZh?: string },
 ): RfqAutoDraftResult {
   const rfqEntry: EntryAction = { label: "去「标书与报价」发询价", href: bidTabHref(ctx.projectId) };
   const requirements: EntryAction = { label: "去「需求」", href: `/projects/${encodeURIComponent(ctx.projectId)}?tab=requirements` };
@@ -181,6 +185,10 @@ export function autoDraftBlocked(
       return blocked("没有已确认的要求，询价单会是空的，没有自动起草。", requirements);
     case "SENSITIVE_LEAK":
       return blocked("要求里含有不能发给供应商的内容（如我方价格或内部备注），没有自动起草。", requirements);
+    case "IDENTITY_LEAK":
+      // 与询价入口同一句话与去处
+      // 入口判出来的直接用入口那句；送审时才判出来的按命中重写同一句
+      return blocked(ctx.identityMessageZh ?? identityLeakMessageZh(ctx.identityHits ?? []), requirements);
     case "SENDER_NOT_READY":
       return blocked("发询价的授权邮箱还没连接好，没有自动起草。", { label: "去连接邮箱", href: "/settings/email" });
     case "NO_DEFAULT_SUPPLIERS":
