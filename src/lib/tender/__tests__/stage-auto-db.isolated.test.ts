@@ -116,7 +116,7 @@ async function main() {
     await db.task.create({ data: { title: "[项目解读] 精读招标文件", status: "todo", priority: "high", projectId: P0c, creatorId: OWNER, assigneeId: OWNER } });
     const ref0c = await mkItem(P0c, "pending");
     const items0c = [{ inquiryItemId: ref0c.itemId, supplierName: supplier.name, to: "supplier@fixture.test", subject: "RFQ fixture", body: "fixture body" }];
-    const ex0 = await execTenderSendRfq({ projectId: P0c, inquiryId: ref0c.inquiryId, roundNumber: 1, fromName: "Fixture", fromEmail: MAILBOX, items: items0c, rfqDocHash: hashRfqPayloadItems(items0c) } as Parameters<typeof execTenderSendRfq>[0], { userId: A, role: "user", orgId: ORG }, { send: (async () => ({ messageId: `m0_${stamp}`, threadId: `t0_${stamp}` })) as never });
+    const ex0 = await execTenderSendRfq({ projectId: P0c, inquiryId: ref0c.inquiryId, roundNumber: 1, fromName: "Fixture", fromEmail: MAILBOX, items: items0c, rfqDocHash: hashRfqPayloadItems(items0c), identityGuard: 1 } as Parameters<typeof execTenderSendRfq>[0], { userId: A, role: "user", orgId: ORG }, { send: (async () => ({ messageId: `m0_${stamp}`, threadId: `t0_${stamp}` })) as never });
     ok(ex0.ok && !!(await proj(P0c)).supplierInquiredAt && (await tasks(P0c, "[项目解读]")).every((t) => t.status === "todo") && (await tasks(P0c, "[供应商询价]")).length === 0 && (await audits(P0c)).length === 0, "开关关闭：询价发出照原样写供应商询价时间，不关不建任务，没有审计");
 
     /* ---------- 2. 人工录入第一家报价 ---------- */
@@ -172,7 +172,7 @@ async function main() {
     const items = [{ inquiryItemId: ref3.itemId, supplierName: supplier.name, to: "supplier@fixture.test", subject: "RFQ fixture", body: "fixture body" }];
     const sentMails: unknown[] = [];
     const fakeSend = (async (_uid: string, m: unknown) => { sentMails.push(m); return { messageId: `m_${stamp}`, threadId: `t_${stamp}` }; }) as unknown as NonNullable<Parameters<typeof execTenderSendRfq>[2]>["send"];
-    const ex = await execTenderSendRfq({ projectId: P3, inquiryId: ref3.inquiryId, roundNumber: 1, fromName: "Fixture", fromEmail: MAILBOX, items, rfqDocHash: hashRfqPayloadItems(items) } as Parameters<typeof execTenderSendRfq>[0], { userId: A, role: "user", orgId: ORG }, { send: fakeSend });
+    const ex = await execTenderSendRfq({ projectId: P3, inquiryId: ref3.inquiryId, roundNumber: 1, fromName: "Fixture", fromEmail: MAILBOX, items, rfqDocHash: hashRfqPayloadItems(items), identityGuard: 1 } as Parameters<typeof execTenderSendRfq>[0], { userId: A, role: "user", orgId: ORG }, { send: fakeSend });
     const p3 = await proj(P3);
     const a3 = await audits(P3);
     ok(ex.ok && sentMails.length === 1 && !!p3.supplierInquiredAt && p3.tenderStatus === "pursuing", "询价发出一家：阶段记录到达供应商询价；招投标状态不变", { ex, p3 });
@@ -182,9 +182,9 @@ async function main() {
     triggers.push(String(a3[0]?.afterData?.trigger));
     const ref3b = await mkItem(P3, "pending", supplier2.id, "draft");
     const items3b = [{ inquiryItemId: ref3b.itemId, supplierName: supplier2.name, to: "supplier2@fixture.test", subject: "RFQ fixture 2", body: "fixture body 2" }];
-    const ex3b = await execTenderSendRfq({ projectId: P3, inquiryId: ref3b.inquiryId, roundNumber: 2, fromName: "Fixture", fromEmail: MAILBOX, items: items3b, rfqDocHash: hashRfqPayloadItems(items3b) } as Parameters<typeof execTenderSendRfq>[0], { userId: OWNER, role: "user", orgId: ORG }, { send: fakeSend });
+    const ex3b = await execTenderSendRfq({ projectId: P3, inquiryId: ref3b.inquiryId, roundNumber: 2, fromName: "Fixture", fromEmail: MAILBOX, items: items3b, rfqDocHash: hashRfqPayloadItems(items3b), identityGuard: 1 } as Parameters<typeof execTenderSendRfq>[0], { userId: OWNER, role: "user", orgId: ORG }, { send: fakeSend });
     ok(ex3b.ok && (await audits(P3)).length === 1 && (await tasks(P3, "[供应商询价]")).length === 2, "第二轮询价发出：不再前进（仍是一条审计、一批任务）");
-    const ex3c = await execTenderSendRfq({ projectId: P3, inquiryId: ref3b.inquiryId, roundNumber: 2, fromName: "Fixture", fromEmail: MAILBOX, items: items3b, rfqDocHash: hashRfqPayloadItems(items3b) } as Parameters<typeof execTenderSendRfq>[0], { userId: OWNER, role: "user", orgId: ORG }, { send: fakeSend });
+    const ex3c = await execTenderSendRfq({ projectId: P3, inquiryId: ref3b.inquiryId, roundNumber: 2, fromName: "Fixture", fromEmail: MAILBOX, items: items3b, rfqDocHash: hashRfqPayloadItems(items3b), identityGuard: 1 } as Parameters<typeof execTenderSendRfq>[0], { userId: OWNER, role: "user", orgId: ORG }, { send: fakeSend });
     ok(ex3c.ok && /此前已发/.test(String(ex3c.message)), "同一轮重放（全部此前已发）：执行器照常返回", ex3c);
     const P3m = await mkProject({ supplierInquiredAt: null, tenderStatus: "pursuing", interpretedAt: new Date(Date.now() - DAY) });
     const ref3m = await mkItem(P3m, "pending");
@@ -196,7 +196,7 @@ async function main() {
     const sentZero: unknown[] = [];
     await db.inquiryItem.update({ where: { id: ref3z.itemId }, data: { status: "sent", sentAt: new Date() } });
     const items3z = [{ inquiryItemId: ref3z.itemId, supplierName: supplier.name, to: "supplier@fixture.test", subject: "RFQ z", body: "z" }];
-    const ex3z = await execTenderSendRfq({ projectId: P3z, inquiryId: ref3z.inquiryId, roundNumber: 1, fromName: "Fixture", fromEmail: MAILBOX, items: items3z, rfqDocHash: hashRfqPayloadItems(items3z) } as Parameters<typeof execTenderSendRfq>[0], { userId: A, role: "user", orgId: ORG }, { send: (async (_u: string, m: unknown) => { sentZero.push(m); return { messageId: "x", threadId: "y" }; }) as never });
+    const ex3z = await execTenderSendRfq({ projectId: P3z, inquiryId: ref3z.inquiryId, roundNumber: 1, fromName: "Fixture", fromEmail: MAILBOX, items: items3z, rfqDocHash: hashRfqPayloadItems(items3z), identityGuard: 1 } as Parameters<typeof execTenderSendRfq>[0], { userId: A, role: "user", orgId: ORG }, { send: (async (_u: string, m: unknown) => { sentZero.push(m); return { messageId: "x", threadId: "y" }; }) as never });
     ok(ex3z.ok && sentZero.length === 0 && (await audits(P3z)).length === 0 && (await tasks(P3z)).length === 0, "执行时这一家早已发过、这次一封也没发：不触发自动前进", { ex3z, sent: sentZero.length });
 
     /* ---------- 6. 分析收尾（直接调共用函数；接线由纯逻辑测试核对） ---------- */

@@ -44,7 +44,8 @@
 
 ### D1 禁出清单 = 纯函数 + 一个只读加载器，四个出口共用
 
-- `src/lib/bid-workflow/project-identity-deny.ts`（纯函数）：`buildProjectIdentityDenyList(sources)` 产出 `{ category, normalized, cjk }[]`；`scanIdentity(denyList, segments, opts)`，`segments` 为 `{ where: string; text: string; authored: boolean }[]`，返回命中 `{ category, where }[]`（不带原文）；另含 `rfqReference(...)`、`cityLevelDestination(...)`、`scanOutboundRfqEmail(...)`（标题 + 正文的复查，D7 用）。不读环境变量、不访问数据库。
+- `src/lib/bid-workflow/project-identity-deny.ts`（纯函数）：`buildProjectIdentityDenyList(sources)` 产出 `{ category, normalized, cjk }[]`；`scanIdentity(denyList, segments)`，`segments` 为 `{ where: string; text: string; kind: "authored" | "human" | "tender" }[]`，返回命中 `{ category, where, kind }[]`（不带原文）；另含 `rfqReference(...)`、`cityLevelDestination(...)`、`scanOutboundRfqEmail(...)`（标题 + 正文的复查，D7 用）。不读环境变量、不访问数据库。
+- `src/lib/bid-workflow/project-identity-messages.ts`（实施时拆出）：类别名称、命中类型与说明文字。询价入口与自动起草的纯函数会被浏览器端组件引用（`web-entry-pure.ts` 头注写明「零 Node 内置模块」），而上面的模块要用 `node:crypto` 算询价编号，所以说明文字单独成一个不依赖 Node 的文件，由 `project-identity-deny.ts` 原样再导出。
 - `src/lib/bid-workflow/project-identity-sources.ts`（只读）：一次读项目（名称、编号、采购方、截标、创建时间、组织代码与设置）与当前可用分析的五个关键事实槽（`factId` 槽批量查 `TenderAnalysisFact`），产出 `sources`、询价编号与我方允许出现的邮箱（`readTenderRfqSettings` 的 `fromEmail` / `mailboxEmail`）。
 - 调用方：`prepareRfqRound` 与 `web-entry` 预构建（把清单传进 `buildRfqDocument`）、`execTenderSendRfq`、`generateProjectDocument` 的供应商侧分支。
 - 否决「每个出口各写一套」：四处规则一旦不同步，就会有一处漏；否决「放进既有敏感词表」：那张表是全局固定词，本清单是每个项目不同，且任务书要求不改既有表。
@@ -77,7 +78,7 @@
 
 ### D7 扫描范围：项目名称只查我方撰写的部分
 
-`segments[].authored` 区分两种文本：我方撰写（询价编号所在的标题与介绍句、固定模板、人工填写的栏目、生成文件抬头与固定文字、China Brief 编辑备注）与招标文本（要求原文与译文、交付要求事实、China Brief 自动挑选的事实）。项目名称类词条只查 `authored: true`；其余四类与格式检查全查。送审时在 `buildRfqDocument` 里按字段逐段扫描（位置可以精确到要求编号）；渲染完每一家的邮件后再用 `scanOutboundRfqEmail` 复查一次（四类 + 格式检查查标题与正文，项目名称只查标题），兜住模板将来被改坏的情况。
+`segments[].kind` 区分三种文本：`authored` 我方撰写（询价编号所在的标题与介绍句、固定模板、生成文件抬头与固定文字）、`human` 人工填写（补充说明、目的地、附加问题、China Brief 编辑备注；命中时说明改为「你填的……」）、`tender` 招标文本（要求原文与译文、交付要求事实、China Brief 自动挑选的事实）。项目名称类词条只查 `authored` 与 `human`；其余四类与格式检查全查。送审时在 `buildRfqDocument` 里按字段逐段扫描（位置可以精确到要求编号）；渲染完每一家的邮件后再用 `scanOutboundRfqEmail` 复查一次（四类 + 格式检查查标题与正文，项目名称只查标题），兜住模板将来被改坏的情况。
 - 否决「项目名称也查要求原文」：招标标题经常就是货品名（`Sleeping Bags and Mats`），要求原文必然出现同样的词，几乎每个这类标都会整单失败；而这几个词本身不指向某一个招标。见 Q2。
 
 ### D8 命中时的出路与文案
@@ -99,8 +100,8 @@
 
 ### D10 供应商侧生成文件
 
-- `tender-doc-html.ts`：`TenderDocHeader` 加 `audience: "internal" | "supplier"` 与 `reference`；`headerBlock` 在 `supplier` 时只出文件名称、询价编号与生成日期。`buildSupplierRfqHtml` 用 `supplier`，内部备忘录不变。
-- `generate-docs.ts`：`supplier_rfq` 两条路径与 `tech_confirm` 不再读 `ctx`、`project.name`、`project.description`；旧路径的正文只剩固定模板（改为以询价编号开头），末尾拼的 `Project: {项目名}` 只对内部文件保留。生成前把 HTML 去标签后整份交给 `scanIdentity`（模板与抬头 `authored: true`，综合结果里的要求文字 `authored: false`）。China Brief 的预览与生成同一个函数，所以预览就能看到失败原因。
+- `tender-doc-html.ts`：`buildSupplierRfqHtml` 改收新类型 `SupplierDocHeader`（只有询价编号与生成日期），抬头只出文件名称、询价编号与生成日期——类型上就拿不到项目名称、编号、采购方与截标；内部备忘录仍用 `TenderDocHeader`，不变。（实施时由「`TenderDocHeader` 加 `audience`」改为单独的类型：可选字段挡不住将来有人把项目名传进来。）另导出 `supplierRfqScanSegments`：同一份文件去掉要求行即抬头与固定文字（`authored`），每条要求一段（`tender`）。
+- `generate-docs.ts`：`supplier_rfq` 两条路径与 `tech_confirm` 不再读 `ctx`、`project.name`、`project.description`；旧路径的正文只剩固定模板（改为以询价编号开头），末尾拼的 `Project: {项目名}` 只对内部文件保留。生成前过 `scanIdentity`：有综合结果的询价表按 `supplierRfqScanSegments` 分段；旧路径与技术确认表整份是模板（`authored`）。China Brief 的预览与生成同一个函数，所以预览就能看到失败原因。
 - `china-supplier-brief.ts`：`ChinaBriefInput` 去掉 `clientOrganization`、`closeDate`、`documentTitles`，加 `identity`；第 1 行改为询价编号；事实挑选在既有过滤之后再加一条「命中身份或格式检查的整行不收」；编辑备注命中即抛错。`SENSITIVE_PATTERNS` 与最终的 `assertNoForbiddenLeak` 原样保留，身份检查排在它们之后。
 - 否决「旧路径没有综合结果就拒绝生成」：会让一个能用的空白模板直接消失；固定模板 + 询价编号仍可用。否决「China Brief 自动挑选的事实命中就整份失败」：事实是系统挑的，不是人写的，整份失败会让多数项目生成不了；它现有的做法就是按行过滤敏感事实，这里沿用。见 Q4、Q5。
 
@@ -139,9 +140,9 @@
 - 上线后：CHAIN-0 第 7 项的三个询价开关可以开（任务书「上线顺序」第 2 步）。
 - 回滚：回退本 PR 即恢复原行为；本次新增的载荷键 `identityGuard` 对旧代码无影响（执行器不读它），回滚后用新卡也能照旧发。
 
-## 审核关注点（偏离或补充任务书之处，请拍板）
+## 审核关注点与拍板结果（Lucas 2026-11-19「按照你推荐的做」，Q1–Q7 全部按推荐）
 
-| # | 问题 | 推荐 |
+| # | 问题 | 推荐（= 结果） |
 |---|---|---|
 | Q1 | 判断点 6 的编号落成 `RFQ-SUNNY-2026-7KQ4M`（项目 id 定的 5 位码），不是任务书例子里的年度序号 `031`，也不接品类（D5：序号零 schema 下会重号、会错位；要求类别取不出品类） | 按 D5 |
 | Q2 | 项目名称 / 招标标题只在我方撰写的部分比对，不在招标要求原文里比对（D7）。任务书把项目名称列进清单但没说范围；全查会让货品名式的标题几乎每次整单失败 | 按 D7 |

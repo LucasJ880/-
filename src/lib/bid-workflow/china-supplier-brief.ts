@@ -1,7 +1,18 @@
 /**
  * China Supplier Sourcing Brief — allowlist 组装（服务端强制）。
  * 默认排除估值、成本、利润、内部备注与 INFERRED 金额。
+ *
+ * CHAIN-4b：简报是发给工厂的，不再印采购方、截标日期与源文件名（文件名常含招标编号）；
+ * 项目只用中性询价编号称呼。自动挑选的事实命中本项目禁出清单或邮箱 / 电话格式的整行不收；
+ * 编辑备注命中 → 整份不生成（SupplierIdentityLeakError）。
  */
+
+import {
+  scanIdentity,
+  SupplierIdentityLeakError,
+  type IdentitySegment,
+  type ProjectIdentityDenyList,
+} from "./project-identity-deny";
 
 export type ChinaBriefFact = {
   content: string;
@@ -13,10 +24,10 @@ export type ChinaBriefFact = {
 };
 
 export type ChinaBriefInput = {
-  projectName: string;
-  clientOrganization?: string | null;
-  closeDate?: string | null;
-  documentTitles: string[];
+  /** CHAIN-4b：对供应商的中性询价编号（不传项目名、采购方、截标日期、文件名） */
+  reference: string;
+  /** CHAIN-4b：本项目的禁出清单 */
+  identity: ProjectIdentityDenyList;
   /** 显式开关：仅当为 true 且事实为公开历史时才输出金额类历史行 */
   includePublicHistoricalAmounts?: boolean;
   facts?: ChinaBriefFact[];
@@ -78,18 +89,24 @@ export function buildChinaSupplierBriefText(input: ChinaBriefInput): string {
     "[CONFIRMED from tender] / [PUBLIC HISTORICAL REFERENCE] / [AI_INFERRED] / [PENDING]",
     "NOTE: This brief excludes Sunny internal cost, margin, bid floor, risk scores, and internal valuation fields.",
     "",
-    `1) Project: ${input.projectName}`,
-    `2) Procuring agency (public): ${input.clientOrganization || "[PENDING]"}`,
-    "3) Product / qty: [PENDING — from tender specs only]",
-    `4) Delivery timing: ${input.closeDate || "[PENDING]"}`,
-    "5) Technical requirements: see tender documents (CONFIRMED only)",
-    "6) Certificates / tests required: [PENDING from tender]",
-    "7) MOQ / sample / lead time questions for factory: [PENDING]",
-    "8) Quote format: unit price, currency, Incoterms (FOB/CIF/DDP), validity",
-    `9) Source documents: ${input.documentTitles.join("; ") || "(none)"}`,
+    `1) RFQ reference / 询价编号: ${input.reference}`,
+    "2) Product / qty: [PENDING — from tender specs only]",
+    "3) Delivery timing: [PENDING — from tender specs only]",
+    "4) Technical requirements: see tender documents (CONFIRMED only)",
+    "5) Certificates / tests required: [PENDING from tender]",
+    "6) MOQ / sample / lead time questions for factory: [PENDING]",
+    "7) Quote format: unit price, currency, Incoterms (FOB/CIF/DDP), validity",
   ];
+  // CHAIN-4b：哪几行是自动挑选的事实（招标文本，不查项目名称），其余是模板（我方撰写）
+  const factLines = new Set<number>();
+  const pushFact = (line: string) => {
+    factLines.add(lines.length);
+    lines.push(line);
+  };
+  // 自动挑选的事实：命中身份或格式检查的整行不收（与既有的敏感事实过滤同一做法）
+  const identityClean = (f: ChinaBriefFact) => scanIdentity(input.identity, [{ where: "事实", text: f.content, kind: "tender" }]).length === 0;
 
-  const facts = input.facts ?? [];
+  const facts = (input.facts ?? []).filter(identityClean);
   const techFacts = facts.filter(
     (f) =>
       !factLooksLikeAmount(f) &&
@@ -102,7 +119,7 @@ export function buildChinaSupplierBriefText(input: ChinaBriefInput): string {
   // 选厂时一并取证，避免中标后被动。固定清单（非敏感、无金额）。
   lines.push(
     "",
-    "9b) Compliance evidence to collect from factory (labour / origin — required by many Canadian public buyers):",
+    "8) Compliance evidence to collect from factory (labour / origin — required by many Canadian public buyers):",
     "- Business licence copy (营业执照)",
     "- Factory photos: production floor + workshop conditions",
     "- Labour & workplace-safety policy statement (工资/工时/安全制度)",
@@ -112,11 +129,11 @@ export function buildChinaSupplierBriefText(input: ChinaBriefInput): string {
   );
 
   if (techFacts.length) {
-    lines.push("", "10) Confirmed / tender facts (non-pricing):");
+    lines.push("", "9) Confirmed / tender facts (non-pricing):");
     for (const f of techFacts.slice(0, 12)) {
       const src = f.sourceUrl ? ` src=${f.sourceUrl}` : "";
       const page = f.sourcePage ? ` p.${f.sourcePage}` : "";
-      lines.push(
+      pushFact(
         `- [${f.confidence}/${f.sourceType}] ${scrubSensitiveSupplierBriefText(f.content).slice(0, 220)}${src}${page}`,
       );
     }
@@ -126,12 +143,12 @@ export function buildChinaSupplierBriefText(input: ChinaBriefInput): string {
     const hist = facts.filter(
       (f) => isPublicHistoricalFact(f) && factLooksLikeAmount(f),
     );
-    lines.push("", "11) Public historical contract amounts (REFERENCE ONLY — NOT this bid budget):");
+    lines.push("", "10) Public historical contract amounts (REFERENCE ONLY — NOT this bid budget):");
     if (hist.length === 0) {
       lines.push("- (none with public historical source)");
     } else {
       for (const f of hist.slice(0, 8)) {
-        lines.push(
+        pushFact(
           `- [PUBLIC HISTORICAL REFERENCE / ${f.sourceType}] ${scrubSensitiveSupplierBriefText(f.content).slice(0, 220)}`,
         );
       }
@@ -139,7 +156,7 @@ export function buildChinaSupplierBriefText(input: ChinaBriefInput): string {
   } else {
     lines.push(
       "",
-      "11) Public historical amounts: omitted (includePublicHistoricalAmounts=false)",
+      "10) Public historical amounts: omitted (includePublicHistoricalAmounts=false)",
     );
   }
 
@@ -151,15 +168,20 @@ export function buildChinaSupplierBriefText(input: ChinaBriefInput): string {
       !containsSensitiveSupplierBriefText(f.content),
   );
   if (inferred.length) {
-    lines.push("", "12) AI_INFERRED (not official — factory must confirm):");
+    lines.push("", "11) AI_INFERRED (not official — factory must confirm):");
     for (const f of inferred.slice(0, 6)) {
-      lines.push(`- [AI_INFERRED] ${f.content.slice(0, 200)}`);
+      pushFact(`- [AI_INFERRED] ${f.content.slice(0, 200)}`);
     }
   }
 
+  let notesLine: string | null = null;
   if (input.confirmNotes?.trim()) {
+    // CHAIN-4b：编辑备注是人写的——命中招标身份就整份不生成，不替换
+    const noteHits = scanIdentity(input.identity, [{ where: "编辑备注", text: input.confirmNotes, kind: "human" }]);
+    if (noteHits.length) throw new SupplierIdentityLeakError(noteHits);
     const notes = scrubSensitiveSupplierBriefText(input.confirmNotes.trim());
-    lines.push("", "13) Editor notes (scrubbed):", notes.slice(0, 500));
+    notesLine = notes.slice(0, 500);
+    lines.push("", "12) Editor notes (scrubbed):", notesLine);
   }
 
   lines.push(
@@ -170,6 +192,14 @@ export function buildChinaSupplierBriefText(input: ChinaBriefInput): string {
   const body = lines.join("\n");
   // 最终硬过滤
   assertNoForbiddenLeak(body, includeHist);
+  // CHAIN-4b：整份再过一次身份检查（模板行查五类，事实行不查项目名称）
+  const segs: IdentitySegment[] = [
+    { where: "简报", text: lines.filter((_, i) => !factLines.has(i) && lines[i] !== notesLine).join("\n"), kind: "authored" },
+    { where: "简报事实", text: lines.filter((_, i) => factLines.has(i)).join("\n"), kind: "tender" },
+    ...(notesLine ? [{ where: "编辑备注", text: notesLine, kind: "human" as const }] : []),
+  ];
+  const hits = scanIdentity(input.identity, segs);
+  if (hits.length) throw new SupplierIdentityLeakError(hits);
   return body;
 }
 

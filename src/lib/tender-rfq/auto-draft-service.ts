@@ -110,7 +110,12 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     pickedSupplierCount: picked.length,
     groupMatch,
   });
-  if (!decision.draft) return decision.reason === "FLAG_OFF" ? null : autoDraftBlocked(decision.reason, { ...ctx, groupMatch, groupsUnreadable });
+  if (!decision.draft) {
+    if (decision.reason === "FLAG_OFF") return null;
+    // CHAIN-4b：入口判出招标身份命中时，说明与入口那句相同
+    const identityMessageZh = decision.reason === "IDENTITY_LEAK" && !entry.state.enabled ? entry.state.message : undefined;
+    return autoDraftBlocked(decision.reason, { ...ctx, groupMatch, groupsUnreadable, identityMessageZh });
+  }
 
   // RFQ-AUTO-3：触发起草的这个人有没有事先开启「自动起草的轮次带跟进授权」（只看他本人的；功能开关任一关闭 → false）
   const followUpOptIn = await loadAutoDraftFollowUpOptIn(input.orgId, input.userId);
@@ -129,6 +134,8 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     now: input.now,
   });
   if (!prepared.ok) {
+    // CHAIN-4b：送审时才判出的身份命中照实说，不记成起草失败
+    if (prepared.errorCode === "IDENTITY_LEAK") return autoDraftBlocked("IDENTITY_LEAK", { ...ctx, identityHits: prepared.identityHits ?? [] });
     return autoDraftBlocked(prepared.errorCode === "ROUND_LOCKED" ? "ROUND_EXISTS" : "DRAFT_FAILED", ctx);
   }
 

@@ -69,7 +69,7 @@ console.log("W-1 入口状态：可发");
   ok("只缺读信权限 → 提醒「回信不会自动进表」", onlyCompose.warnings.some((w) => w.includes("回信不会自动进表")));
 }
 
-console.log("W-1 入口状态：七种不可发原因与优先级");
+console.log("W-1 入口状态：八种不可发原因与优先级（CHAIN-4b 加身份信息）");
 {
   const s1 = decideRfqEntryState({ ...base, lock: pendingLock, sender: { ok: false, errorCode: "SENDER_NOT_CONNECTED" } });
   ok("待批发送卡优先于授权邮箱未连接", !s1.enabled && s1.reason === "pending_approval");
@@ -91,6 +91,13 @@ console.log("W-1 入口状态：七种不可发原因与优先级");
   ok("敏感内容拦截优先于授权缺发信权限", s4.reason === "sensitive_leak");
   ok("敏感内容说明写明整单不发", s4.message.includes("整单不发") && s4.action?.href === "/projects/p1?tab=requirements");
 
+  // CHAIN-4b：招标身份排在内部敏感词之后、授权邮箱之前
+  const idHits = [{ category: "buyer_name" as const, where: "要求 R-07", kind: "tender" as const }];
+  const s4i = decideRfqEntryState({ ...base, buildError: "IDENTITY_LEAK", identityHits: idHits, sender: { ok: false, errorCode: "SENDER_NOT_CONNECTED" } });
+  ok("身份信息优先于授权邮箱未连接", s4i.reason === "identity_leak");
+  ok("身份信息说明写明类别与位置、去「需求」检查", s4i.message === "询价内容含招标身份信息（命中：采购方名称·要求 R-07），本轮整单不发。" && s4i.action?.label === "去「需求」检查" && s4i.action.href === "/projects/p1?tab=requirements");
+  ok("同时命中内部敏感词时先报敏感词（预构建只会给出一种失败码）", decideRfqEntryState({ ...base, buildError: "SENSITIVE_LEAK", identityHits: idHits }).reason === "sensitive_leak");
+
   const s5 = decideRfqEntryState({ ...base, sender: { ok: false, errorCode: "SENDER_NOT_CONNECTED" } });
   ok("授权邮箱未连接 → 说明含该邮箱、出路去邮箱设置", s5.reason === "sender_not_connected" && s5.message.includes("lucas@sunnyshutter.ca") && s5.action?.href === "/settings/email");
   const s6 = decideRfqEntryState({ ...base, sender: { ok: false, errorCode: "SENDER_NO_COMPOSE_SCOPE" } });
@@ -101,7 +108,7 @@ console.log("W-1 入口状态：七种不可发原因与优先级");
   const s7b = decideRfqEntryState({ ...base, readySupplierCount: 0, sender: { ok: false, errorCode: "SENDER_NOT_CONNECTED" } });
   ok("授权邮箱问题优先于没有可发供应商", s7b.reason === "sender_not_connected");
 
-  for (const s of [s1, s2, s3, s4, s5, s6, s7]) ok(`不可发说明不含错误码 / 英文枢纽词（${s.reason}）`, noWord(s.message));
+  for (const s of [s1, s2, s3, s4, s4i, s5, s6, s7]) ok(`不可发说明不含错误码 / 英文枢纽词（${s.reason}）`, noWord(s.message));
 }
 
 console.log("W-1 错误码 → 人话 + 出路");
@@ -116,12 +123,17 @@ console.log("W-1 错误码 → 人话 + 出路");
   ok("SUPPLIERS_NOT_READY → 出路去第一家补邮箱", notReady.action?.href === "/suppliers/s9" && notReady.action.label === "补邮箱");
   ok("NO_CONFIRMED_REQUIREMENTS → 去需求 tab", rfqErrorToUserMessage("NO_CONFIRMED_REQUIREMENTS", ctx).action?.href === "/projects/p1?tab=requirements");
   ok("SENSITIVE_LEAK → 整单不发", rfqErrorToUserMessage("SENSITIVE_LEAK", ctx).message.includes("整单不发"));
+  // CHAIN-4b
+  const idReq = rfqErrorToUserMessage("IDENTITY_LEAK", { ...ctx, identityHits: [{ category: "delivery_address", where: "要求 R-03", kind: "tender" }] });
+  ok("IDENTITY_LEAK（命中在要求里）→ 与入口同一句、去「需求」", idReq.message === "询价内容含招标身份信息（命中：交货地址·要求 R-03），本轮整单不发。" && idReq.action?.href === "/projects/p1?tab=requirements");
+  const idField = rfqErrorToUserMessage("IDENTITY_LEAK", { ...ctx, identityHits: [{ category: "tender_number", where: "第 1 条附加问题", kind: "human" }, { category: "buyer_name", where: "要求 R-02", kind: "tender" }] });
+  ok("IDENTITY_LEAK（第一处在自己填的栏目）→ 以「你填的」开头、无出路", idField.message === "你填的第 1 条附加问题里含招标身份信息（命中：招标编号），改掉再提交。" && idField.action === null);
   ok("PROJECT_NOT_FOUND → 返回项目列表", rfqErrorToUserMessage("PROJECT_NOT_FOUND", ctx).action?.href === "/projects");
   const draft = rfqErrorToUserMessage("DRAFT_FAILED", ctx);
   ok("DRAFT_FAILED → 请重试 + 组织时区的时间", draft.message.includes("请重试") && draft.message.includes("11-06 18:10"));
   const free = rfqErrorToUserMessage("FREE_TEXT_SENSITIVE", { ...ctx, field: "补充说明" });
   ok("自己填的内容含内部词 → 指明是哪一栏、不把人引去需求 tab", free.message.startsWith("你填的补充说明里") && free.action === null);
-  for (const code of ["ROUND_LOCKED", "NO_SUPPLIERS", "SUPPLIERS_NOT_READY", "NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "PROJECT_NOT_FOUND", "DRAFT_FAILED", "FREE_TEXT_SENSITIVE"] as const) {
+  for (const code of ["ROUND_LOCKED", "NO_SUPPLIERS", "SUPPLIERS_NOT_READY", "NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "IDENTITY_LEAK", "PROJECT_NOT_FOUND", "DRAFT_FAILED", "FREE_TEXT_SENSITIVE"] as const) {
     ok(`${code} 的说明不含错误码`, noWord(rfqErrorToUserMessage(code, ctx).message));
   }
 }

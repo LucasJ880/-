@@ -252,10 +252,16 @@ async function main() {
     const pManual = await mkProject(twinName);
     const dAuto = await draft(pAuto);
     const manual = await prepareRfqRound({ projectId: pManual.projectId, orgId: ORG, userId: OWNER, source: "web", supplierIds: [sA.id, sB.id], incoterm: "FOB", now: NOW });
-    const itemsOf = async (projectId: string) => ((await cards(projectId))[0].payload as { items: Array<{ supplierId: string; subject: string; body: string }> }).items.map((i) => ({ supplierId: i.supplierId, subject: i.subject, body: i.body }));
+    // CHAIN-4b：邮件对项目只写本项目的询价编号（两个项目各自一个），比较前把各自的编号换成同一个占位
+    const { loadProjectIdentity } = await import("@/lib/bid-workflow/project-identity-sources");
+    const itemsOf = async (projectId: string) => {
+      const ref = (await loadProjectIdentity(projectId))?.reference ?? "";
+      const own = (t: string) => t.split(ref).join("{询价编号}");
+      return ((await cards(projectId))[0].payload as { items: Array<{ supplierId: string; subject: string; body: string }> }).items.map((i) => ({ supplierId: i.supplierId, subject: own(i.subject), body: own(i.body) }));
+    };
     const autoItems = await itemsOf(pAuto.projectId);
     const manualItems = await itemsOf(pManual.projectId);
-    ok(dAuto?.drafted === true && manual.ok && autoItems.length === 2 && JSON.stringify(autoItems) === JSON.stringify(manualItems), "按分组自动起草与手动勾选同样 2 家：每家的邮件标题与正文逐字相同", { auto: autoItems[0], manual: manualItems[0] });
+    ok(dAuto?.drafted === true && manual.ok && autoItems.length === 2 && JSON.stringify(autoItems) === JSON.stringify(manualItems), "按分组自动起草与手动勾选同样 2 家：除各自的询价编号外，每家的邮件标题与正文逐字相同", { auto: autoItems[0], manual: manualItems[0] });
     const allMail = JSON.stringify([...autoItems, ...(payloadBlinds?.items ?? [])]);
     ok(![BLINDS, FURN, LIGHT, "分组"].some((w) => allMail.includes(w)), "发给供应商的标题与正文里没有组名，也没有「分组」二字");
 

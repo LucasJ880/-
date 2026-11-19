@@ -29,8 +29,10 @@ import { chaseTemplateHash, resolveChaseAfterDays } from "./chase-pure";
 import { buildFollowUpPolicy } from "./followup-coverage";
 import { AUTO_DRAFT_TITLE_PREFIX, AUTO_DRAFT_TOOL_NAME, autoDraftPreviewLineZh } from "./auto-draft-pure";
 import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
-import { TENDER_SEND_RFQ_TYPE, type RfqFollowUpPolicy, type TenderSendRfqPayload } from "./types";
+import { RFQ_IDENTITY_GUARD_VERSION, TENDER_SEND_RFQ_TYPE, type RfqFollowUpPolicy, type TenderSendRfqPayload } from "./types";
 import { pickRfqIncoterm, pickRfqSuppliers, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
+import { loadProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
+import { identityLeakMessageZh, scanOutboundRfqEmail, type IdentityHit } from "@/lib/bid-workflow/project-identity-deny";
 
 const RFQ_FACT_TYPES = ["quantity", "delivery", "location", "warranty", "scope"] as const;
 
@@ -95,8 +97,11 @@ export type PrepareRfqResult =
         | "SUPPLIERS_NOT_READY"
         | "NO_CONFIRMED_REQUIREMENTS"
         | "SENSITIVE_LEAK"
+        | "IDENTITY_LEAK"
         | "DRAFT_FAILED";
       message: string;
+      /** CHAIN-4b：IDENTITY_LEAK 时命中的类别与位置（不含原文） */
+      identityHits?: IdentityHit[];
       /** NO_SUPPLIERS 时给候选，让 Muse 渲染成可选项 */
       candidates?: Array<{ id: string; name: string; contactEmail: string | null }>;
       blockedSuppliers?: Array<{ id: string; name: string; reason: "no_email" | "inactive" }>;
@@ -153,12 +158,15 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
 
   // ── 要求 + 事实（最新非 SUPERSEDED 的 run） ──
   const { requirements, facts } = await loadRfqRequirementInputs(project.id);
+  // CHAIN-4b：本项目的禁出清单与中性询价编号（项目字段 + 同一份分析的关键事实）
+  const identity = await loadProjectIdentity(project.id);
+  if (!identity) return { ok: false, errorCode: "PROJECT_NOT_FOUND", message: "没找到这个投标项目，或它不属于你的组织。" };
 
   // Web 表单总是提交用户的显式选择（默认值已预填进下拉框），null = 用户选了「不指定」，不能再回退到个人默认；
   // Muse 不带 incoterm 时仍按偏好补齐（P1-8 行为不变）。
   const term = input.source === "web" ? { incoterm: input.incoterm ?? null, fromPrefs: false } : pickRfqIncoterm(input.incoterm, prefs);
   const built = buildRfqDocument({
-    projectName: project.name,
+    identity: { denyList: identity.denyList, reference: identity.reference },
     buyerDisplayName: settings.fromName,
     closeDate: project.closeDate ? project.closeDate.toISOString() : null,
     now,
@@ -171,8 +179,17 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
     extraQuestions: input.extraQuestions,
     scopeNote: input.scopeNote ?? null,
   });
-  if (!built.ok) return { ok: false, errorCode: built.errorCode, message: built.message };
+  if (!built.ok) {
+    return built.errorCode === "IDENTITY_LEAK"
+      ? { ok: false, errorCode: "IDENTITY_LEAK", message: built.message, identityHits: built.hits }
+      : { ok: false, errorCode: built.errorCode, message: built.message };
+  }
   const doc = built.doc;
+
+  // CHAIN-4b：渲染每一家的邮件再复查一次（标题全查、正文不查项目名称），兜住模板被改坏；
+  // 在建轮次之前做，命中就什么都不建。轮次号只在标题里加「（第 N 轮）」，不影响结论。
+  const renderHits = ready.flatMap((s, i) => scanOutboundRfqEmail(identity.denyList, renderRfqEmail(doc, { supplierName: s.name }), `第 ${i + 1} 家`));
+  if (renderHits.length) return { ok: false, errorCode: "IDENTITY_LEAK", message: identityLeakMessageZh(renderHits), identityHits: renderHits };
 
   // ── 建轮次（draft，零出站） ──
   let inquiry: Awaited<ReturnType<typeof createInquiry>>;
@@ -251,6 +268,8 @@ async function draftRoundCard(input: PrepareRfqInput, c: DraftRoundContext): Pro
     incoterm: term.incoterm,
     // 不带授权时不写这个键：载荷与本功能之前逐字节相同
     ...(followUpPolicy ? { followUpPolicy } : {}),
+    // CHAIN-4b：起草时已过身份防护；执行器见不到这个标记就拒发
+    identityGuard: RFQ_IDENTITY_GUARD_VERSION,
   };
 
   // 新审批一律走 canonical 入口 requestApproval（runtime-architecture 守卫禁止新代码直接调旧的草稿创建 helper）

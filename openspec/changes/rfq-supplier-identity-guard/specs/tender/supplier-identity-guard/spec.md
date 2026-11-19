@@ -38,7 +38,7 @@
 - **THEN** 不命中（同一测试）
 
 ### Requirement: 邮箱与电话格式检查
-系统 SHALL 把供应商可见内容里出现的任何邮箱地址判为命中（类别：邮箱地址），本组织询价设置里的显示发件地址与授权邮箱除外（不分大小写）。系统 SHALL 把以下形式判为命中（类别：电话号码）：北美 10 位号码（可带 `+1` 或 `1`、区号可带括号，分段以空格、`-` 或 `.` 分隔）；以 `+` 开头、数字合计不少于 8 位的国际号码；以 `1` 开头、第二位为 3–9 的 11 位中国手机号。标准号（如 `CAN/CGSB-4.162-2015`、`ISO 9001:2015`）、尺寸（如 `1200 x 600 x 25 mm`）与招标编号（如 `24062-27-057`）SHALL NOT 被判为电话号码。
+系统 SHALL 把供应商可见内容里出现的任何邮箱地址判为命中（类别：邮箱地址），本组织询价设置里的显示发件地址与授权邮箱除外（不分大小写）。系统 SHALL 把以下形式判为命中（类别：电话号码）：北美 10 位号码（区号与局号的首位为 2–9；可带 `+1` 或 `1`、区号可带括号，分段以空格、`-` 或 `.` 分隔）；以 `+` 开头、数字合计不少于 8 位的国际号码；以 `1` 开头、第二位为 3–9 的 11 位中国手机号。标准号（如 `CAN/CGSB-4.162-2015`、`ISO 9001:2015`）、尺寸（如 `1200 x 600 x 25 mm`）与招标编号（如 `24062-27-057`）SHALL NOT 被判为电话号码。
 
 #### Scenario: 要求里的联系人邮箱与电话
 - **WHEN** 一条已确认的交付类要求写着 `Contact j.doe@tbs-sct.gc.ca or 613-555-0142 to book delivery`
@@ -64,7 +64,7 @@
 
 #### Scenario: 要求里写了采购方名称
 - **WHEN** 项目采购方为 `City of Ottawa`，一条已确认的交付类要求 `R-02` 写着 `Deliver to the City of Ottawa warehouse`，发起人在网页上送审
-- **THEN** 不建询价轮次、不建审批卡；说明含「命中：采购方名称（要求 R-02）」且不含 `City of Ottawa`（`npx tsx src/lib/tender-rfq/__tests__/build.test.ts`；`npx tsx src/lib/tender-rfq/__tests__/supplier-identity-guard-db.isolated.test.ts`）
+- **THEN** 不建询价轮次、不建审批卡；说明含「命中：采购方名称·要求 R-02」且不含 `City of Ottawa`（`npx tsx src/lib/tender-rfq/__tests__/build.test.ts`；`npx tsx src/lib/tender-rfq/__tests__/supplier-identity-guard-db.isolated.test.ts`）
 
 #### Scenario: 内部敏感词与身份信息同时出现
 - **WHEN** 补充说明同时含 `ourBidPrice` 与采购方名称
@@ -120,10 +120,10 @@
 
 ### Requirement: 供应商侧生成文件
 「国内供应商询价」（有、无分析综合结果两条路径）、「供应商技术确认表」与「国内供应商简报（China Brief）」是供应商侧文件，系统 SHALL 按以下规则生成：
-- 抬头只有文件名称、询价编号与生成日期；SHALL NOT 印项目名称、项目编号、采购方与投标截止。
+- 抬头只有文件名称、询价编号与生成日期；SHALL NOT 印项目名称、项目编号、采购方与投标截止。生成日期不参与禁出清单比对。
 - 「国内供应商询价」在没有分析综合结果时、以及「供应商技术确认表」，内容 SHALL 只有固定模板文字与询价编号；SHALL NOT 含项目 AI 上下文、项目名称与项目描述，因而不含客户、标号、预估金额、我方报价与中标价。
 - China Brief SHALL NOT 印采购方、截标日期与源文件名；自动挑选的事实中命中禁出清单或格式检查的，整行不收；编辑备注命中时不生成。
-- 生成（含 China Brief 的预览）之前，整份内容过禁出清单与格式检查（项目名称类只查抬头、固定文字与编辑备注），命中即不生成；生成接口 `POST /api/projects/{id}/generate-pdf` SHALL 返回 422、`errorCode: "IDENTITY_LEAK"` 与写明类别与位置的说明。
+- 生成（含 China Brief 的预览）之前，整份内容过禁出清单与格式检查，命中即不生成（见「供应商侧文件命中时不生成」）。
 
 #### Scenario: 符合性确认表的对外抬头
 - **WHEN** 项目名称 `测试项目`、项目编号 `COS-1`、采购方 `Buyer Agency`、截标 `2026-09-04`，有分析综合结果，生成「供应商询价与符合性确认表」
@@ -139,7 +139,18 @@
 
 #### Scenario: China Brief 的取材
 - **WHEN** 生成 China Brief：采购方 `Cox Agency`，自动挑选的事实里有一条写着 `Cox Agency requires 500 units`、一条写着 `Fabric weight 300gsm`，编辑备注为空
-- **THEN** 简报里没有 `Procuring agency` 一行、没有截标日期与源文件名，没有 `Cox Agency`，有 `Fabric weight 300gsm`；编辑备注改为含 `Cox Agency` 时不生成，说明含「命中：采购方名称（编辑备注）」（`npx tsx src/lib/bid-workflow/__tests__/china-supplier-brief.test.ts`）
+- **THEN** 简报里没有 `Procuring agency` 一行、没有截标日期与源文件名，没有 `Cox Agency`，有 `Fabric weight 300gsm`；编辑备注改为含 `Cox Agency` 时不生成，说明含「命中：采购方名称·编辑备注」（`npx tsx src/lib/bid-workflow/__tests__/china-supplier-brief.test.ts`）
+
+### Requirement: 供应商侧文件命中时不生成
+供应商侧文件生成（含 China Brief 的预览）之前，系统 SHALL 让整份内容过禁出清单与格式检查，项目名称类只查抬头、固定文字与编辑备注。命中时 SHALL NOT 写文件、SHALL NOT 建文件记录；生成接口 `POST /api/projects/{id}/generate-pdf` SHALL 返回 422、`errorCode: "IDENTITY_LEAK"` 与写明类别与位置的说明（「供应商侧文件含招标身份信息（命中：{类别}·{位置}），未生成。」）。
+
+#### Scenario: 分析里的要求写了采购方
+- **WHEN** 有分析综合结果，其中第 1 条供应商侧要求的说明写着采购方名称，生成「供应商询价与符合性确认表」
+- **THEN** 命中采购方名称·第 1 条要求，不生成（`npx tsx src/lib/projects/generate/__tests__/tender-doc-html.test.ts`；错误类型与说明见 `npx tsx src/lib/bid-workflow/__tests__/project-identity-deny.test.ts`）
+
+#### Scenario: 截标当天生成
+- **WHEN** 生成日期恰好等于截标日期
+- **THEN** 照常生成（生成日期不参与比对）（`tender-doc-html.test.ts`）
 
 ### Requirement: 内部文件不变
 内部决策备忘录、分析师备忘录、RFI 问题清单、投标文件起草、同事任务单 SHALL 照旧印出项目名称、项目编号、采购方与截标日期，SHALL NOT 过禁出清单。

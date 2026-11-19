@@ -8,6 +8,8 @@ import { sanitizeSupplierFacing } from "./pdf-common";
 import { buildProjectAiContextBlock } from "@/lib/projects/project-ai-context";
 import { computePriceGap } from "@/lib/projects/price-gap";
 import { buildChinaSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
+import { loadProjectIdentity, type LoadedProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
+import { scanIdentity, SupplierIdentityLeakError } from "@/lib/bid-workflow/project-identity-deny";
 
 export type GenerateDocType =
   | "supplier_rfq"
@@ -18,6 +20,18 @@ export type GenerateDocType =
   | "tech_confirm"
   | "owner_clarification"
   | "bid_draft";
+
+/**
+ * CHAIN-4b：发给供应商的文件。它们不拼接项目 AI 上下文、项目名称与描述（那里有标号、客户、预估金额、
+ * 我方报价、中标价），只用中性询价编号；生成前过本项目的禁出清单，命中即抛 SupplierIdentityLeakError。
+ */
+const SUPPLIER_DOC_TYPES: ReadonlySet<GenerateDocType> = new Set(["supplier_rfq", "tech_confirm", "china_supplier_brief"]);
+
+/** 供应商侧文件生成前的身份检查（整份我方撰写的文字：五类 + 格式检查全查） */
+function assertSupplierDocClean(identity: LoadedProjectIdentity, text: string): void {
+  const hits = scanIdentity(identity.denyList, [{ where: "文件正文", text, kind: "authored" }]);
+  if (hits.length) throw new SupplierIdentityLeakError(hits);
+}
 
 const DOC_TITLES: Record<GenerateDocType, string> = {
   supplier_rfq: "国内供应商询价",
@@ -100,26 +114,23 @@ export async function generateProjectDocument(input: {
   });
   if (!project) throw new Error("项目不存在");
 
-  // china_supplier_brief：禁止把 AI context / estimatedValue 拼进厂家文件
-  const ctx =
-    input.docType === "china_supplier_brief"
-      ? ""
-      : await buildProjectAiContextBlock(project.id);
+  // 供应商侧文件（含 china_supplier_brief）：禁止把 AI context（标号 / 客户 / 预估金额 / 我方报价 / 中标价）拼进去
+  const supplierFacing = SUPPLIER_DOC_TYPES.has(input.docType);
+  const ctx = supplierFacing ? "" : await buildProjectAiContextBlock(project.id);
+  // CHAIN-4b：供应商侧文件的禁出清单与询价编号
+  const identity = supplierFacing ? await loadProjectIdentity(project.id) : null;
+  if (supplierFacing && !identity) throw new Error("项目不存在");
   const addendumFingerprint = project.documents
     .map((d: { id: string; title: string }) => `${d.id}:${d.title}`)
     .sort()
     .join("|")
     .slice(0, 500);
 
-  if (input.docType === "china_supplier_brief" && input.previewOnly) {
+  if (input.docType === "china_supplier_brief" && input.previewOnly && identity) {
     const facts = await loadChinaBriefFacts(project.id);
     const previewText = buildChinaSupplierBriefText({
-      projectName: project.name,
-      clientOrganization: project.clientOrganization,
-      closeDate: project.closeDate
-        ? project.closeDate.toISOString().slice(0, 10)
-        : null,
-      documentTitles: project.documents.map((d) => d.title),
+      reference: identity.reference,
+      identity: identity.denyList,
       includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
       facts,
       confirmNotes: input.confirmNotes,
@@ -137,15 +148,11 @@ export async function generateProjectDocument(input: {
   // （基准=McMaster 管理层决策备忘录；中文安全，根治 jsPDF 无 CJK 字体乱码；
   //   内部=决策备忘录 ≠ 供应商=符合性确认+报价表，语义彻底分离）。
   // FB-16：China Supplier Brief 同样切 HTML（jsPDF 无 CJK 字体 → 乱码；与平台无关）
-  if (input.docType === "china_supplier_brief") {
+  if (input.docType === "china_supplier_brief" && identity) {
     const facts = await loadChinaBriefFacts(project.id);
     const briefText = buildChinaSupplierBriefText({
-      projectName: project.name,
-      clientOrganization: project.clientOrganization,
-      closeDate: project.closeDate
-        ? project.closeDate.toISOString().slice(0, 10)
-        : null,
-      documentTitles: project.documents.map((d) => d.title),
+      reference: identity.reference,
+      identity: identity.denyList,
       includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
       facts,
       confirmNotes: input.confirmNotes,
@@ -235,27 +242,35 @@ ${escd}`;
     const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
     const syn = readAnalystSynthesis(latestRun?.summaryJson ?? null);
     if (syn) {
-      const { buildInternalDecisionMemoHtml, buildSupplierRfqHtml } =
+      const { buildInternalDecisionMemoHtml, buildSupplierRfqHtml, supplierRfqScanSegments } =
         await import("./tender-doc-html");
-      const projMeta = await db.project.findUnique({
-        where: { id: project.id },
-        select: { solicitationNumber: true },
-      });
-      const header = {
-        projectName: project.name,
-        clientOrganization: project.clientOrganization,
-        solicitationNumber: projMeta?.solicitationNumber ?? null,
-        closeDate: project.closeDate
-          ? project.closeDate.toISOString().slice(0, 10)
-          : null,
-        orgName: null,
-        generatedAt: new Date().toISOString().slice(0, 10),
-      };
-      const html = `<!doctype html><meta charset="utf-8">${
-        input.docType === "internal_analysis"
-          ? buildInternalDecisionMemoHtml(header, syn)
-          : buildSupplierRfqHtml(header, syn)
-      }`;
+      const generatedAt = new Date().toISOString().slice(0, 10);
+      let body: string;
+      if (input.docType === "internal_analysis") {
+        // 内部备忘录：抬头照旧印项目名称、项目编号、采购方、投标截止
+        const projMeta = await db.project.findUnique({
+          where: { id: project.id },
+          select: { solicitationNumber: true },
+        });
+        body = buildInternalDecisionMemoHtml(
+          {
+            projectName: project.name,
+            clientOrganization: project.clientOrganization,
+            solicitationNumber: projMeta?.solicitationNumber ?? null,
+            closeDate: project.closeDate ? project.closeDate.toISOString().slice(0, 10) : null,
+            orgName: null,
+            generatedAt,
+          },
+          syn,
+        );
+      } else {
+        // CHAIN-4b：供应商询价表只用对外抬头；生成前逐段过身份检查（要求行不查项目名称）
+        const supplierHeader = { reference: identity!.reference, generatedAt };
+        const hits = scanIdentity(identity!.denyList, supplierRfqScanSegments(supplierHeader, syn));
+        if (hits.length) throw new SupplierIdentityLeakError(hits);
+        body = buildSupplierRfqHtml(supplierHeader, syn);
+      }
+      const html = `<!doctype html><meta charset="utf-8">${body}`;
       return persistGeneratedHtml({
         project: { id: project.id, name: project.name },
         orgId: input.orgId,
@@ -278,18 +293,17 @@ ${escd}`;
   let htmlOverride: string | null = null;
 
   if (input.docType === "supplier_rfq") {
+    // CHAIN-4b：只剩固定模板与询价编号——不再拼项目名称、描述与项目 AI 上下文
     const body = sanitizeSupplierFacing(
       [
         "SUPPLIER RFQ (China / Factory)",
-        `Project name (CN/EN): ${project.name}`,
-        project.description?.slice(0, 600) || "",
+        `RFQ reference / 询价编号: ${identity!.reference}`,
         "Please quote: product, qty, size, material, certifications, packaging, sample lead time, production lead time, required docs.",
         "Hide: customer budget, our margin, competitor info.",
         "Questions for supplier:",
         "1) Can you meet specs exactly?",
         "2) Lead time for sample and bulk?",
         "3) Certifications available?",
-        ctx.slice(0, 1800),
       ].join("\n\n"),
     );
     textBody = body;
@@ -338,10 +352,11 @@ ${escd}`;
     ].join("\n\n");
     textBody = body;
   } else if (input.docType === "tech_confirm") {
+    // CHAIN-4b：只剩固定模板与询价编号——不再拼项目名称与项目 AI 上下文
     const body = sanitizeSupplierFacing(
       [
         "Supplier Technical Confirmation",
-        `Project: ${project.name}`,
+        `RFQ reference / 询价编号: ${identity!.reference}`,
         "Table columns: Customer Requirement | Meet (Y/N) | Supplier Note | Evidence | Deviation",
         "",
         "Row templates (fill with project requirements):",
@@ -350,9 +365,6 @@ ${escd}`;
         "3) Certification / testing |  |  |  |  ",
         "4) Lead time / sample |  |  |  |  ",
         "5) Packaging / labeling |  |  |  |  ",
-        "",
-        "Known requirements from project context:",
-        ctx.slice(0, 2000),
       ].join("\n"),
     );
     textBody = body;
@@ -404,7 +416,11 @@ ${escd}`;
     textBody = "";
   }
 
-  const fullText = `${DOC_TITLES[input.docType]}\n\nProject: ${project.name}\n\n${textBody}`;
+  // 内部文件照旧以项目名开头；供应商侧文件不写项目名，并在生成前过身份检查
+  const fullText = supplierFacing
+    ? `${DOC_TITLES[input.docType]}\n\n${textBody}`
+    : `${DOC_TITLES[input.docType]}\n\nProject: ${project.name}\n\n${textBody}`;
+  if (supplierFacing && identity) assertSupplierDocClean(identity, fullText);
   const escd = fullText
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

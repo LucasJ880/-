@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { SupplierIdentityLeakError } from "@/lib/bid-workflow/project-identity-deny";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { requireProjectWriteAccess } from "@/lib/projects/access";
@@ -119,6 +120,10 @@ export const POST = withAuth(async (request, ctx, user) => {
           : null,
     });
   } catch (e) {
+    // CHAIN-4b：供应商侧文件含招标身份信息——是内容问题，不是服务器错误
+    if (e instanceof SupplierIdentityLeakError) {
+      return NextResponse.json({ error: e.message, errorCode: e.errorCode }, { status: 422 });
+    }
     console.error("[generate-pdf]", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "生成失败" },

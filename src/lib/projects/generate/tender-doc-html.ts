@@ -13,6 +13,7 @@
  */
 
 import type { TenderAnalystSynthesisV1 } from "@/lib/tender-analyst/contract";
+import type { IdentitySegment } from "@/lib/bid-workflow/project-identity-deny";
 
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -81,6 +82,52 @@ function headerBlock(h: TenderDocHeader, docTitle: string, confidential: string)
     h.clientOrganization ? `采购方 ${esc(h.clientOrganization)} ｜ ` : ""
   }${h.closeDate ? `投标截止 ${esc(h.closeDate)} ｜ ` : ""}生成于 ${esc(h.generatedAt)}</p>
 <div class="hr"></div>`;
+}
+
+/**
+ * CHAIN-4b：发给供应商的文件只用这个抬头——类型上就拿不到项目名称、项目编号、采购方与投标截止。
+ * reference 是对供应商的中性询价编号。
+ */
+export type SupplierDocHeader = { reference: string; generatedAt: string };
+
+const SUPPLIER_RFQ_TITLE = "供应商询价与符合性确认表（Supplier RFQ）";
+
+function supplierHeaderBlock(h: SupplierDocHeader, docTitle: string): string {
+  return `<h1>${esc(docTitle)}</h1>
+<p class="meta">询价编号 ${esc(h.reference)} ｜ 生成于 ${esc(h.generatedAt)}</p>
+<div class="hr"></div>`;
+}
+
+/** 去标签、还原本文件用到的三个转义，得到供应商看到的文字（供身份检查用） */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function supplierRfqRows(syn: TenderAnalystSynthesisV1) {
+  return [...syn.technicalRequirements, ...syn.commercialAndDelivery].filter(
+    (k) => k.impact !== "CONTRACT_ONLY" && k.impact !== "INFORMATIONAL",
+  );
+}
+
+/**
+ * CHAIN-4b：供应商询价表的身份检查分段——抬头与固定文字是我方撰写（五类全查），
+ * 每条要求来自分析（不查项目名称）。
+ */
+export function supplierRfqScanSegments(h: SupplierDocHeader, syn: TenderAnalystSynthesisV1): IdentitySegment[] {
+  const rows = supplierRfqRows(syn);
+  const rowText = (k: (typeof rows)[number]) => `${stripRefs(k.titleZh)}\n${stripRefs(k.explanationZh)}`;
+  // 同一份文件去掉要求行 = 抬头 + 固定文字。生成日期是我方元数据、不是招标身份，不参与比对
+  // （否则在截标当天生成会撞上截标日期词条）
+  const fixed = htmlToText(buildSupplierRfqHtml({ ...h, generatedAt: "" }, { ...syn, technicalRequirements: [], commercialAndDelivery: [] }));
+  return [
+    { where: "文件抬头与固定文字", text: fixed, kind: "authored" },
+    ...rows.map((k, i): IdentitySegment => ({ where: `第 ${i + 1} 条要求`, text: rowText(k), kind: "tender" })),
+  ];
 }
 
 function keyItemRows(items: TenderAnalystSynthesisV1["keyRequirements"]): string {
@@ -205,13 +252,12 @@ ${["资质与年限要求", "案例与推荐人", "技术 / 生产能力", "检�
   }。本备忘录由青砚 Tender Analyst 生成，关键结论可在系统内「查看证据」回溯原文页码。</p>`;
 }
 
-/** 供应商响应表（RFQ）：要求 + 是否满足 + 报价栏；不含内部判断 */
+/** 供应商响应表（RFQ）：要求 + 是否满足 + 报价栏；不含内部判断。CHAIN-4b：对外抬头，不印招标身份 */
 export function buildSupplierRfqHtml(
-  h: TenderDocHeader,
+  h: SupplierDocHeader,
   syn: TenderAnalystSynthesisV1,
 ): string {
-  const rows = [...syn.technicalRequirements, ...syn.commercialAndDelivery]
-    .filter((k) => k.impact !== "CONTRACT_ONLY" && k.impact !== "INFORMATIONAL")
+  const rows = supplierRfqRows(syn)
     .map(
       (k, i) =>
         `<tr><td>${i + 1}</td><td><b>${t(k.titleZh)}</b><br/><span class="muted">${t(
@@ -220,7 +266,7 @@ export function buildSupplierRfqHtml(
     )
     .join("");
   return `${STYLE}
-${headerBlock(h, "供应商询价与符合性确认表（Supplier RFQ）", "")}
+${supplierHeaderBlock(h, SUPPLIER_RFQ_TITLE)}
 <p>请贵司针对下列要求逐项确认<b>是否满足</b>，并提供<b>报价</b>与必要说明。对「部分满足 / 不满足」项，请说明差异与替代方案。</p>
 <table><tr><th>#</th><th>要求</th><th>符合性确认</th><th>说明</th><th>报价</th></tr>${rows}</table>
 <h2>报价与交付信息</h2>
