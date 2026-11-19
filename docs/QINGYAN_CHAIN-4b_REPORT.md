@@ -69,6 +69,7 @@
 | `tender-rfq/__tests__/auto-draft-pure.test.ts` | 63 | 66 |
 | `projects/generate/__tests__/tender-doc-html.test.ts` | 10 | 23 |
 | `bid-workflow/__tests__/china-supplier-brief.test.ts` | PASS（断言式，未注册） | PASS（新增 1 组），已注册 |
+| `tender-intel/__tests__/analyst-memo-v1.test.ts` | 18 | 18（AM-16c 改为不认编号，见 §5） |
 | `pdf/__tests__/cjk-pdf.test.ts` | 11 | 11 |
 | `muse-bridge/__tests__/muse-bridge-pure.test.ts` | 75 | 75（未改断言） |
 | `tender-rfq/__tests__/round-pure.test.ts` | 34 | 34 |
@@ -87,7 +88,8 @@
 
 | 项 | 结果 |
 |---|---|
-| `npm test`（含隔离库） | 见下方「全量结果」 |
+| `npm test`（含隔离库） | 690 / 701，11 项失败：1 项本次引起已修，9 项 main 上同样失败，1 项与顺序有关（见下） |
+| `npm run test:ci` | `CI unit subset PASS` |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（error 53 → 38，无新增指纹）；改动的 25 个 TS 文件直接跑 ESLint 无输出 |
 | `bash scripts/check-test-registry.sh` | 通过：已注册 668 个，历史欠账 66 条 |
@@ -97,7 +99,15 @@
 | `src/lib/muse-bridge/**`、`src/lib/pending-actions/**`、`chase-pure.ts`、`google-email.ts`、`openspec/config.yaml`、`.claude/launch.json` | 无 diff |
 | 新增模型调用 | 无（`project-identity-deny.test.ts` 源码断言） |
 
-全量结果：（跑完后填）
+全量结果（本机，带隔离库，`npm test`）：**`测试结果: 690/701 通过, 11 失败`**。逐项核对：
+
+| 失败的测试 | 结论 |
+|---|---|
+| 分析师备忘录 v1（`tender-intel/__tests__/analyst-memo-v1.test.ts`，AM-16c） | **本次引起**：它钉住 China Brief 的字面编号 `9b) Compliance evidence`，本次去掉两行后重新编号成 `8)`。改为只认清单本身（不认编号），之后 18 / 18 |
+| 来信观察 DB（MAIL-2）、Sunny 工艺单 DB、Phase3A-3 Approvals Smoke、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Phase3A-5 Overview Acceptance、T4 授标情报真实 Postgres 矩阵（16 / 2）、Quote Operations 客户报价 PDF 分页布局、招标询价自动起草 DB（75 / 76） | **既有**：在没改过的 main `15bb79c`（单独的 worktree、同一个隔离库）上逐个重跑，失败相同 |
+| Autopilot A2-P0 Isolated E2E（`permanent A2 failure reaches outbox DEAD`） | **与顺序有关**：全量里 95 / 96；单独跑在本分支与 main 上都是 96 / 96。它读写自动驾驶的发件箱，与本次无关 |
+
+全量是在 §3 第 6、7 条与 AM-16c 修正之前开跑的；这几处改动涉及的测试（`project-identity-deny`、`build`、`tender-doc-html`、`analyst-memo-v1`、隔离库 `supplier-identity-guard-db` / `supplier-groups-db` / `auto-draft-db` / `stage-auto-db`）改完后都单独重跑过，结果见 §4；`npm run test:ci`（CI 跑的子集，不带数据库）在改完后跑：`CI unit subset PASS`。
 
 ## 6. 真实标包实测 —— 没做，需要 staging
 

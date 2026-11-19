@@ -124,7 +124,8 @@ console.log("分析师备忘录 v1 单测");
     const brief = readFileSync(join(root, "src/lib/bid-workflow/china-supplier-brief.ts"), "utf-8");
     ok((PROJECT_PDF_DOC_TYPES as readonly string[]).includes("analyst_memo") && gen.includes('analyst_memo: "投标分析师备忘录"') && menu.includes('docType: "analyst_memo"'), "AM-16a: analyst_memo 三处注册齐（路由白名单/标题/生成菜单）");
     ok(orch.includes("referencedStandards } : {}") && orch.includes("marketPricing } : {}") && orch.includes("standardsResearched"), "AM-16b: 编排层落库 M3/M4 + 状态字段");
-    ok(brief.includes("9b) Compliance evidence") && brief.includes("BSCI / SMETA"), "AM-16c: 供应商简报含劳工/来源取证清单");
+    // CHAIN-4b 去掉采购方 / 源文件名两行后重新编号，这里只认清单本身（不认编号）
+    ok(/\d+b?\) Compliance evidence to collect from factory/.test(brief) && brief.includes("BSCI / SMETA"), "AM-16c: 供应商简报含劳工/来源取证清单");
   }
 
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
