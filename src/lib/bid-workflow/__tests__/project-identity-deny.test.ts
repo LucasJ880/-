@@ -86,6 +86,8 @@ console.log("project-identity-deny");
   const list = buildProjectIdentityDenyList(src({ facts: { ...emptyFacts(), tenderNumber: ["Solicitation No. EN578-170432/B"], buyer: ["加拿大财政委员会秘书处"] } }));
   ok("编号事实：取出含 ≥4 位数字的编号片段", has(list, "tender_number", normalizeIdentityText("EN578-170432/B")));
   ok("编号事实：不含数字的词不当编号片段", !has(list, "tender_number", "solicitation"));
+  const dated = buildProjectIdentityDenyList(src({ facts: { ...emptyFacts(), tenderNumber: ["招标编号未在文件中给出，截标 2026-12-05"] } }));
+  ok("编号事实里的日期不当编号片段", !dated.entries.some((e) => e.category === "tender_number" && e.normalized === "2026 12 05"));
   ok("中文采购方：标为中日韩词条", list.entries.some((e) => e.category === "buyer_name" && e.cjk));
 }
 
@@ -136,6 +138,9 @@ console.log("project-identity-deny");
   const mail = scanOutboundRfqEmail(list, { subject: "询价：Sleeping Bags and Mats", body: "1.【强制】R-01 Sleeping bags and mats shall be rated to -20C" }, "第 2 家");
   ok("发出邮件复查：标题查项目名称", mail.some((h) => h.category === "project_name" && h.where === "第 2 家邮件标题"));
   ok("发出邮件复查：正文不查项目名称", !mail.some((h) => h.where === "第 2 家邮件正文"));
+  const cityList = buildProjectIdentityDenyList(src({ clientOrganization: "Ottawa Hospital" }));
+  ok("发出邮件复查：问候语里的供应商名不参与比对", scanOutboundRfqEmail(cityList, { subject: "询价 RFQ-X", body: "Ottawa Hospital Supply Co 您好：\n\n规格如下" }).length === 0);
+  ok("发出邮件复查：问候语之外照查", scanOutboundRfqEmail(cityList, { subject: "询价 RFQ-X", body: "S 您好：\n交付至 Ottawa Hospital" }).length === 1);
   ok("发出邮件复查：正文仍查编号", scanOutboundRfqEmail(list, { subject: "询价 RFQ-X", body: "see 24062-27-057" }).some((h) => h.category === "tender_number" && h.where === "邮件正文"));
 }
 

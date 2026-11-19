@@ -192,7 +192,8 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   const templateOnly = { ...doc, lineItems: doc.lineItems.map((li) => ({ ...li, specZh: "", specOriginal: "" })), requiredLeadTimeNote: null, destination: input.destination?.trim() || null };
   const renderHits = ready.flatMap((s, i) => {
     const where = `第 ${i + 1} 家`;
-    const tpl = renderRfqEmail(templateOnly, { supplierName: s.name });
+    // 问候语里的供应商名来自我方供应商库，模板句子的检查不带它
+    const tpl = renderRfqEmail(templateOnly, { supplierName: null });
     return [
       ...scanOutboundRfqEmail(identity.denyList, renderRfqEmail(doc, { supplierName: s.name }), where),
       ...scanIdentity(identity.denyList, [{ where: `${where}邮件正文的模板句子`, text: tpl.body, kind: "authored" }]),

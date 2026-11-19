@@ -299,7 +299,6 @@ ${escd}`;
         "SUPPLIER RFQ (China / Factory)",
         `RFQ reference / 询价编号: ${identity!.reference}`,
         "Please quote: product, qty, size, material, certifications, packaging, sample lead time, production lead time, required docs.",
-        "Hide: customer budget, our margin, competitor info.",
         "Questions for supplier:",
         "1) Can you meet specs exactly?",
         "2) Lead time for sample and bulk?",

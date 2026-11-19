@@ -77,6 +77,8 @@ function tenderNumberFragments(raw: string): string[] {
   const out: string[] = [];
   for (const m of raw.matchAll(/[A-Za-z0-9][A-Za-z0-9\-/._]*[A-Za-z0-9]/g)) {
     const t = m[0];
+    // 日期样的片段（2026-12-05）不当编号：编号事实的中文说明里常顺带写着截标日，截标日期另有一类
+    if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(t)) continue;
     if (t.length >= 6 && (t.match(/\d/g)?.length ?? 0) >= 4) out.push(t);
   }
   return out;
@@ -232,9 +234,11 @@ export function scanOutboundRfqEmail(
   mail: { subject: string; body: string },
   wherePrefix = "",
 ): IdentityHit[] {
+  // 首行「{供应商名} 您好：」来自我方供应商库，不是招标身份，不参与比对
+  const body = mail.body.replace(/^[^\n]*您好：\n?/, "");
   return scanIdentity(list, [
     { where: `${wherePrefix}邮件标题`, text: mail.subject, kind: "authored" },
-    { where: `${wherePrefix}邮件正文`, text: mail.body, kind: "tender" },
+    { where: `${wherePrefix}邮件正文`, text: body, kind: "tender" },
   ]);
 }
 
