@@ -12,16 +12,18 @@ import { rfqCommercialTermsZh, type RfqDocument } from "./build";
 import type { IdentitySegment } from "@/lib/bid-workflow/project-identity-deny";
 
 export {
-  RFQ_ATTACHMENT_AUTO_DRAFT_FAILED_ZH,
   RFQ_ATTACHMENT_CHANGED_CARD_ZH,
   RFQ_ATTACHMENT_CHANGED_EXEC_ZH,
   RFQ_ATTACHMENT_EXEC_FAILED_ZH,
+  RFQ_ATTACHMENT_IDENTITY_CARD_ZH,
   RFQ_ATTACHMENT_TEMPLATE_CARD_ZH,
   RFQ_ATTACHMENT_TEMPLATE_EXEC_ZH,
   attachmentSizeLabelZh,
   attachmentSummaryZh,
   readPayloadAttachment,
+  rfqAttachmentAutoDraftFailedZh,
   rfqAttachmentFailedMessageZh,
+  rfqAttachmentIdentityExecZh,
   rfqAttachmentPreviewHref,
 } from "./attachment-view";
 export type { RfqAttachmentDraftParams, RfqAttachmentPreview, RfqPayloadAttachment } from "./attachment-view";
@@ -34,7 +36,10 @@ export const RFQ_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 export const RFQ_ATTACHMENT_TEMPLATE_VERSION = 1;
 export const RFQ_ATTACHMENT_MIME = "application/pdf" as const;
 export const RFQ_ATTACHMENT_TITLE_ZH = "询价单 / 符合性确认表";
-export const RFQ_ATTACHMENT_FOOTER_ZH = "请在每条要求的「是否满足」栏填写后随报价一并回复；某项无法满足请直接说明。";
+export const RFQ_ATTACHMENT_FOOTER_ZH = "请直接回复发来本询价单的邮件：可以在邮件里按序号逐条写明，也可以打印本表填写后拍照或扫描作为附件发回。某项无法满足请直接说明。";
+/** 空白签章栏（不印任何供应商名称；供应商自己填） */
+export const RFQ_ATTACHMENT_SIGNOFF_ZH = ["供应商名称：＿＿＿＿＿＿＿＿", "填写人 / 电话：＿＿＿＿＿＿＿＿", "日期：＿＿＿＿＿＿（盖章）"] as const;
+export const RFQ_ATTACHMENT_CSP = "default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:";
 /** 身份检查里附件模板文字的位置名 */
 export const RFQ_ATTACHMENT_SEGMENT_WHERE = "询价附件";
 
@@ -103,7 +108,7 @@ export function rfqAttachmentTextBlocks(doc: RfqDocument, opts: { draftedOn: str
   return [
     m.title,
     ...m.meta.flatMap((x) => (opts.omitDraftedOn && x.label === DRAFTED_ON_LABEL ? [x.label] : [x.label, x.value])),
-    ...(m.scopeNote ? ["补充说明", m.scopeNote] : []),
+    ...(m.scopeNote ? [SCOPE_LABEL, m.scopeNote] : []),
     ...SECTION_TITLES.slice(0, 1),
     ...TABLE_HEAD,
     ...m.rows.flatMap((r) => [r.seq, r.code, r.kind, r.spec, ...(r.original ? [`原文：${r.original}`] : []), ...(r.page ? [r.page] : [])]),
@@ -112,12 +117,21 @@ export function rfqAttachmentTextBlocks(doc: RfqDocument, opts: { draftedOn: str
     ...(m.questions.length ? [SECTION_TITLES[2], ...m.questions] : []),
     ...(m.materials.length ? [SECTION_TITLES[3], ...m.materials] : []),
     m.footer,
+    ...RFQ_ATTACHMENT_SIGNOFF_ZH,
     m.signature,
+    pageFooterText(m.meta[0].value),
   ];
 }
 
-const SECTION_TITLES = ["一、规格要求（请逐条填写「是否满足」）", "二、商务条件", "三、请在回复中逐条回答", "四、请随报价提供"] as const;
-const TABLE_HEAD = ["序号", "要求编号", "类型", "规格", "是否满足（满足 / 偏离）", "说明"] as const;
+/** 每页页脚（询价编号 + 页码；页码由打印时填） */
+function pageFooterText(reference: string): string {
+  return `${reference} · 第 N / M 页`;
+}
+
+const SCOPE_LABEL = "范围说明";
+
+const SECTION_TITLES = ["一、规格要求（「是否满足」栏请填：满足 / 部分满足 / 不满足）", "二、商务条件", "三、请在回复中逐条回答", "四、请随报价提供"] as const;
+const TABLE_HEAD = ["序号", "要求编号", "类型", "规格", "是否满足", "说明（差异 / 偏离）"] as const;
 
 /* ---------------------------------- HTML ---------------------------------- */
 
@@ -130,12 +144,16 @@ function escLines(s: string): string {
   return esc(s).replace(/\r?\n/g, "<br>");
 }
 
-const CSS = [
-  "@page{size:A4}",
+/** CSS 字符串里的值：只留安全字符（询价编号本来就只有字母数字与连字符） */
+function cssString(s: string): string {
+  return s.replace(/[^A-Za-z0-9 .\-]/g, "");
+}
+
+const CSS_BASE = [
   "body{font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;font-size:10.5pt;color:#1f2328;line-height:1.5;margin:0}",
   "h1{font-size:16pt;margin:0 0 8px}",
   "h2{font-size:12pt;margin:16px 0 6px}",
-  "table{width:100%;border-collapse:collapse}",
+  "table{width:calc(100% - 1px);border-collapse:collapse}",
   "th,td{border:1px solid #9aa4ae;padding:4px 6px;vertical-align:top;text-align:left}",
   "th{background:#eef1f4;font-weight:700}",
   "table.meta td{border:none;padding:1px 8px 1px 0}",
@@ -147,10 +165,17 @@ const CSS = [
   "th.n,td.n{width:2.6em;white-space:nowrap}",
   "th.c,td.c{width:4.6em;white-space:nowrap}",
   "th.k,td.k{width:2.8em;white-space:nowrap}",
-  "th.b,td.b{width:15%}",
+  "th.y,td.y{width:12%}",
+  "th.e,td.e{width:22%}",
+  ".signoff{margin-top:14px;display:flex;flex-wrap:wrap;gap:6px 24px}",
   "ul,ol{margin:4px 0;padding-left:20px}",
   ".foot{margin-top:16px}",
 ].join("");
+
+/** 每页底部居中：询价编号 + 第 N / M 页（Chromium 的 @page 边距盒） */
+function pageCss(reference: string): string {
+  return `@page{size:A4;@bottom-center{content:"${cssString(reference)} · 第 " counter(page) " / " counter(pages) " 页";font-family:'Noto Sans SC',sans-serif;font-size:8pt;color:#57606a}}`;
+}
 
 /**
  * 附件 HTML。对同样的输入输出完全相同（不含生成时刻、随机数、收件人）。
@@ -159,13 +184,16 @@ const CSS = [
 export function renderRfqAttachmentHtml(doc: RfqDocument, opts: { draftedOn: string }): string {
   const m = model(doc, opts.draftedOn);
   const H: string[] = [];
+  // CSP：不执行任何脚本、不发任何网络请求（只允许内联样式与 data: 字体 / 图片）——招标原文是第三方文本，
+  // 即使将来哪里漏了转义，也不会在服务器的 Chromium 里跑脚本或去访问外部地址
   H.push('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">');
-  H.push(`<title>${esc(m.title)} ${esc(doc.reference)}</title><style>${CSS}</style></head><body>`);
+  H.push(`<meta http-equiv="Content-Security-Policy" content="${RFQ_ATTACHMENT_CSP}">`);
+  H.push(`<title>${esc(m.title)} ${esc(doc.reference)}</title><style>${pageCss(doc.reference)}${CSS_BASE}</style></head><body>`);
   H.push(`<h1>${esc(m.title)}</h1>`);
   H.push(`<table class="meta">${m.meta.map((x) => `<tr><td class="k">${esc(x.label)}</td><td>${esc(x.value)}</td></tr>`).join("")}</table>`);
-  if (m.scopeNote) H.push(`<p><strong>补充说明</strong>：${escLines(m.scopeNote)}</p>`);
+  if (m.scopeNote) H.push(`<p><strong>${SCOPE_LABEL}</strong>：${escLines(m.scopeNote)}</p>`);
   H.push(`<h2>${esc(SECTION_TITLES[0])}</h2>`);
-  const headClass = ["n", "c", "k", "", "b", "b"];
+  const headClass = ["n", "c", "k", "", "y", "e"];
   H.push(`<table class="req"><thead><tr>${TABLE_HEAD.map((h, i) => `<th${headClass[i] ? ` class="${headClass[i]}"` : ""}>${esc(h)}</th>`).join("")}</tr></thead><tbody>`);
   for (const r of m.rows) {
     const spec = [
@@ -173,13 +201,15 @@ export function renderRfqAttachmentHtml(doc: RfqDocument, opts: { draftedOn: str
       r.original ? `<div class="orig">原文：${escLines(r.original)}</div>` : "",
       r.page ? `<div class="page">${esc(r.page)}</div>` : "",
     ].join("");
-    H.push(`<tr><td class="n">${esc(r.seq)}</td><td class="c">${esc(r.code)}</td><td class="k">${esc(r.kind)}</td><td>${spec}</td><td class="b"></td><td class="b"></td></tr>`);
+    H.push(`<tr><td class="n">${esc(r.seq)}</td><td class="c">${esc(r.code)}</td><td class="k">${esc(r.kind)}</td><td>${spec}</td><td class="y"></td><td class="e"></td></tr>`);
   }
   H.push("</tbody></table>");
   H.push(`<h2>${esc(SECTION_TITLES[1])}</h2><ul>${m.terms.map((t) => `<li>${esc(t.label)}：${escLines(t.value)}</li>`).join("")}</ul>`);
   if (m.questions.length) H.push(`<h2>${esc(SECTION_TITLES[2])}</h2><ul>${m.questions.map((q) => `<li>${escLines(q)}</li>`).join("")}</ul>`);
   if (m.materials.length) H.push(`<h2>${esc(SECTION_TITLES[3])}</h2><ul>${m.materials.map((x) => `<li>${escLines(x)}</li>`).join("")}</ul>`);
-  H.push(`<p class="foot">${esc(m.footer)}</p><p>${esc(m.signature)}</p>`);
+  H.push(`<p class="foot">${esc(m.footer)}</p>`);
+  H.push(`<div class="signoff">${RFQ_ATTACHMENT_SIGNOFF_ZH.map((x) => `<span>${esc(x)}</span>`).join("")}</div>`);
+  H.push(`<p>${esc(m.signature)}</p>`);
   H.push("</body></html>");
   return H.join("\n");
 }

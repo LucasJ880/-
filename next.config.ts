@@ -2,19 +2,38 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 import { buildSecurityHeaders } from "./src/lib/security/csp";
 
+// CJK-PDF：服务端 Chromium + 中文字体，静态追踪看不见，凡是会生成 PDF 的路由都要显式带上
+const CJK_PDF_ASSETS = [
+  "./node_modules/@expo-google-fonts/noto-sans-sc/400Regular/*.ttf",
+  "./node_modules/@expo-google-fonts/noto-sans-sc/700Bold/*.ttf",
+  "./node_modules/@expo-google-fonts/noto-sans-sc/package.json",
+  "./node_modules/@sparticuz/chromium/bin/**",
+];
+
+// CHAIN-4a：询价 PDF 附件在这些路由里生成——起草（网页送审、Muse、自动起草挂在四个审核接口上）、
+// 执行（审批中心批准 / 重试、AI 待办批准、数字员工步骤批准）、只读预览。漏一条，开关打开后那条路径就一律「生成失败」。
+const RFQ_ATTACHMENT_PDF_ROUTES = [
+  "/api/projects/[id]/tender-rfq/rounds",
+  "/api/projects/[id]/tender-rfq/attachment",
+  "/api/bridge/muse/command",
+  "/api/projects/[id]/tender-analysis/runs/[runId]/approve",
+  "/api/projects/[id]/tender-analysis/runs/[runId]/requirements/[requirementId]/confirm",
+  "/api/projects/[id]/tender-analysis/runs/[runId]/requirements/[requirementId]/reject",
+  "/api/projects/[id]/tender-analysis/runs/[runId]/requirements/batch-confirm",
+  "/api/capabilities/approvals/[approvalId]/approve",
+  "/api/capabilities/approvals/[approvalId]/retry",
+  "/api/ai/pending-actions/[id]",
+  "/api/agent/tasks/[taskId]/steps/[stepId]/approve",
+];
+
 const nextConfig: NextConfig = {
   serverExternalPackages: ["jspdf", "jspdf-autotable", "@sparticuz/chromium", "puppeteer-core", "@expo-google-fonts/noto-sans-sc"],
   // CJK-PDF：字体经运行时动态 resolve（躲 turbopack 静态打包），
   // NFT 输出追踪显式带上 TTF 与 chromium 资产
   outputFileTracingIncludes: {
-    "/api/projects/\[id\]/generate-pdf": [
-      "./node_modules/@expo-google-fonts/noto-sans-sc/400Regular/*.ttf",
-      "./node_modules/@expo-google-fonts/noto-sans-sc/700Bold/*.ttf",
-      "./node_modules/@expo-google-fonts/noto-sans-sc/package.json",
-      // Chromium 浏览器二进制（brotli 包）由 executablePath() 运行时扫目录加载，
-      // 静态追踪看不见 → 不显式声明就不进函数包（生产实测：/var/task/.../bin does not exist → 全部回落 HTML）
-      "./node_modules/@sparticuz/chromium/bin/**",
-    ],
+    // Chromium 浏览器二进制（brotli 包）由 executablePath() 运行时扫目录加载，
+    // 静态追踪看不见 → 不显式声明就不进函数包（生产实测：/var/task/.../bin does not exist → 全部回落 HTML）
+    "/api/projects/\[id\]/generate-pdf": CJK_PDF_ASSETS,
     // Quote Operations Phase 2：客户报价 PDF 路由同样需要 CJK 字体 + 品牌 logo 被 trace 进函数包
     "/api/projects/\[id\]/quote-engine/\[quoteId\]/pdf": [
       "./node_modules/@expo-google-fonts/noto-sans-sc/400Regular/*.ttf",
@@ -24,6 +43,7 @@ const nextConfig: NextConfig = {
       "./public/logo.png",
       "./node_modules/@sparticuz/chromium/bin/**",
     ],
+    ...Object.fromEntries(RFQ_ATTACHMENT_PDF_ROUTES.map((route) => [route, CJK_PDF_ASSETS])),
   },
   turbopack: {},
   // 生产构建 OOM 治理（Vercel 容器把 Next build worker SIGKILL）：

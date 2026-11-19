@@ -137,7 +137,7 @@ async function run(input: MaybeAutoDraftInput, deps: AutoDraftDeps): Promise<Rfq
     // CHAIN-4b：送审时才判出的身份命中照实说，不记成起草失败
     if (prepared.errorCode === "IDENTITY_LEAK") return autoDraftBlocked("IDENTITY_LEAK", { ...ctx, identityHits: prepared.identityHits ?? [] });
     // CHAIN-4a：附件生成失败照实说（不记成泛泛的起草失败）
-    if (prepared.errorCode === "ATTACHMENT_FAILED") return autoDraftBlocked("ATTACHMENT_FAILED", ctx);
+    if (prepared.errorCode === "ATTACHMENT_FAILED") return autoDraftBlocked("ATTACHMENT_FAILED", { ...ctx, attachmentReason: prepared.attachmentReason });
     return autoDraftBlocked(prepared.errorCode === "ROUND_LOCKED" ? "ROUND_EXISTS" : "DRAFT_FAILED", ctx);
   }
 

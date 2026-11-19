@@ -269,8 +269,10 @@ export function rfqErrorToUserMessage(
       return { message: identityLeakMessageZh(hits), action: { label: "去「需求」检查", href: requirementsHref(ctx.projectId) } };
     }
     case "ATTACHMENT_FAILED":
-      // CHAIN-4a：附件生成失败，整轮没建；不给出路（不是要求或供应商的问题）
-      return { message: rfqAttachmentFailedMessageZh(ctx.attachmentReason ?? "render_failed"), action: null };
+      // CHAIN-4a：整轮没建。超过 5 MB 是要求太多，出路去「需求」；生成出错不是要求的问题，不给出路
+      return ctx.attachmentReason === "too_large"
+        ? { message: rfqAttachmentFailedMessageZh("too_large"), action: { label: "去「需求」检查", href: requirementsHref(ctx.projectId) } }
+        : { message: rfqAttachmentFailedMessageZh("render_failed"), action: null };
     case "PROJECT_NOT_FOUND":
       return { message: "这个项目不是投标项目，或你没有权限。", action: { label: "返回项目列表", href: "/projects" } };
     case "DRAFT_FAILED":
@@ -377,6 +379,8 @@ const GMAIL_AUTH_ERROR = /invalid_grant|unauthori[sz]ed|insufficient|invalid_tok
 /** 批准后执行失败的原文 → 用户能看懂的话；Gmail 授权类英文错误整体替换，其余加「没有发出去：」前缀，部分成功的摘要原样保留。 */
 export function friendlyExecutionError(raw: string): string {
   const text = raw.trim();
+  // CHAIN-4a：询价单 PDF 的执行失败说明本身已写明「一封都没有发」与怎么办，不再加「没有发出去：」
+  if (text.includes("一封都没有发")) return text;
   // 部分成功（「已发出 2/3：A、B；失败：C（invalid_grant）」）：保留谁发出了，只把括号里的英文授权错误换成人话
   if (/^已发出 [1-9]\d*\//.test(text)) {
     return text.replace(/（([^）]*)）/g, (whole, inner: string) => (GMAIL_AUTH_ERROR.test(inner) ? "（Gmail 授权失效）" : whole));

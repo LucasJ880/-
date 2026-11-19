@@ -7,7 +7,7 @@
  * 对不上就不起草、不退回常用供应商。不按供应商自身的品类字段、标签、评分增补或替换。
  */
 
-import { RFQ_ATTACHMENT_AUTO_DRAFT_FAILED_ZH } from "./attachment-view";
+import { rfqAttachmentAutoDraftFailedZh } from "./attachment-view";
 import type { SupplierGroupMatch } from "./supplier-groups";
 import type { EntryAction, EntryBlockReason } from "./web-entry-pure";
 import { identityLeakMessageZh, type IdentityHit } from "@/lib/bid-workflow/project-identity-messages";
@@ -174,7 +174,16 @@ export function autoDraftDone(input: { projectId: string; inquiryId: string; rou
 /** 没起草：原因 → 一句话 + 去处。审核过程中必然反复出现的原因标为 quiet，避免每点一下都提示。 */
 export function autoDraftBlocked(
   reason: Exclude<AutoDraftReason, "FLAG_OFF">,
-  ctx: { projectId: string; trigger: AutoDraftTrigger; groupMatch?: SupplierGroupMatch | null; groupsUnreadable?: boolean; identityHits?: readonly IdentityHit[]; identityMessageZh?: string },
+  ctx: {
+    projectId: string;
+    trigger: AutoDraftTrigger;
+    groupMatch?: SupplierGroupMatch | null;
+    groupsUnreadable?: boolean;
+    identityHits?: readonly IdentityHit[];
+    identityMessageZh?: string;
+    /** CHAIN-4a：ATTACHMENT_FAILED 的原因 */
+    attachmentReason?: "render_failed" | "too_large";
+  },
 ): RfqAutoDraftResult {
   const rfqEntry: EntryAction = { label: "去「标书与报价」发询价", href: bidTabHref(ctx.projectId) };
   const requirements: EntryAction = { label: "去「需求」", href: `/projects/${encodeURIComponent(ctx.projectId)}?tab=requirements` };
@@ -211,7 +220,10 @@ export function autoDraftBlocked(
       return blocked(`${name}里现在没有能发询价的供应商（停用或没有邮箱），没有自动起草。请在询价入口调整这一组或手动选。`, rfqEntry);
     }
     case "ATTACHMENT_FAILED":
-      return blocked(RFQ_ATTACHMENT_AUTO_DRAFT_FAILED_ZH, rfqEntry);
+      // CHAIN-4a：超过 5 MB 是要求太多，去「需求」；生成出错去询价入口稍后手动发起
+      return ctx.attachmentReason === "too_large"
+        ? blocked(rfqAttachmentAutoDraftFailedZh("too_large"), requirements)
+        : blocked(rfqAttachmentAutoDraftFailedZh("render_failed"), rfqEntry);
     case "DRAFT_FAILED":
       return blocked("自动起草询价没有成功，可以在询价入口手动发起。", rfqEntry);
   }

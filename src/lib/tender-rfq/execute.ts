@@ -20,7 +20,7 @@ import { RFQ_IDENTITY_GUARD_VERSION, type TenderSendRfqPayload } from "./types";
 import { loadProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
 import { describeIdentityHits, scanOutboundRfqEmail } from "@/lib/bid-workflow/project-identity-deny";
 import { logAudit } from "@/lib/audit/logger";
-import { RFQ_ATTACHMENT_EXEC_FAILED_ZH, readPayloadAttachment, sha256Hex } from "./attachment";
+import { RFQ_ATTACHMENT_EXEC_FAILED_ZH, countPdfPages, readPayloadAttachment, sha256Hex } from "./attachment";
 import { rebuildFailureForExec, rebuildRfqAttachment, renderRfqAttachmentPdf } from "./attachment-service";
 
 /** CHAIN-4a：带附件的卡发出至少一封后写的审计 */
@@ -39,7 +39,7 @@ export async function execTenderSendRfq(
   }
   // CHAIN-4a：载荷里有附件字段但读不出来（形状不对）→ 不猜，整张卡拒发
   const attachment = readPayloadAttachment(payload);
-  if (payload.attachment !== undefined && !attachment) {
+  if (payload.attachment != null && !attachment) {
     return { ok: false, error: "询价附件信息不完整，拒绝执行", errorCode: "RFQ_PAYLOAD_INVALID" };
   }
   if (hashRfqPayloadItems(payload.items, attachment) !== payload.rfqDocHash) {
@@ -155,7 +155,8 @@ export async function execTenderSendRfq(
       afterData: {
         roundNumber: payload.roundNumber,
         filename: attachment.filename,
-        pages: attachment.pages,
+        // 页数、字节数与 SHA-256 都按实际发出的那份 PDF（不是起草时卡上记的）
+        pages: countPdfPages(attachments[0].data),
         sizeBytes: attachments[0].data.length,
         pdfSha256: sha256Hex(attachments[0].data),
         contentHash: attachment.contentHash,

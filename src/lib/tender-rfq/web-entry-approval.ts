@@ -16,7 +16,7 @@ import type { ApprovalViewer } from "@/lib/approval/audience";
 import { getTenantContext } from "@/lib/tenancy/context";
 import { makeApprovalId } from "@/lib/capabilities/approvals/types";
 import { previewEmailsFromPayload, type EmailPreview } from "./web-entry-pure";
-import { readPayloadAttachment } from "./attachment-view";
+import { readPayloadAttachment, rfqAttachmentPreviewHref, type RfqAttachmentStale } from "./attachment-view";
 import { rebuildFailureForCard, rebuildRfqAttachment } from "./attachment-service";
 import type { TenderSendRfqPayload } from "./types";
 
@@ -102,20 +102,24 @@ export async function loadRfqSendEmails(orgId: string, actionIds: string[]): Pro
   if (actionIds.length === 0) return out;
   const rows = await db.pendingAction.findMany({
     where: { id: { in: actionIds }, orgId },
-    select: { id: true, payload: true },
+    select: { id: true, payload: true, status: true },
   });
-  // CHAIN-4a：带卡 id，发询价卡的附件才有预览链接；带附件的卡按执行器同样的方式重排比对（不生成 PDF），
-  // 内容已变 / 版式已更新的在卡上提前说（批准后会被拒发），面板不给批准
+  for (const r of rows) out[r.id] = previewEmailsFromPayload(r.payload);
+  // CHAIN-4a：带附件的发询价卡补预览链接；还在待批的按执行器同样的方式重排比对（不生成 PDF），
+  // 内容已变 / 版式已更新 / 命中身份信息的在卡上提前说（批准后会被拒发），面板不给批准。已批准执行中的卡不再核对（已不能驳回）
   for (const r of rows) {
-    const emails = previewEmailsFromPayload(r.payload, { actionId: r.id });
     const attachment = readPayloadAttachment(r.payload);
-    if (attachment && emails.length > 0) {
-      const rebuilt = await rebuildRfqAttachment(r.payload as unknown as TenderSendRfqPayload, attachment).catch(() => null);
-      const stale = rebuilt && !rebuilt.ok ? rebuildFailureForCard(rebuilt).stale : null;
-      out[r.id] = emails.map((e) => (e.attachment ? { ...e, attachment: { ...e.attachment, stale } } : e));
-    } else {
-      out[r.id] = emails;
+    const emails = out[r.id] ?? [];
+    if (!attachment || emails.length === 0 || !emails[0].attachment) continue;
+    const projectId = (r.payload as { projectId?: unknown }).projectId;
+    const previewHref = typeof projectId === "string" ? rfqAttachmentPreviewHref(projectId, r.id) : null;
+    let stale: RfqAttachmentStale | null = null;
+    if (r.status === "pending") {
+      // 核对出错按「暂时核对不了」处理，不给批准（不把错误当成一致放行）
+      const rebuilt = await rebuildRfqAttachment(r.payload as unknown as TenderSendRfqPayload, attachment).catch(() => "error" as const);
+      stale = rebuilt === "error" ? "unknown" : rebuilt.ok ? null : rebuildFailureForCard(rebuilt).stale;
     }
+    out[r.id] = emails.map((e) => (e.attachment ? { ...e, attachment: { ...e.attachment, previewHref, stale } } : e));
   }
   return out;
 }

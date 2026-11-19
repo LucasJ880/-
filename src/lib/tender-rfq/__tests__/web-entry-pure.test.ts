@@ -134,7 +134,11 @@ console.log("W-1 错误码 → 人话 + 出路");
   // CHAIN-4a：附件生成失败 / 超限
   const att = rfqErrorToUserMessage("ATTACHMENT_FAILED", { ...ctx, attachmentReason: "render_failed" });
   const big = rfqErrorToUserMessage("ATTACHMENT_FAILED", { ...ctx, attachmentReason: "too_large" });
-  ok("ATTACHMENT_FAILED → 写明没能生成与原因、这一轮没有建、无出路", att.message === "询价附件（PDF）没能生成（生成出错），这一轮没有建。稍后重试；一直不行请联系管理员。" && att.action === null && big.message === "询价附件（PDF）超过 5 MB，这一轮没有建。要求条数太多时请分几轮询价。" && big.action === null);
+  ok("ATTACHMENT_FAILED（生成出错）→ 写明没建、没发、稍后再试，无出路", att.message === "询价单 PDF 没能生成，这一轮询价没有建立，也没有发出任何邮件。请稍后再试；一直不行请联系管理员。" && att.action === null);
+  ok("ATTACHMENT_FAILED（超过 5 MB）→ 写明原因与怎么办，出路去「需求」", big.message === "询价单 PDF 超过 5 MB，邮件带不了，这一轮询价没有建立。通常是要发的要求太多：请到「需求」减少要问供应商的要求后再试。" && big.action?.label === "去「需求」检查" && big.action.href === "/projects/p1?tab=requirements");
+  // CHAIN-4a：询价单 PDF 的执行失败说明已写明「一封都没有发」与怎么办，不再加「没有发出去：」
+  const execAtt = "起草后项目资料有改动（要求、关键事实或截标日期），询价单 PDF 和现在对不上，这张卡一封都没有发。请重新「问供应商要价」。";
+  ok("执行失败说明已含「一封都没有发」→ 原样显示", friendlyExecutionError(execAtt) === execAtt && friendlyExecutionError("别的原因") === "没有发出去：别的原因");
   const free = rfqErrorToUserMessage("FREE_TEXT_SENSITIVE", { ...ctx, field: "补充说明" });
   ok("自己填的内容含内部词 → 指明是哪一栏、不把人引去需求 tab", free.message.startsWith("你填的补充说明里") && free.action === null);
   for (const code of ["ROUND_LOCKED", "NO_SUPPLIERS", "SUPPLIERS_NOT_READY", "NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "IDENTITY_LEAK", "ATTACHMENT_FAILED", "PROJECT_NOT_FOUND", "DRAFT_FAILED", "FREE_TEXT_SENSITIVE"] as const) {

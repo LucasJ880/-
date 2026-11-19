@@ -37,7 +37,8 @@ export type RfqAttachmentDraftParams = {
  * stale：读卡时按执行器同样的方式重排比对（不生成 PDF）的结果——changed = 内容在起草后变了，template = 系统更新了版式；
  * 两种情况批准后都会被拒发，面板提前说并不给批准。null = 一致（或没核对）。
  */
-export type RfqAttachmentPreview = { filename: string; pages: number; sizeBytes: number; previewHref: string | null; stale?: "changed" | "template" | null };
+export type RfqAttachmentStale = "changed" | "template" | "identity" | "unknown";
+export type RfqAttachmentPreview = { filename: string; pages: number; sizeBytes: number; previewHref: string | null; stale?: RfqAttachmentStale | null };
 
 /** 从载荷里读附件；形状不对一律当作没有（卡上不显示，执行器另有严格校验） */
 export function readPayloadAttachment(payload: unknown): RfqPayloadAttachment | null {
@@ -87,24 +88,49 @@ export function rfqAttachmentPreviewHref(projectId: string, actionId: string): s
   return `/api/projects/${encodeURIComponent(projectId)}/tender-rfq/attachment?actionId=${encodeURIComponent(actionId)}`;
 }
 
-/** 起草时附件失败（网页送审、Muse 共用）；不含错误码与异常原文 */
+/*
+ * 说明文字（统一叫「询价单 PDF」；不写错误码、异常原文与「拒发」这类系统用语）。
+ * 卡还在待批时说「点驳回，再重新问供应商要价」；执行失败后卡已作废、不能再驳回，只说「重新问供应商要价」。
+ */
+
+/** 起草时附件失败（网页送审、Muse 共用） */
 export function rfqAttachmentFailedMessageZh(reason: "render_failed" | "too_large"): string {
   return reason === "too_large"
-    ? "询价附件（PDF）超过 5 MB，这一轮没有建。要求条数太多时请分几轮询价。"
-    : "询价附件（PDF）没能生成（生成出错），这一轮没有建。稍后重试；一直不行请联系管理员。";
+    ? "询价单 PDF 超过 5 MB，邮件带不了，这一轮询价没有建立。通常是要发的要求太多：请到「需求」减少要问供应商的要求后再试。"
+    : "询价单 PDF 没能生成，这一轮询价没有建立，也没有发出任何邮件。请稍后再试；一直不行请联系管理员。";
 }
 
-/** 执行时：内容在起草后变了（卡已作废，不能再驳回，所以说「重新发起」） */
-export const RFQ_ATTACHMENT_CHANGED_EXEC_ZH = "询价附件的内容在起草后变了（要求、关键事实或截标日期有改动），这张卡一封都没有发，请重新发起一轮询价";
-/** 执行时：系统更新了附件版式 */
-export const RFQ_ATTACHMENT_TEMPLATE_EXEC_ZH = "系统更新了询价附件的版式，这张卡一封都没有发，请重新发起一轮询价";
-/** 卡上 / 预览：内容在起草后变了（卡还在待批，可以驳回） */
-export const RFQ_ATTACHMENT_CHANGED_CARD_ZH = "询价附件的内容在起草后变了（要求、关键事实或截标日期有改动），批准后会被拒发。请驳回这张卡，再重新发起一轮询价。";
-/** 卡上 / 预览：系统更新了附件版式 */
-export const RFQ_ATTACHMENT_TEMPLATE_CARD_ZH = "系统更新了询价附件的版式，这张卡批准后会被拒发。请驳回这张卡，再重新发起一轮询价。";
-
 /** 自动起草时附件失败 */
-export const RFQ_ATTACHMENT_AUTO_DRAFT_FAILED_ZH = "询价附件（PDF）没能生成，没有自动起草。可以在询价入口手动发起。";
+export function rfqAttachmentAutoDraftFailedZh(reason: "render_failed" | "too_large"): string {
+  return reason === "too_large"
+    ? "询价单 PDF 超过 5 MB，没有自动起草。通常是要发的要求太多：请到「需求」减少要问供应商的要求。"
+    : "询价单 PDF 没能生成，没有自动起草。可以稍后在询价入口手动发起。";
+}
 
-/** 执行时附件 PDF 生成失败 */
-export const RFQ_ATTACHMENT_EXEC_FAILED_ZH = "询价附件（PDF）没能生成，这张卡一封都没有发，请稍后重新发起一轮询价";
+/** 执行时：内容在起草后变了 */
+export const RFQ_ATTACHMENT_CHANGED_EXEC_ZH = "起草后项目资料有改动（要求、关键事实或截标日期），询价单 PDF 和现在对不上，这张卡一封都没有发。请重新「问供应商要价」。";
+/** 执行时：系统更新了附件版式 */
+export const RFQ_ATTACHMENT_TEMPLATE_EXEC_ZH = "系统升级了询价单 PDF 的格式，这张卡一封都没有发。请重新「问供应商要价」。";
+/** 执行时：重排时命中招标身份（命中描述由调用方填） */
+export function rfqAttachmentIdentityExecZh(hitsZh: string): string {
+  return `起草后项目资料有改动，询价单 PDF 里会出现招标身份信息（命中：${hitsZh}），这张卡一封都没有发。请到「需求」检查后重新「问供应商要价」。`;
+}
+/** 执行时：PDF 生成失败 */
+export const RFQ_ATTACHMENT_EXEC_FAILED_ZH = "询价单 PDF 没能生成，这张卡一封都没有发。请稍后重新「问供应商要价」。";
+
+/** 卡上 / 预览：内容在起草后变了（卡还在待批，可以驳回） */
+export const RFQ_ATTACHMENT_CHANGED_CARD_ZH = "起草后项目资料有改动（要求、关键事实或截标日期），询价单 PDF 和现在对不上，这张卡不能再批准发送。请点「驳回」，再重新「问供应商要价」。";
+/** 卡上 / 预览：系统更新了附件版式 */
+export const RFQ_ATTACHMENT_TEMPLATE_CARD_ZH = "系统升级了询价单 PDF 的格式，这张卡不能再批准发送。请点「驳回」，再重新「问供应商要价」。";
+/** 卡上 / 预览：重排时命中招标身份 */
+export const RFQ_ATTACHMENT_IDENTITY_CARD_ZH = "起草后项目资料有改动，询价单 PDF 里会出现招标身份信息，这张卡不能再批准发送。请点「驳回」，到「需求」检查后再重新「问供应商要价」。";
+/** 卡上：读卡时核对出错（多半是一时查不了库）——不给批准，但不说成「资料改了」 */
+export const RFQ_ATTACHMENT_UNKNOWN_CARD_ZH = "暂时核对不了询价单 PDF，先不要批准。请稍后刷新页面再看。";
+
+/** 卡上那一句（按核对结果） */
+export function attachmentStaleMessageZh(stale: RfqAttachmentStale): string {
+  if (stale === "template") return RFQ_ATTACHMENT_TEMPLATE_CARD_ZH;
+  if (stale === "identity") return RFQ_ATTACHMENT_IDENTITY_CARD_ZH;
+  if (stale === "unknown") return RFQ_ATTACHMENT_UNKNOWN_CARD_ZH;
+  return RFQ_ATTACHMENT_CHANGED_CARD_ZH;
+}

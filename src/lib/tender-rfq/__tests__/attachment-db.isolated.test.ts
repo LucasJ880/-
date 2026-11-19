@@ -91,8 +91,8 @@ async function main() {
     const res = await roundsRoute.POST(req, { params: Promise.resolve({ id: projectId }) });
     return { status: res.status, json: (await res.json()) as { ok?: boolean; errorCode?: string; userMessage?: { message: string; action: unknown } } };
   };
-  const getPreview = async (projectId: string, actionId: string, who = cookie) => {
-    const req = new NextRequest(`http://localhost/api/projects/${projectId}/tender-rfq/attachment?actionId=${encodeURIComponent(actionId)}`, { headers: { cookie: who } });
+  const getPreview = async (projectId: string, actionId: string, who: string | null = cookie) => {
+    const req = new NextRequest(`http://localhost/api/projects/${projectId}/tender-rfq/attachment?actionId=${encodeURIComponent(actionId)}`, { headers: who ? { cookie: who } : {} });
     const res = await previewRoute.GET(req, { params: Promise.resolve({ id: projectId }) });
     return res;
   };
@@ -136,7 +136,7 @@ async function main() {
     ok(!!a1 && a1.filename.startsWith("询价单-RFQ-SUNNY-2026-") && a1.filename.endsWith(".pdf") && a1.pages === 2 && a1.sizeBytes > 0 && /^[0-9a-f]{64}$/.test(a1.contentHash) && a1.templateVersion === 1 && a1.draft.reference === a1.filename.slice(4, -4), "载荷记文件名、页数、字节数、内容指纹、版式版本与起草参数", a1);
     ok(!!a1 && JSON.stringify(a1).length < 4096 && !/%PDF|JVBER/.test(JSON.stringify(p1)), "载荷里没有 PDF 字节（附件字段不到 4 KB）", JSON.stringify(a1 ?? {}).length);
     ok(!!p1 && !!a1 && p1.rfqDocHash === hashRfqPayloadItems(p1.items, a1) && p1.rfqDocHash !== hashRfqPayloadItems(p1.items), "载荷哈希覆盖附件");
-    ok(!!p1 && !!a1 && p1.items.length === 3 && p1.items.every((i) => i.body.includes(`附件《${a1.filename}》是本邮件询价清单的 PDF 版`)), "每一家正文都有附件那一句");
+    ok(!!p1 && !!a1 && p1.items.length === 3 && p1.items.every((i) => i.body.includes(`附件《${a1.filename}》是上面清单的表格版`)), "每一家正文都有附件那一句");
     ok((card1?.preview ?? "").includes(`附件：${a1?.filename}（2 页，`), "卡摘要多一行附件", card1?.preview);
     const html1 = renderedHtml[0] ?? "";
     ok(html1.length > 0 && !["24062-27-057", "Treasury Board", "Sleeping Bags and Mats", "2026-12-05", "Constellation", "K1A", "Fixture Supplier"].some((t) => html1.includes(t)) && html1.includes("Ottawa, ON"), "联邦标的附件不含编号、采购方、项目名称、截标日期、精确地址与供应商名称；目的地为 Ottawa, ON");
@@ -152,7 +152,10 @@ async function main() {
     const pvWrong = await getPreview(pOff, card1.id);
     const pvNoAtt = await getPreview(pOff, (await cards(pOff))[0].id);
     ok(pvOther.status === 404 && pvWrong.status === 404 && pvNoAtt.status === 404, "别的组织的人 / 卡不是这个项目的 / 卡上没有附件 → 都是 404", [pvOther.status, pvWrong.status, pvNoAtt.status]);
-    ok(((await pvWrong.json()) as { error?: string }).error === "没有找到这份询价附件", "404 说明不区分原因");
+    const bodies404 = await Promise.all([pvOther, pvWrong, pvNoAtt].map((r) => r.text()));
+    ok(bodies404.every((b) => b === bodies404[0] && b.includes("没有找到这份询价单 PDF")) && pvWrong.headers.get("content-type")?.startsWith("text/html"), "三种 404 回同一页中文说明（新标签页里不是 JSON）");
+    const pvAnon = await getPreview(pFed, card1.id, null);
+    ok(pvAnon.status === 401 && (await pvAnon.text()).includes("请先登录青砚"), "没登录：401，中文说明");
 
     // —— 4. 执行：每封带同一份 PDF，审计一条 ——
     const ex1 = await execTenderSendRfq(p1!, ctx, { send: fakeSend });
@@ -163,8 +166,14 @@ async function main() {
     const rawAd = audits[0]?.afterData;
     const ad = (typeof rawAd === "string" ? JSON.parse(rawAd) : rawAd) as Record<string, unknown> | undefined; // AuditLog.afterData 存的是 JSON 字符串
     ok(audits.length === 1 && ad?.pdfSha256 === pdfSha && ad?.contentHash === a1?.contentHash && ad?.sentCount === 3 && ad?.filename === a1?.filename && !JSON.stringify(ad).includes("%PDF"), "审计一条：PDF 字节 SHA-256 与实际发出的相符，不记内容", ad);
+    ok(ad?.pages === 2 && ad?.sizeBytes === sends[0].attachments![0].data.length && ad?.roundNumber === 1, "审计的页数、字节数取实际发出的那份；记轮次号", ad);
+    const rendersBefore = renders;
     const ex1b = await execTenderSendRfq(p1!, ctx, { send: fakeSend });
-    ok(sends.length === 3 && (ex1b.message ?? "").includes("此前已发") && (await db.auditLog.count({ where: { orgId: ORG, action: RFQ_ATTACHMENT_SENT_AUDIT_ACTION } })) === 1, "重放：不再生成、不再发、不再记审计", ex1b);
+    ok(sends.length === 3 && renders === rendersBefore && (ex1b.message ?? "").includes("此前已发") && (await db.auditLog.count({ where: { orgId: ORG, action: RFQ_ATTACHMENT_SENT_AUDIT_ACTION } })) === 1, "重放：不再生成 PDF、不再发、不再记审计", ex1b);
+    const pvDone = await getPreview(pFed, card1.id);
+    await db.pendingAction.update({ where: { id: card1.id }, data: { status: "executed" } });
+    const pvDone2 = await getPreview(pFed, card1.id);
+    ok(pvDone2.status === 410 && (await pvDone2.text()).includes("这张卡已经处理过"), "已处理过的卡：410，不再预览", [pvDone.status, pvDone2.status]);
 
     // —— 5. 起草后改了一条要求：卡上提前说、预览 409、执行拒发 ——
     const pChg = await fedProject();
@@ -175,11 +184,11 @@ async function main() {
     const emails2 = (await loadRfqSendEmails(ORG, [card2.id]))[card2.id] ?? [];
     ok(emails2.every((e) => e.attachment?.stale === "changed"), "读卡：内容在起草后变了 → stale = changed（面板据此不给批准）", emails2[0]?.attachment);
     const pv2 = await getPreview(pChg, card2.id);
-    const pv2j = (await pv2.json()) as { error?: string };
-    ok(pv2.status === 409 && (pv2j.error ?? "").includes("内容在起草后变了") && (pv2j.error ?? "").includes("请驳回这张卡"), "预览：409，说明内容在起草后变了", pv2j);
+    const pv2t = await pv2.text();
+    ok(pv2.status === 409 && pv2t.includes("询价单 PDF 和现在对不上") && pv2t.includes("请点「驳回」"), "预览：409，说明起草后资料有改动、请驳回", pv2t.slice(0, 300));
     const before = sends.length;
     const ex2 = await execTenderSendRfq(p2, ctx, { send: fakeSend });
-    ok(!ex2.ok && ex2.errorCode === "RFQ_ATTACHMENT_CHANGED" && (ex2.error ?? "").includes("请重新发起一轮询价") && sends.length === before, "执行：RFQ_ATTACHMENT_CHANGED，发信 0 次", ex2);
+    ok(!ex2.ok && ex2.errorCode === "RFQ_ATTACHMENT_CHANGED" && (ex2.error ?? "").includes("一封都没有发") && (ex2.error ?? "").includes("请重新「问供应商要价」") && sends.length === before, "执行：RFQ_ATTACHMENT_CHANGED，发信 0 次", ex2);
     ok((await rounds(pChg))[0]?.items.every((i) => i.status === "pending"), "拒发后询价项仍为待发");
 
     // —— 6. 版式版本不同：按「系统更新了版式」拒发 ——
@@ -187,7 +196,7 @@ async function main() {
     const rb = await rebuildRfqAttachment(p2, p2.attachment!);
     ok(rb.ok, "改回原样后重排一致", rb);
     const ex3 = await execTenderSendRfq({ ...p2, attachment: { ...p2.attachment!, templateVersion: 0 } }, ctx, { send: fakeSend });
-    ok(!ex3.ok && ex3.errorCode === "RFQ_ATTACHMENT_TEMPLATE_CHANGED" && (ex3.error ?? "").includes("系统更新了询价附件的版式") && sends.length === before, "旧版式起草的卡：RFQ_ATTACHMENT_TEMPLATE_CHANGED，发信 0 次", ex3);
+    ok(!ex3.ok && ex3.errorCode === "RFQ_ATTACHMENT_TEMPLATE_CHANGED" && (ex3.error ?? "").includes("系统升级了询价单 PDF 的格式") && sends.length === before, "旧版式起草的卡：RFQ_ATTACHMENT_TEMPLATE_CHANGED，发信 0 次", ex3);
     const { contentHash: _ch, ...noHash } = p2.attachment!;
     void _ch;
     const ex3a = await execTenderSendRfq({ ...p2, attachment: noHash as never }, ctx, { send: fakeSend });
@@ -210,13 +219,61 @@ async function main() {
     const pFail = await fedProject();
     __setRfqAttachmentPdfRendererForTest(async () => { throw new Error("boom stack trace"); });
     const r5 = await postRound(pFail);
-    ok(r5.status === 422 && r5.json.errorCode === "ATTACHMENT_FAILED" && (r5.json.userMessage?.message ?? "").includes("没能生成（生成出错）") && !(r5.json.userMessage?.message ?? "").includes("boom") && r5.json.userMessage?.action === null, "起草时生成出错：422 ATTACHMENT_FAILED，说明不含异常原文", r5.json);
+    ok(r5.status === 422 && r5.json.errorCode === "ATTACHMENT_FAILED" && (r5.json.userMessage?.message ?? "").includes("询价单 PDF 没能生成") && !(r5.json.userMessage?.message ?? "").includes("boom") && r5.json.userMessage?.action === null, "起草时生成出错：422 ATTACHMENT_FAILED，说明不含异常原文", r5.json);
     ok((await rounds(pFail)).length === 0 && (await cards(pFail)).length === 0, "零轮次零卡");
     __setRfqAttachmentPdfRendererForTest(async () => Buffer.concat([Buffer.from(`%PDF-1.7\n${FONT}\n`), Buffer.alloc(5 * 1024 * 1024)]));
     const r6 = await postRound(pFail);
     ok(r6.status === 422 && (r6.json.userMessage?.message ?? "").includes("超过 5 MB") && (await rounds(pFail)).length === 0 && (await cards(pFail)).length === 0, "超过 5 MB：422，零轮次零卡", r6.json);
     const muse = await prepareRfqRound({ projectId: pFail, orgId: ORG, userId: OWNER, source: "muse", supplierIds });
     ok(!muse.ok && muse.errorCode === "ATTACHMENT_FAILED" && muse.message.includes("超过 5 MB"), "Muse 入口走同一流程：ATTACHMENT_FAILED，说明同网页（路由落到 VALIDATION_FAILED）", muse);
+
+    // —— 8b. 生成 PDF 那几秒里同一项目被别人建了轮次：建轮次前再查一次锁 ——
+    __setRfqAttachmentPdfRendererForTest(okRenderer);
+    const pRace = await fedProject();
+    let nested: Awaited<ReturnType<typeof prepareRfqRound>> | null = null;
+    __setRfqAttachmentPdfRendererForTest(async (html: string) => {
+      __setRfqAttachmentPdfRendererForTest(okRenderer);
+      nested = await prepareRfqRound({ projectId: pRace, orgId: ORG, userId: OWNER, source: "web", supplierIds, incoterm: "DDP" });
+      return okRenderer(html);
+    });
+    const outer = await prepareRfqRound({ projectId: pRace, orgId: ORG, userId: OWNER, source: "web", supplierIds, incoterm: "DDP" });
+    const nestedOk = (nested as { ok?: boolean } | null)?.ok === true;
+    ok(nestedOk && !outer.ok && outer.errorCode === "ROUND_LOCKED" && (await rounds(pRace)).length === 1 && (await cards(pRace)).length === 1, "并发起草：后到的一次在建轮次前重查锁，返回 ROUND_LOCKED，只建出一轮一卡", { outer, nestedOk });
+
+    // —— 8c. 读卡：已批准执行中的卡不再核对；命中身份信息给专门的提示 ——
+    __setRfqAttachmentPdfRendererForTest(okRenderer);
+    const raceCard = (await cards(pRace))[0];
+    await db.tenderExtractedRequirement.updateMany({ where: { projectId: pRace, requirementCode: "R-001" }, data: { chineseTranslation: "改过的翻译" } });
+    await db.pendingAction.update({ where: { id: raceCard.id }, data: { status: "approved" } });
+    const approvedEmails = (await loadRfqSendEmails(ORG, [raceCard.id]))[raceCard.id] ?? [];
+    ok(approvedEmails.length === 3 && approvedEmails.every((e) => e.attachment?.stale === null && !!e.attachment.previewHref), "已批准执行中的卡：不再提前核对（已不能驳回），预览链接照给");
+    await db.pendingAction.update({ where: { id: raceCard.id }, data: { status: "pending" } });
+    await db.tenderExtractedRequirement.updateMany({ where: { projectId: pRace, requirementCode: "R-001" }, data: { chineseTranslation: "睡袋须达到 -20°C；睡垫 R 值不低于 4。", originalRequirement: "Bags shall be rated to -20C; ref ZX-778899." } });
+    await db.project.update({ where: { id: pRace }, data: { solicitationNumber: "ZX-778899" } });
+    const idEmails = (await loadRfqSendEmails(ORG, [raceCard.id]))[raceCard.id] ?? [];
+    ok(idEmails.every((e) => e.attachment?.stale === "identity"), "起草后项目补填的编号出现在要求里：卡上标为命中身份信息", idEmails[0]?.attachment);
+
+    // —— 8d. 执行时附件命中招标身份：起草后确认了一条写着采购方名称的新要求（邮件正文里没有它）——
+    const pId = await mkProject({ name: "Fixture Lanterns", clientOrganization: "Northwind Regional Authority", reqs: [{ category: "PRODUCT", text: "LED lantern, 300 lumen.", zh: "LED 营灯，300 流明。" }] });
+    await postRound(pId);
+    const pIdCard = (await cards(pId))[0]?.payload as unknown as Payload;
+    const runId = (await db.tenderAnalysisRun.findFirst({ where: { projectId: pId }, select: { id: true } }))!.id;
+    await db.tenderExtractedRequirement.create({ data: { projectId: pId, analysisRunId: runId, requirementCode: "R-009", category: "DELIVERY", originalRequirement: "Deliver to Northwind Regional Authority depot.", chineseTranslation: "交付到指定仓库。", mandatory: true, reviewStatus: "CONFIRMED" } });
+    const beforeId = sends.length;
+    const exId = await execTenderSendRfq(pIdCard, ctx, { send: fakeSend });
+    ok(!exId.ok && exId.errorCode === "RFQ_IDENTITY_LEAK" && (exId.error ?? "").includes("采购方名称") && (exId.error ?? "").includes("一封都没有发") && !(exId.error ?? "").includes("Northwind") && sends.length === beforeId, "执行时附件命中身份：RFQ_IDENTITY_LEAK，写明类别、不复述原文，发信 0 次", exId);
+
+    // —— 8e. 预览：生成失败 503；太频繁 429 ——
+    const pPv = await fedProject();
+    await postRound(pPv);
+    const pvCard = (await cards(pPv))[0];
+    __setRfqAttachmentPdfRendererForTest(async () => { throw new Error("chromium down"); });
+    const pv503 = await getPreview(pPv, pvCard.id, await cookieOf(OWNER));
+    ok(pv503.status === 503 && (await pv503.text()).includes("暂时生成不了") , "预览：PDF 生成失败 503，中文说明");
+    __setRfqAttachmentPdfRendererForTest(okRenderer);
+    const statuses: number[] = [];
+    for (let i = 0; i < 8; i++) statuses.push((await getPreview(pPv, pvCard.id)).status);
+    ok(statuses.includes(429), "预览：同一个人一分钟内打开太多次 → 429", statuses);
 
     // —— 9. 开关关掉后，已起草的带附件卡照样按卡执行 ——
     __setRfqAttachmentPdfRendererForTest(okRenderer);

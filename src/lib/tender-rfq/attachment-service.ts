@@ -15,11 +15,13 @@ import { buildRfqDocument, type RfqDocument } from "./build";
 import {
   RFQ_ATTACHMENT_CHANGED_CARD_ZH,
   RFQ_ATTACHMENT_CHANGED_EXEC_ZH,
+  RFQ_ATTACHMENT_IDENTITY_CARD_ZH,
   RFQ_ATTACHMENT_MIME,
   RFQ_ATTACHMENT_TEMPLATE_CARD_ZH,
   RFQ_ATTACHMENT_TEMPLATE_EXEC_ZH,
   RFQ_ATTACHMENT_TEMPLATE_VERSION,
   checkRfqAttachmentPdf,
+  rfqAttachmentIdentityExecZh,
   countPdfPages,
   rfqAttachmentContentHash,
   rfqAttachmentFilename,
@@ -141,12 +143,13 @@ export async function rebuildRfqAttachment(
 /** 执行器用：重排结果 → 错误码与说明（卡已作废，说「重新发起」） */
 export function rebuildFailureForExec(r: Exclude<RebuildRfqAttachmentResult, { ok: true }>): { errorCode: string; message: string } {
   if (r.stale === "template") return { errorCode: "RFQ_ATTACHMENT_TEMPLATE_CHANGED", message: RFQ_ATTACHMENT_TEMPLATE_EXEC_ZH };
-  if (r.stale === "identity") return { errorCode: "RFQ_IDENTITY_LEAK", message: `询价附件含招标身份信息（命中：${describeIdentityHits(r.hits)}），这张卡一封都没有发，请改正后重新发起一轮询价` };
+  if (r.stale === "identity") return { errorCode: "RFQ_IDENTITY_LEAK", message: rfqAttachmentIdentityExecZh(describeIdentityHits(r.hits)) };
   return { errorCode: "RFQ_ATTACHMENT_CHANGED", message: RFQ_ATTACHMENT_CHANGED_EXEC_ZH };
 }
 
 /** 卡上 / 预览用：卡还在待批，说「驳回后重新发起」 */
-export function rebuildFailureForCard(r: Exclude<RebuildRfqAttachmentResult, { ok: true }>): { stale: "changed" | "template"; message: string } {
+export function rebuildFailureForCard(r: Exclude<RebuildRfqAttachmentResult, { ok: true }>): { stale: "changed" | "template" | "identity"; message: string } {
   if (r.stale === "template") return { stale: "template", message: RFQ_ATTACHMENT_TEMPLATE_CARD_ZH };
+  if (r.stale === "identity") return { stale: "identity", message: RFQ_ATTACHMENT_IDENTITY_CARD_ZH };
   return { stale: "changed", message: RFQ_ATTACHMENT_CHANGED_CARD_ZH };
 }

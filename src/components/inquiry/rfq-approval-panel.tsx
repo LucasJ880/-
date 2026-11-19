@@ -25,7 +25,7 @@ import {
   friendlyExecutionError,
   type ChaseCardKind,
 } from "@/lib/tender-rfq/web-entry-pure";
-import { RFQ_ATTACHMENT_CHANGED_CARD_ZH, RFQ_ATTACHMENT_TEMPLATE_CARD_ZH, attachmentSummaryZh } from "@/lib/tender-rfq/attachment-view";
+import { attachmentStaleMessageZh, attachmentSummaryZh } from "@/lib/tender-rfq/attachment-view";
 import { cn } from "@/lib/utils";
 import type { RfqApprovalInfo, RfqEmailPreview, RfqFollowUpCardView } from "./rfq-web-entry-types";
 
@@ -194,16 +194,22 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         <p className="flex flex-wrap items-center gap-1.5 text-xs text-foreground/85" data-testid="rfq-attachment-row">
           <Paperclip size={12} className="shrink-0 text-accent/70" />
           <span>每封都附带同一份 PDF：{attachmentSummaryZh(emails[0].attachment)}</span>
-          {emails[0].attachment.previewHref && !attachmentStale && (
-            <a href={emails[0].attachment.previewHref} target="_blank" rel="noopener noreferrer" className="text-accent underline-offset-2 hover:underline">
-              预览
+          {emails[0].attachment.previewHref && !attachmentStale && !decided && (
+            <a
+              href={emails[0].attachment.previewHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="预览询价单 PDF（新标签页打开）"
+              className="inline-flex items-center rounded px-1 py-1 text-accent underline-offset-2 hover:underline"
+            >
+              预览 PDF
             </a>
           )}
         </p>
       )}
-      {attachmentStale && (
-        <p className="text-xs text-danger" data-testid="rfq-attachment-stale">
-          {attachmentStale === "template" ? RFQ_ATTACHMENT_TEMPLATE_CARD_ZH : RFQ_ATTACHMENT_CHANGED_CARD_ZH}
+      {attachmentStale && !decided && (
+        <p className="text-xs text-danger" role="alert" data-testid="rfq-attachment-stale">
+          {attachmentStaleMessageZh(attachmentStale)}
         </p>
       )}
 
@@ -267,11 +273,14 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         </p>
       ) : null}
 
-      {decided || statusNote ? null : canApprove ? (
+      {decided || statusNote ? null : canApprove || (attachmentStale && canReject) ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="accent" loading={busy === "approve"} loadingText="正在发出…" disabled={busy !== null} onClick={() => decide("approve")}>
-            批准并发送
-          </Button>
+          {/* CHAIN-4a：询价单 PDF 已对不上时只给驳回（批准后执行器一定拒发） */}
+          {canApprove && (
+            <Button size="sm" variant="accent" loading={busy === "approve"} loadingText="正在发出…" disabled={busy !== null} onClick={() => decide("approve")}>
+              批准并发送
+            </Button>
+          )}
           {canReject &&
             (confirmReject ? (
               <span className="inline-flex items-center gap-2 text-xs text-muted">
@@ -291,7 +300,7 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         </div>
       ) : (
         <p className="text-xs text-muted">
-          {isChase ? "需要项目负责人或组织管理员批准。" : "需要组织管理员批准。"}
+          {attachmentStale ? "需要组织管理员驳回这张卡。" : isChase ? "需要项目负责人或组织管理员批准。" : "需要组织管理员批准。"}
           {approval ? (
             <>
               {" "}

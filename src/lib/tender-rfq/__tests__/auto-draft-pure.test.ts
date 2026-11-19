@@ -103,7 +103,9 @@ console.log("对外结果");
   ok("「分析未批准」在四种触发动作下都不提示（批准之前逐条确认 / 驳回时的常态）", AUTO_DRAFT_TRIGGERS.every((t) => autoDraftBlocked("RUN_NOT_APPROVED", { projectId: "p", trigger: t }).quiet));
   ok("「分析未批准」「已有轮次」不提示（审核过程中的常态）；其余原因都提示", by("RUN_NOT_APPROVED").quiet && by("ROUND_EXISTS").quiet && (["NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "IDENTITY_LEAK", "SENDER_NOT_READY", "NO_DEFAULT_SUPPLIERS", "SUPPLIER_GROUP_UNDETERMINED", "SUPPLIER_GROUP_EMPTY", "ATTACHMENT_FAILED", "DRAFT_FAILED"] as const).every((r) => !by(r).quiet));
   // CHAIN-4a：附件失败——固定一句、去询价入口、要提示
-  ok("附件失败：说明固定、去询价入口、要提示", by("ATTACHMENT_FAILED").messageZh === "询价附件（PDF）没能生成，没有自动起草。可以在询价入口手动发起。" && act("ATTACHMENT_FAILED")?.href === "/projects/p1?tab=bid" && !by("ATTACHMENT_FAILED").quiet);
+  ok("附件生成出错：说明固定、去询价入口、要提示", by("ATTACHMENT_FAILED").messageZh === "询价单 PDF 没能生成，没有自动起草。可以稍后在询价入口手动发起。" && act("ATTACHMENT_FAILED")?.href === "/projects/p1?tab=bid" && !by("ATTACHMENT_FAILED").quiet);
+  const tooBig = autoDraftBlocked("ATTACHMENT_FAILED", { projectId: "p1", trigger: "approve_run", attachmentReason: "too_large" });
+  ok("附件超过 5 MB：说明写原因、去「需求」、要提示", !tooBig.drafted && tooBig.messageZh === "询价单 PDF 超过 5 MB，没有自动起草。通常是要发的要求太多：请到「需求」减少要问供应商的要求。" && tooBig.action?.href === "/projects/p1?tab=requirements" && !tooBig.quiet);
   // CHAIN-4b：招标身份——与入口同一句话与去处，不提示原文
   {
     const hits = [{ category: "buyer_name" as const, where: "要求 R-07", kind: "tender" as const }];

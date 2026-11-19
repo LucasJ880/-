@@ -320,7 +320,6 @@ function rfqIdentitySegments(doc: RfqDocument, input: RfqBuildInput, humanDestin
 
 /* ---------------------------------- 渲染 ---------------------------------- */
 
-/** 供应商邮件正文（中文为主，规格保留原文以免翻译歧义）。 */
 /** 商务条件（邮件正文与 CHAIN-4a 附件共用同一份，两边不会写得不一样） */
 export function rfqCommercialTermsZh(doc: RfqDocument): Array<{ label: string; value: string }> {
   const out = [
@@ -334,9 +333,10 @@ export function rfqCommercialTermsZh(doc: RfqDocument): Array<{ label: string; v
 
 /** CHAIN-4a：带附件时正文里的那一句 */
 export function rfqAttachmentBodyLineZh(filename: string): string {
-  return `附件《${filename}》是本邮件询价清单的 PDF 版，内容相同，便于转给技术同事逐条核对。`;
+  return `附件《${filename}》是上面清单的表格版，方便转给技术同事核对；可以直接在邮件里按编号回复，也可以填好表格随报价一起发回。`;
 }
 
+/** 供应商邮件正文（中文为主，规格保留原文以免翻译歧义）。 */
 export function renderRfqEmail(doc: RfqDocument, opts?: { supplierName?: string | null; roundNumber?: number | null; attachmentFilename?: string | null }): {
   subject: string;
   body: string;

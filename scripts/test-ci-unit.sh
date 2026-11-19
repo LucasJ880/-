@@ -480,6 +480,7 @@ npx tsx src/lib/tender-rfq/__tests__/followup-coverage.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/followup-auto-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/auto-draft-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/attachment-db.isolated.test.ts
 npx tsx src/lib/__tests__/google-email-mime.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts

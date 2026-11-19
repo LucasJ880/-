@@ -177,7 +177,8 @@ export function hashRfqPayloadItems(
   const h = createHash("sha256");
   for (const i of items) h.update(`${i.inquiryItemId}|${i.to}|${i.subject}|${i.body}\n`);
   // CHAIN-4a：带附件时文件名与内容指纹也进哈希；不带附件时与本功能之前逐字节相同
-  if (attachment) h.update(`attachment|${attachment.filename}|${attachment.contentHash}\n`);
+  // 带长度前缀与 NUL 起头，不会与任何一封邮件正文的结尾拼出同一串
+  if (attachment) h.update(`\u0000attachment|${attachment.filename.length}:${attachment.filename}|${attachment.contentHash}\n`);
   return h.digest("hex").slice(0, 16);
 }
 

@@ -234,6 +234,9 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
       return { ok: false, errorCode: "ATTACHMENT_FAILED", message: rfqAttachmentFailedMessageZh(drafted.reason), attachmentReason: drafted.reason };
     }
     attachment = drafted.attachment;
+    // 生成 PDF 要几秒：这段时间里同一项目可能已有人建了轮次 / 待批卡（双击、网页与 Muse 同时），建轮次前再看一次轮次锁
+    const again = await loadRfqRoundLockState({ orgId: input.orgId, projectId: project.id, now, roundLockDays: settings.roundLockDays });
+    if (again.lock.locked) return { ok: false, errorCode: "ROUND_LOCKED", message: again.lock.message };
   }
 
   // ── 建轮次（draft，零出站） ──
