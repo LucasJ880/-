@@ -81,7 +81,7 @@ entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集
 - **THEN** 返回 422、`errorCode` 为 `FREE_TEXT_SENSITIVE`，`userMessage.message` 以「你填的补充说明里」开头、无出路链接；不建轮次、不建审批卡
 
 ### Requirement: 原地审批与待批轮次保护
-对 `canApprove` 为 true 的用户，送审结果页与待批轮次卡片 SHALL 提供「批准并发送」与「驳回」，并调用既有 `POST /api/capabilities/approvals/{approvalId}/approve|reject`（带 `idempotencyKey`、`expectedPayloadHash` 与卡所属企业 `orgId`），不跳转页面。`canApprove` SHALL 按项目所属企业解析审批中心上下文后取同一判定；为 false 时 SHALL 显示「需要组织管理员批准」与审批中心链接，SHALL NOT 声称已通知任何人。一个轮次有待批发送卡、或入口数据尚未成功加载时，草稿轮次 SHALL NOT 显示「标记发送」「开始询价」「添加供应商」。
+对 `canApprove` 为 true 的用户，送审结果页与待批轮次卡片 SHALL 提供「批准并发送」与「驳回」，并调用既有 `POST /api/capabilities/approvals/{approvalId}/approve|reject`（带 `idempotencyKey`、`expectedPayloadHash` 与卡所属企业 `orgId`），不跳转页面。`canApprove` SHALL 按项目所属企业解析审批中心上下文后取同一判定；为 false 时 SHALL 显示「需要组织管理员批准」与审批中心链接，SHALL NOT 声称已通知任何人。例外（CHAIN-4a）：卡带询价单 PDF、且读卡时核对出 PDF 与现在的项目资料对不上（或暂时核对不了）时，SHALL NOT 显示「批准并发送」，有驳回权限的人 SHALL 仍看到「驳回」，没有的人看到「需要组织管理员驳回这张卡。」；说明文字见 `tender/rfq-supplier-attachment`「卡上提前说附件已变」。一个轮次有待批发送卡、或入口数据尚未成功加载时，草稿轮次 SHALL NOT 显示「标记发送」「开始询价」「添加供应商」。
 
 #### Scenario: 决策结果留在轮次卡片上
 - **WHEN** 批准后执行结果为「已发出 2/3：A、B；失败：C（invalid_grant）」
@@ -99,6 +99,10 @@ entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集
 - **WHEN** 某轮有待批 `tender.send_rfq`
 - **THEN** 该轮询价明细里没有「标记发送」「开始询价」按钮，只显示审批面板
 
+#### Scenario: 询价单 PDF 对不上时只给驳回
+- **WHEN** 一张带询价单 PDF 的待批卡起草后改了一条已确认要求，组织管理员打开这一轮
+- **THEN** 没有「批准并发送」，有「驳回」与「起草后项目资料有改动……请点「驳回」……」的说明（`npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts` 源码断言；`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/attachment-db.isolated.test.ts` 读卡标记）
+
 ### Requirement: 发出后的轮次状态
 由询价引擎发出的轮次（任一询价项记有邮件线程）SHALL 在卡片上显示状态行：已发出家数、已报价 / 已回复 / 未响应家数、等回复家数与回复截止日；SHALL 显示「回信每 10 分钟自动检查并进表；{N} 天没回会自动起草催单给你批」，其中 N 与催单引擎使用的天数一致；授权邮箱缺读信权限时 SHALL 改为说明回信不会自动进表并给出重新授权链接。有对应已执行发送卡的轮次 SHALL 显示「从发起到发出：x 分 x 秒」（取审批卡创建与执行时间）。
 
@@ -107,11 +111,15 @@ entry SHALL 返回本组织 active 供应商与操作者常用供应商的并集
 - **THEN** 显示「已发出 3 家 · 已报价 1 · 等回复 2（截止 11-13）」「从发起到发出：4 分 12 秒」与「3 天没回会自动起草催单给你批」；`web-entry-pure.test.ts` 覆盖文案与耗时边界（< 1 分钟、≥ 1 小时）
 
 ### Requirement: 预览不含敏感商务数字
-entry 与 rounds 的响应、抽屉与结果页 SHALL NOT 包含毛利率、项目估值（`estimatedValue`）、我方报价（`ourBidPrice` / `winningBidPrice`）；预览只含发件抬头与地址、回复截止、要求条数、供应商名称与收件邮箱、询价正文（正文已由询价生成器做敏感内容整单拦截）。
+entry 与 rounds 的响应、抽屉与结果页 SHALL NOT 包含毛利率、项目估值（`estimatedValue`）、我方报价（`ourBidPrice` / `winningBidPrice`）；预览只含发件抬头与地址、回复截止、要求条数、供应商名称与收件邮箱、询价正文（正文已由询价生成器做敏感内容整单拦截），以及（CHAIN-4a）发询价卡所带询价单 PDF 的文件名、页数、字节数、预览链接与读卡核对结果。
 
 #### Scenario: 预览字段白名单
 - **WHEN** 读取 entry 响应
 - **THEN** 响应对象中不存在 `estimatedValue`、`ourBidPrice`、`winningBidPrice`、`margin` 字段（实现按白名单组装）
+
+#### Scenario: 询价单 PDF 的预览字段
+- **WHEN** 读一张带询价单 PDF 的发询价卡的邮件预览
+- **THEN** 每封预览的附件信息只有文件名、页数、字节数、预览链接与核对结果五个字段（`npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts`）
 
 ### Requirement: 单封直发下线
 `POST /api/projects/{id}/inquiries/{inquiryId}/items/{itemId}/email/send` 与 `…/email/generate` SHALL 返回 410 与「单封直发已下线，请用项目页『问供应商要价』」，SHALL NOT 发送邮件、SHALL NOT 调用 LLM、SHALL NOT 写 `ProjectEmail`。询价明细 SHALL NOT 再显示「生成邮件」按钮；首页 AI 建议「批量催促供应商」SHALL 跳转到该项目的「标书与报价」tab。
