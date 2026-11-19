@@ -170,8 +170,12 @@ export function autoDraftDone(input: {
   // CHAIN-2：并入了情报推荐时先说自己名单里的几家（跳过的紧跟其后），再说另外补了哪几家
   const intel = input.intelSupplierNames ?? [];
   const ownCount = input.supplierCount - intel.length;
+  // 分组时把跳过的说明并进分组那对括号里，不叠两对括号
+  const ownPart = input.group
+    ? `${ownCount} 家取自分组「${input.group.groupName}」（项目名称里有「${input.group.keyword}」${input.skippedCount > 0 ? `；这一组里有 ${input.skippedCount} 家停用、没有邮箱或超出上限，已跳过` : ""}）`
+    : `${ownCount} 家常用供应商${skipped}`;
   const who = intel.length
-    ? `${input.supplierCount} 家供应商——${input.group ? `${ownCount} 家取自${groupSourceZh(input.group)}` : `${ownCount} 家常用供应商`}${skipped}，${intelRecipientsNoteZh(intel)}`
+    ? `${input.supplierCount} 家供应商——${ownPart}，${intelRecipientsNoteZh(intel)}`
     : `${input.group ? `${input.supplierCount} 家供应商，取自${groupSourceZh(input.group)}` : `${input.supplierCount} 家常用供应商`}${skipped}`;
   // 批准分析即视为审核完成：询价单只带已确认的要求，没确认的不带——这里说清楚有几条没带上
   const unconfirmed = input.unconfirmedCount > 0 ? `询价单只带已确认的要求，另有 ${input.unconfirmedCount} 条没有确认的没带上。` : "";

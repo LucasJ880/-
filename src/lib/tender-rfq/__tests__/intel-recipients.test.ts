@@ -45,19 +45,19 @@ const sup = (id: string, o: { status?: string; contactEmail?: string | null } = 
 }
 
 {
-  ok(intelRecipientsNoteZh(["丙"]) === "另外补了 1 家供应商情报推荐的：丙" && intelRecipientsNoteZh([]) === "", "那一句");
+  ok(intelRecipientsNoteZh(["丙"]) === "另加 1 家供应商情报推荐（首选 / 备选）：丙" && intelRecipientsNoteZh([]) === "", "那一句");
   const counts = { confirmedCount: 3, unconfirmedCount: 0 };
   const plain = autoDraftPreviewLineZh("张三", counts, null);
   ok(autoDraftPreviewLineZh("张三", counts, null, []) === plain && autoDraftPreviewLineZh("张三", counts, null, null) === plain, "没有并入时卡摘要与之前相同");
   const withIntel = autoDraftPreviewLineZh("张三", counts, null, ["丙"]);
-  ok(withIntel === plain.replace("的常用供应商；", "的常用供应商，另外补了 1 家供应商情报推荐的：丙；"), "并入时卡摘要写明另外补了几家、是哪几家", withIntel);
+  ok(withIntel === plain.replace("的常用供应商；", "的常用供应商，另加 1 家供应商情报推荐（首选 / 备选）：丙；"), "并入时卡摘要写明另外补了几家、是哪几家", withIntel);
   const group = { groupName: "窗饰", keyword: "blind" };
   const plainGroup = autoDraftPreviewLineZh("张三", counts, group);
-  ok(autoDraftPreviewLineZh("张三", counts, group, ["丙"]) === plainGroup.replace("）；询价单", "），另外补了 1 家供应商情报推荐的：丙；询价单"), "按分组起草时同样写在分组之后", plainGroup);
+  ok(autoDraftPreviewLineZh("张三", counts, group, ["丙"]) === plainGroup.replace("）；询价单", "），另加 1 家供应商情报推荐（首选 / 备选）：丙；询价单"), "按分组起草时同样写在分组之后", plainGroup);
   const done = autoDraftDone({ projectId: "p", inquiryId: "q", roundNumber: 1, supplierCount: 3, skippedCount: 0, unconfirmedCount: 0, intelSupplierNames: ["丙"] });
-  ok(done.drafted && done.messageZh.startsWith("已为你起草第 1 轮询价：3 家供应商——2 家常用供应商，另外补了 1 家供应商情报推荐的：丙。") && Object.keys(done).sort().join() === "drafted,href,messageZh,quiet,roundNumber,skippedCount,supplierCount,unconfirmedCount,withFollowUp", "结果说明写明另外补了哪几家；结果字段不变", done);
+  ok(done.drafted && done.messageZh.startsWith("已为你起草第 1 轮询价：3 家供应商——2 家常用供应商，另加 1 家供应商情报推荐（首选 / 备选）：丙。") && Object.keys(done).sort().join() === "drafted,href,messageZh,quiet,roundNumber,skippedCount,supplierCount,unconfirmedCount,withFollowUp", "结果说明写明另外补了哪几家；结果字段不变", done);
   const withSkipGroup = autoDraftDone({ projectId: "p", inquiryId: "q", roundNumber: 1, supplierCount: 3, skippedCount: 1, unconfirmedCount: 0, group, intelSupplierNames: ["丙"] });
-  ok(withSkipGroup.drafted && withSkipGroup.messageZh.startsWith("已为你起草第 1 轮询价：3 家供应商——2 家取自分组「窗饰」（项目名称里有「blind」）（这一组里有 1 家停用、没有邮箱或超出上限，已跳过），另外补了 1 家供应商情报推荐的：丙。"), "按分组 + 有跳过：跳过的紧跟自己的名单，推荐写在最后", withSkipGroup);
+  ok(withSkipGroup.drafted && withSkipGroup.messageZh.startsWith("已为你起草第 1 轮询价：3 家供应商——2 家取自分组「窗饰」（项目名称里有「blind」；这一组里有 1 家停用、没有邮箱或超出上限，已跳过），另加 1 家供应商情报推荐（首选 / 备选）：丙。"), "按分组 + 有跳过：跳过的并进分组那对括号，推荐写在最后", withSkipGroup);
   const before = autoDraftDone({ projectId: "p", inquiryId: "q", roundNumber: 1, supplierCount: 2, skippedCount: 1, unconfirmedCount: 0 });
   ok(before.drafted && before.messageZh.startsWith("已为你起草第 1 轮询价：2 家常用供应商（常用供应商里有 1 家停用、没有邮箱或超出上限，已跳过）。"), "不传情报推荐：结果说明与之前相同");
   const beforeGroup = autoDraftDone({ projectId: "p", inquiryId: "q", roundNumber: 1, supplierCount: 2, skippedCount: 0, unconfirmedCount: 0, group });

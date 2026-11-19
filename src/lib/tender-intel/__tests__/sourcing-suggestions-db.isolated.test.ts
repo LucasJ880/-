@@ -202,6 +202,15 @@ async function main() {
     const live5 = await liveRuns(p5.projectId);
     ok(live5.length === 1 && both.filter((o) => o.created).length === 1, "并发两次触发：只有一个运行在算数，另一次没有建或已取消", { both, runs: (await searchRuns(p5.projectId)).map((r) => r.status) });
 
+    // —— 5c'. 进程中途死掉留下的「执行中、声明已过期」运行不算已有 ——
+    const p7 = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    const stale = await db.supplierSearchRun.create({
+      data: { orgId: ORG, projectId: p7.projectId, status: "RUNNING", startedAt: new Date("2026-11-01T00:00:00Z"), briefSnapshotJson: {}, requirementSnapshotJson: {}, sourceConfigJson: { canonicalAnalysisRunId: p7.runId }, queriesJson: [], scoreVersion: "fixture", evaluationVersion: "fixture", createdByUserId: OWNER,
+        statusDetailJson: { executionClaim: { claimId: "stale-claim", claimedAt: "2026-11-01T00:00:00.000Z", expiresAt: "2026-11-01T00:10:00.000Z", byUserId: OWNER } } },
+    });
+    const o7 = await maybeAutoSupplierRun({ orgId: ORG, projectId: p7.projectId, runId: p7.runId, userId: OWNER });
+    ok(o7.created === true && (await liveRuns(p7.projectId)).some((r) => r.id !== stale.id && r.status === "COMPLETED"), "执行中但声明已过期的运行不算已有：照常重建", o7);
+
     // —— 5d. 供应商情报关闭 / 触发人已被移出组织：不建 ——
     const p6 = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
     process.env.SUPPLIER_INTEL_ENABLED = "0";
@@ -213,10 +222,10 @@ async function main() {
     // —— 6. 寻源建议：没有评估 → 照实说并提到候选池家数 ——
     const s1 = await getSourcing(p1.projectId);
     const rec1 = s1.json.recommendations as { status: string; messageZh: string; href: string; hrefLabelZh: string; poolNoteZh: string | null };
-    ok(s1.status === 200 && rec1.status === "not_evaluated" && rec1.messageZh.startsWith("还没有评估过的候选。") && rec1.poolNoteZh === `系统已在批准分析后从内部供应商库建了候选池（${pool} 家，未筛选，还要逐个评估）。` && rec1.href.includes(encodeURIComponent(p1.projectId)) && rec1.hrefLabelZh === "去供应链页评估 →", "没有评估：照实说，写自动建的候选池家数，给「去供应链页评估」", s1.json);
+    ok(s1.status === 200 && rec1.status === "not_evaluated" && rec1.messageZh.startsWith("还没有评估过的候选。") && rec1.poolNoteZh === `系统已在批准分析后从内部供应商库建了候选池（${pool} 家，未筛选）。` && rec1.href.includes(encodeURIComponent(p1.projectId)) && rec1.hrefLabelZh === "去供应链页评估 →", "没有评估：照实说，写自动建的候选池家数，给「去供应链页评估」", s1.json);
     const s2pending = await getSourcing(p2.projectId);
     const rec2p = s2pending.json.recommendations as { status: string; messageZh: string; href: string | null };
-    ok(rec2p.status === "not_evaluated" && rec2p.messageZh.startsWith("招标分析还没有批准。") && rec2p.href === null, "分析还没批准：照实说，不催人去评估", rec2p);
+    ok(rec2p.status === "not_evaluated" && rec2p.messageZh.startsWith("招标分析还没有批准（") && rec2p.href === null, "分析还没批准：照实说，不催人去评估", rec2p);
 
     // —— 7. 有评估：推荐主选 / 备选、强制闸通过的，按名次 ——
     await mkEvaluations(p1.projectId, [
@@ -230,35 +239,42 @@ async function main() {
     const rec2 = s2.json.recommendations as { status: string; items: Item[]; hrefLabelZh: string };
     ok(rec2.status === "ready" && rec2.items.length === 2 && rec2.items[0].supplierName === sB.name && rec2.items[0].section === "PRIMARY" && rec2.items[0].rank === 1 && rec2.items[1].supplierName === sC.name && rec2.items[1].section === "BACKUP" && rec2.items[1].rank === 2 && rec2.hrefLabelZh === "查看完整排名 →", "推荐 2 个：B 首选、C 备选，按名次（D 没过强制项、A 待核实不进）", rec2);
     const sc = rec2.status === "ready" ? rec2.items[0].scores : {};
-    ok(rec2.status === "ready" && rec2.items[0].mandatoryZh === "强制项全部通过（2 条都有可采信的证据）" && rec2.items[1].mandatoryZh === "强制项全部通过（2 条里 1 条有可采信的证据）" && sc.technical === 90 && sc.commercial === 90 && sc.reliability === 90 && sc.importRisk === 90 && sc.total === 90, "带强制项那一句与五项分数", rec2.items);
+    ok(rec2.status === "ready" && rec2.items[0].mandatoryZh === "强制项全部通过（2 条，都有可采信的证据）" && rec2.items[1].mandatoryZh === "强制项判定通过（2 条，其中 1 条有可采信的证据）" && sc.technical === 90 && sc.commercial === 90 && sc.reliability === 90 && sc.importRisk === 90 && sc.total === 90, "带强制项那一句与五项分数", rec2.items);
     // 只有「过了强制项但待核实」的候选：不说成「都没通过」
     const pNR = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
     await mkEvaluations(pNR.projectId, [{ supplierId: sA.id, total: 85, gate: "PASS", recommendation: "NEEDS_VERIFICATION", gateItems: passItems }]);
     const recNR = (await getSourcing(pNR.projectId)).json.recommendations as { status: string; messageZh: string };
-    ok(recNR.status === "not_ranked" && recNR.messageZh === "评估过 1 个候选，暂时没有可推荐的：1 个通过了强制项，但还待核实、风险高或分数不全。", "只有过了强制项但待核实的：照实分开说", recNR);
+    ok(recNR.status === "not_ranked" && recNR.messageZh === "评估过 1 个候选，暂时没有可推荐的：1 个强制项已通过，但处于「待核实」或「重大风险」。", "只有过了强制项但待核实的：照实分开说", recNR);
 
     // —— 8. 价格：落地价只给有财务查看权的人 ——
     const prices = s2.json.prices as Record<string, { status: string; messageZh?: string }>;
-    ok("landed" in prices && prices.landed.status === "missing" && prices.landed.messageZh === "我方落地价还没有接通。", "项目负责人：有我方落地价一栏；比价矩阵成本来源开关关闭时写没接通", prices);
+    ok("landed" in prices && prices.landed.status === "missing" && prices.landed.messageZh === "我方落地价还没有接通（需管理员开启比价矩阵成本来源）。", "项目负责人：有我方落地价一栏；比价矩阵成本来源开关关闭时写没接通", prices);
     process.env.TENDER_PRICING_COMPARE_SOURCE_ENABLED = "1";
     const pricesOn = (await getSourcing(p1.projectId)).json.prices as Record<string, { status: string; messageZh?: string }>;
-    ok(pricesOn.landed?.messageZh === "比价矩阵里还没有选定报价。", "开关打开、还没选定报价：照实说", pricesOn.landed);
-    ok(prices.market?.messageZh === "还没有做过外部情报检索（可在情报室发起）。" && prices.awards?.messageZh === "授标记录还没有接通。", "市场基准与可比授标两栏照常给出（授标记录未接通时照实说）", prices);
+    ok(pricesOn.landed?.messageZh?.startsWith("比价矩阵里还没有选定供应商——"), "开关打开、还没选定报价：照实说", pricesOn.landed);
+    ok(prices.market?.messageZh === "还没有做过外部情报检索（可在情报室发起）。" && prices.awards?.messageZh === "授标记录还没有接通（需管理员开启）。", "市场基准与可比授标两栏照常给出（授标记录未接通时照实说）", prices);
     const sMember = await getSourcing(p1.projectId, await cookieOf(MEMBER));
     const sAdmin = await getSourcing(p1.projectId, await cookieOf(ADMIN));
     ok(sMember.status === 200 && !("landed" in (sMember.json.prices as Record<string, unknown>)) && sAdmin.status === 200 && !("landed" in (sAdmin.json.prices as Record<string, unknown>)), "只是项目成员、或只是组织管理员（都没有财务查看权）：响应里没有我方落地价这个键", [sMember.json.prices, sAdmin.json.prices]);
 
     // —— 8b. 可比授标：只取本项目采购方的，剔除我方结果 ——
     process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY = "1";
-    const mkAward = (winner: string, amount: number, projectId: string | null = null) => db.awardRecord.create({
-      data: { orgId: ORG, buyerNameRaw: "CITY OF FIXTURE", buyerNameNormalized: normalizeBuyerName("CITY OF FIXTURE"), projectId, winnerName: winner, winnerNameNormalized: normalizeVendorName(winner), contractAmount: amount, currency: "CAD", scopeSummary: "Sleeping bags", awardDate: new Date("2025-03-01T00:00:00Z"), confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED", status: "ACTIVE", createdByType: "user", createdById: OWNER },
-    });
-    for (const [w, a] of [["Rival One", 100], ["Rival Two", 200], ["Rival Three", 300]] as const) await mkAward(w, a);
-    await mkAward("Fixture Buyer Inc.", 999); // 我方中标（中标方就是本组织）
-    await mkAward("Rival Four", 5000, p1.projectId); // 本组织项目回灌的记录（金额来自我方项目）
+    let awardSeq = 0;
+    const mkAward = async (winner: string, amount: number, o: { projectId?: string | null; sourceKey?: string } = {}) => {
+      awardSeq += 1;
+      const rec = await db.awardRecord.create({
+        data: { orgId: ORG, buyerNameRaw: "CITY OF FIXTURE", buyerNameNormalized: normalizeBuyerName("CITY OF FIXTURE"), projectId: o.projectId ?? null, winnerName: winner, winnerNameNormalized: normalizeVendorName(winner), contractAmount: amount, currency: "CAD", scopeSummary: "Sleeping bags", awardDate: new Date("2025-03-01T00:00:00Z"), confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED", status: "ACTIVE", createdByType: "user", createdById: OWNER },
+      });
+      await db.awardRecordSource.create({ data: { orgId: ORG, awardRecordId: rec.id, sourceType: o.sourceKey?.startsWith("canadabuys:") ? "CANADABUYS_OPEN_DATA" : "USER_ENTRY", sourceKey: o.sourceKey ?? `manual:${stamp}-${awardSeq}`, capturedAt: new Date("2025-03-02T00:00:00Z"), createdById: OWNER } });
+    };
+    await mkAward("Rival One", 100);
+    await mkAward("Rival Two", 200, { projectId: p1.projectId, sourceKey: `canadabuys:${stamp}-REF-2` }); // 人工确认的公开授标，挂在项目上
+    await mkAward("Rival Three", 300);
+    await mkAward("Fixture Buyer Inc.", 999, { projectId: p1.projectId, sourceKey: `own-result:${p1.projectId}` }); // 我方中标
+    await mkAward("Rival Four", 5000, { projectId: p2.projectId, sourceKey: `tender-result-winner:${p2.projectId}` }); // 我方没中时回灌的对手中标（金额取自我方项目）
     const awards = (await getSourcing(p1.projectId)).json.prices as { awards: { status: string; groups?: Array<{ sampleSize: number; min: number; median: number; max: number; currency: string }> } };
     const ag = awards.awards.groups?.[0];
-    ok(awards.awards.status === "ok" && awards.awards.groups?.length === 1 && ag?.sampleSize === 3 && ag.min === 100 && ag.median === 200 && ag.max === 300 && ag.currency === "CAD", "同采购方（写法大小写不同）3 条：样本 3、最低 100、中位 200、最高 300；我方中标与项目回灌的不算", awards.awards);
+    ok(awards.awards.status === "ok" && awards.awards.groups?.length === 1 && ag?.sampleSize === 3 && ag.min === 100 && ag.median === 200 && ag.max === 300 && ag.currency === "CAD", "同采购方（写法大小写不同）3 条（含挂在项目上的公开授标）：样本 3、最低 100、中位 200、最高 300；我方中标与我方结果回灌的不算", awards.awards);
 
     // —— 9. 接口权限 ——
     const sOut = await getSourcing(p1.projectId, await cookieOf(OUTSIDER));
@@ -281,15 +297,22 @@ async function main() {
     await mkEvaluations(pR0.projectId, [{ supplierId: sB.id, total: 90, gate: "PASS", gateItems: passItems }, { supplierId: sC.id, total: 80, gate: "PASS", gateItems: passItems }, { supplierId: sD.id, total: 99, gate: "FAIL", gateItems: [] }]);
     const d0 = await maybeAutoDraftRfq({ orgId: ORG, projectId: pR0.projectId, runId: pR0.runId, userId: OWNER, trigger: "approve_run", now });
     const rc0 = await recipientsOf(pR0.projectId);
-    ok(d0?.drafted === true && rc0.names.join() === [sA.name, sB.name].join() && !rc0.preview.includes("供应商情报推荐"), "情报推荐开关关闭：收件人只有 A、B", { d0, rc0 });
-    // 开关开：A、B 之后并入 C（B 已在名单里不重复；D 没过闸不进）
+    ok(d0?.drafted === true && rc0.names.join() === [sA.name, sB.name].join() && !rc0.preview.includes("供应商情报推荐") && d0.messageZh.startsWith("已为你起草第 1 轮询价：2 家常用供应商。"), "情报推荐开关关闭：收件人只有 A、B，摘要与结果说明与之前相同", { d0, rc0 });
+    // 开关开、但该组织的供应商情报关着：不并入
     process.env.TENDER_RFQ_INTEL_RECIPIENTS_ENABLED = "1";
+    process.env.SUPPLIER_INTEL_ENABLED = "0";
+    const pRoff = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
+    await mkEvaluations(pRoff.projectId, [{ supplierId: sC.id, total: 80, gate: "PASS", gateItems: passItems }]);
+    const dOff = await maybeAutoDraftRfq({ orgId: ORG, projectId: pRoff.projectId, runId: pRoff.runId, userId: OWNER, trigger: "approve_run", now });
+    process.env.SUPPLIER_INTEL_ENABLED = "1";
+    ok(dOff?.drafted === true && (await recipientsOf(pRoff.projectId)).names.join() === [sA.name, sB.name].join(), "情报推荐开关开、供应商情报关：不并入", dOff);
+    // 开关开：A、B 之后并入 C（B 已在名单里不重复；D 没过闸不进）
     const pR1 = await mkProject({ runStatus: "APPROVED", reqs: ["CONFIRMED"] });
     await mkEvaluations(pR1.projectId, [{ supplierId: sB.id, total: 90, gate: "PASS", gateItems: passItems }, { supplierId: sC.id, total: 80, gate: "PASS", gateItems: passItems }, { supplierId: sD.id, total: 99, gate: "FAIL", gateItems: [] }]);
     const d1 = await maybeAutoDraftRfq({ orgId: ORG, projectId: pR1.projectId, runId: pR1.runId, userId: OWNER, trigger: "approve_run", now });
     const rc1 = await recipientsOf(pR1.projectId);
     ok(d1?.drafted === true && rc1.names.join() === [sA.name, sB.name, sC.name].join(), "情报推荐开关打开：收件人依次是 A、B、C（不含没过闸的 D）", { d1, rc1 });
-    ok(rc1.preview.includes(`的常用供应商，另外补了 1 家供应商情报推荐的：${sC.name}；`) && !!d1 && d1.drafted && d1.messageZh.includes(`3 家供应商——2 家常用供应商，另外补了 1 家供应商情报推荐的：${sC.name}。`), "卡摘要与结果说明写明另外补了哪一家情报推荐", { preview: rc1.preview, msg: d1 && d1.drafted ? d1.messageZh : null });
+    ok(rc1.preview.includes(`的常用供应商，另加 1 家供应商情报推荐（首选 / 备选）：${sC.name}；`) && !!d1 && d1.drafted && d1.messageZh.includes(`3 家供应商——2 家常用供应商，另加 1 家供应商情报推荐（首选 / 备选）：${sC.name}。`), "卡摘要与结果说明写明另外补了哪一家情报推荐", { preview: rc1.preview, msg: d1 && d1.drafted ? d1.messageZh : null });
     const draftAudit = await db.auditLog.findFirst({ where: { orgId: ORG, projectId: pR1.projectId, action: "tender.rfq_auto_draft" }, orderBy: { createdAt: "desc" } });
     const dad = (typeof draftAudit?.afterData === "string" ? JSON.parse(draftAudit.afterData) : draftAudit?.afterData) as Record<string, unknown> | undefined;
     ok(Array.isArray(dad?.intelRecommendedSupplierIds) && (dad?.intelRecommendedSupplierIds as string[]).join() === sC.id, "自动起草审计记下并入的情报推荐", dad);
@@ -306,6 +329,7 @@ async function main() {
     __setAutoSupplierRunFaultForTest(null);
     globalThis.fetch = realFetch;
     for (const k of ["TENDER_AUTO_SUPPLIER_RUN_ENABLED", "TENDER_RFQ_INTEL_RECIPIENTS_ENABLED", "TENDER_RFQ_AUTO_DRAFT_ENABLED", "SUPPLIER_INTEL_ENABLED", "TENDER_EXTERNAL_INTEL_ENABLED", "TAVILY_API_KEY", "TENDER_PRICING_COMPARE_SOURCE_ENABLED", "T4_AWARD_INTELLIGENCE_SCHEMA_READY"]) delete process.env[k];
+    await db.awardRecordSource.deleteMany({ where: { orgId: ORG } }).catch(() => undefined);
     await db.awardRecord.deleteMany({ where: { orgId: ORG } }).catch(() => undefined);
     const runIds = (await db.supplierSearchRun.findMany({ where: { orgId: ORG }, select: { id: true } })).map((r) => r.id);
     await db.supplierRequirementMatch.deleteMany({ where: { candidate: { searchRunId: { in: runIds } } } }).catch(() => undefined);

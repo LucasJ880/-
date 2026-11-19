@@ -62,14 +62,14 @@ async function loadRanked(orgId: string, userId: string, projectId: string): Pro
 }
 
 /** 项目当前有效的那份分析（与自动建池、自动起草同一条规则）+ 系统为它自动建的候选池家数 */
-async function loadAnalysisAndPool(orgId: string, projectId: string): Promise<{ approved: boolean; autoPoolCount: number | null }> {
+async function loadAnalysisAndPool(orgId: string, projectId: string): Promise<{ approved: boolean; autoPoolCount: number | null; readError: boolean }> {
   try {
     const current = await db.tenderAnalysisRun.findFirst({
       where: { projectId, orgId, status: { in: ["REVIEW_REQUIRED", "APPROVED"] } },
       orderBy: { createdAt: "desc" },
       select: { id: true, status: true },
     });
-    if (!current) return { approved: false, autoPoolCount: null };
+    if (!current) return { approved: false, autoPoolCount: null, readError: false };
     const audits = await db.auditLog.findMany({
       where: { orgId, projectId, action: SUPPLIER_AUTO_RUN_AUDIT_ACTION },
       orderBy: { createdAt: "desc" },
@@ -84,16 +84,20 @@ async function loadAnalysisAndPool(orgId: string, projectId: string): Promise<{ 
       }
     });
     const autoPoolCount = hit?.targetId ? await db.supplierCandidate.count({ where: { orgId, searchRunId: hit.targetId } }) : null;
-    return { approved: current.status === "APPROVED", autoPoolCount };
+    return { approved: current.status === "APPROVED", autoPoolCount, readError: false };
   } catch (err) {
     warn("auto pool", err);
-    return { approved: true, autoPoolCount: null };
+    return { approved: true, autoPoolCount: null, readError: true };
   }
 }
 
+/** 我方项目结果回灌写进来的授标（我方中标 / 我方没中时填的中标方），来源键前缀（见 own-result-backfill.ts，含「撤回后重记」的后继键） */
+const OWN_RESULT_SOURCE_KEY = /^(own-result|tender-result-winner):/;
+
 /**
- * 本项目采购方的授标 → 可比价格分组。剔除我方结果：本组织项目回灌的记录（金额是我方报价或中标价）、
- * 中标方是本组织的记录。null = 取数出错。
+ * 本项目采购方的授标 → 可比价格分组。剔除我方结果：由我方项目结果回灌创建的记录（金额取自我方项目的报价 / 中标价字段）、
+ * 中标方是本组织的记录。按记录**最早的那条来源**判定是谁创建的——人工确认的公开授标也带项目 id，不能按项目 id 剔除。
+ * null = 取数出错。
  */
 async function loadAwardGroups(orgId: string, buyer: string | null): Promise<AwardGroupInput[] | null> {
   if (!buyer?.trim()) return [];
@@ -101,7 +105,16 @@ async function loadAwardGroups(orgId: string, buyer: string | null): Promise<Awa
     const [{ listAwardsForBuyer, normalizeVendorName }, { deriveAwardIntelligence }] = await Promise.all([import("./awards"), import("./award-intelligence")]);
     const [rows, org] = await Promise.all([listAwardsForBuyer({ orgId, buyerName: buyer }), db.organization.findUnique({ where: { id: orgId }, select: { name: true } })]);
     const ownName = org?.name?.trim() ? normalizeVendorName(org.name) : null;
-    const others = rows.filter((r) => r.projectId === null && (!ownName || r.winnerNameNormalized !== ownName));
+    const sources = rows.length
+      ? await db.awardRecordSource.findMany({
+          where: { orgId, awardRecordId: { in: rows.map((r) => r.id) } },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: { awardRecordId: true, sourceKey: true },
+        })
+      : [];
+    const firstSourceKey = new Map<string, string>();
+    for (const src of sources) if (!firstSourceKey.has(src.awardRecordId)) firstSourceKey.set(src.awardRecordId, src.sourceKey);
+    const others = rows.filter((r) => !OWN_RESULT_SOURCE_KEY.test(firstSourceKey.get(r.id) ?? "") && (!ownName || r.winnerNameNormalized !== ownName));
     return deriveAwardIntelligence(others, { ownWinnerNames: [org?.name] }).comparablePricing.groups;
   } catch (err) {
     warn("awards", err);
@@ -144,14 +157,15 @@ export async function loadSourcingSuggestions(input: { user: AuthUser; orgId: st
 
   const [ranked, analysis, awardGroups, marketPricing, landed] = await Promise.all([
     intelEnabled ? loadRanked(orgId, user.id, projectId) : Promise.resolve([] as RankedCandidateInput[]),
-    intelEnabled ? loadAnalysisAndPool(orgId, projectId) : Promise.resolve({ approved: false, autoPoolCount: null }),
+    intelEnabled ? loadAnalysisAndPool(orgId, projectId) : Promise.resolve({ approved: false, autoPoolCount: null, readError: false }),
     awardsReady ? loadAwardGroups(orgId, project?.clientOrganization ?? null) : Promise.resolve([] as AwardGroupInput[]),
     loadMarketPricing(orgId, projectId),
     loadLanded(user, orgId, projectId, project?.ownerId ?? null),
   ]);
 
   return assembleSourcingSuggestions({
-    recommendations: buildRecommendations({ projectId, intelEnabled, analysisApproved: analysis.approved, ranked, autoPoolCount: analysis.autoPoolCount }),
+    // 分析读不出来、又没有评估可列时不猜「没批准」还是「没评估」：照实说读不出来
+    recommendations: buildRecommendations({ projectId, intelEnabled, analysisApproved: analysis.approved, ranked: analysis.readError && ranked?.length === 0 ? null : ranked, autoPoolCount: analysis.autoPoolCount }),
     awards: buildAwardColumn({ schemaReady: awardsReady, projectBuyer: project?.clientOrganization ?? null, groups: awardGroups }),
     market: buildMarketColumn(marketPricing.value, marketPricing.readError),
     landed,

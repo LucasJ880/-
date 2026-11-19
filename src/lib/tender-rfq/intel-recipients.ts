@@ -46,7 +46,7 @@ export function mergeIntelRecipients(input: { picked: ReadonlyArray<{ id: string
   return { merged, intelAdded };
 }
 
-/** 「另外补了 N 家供应商情报推荐的：甲、乙」；没有并入时为空串 */
+/** 「另加 N 家供应商情报推荐（首选 / 备选）：甲、乙」；没有并入时为空串 */
 export function intelRecipientsNoteZh(names: readonly string[]): string {
-  return names.length ? `另外补了 ${names.length} 家供应商情报推荐的：${names.join("、")}` : "";
+  return names.length ? `另加 ${names.length} 家供应商情报推荐（首选 / 备选）：${names.join("、")}` : "";
 }

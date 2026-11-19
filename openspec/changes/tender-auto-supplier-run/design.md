@@ -39,7 +39,9 @@
 
 - 否决：咨询锁——Prisma 连接池下会话级锁不可靠，事务级锁又跨不过 `createProjectSearchRun` 内部的多个事务。
 - 否决：出错后留着 RUNNING——判重会一直把它算作「已经有了」，这份分析再也不会自动建池（多维审查：正确性）。
-- 残留：Serverless 超时杀掉进程时运行停在 RUNNING、声明 10 分钟后过期，按供应商情报既有规则须有人在供应链页取消后重搜；这里不另做接管。
+- 进程中途死掉（Serverless 超时）时运行停在 RUNNING、声明 10 分钟后过期：判重不把「执行中、声明已过期或不可验证」的算作已有，下一次审核动作照常重建；旧运行不接管（供应商情报既有的不接管规则），留给人在供应链页取消。
+- 三个内部来源都失败时执行器自己把运行标为失败：不写建成的审计，下次重建（第二轮审查：正确性）。
+- 残留窗口：A 先插入、B 后插入且 B 两次检查都在 A 提交之前完成时，两边都会执行（窗口在毫秒级）。行锁跨不过 `createProjectSearchRun` 内部的多个事务，不另加锁；后果是多一个候选池，不影响正确性。
 
 ### D4 推荐型号读既有排名，没有就照实说
 
@@ -52,7 +54,7 @@
 
 一个纯函数按原始数据组装三栏与缺项文案（`sourcing-suggestions-pure.ts`），服务层只取数（`sourcing-suggestions.ts`），每一块各自兜底（一块出错只影响那一块）。
 
-- 可比授标：`listAwardsForBuyer`（按项目采购方在库里筛，不受组织级 200 条上限影响），**先剔除我方结果**（`projectId` 非空 = 本组织项目回灌的记录，金额来自我方报价 / 中标价；中标方规整后等于本组织名）再 `deriveAwardIntelligence`——`ownWinnerNames` 只管竞争者那一块，不管可比价格（多维审查：安全）；没写币种（`UNSPECIFIED`）的分组不列。
+- 可比授标：`listAwardsForBuyer`（按项目采购方在库里筛，不受组织级 200 条上限影响），**先剔除我方结果**（记录最早的来源键是 `own-result:` / `tender-result-winner:` = 由我方项目结果回灌创建，金额取自我方项目字段；中标方规整后等于本组织名）再 `deriveAwardIntelligence`。不按 `projectId` 剔除：人工确认的公开授标也挂在项目上（第二轮审查：正确性）——`ownWinnerNames` 只管竞争者那一块，不管可比价格（多维审查：安全）；没写币种（`UNSPECIFIED`）的分组不列。
 - 市场基准只读 `summaryJson.marketPricing`。
 - 落地价只在 `canReadAll` 时取，没有权限时响应里不放这个键；比价矩阵成本来源开关（`TENDER_PRICING_COMPARE_SOURCE_ENABLED`，与报价表助手同一个）关闭时写「还没有接通」；带税务说明（`gstNoteZh`）、数量口径与提醒。
 

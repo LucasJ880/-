@@ -15,6 +15,15 @@ import type { AwardColumn, LandedColumn, MarketColumn, ScoreSet, SourcingSuggest
 type State = { kind: "loading" } | { kind: "hidden" } | { kind: "error" } | { kind: "ok"; view: SourcingSuggestionsView };
 
 export const SOURCING_CARD_ERROR_ZH = "寻源建议暂时读不出来，请稍后刷新。";
+/** 三栏标题：与栏里的说明同一个名称，括号里写口径 */
+export const SOURCING_COLUMN_TITLES_ZH = {
+  awards: "可比授标（同一采购方的中标金额，不含我方）",
+  market: "市场价格基准（网上公开报价，原文照录）",
+  landed: "我方落地价（加元，比价矩阵选定）",
+} as const;
+
+/** 起止日期：两头都有写「a 至 b」，只有一头写那一头，都没有不写 */
+const dateRange = (from: string | null, to: string | null) => (from && to ? ` · ${from} 至 ${to}` : from || to ? ` · ${from ?? to}` : "");
 
 const score = (n: number | null) => (n === null || !Number.isFinite(n) ? "待核实" : String(Math.round(n * 10) / 10));
 const money = (n: number) => n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -34,9 +43,9 @@ function AwardsCol({ c }: { c: AwardColumn }) {
     <ul className="space-y-1 text-xs">
       {c.groups.map((g) => (
         <li key={`${g.scope}-${g.currency}`}>
-          <span className="text-foreground">{g.scope}</span>
+          <span className="text-foreground">范围：{g.scope}</span>
           <span className="text-muted">
-            {" "}· {g.sampleSize} 个：{g.currency} {money(g.min)} 至 {money(g.max)}（中位 {money(g.median)}）{g.from || g.to ? ` · ${g.from ?? "?"} 至 ${g.to ?? "?"}` : ""}
+            {" "}· {g.sampleSize} 笔：{g.currency} {money(g.min)} 至 {money(g.max)}（中位 {money(g.median)}）{dateRange(g.from, g.to)}
           </span>
         </li>
       ))}
@@ -129,13 +138,11 @@ export function SourcingSuggestionsCard({ projectId }: { projectId: string }) {
                     {r.rank !== null ? <span className="mr-1 text-muted">第 {r.rank} 名</span> : null}
                     <span className="mr-1 rounded border border-border px-1 py-px text-[10px] text-muted">{r.section === "PRIMARY" ? "首选" : "备选"}</span>
                     <span className="text-foreground">{r.supplierName}</span>
-                    {r.offeringName ? (
-                      <span className="text-foreground/80">
-                        {" "}
-                        · {r.offeringName}
-                        {r.offeringSku ? `（${r.offeringSku}）` : ""}
-                      </span>
-                    ) : null}
+                    <span className="text-foreground/80">
+                      {" "}
+                      · {r.offeringName ?? "未指定产品"}
+                      {r.offeringSku ? `（${r.offeringSku}）` : ""}
+                    </span>
                     <span className="text-muted"> · {r.mandatoryZh}</span>
                     <div>
                       <Scores s={r.scores} />
@@ -160,16 +167,16 @@ export function SourcingSuggestionsCard({ projectId }: { projectId: string }) {
               <p className="mt-0.5 text-[11px] text-muted">{state.view.noteZh}</p>
               <div className={`mt-2 grid gap-3 ${landed ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                 <div className="rounded-md border border-border/60 p-2">
-                  <p className="mb-1 text-[11px] font-medium text-foreground/80">历史中标总额（其他供应商，同采购方、同口径）</p>
+                  <p className="mb-1 text-[11px] font-medium text-foreground/80">{SOURCING_COLUMN_TITLES_ZH.awards}</p>
                   <AwardsCol c={state.view.prices.awards} />
                 </div>
                 <div className="rounded-md border border-border/60 p-2">
-                  <p className="mb-1 text-[11px] font-medium text-foreground/80">网上公开单价（原文照录）</p>
+                  <p className="mb-1 text-[11px] font-medium text-foreground/80">{SOURCING_COLUMN_TITLES_ZH.market}</p>
                   <MarketCol c={state.view.prices.market} />
                 </div>
                 {landed ? (
                   <div className="rounded-md border border-border/60 p-2">
-                    <p className="mb-1 text-[11px] font-medium text-foreground/80">我方落地成本（加元，比价矩阵选定）</p>
+                    <p className="mb-1 text-[11px] font-medium text-foreground/80">{SOURCING_COLUMN_TITLES_ZH.landed}</p>
                     <LandedCol c={landed} />
                   </div>
                 ) : null}

@@ -18,6 +18,7 @@ import { logAudit } from "@/lib/audit/logger";
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { isSupplierIntelEnabledForOrg } from "@/lib/supplier-intel/flags";
 import { readRunMode } from "@/lib/supplier-intel/constants";
+import { classifyRunExecutionState } from "@/lib/supplier-intel/run-execution-state";
 import { isAutoSupplierRunEnabledForOrg } from "./sourcing-flags";
 
 export const SUPPLIER_AUTO_RUN_AUDIT_ACTION = "tender.supplier_auto_run" as const;
@@ -38,8 +39,9 @@ export function __setAutoSupplierRunFaultForTest(fault: ((stage: AutoSupplierRun
 type Input = { orgId: string; projectId: string; runId: string; userId: string };
 
 /**
- * 以这份分析为需求来源、非评估、还算数的搜索运行（计划中 / 执行中 / 已完成；已取消与已失败的不算），按建立先后。
- * 用 JSON 路径在库里筛，不把项目里所有运行都读出来。
+ * 以这份分析为需求来源、非评估、还算数的搜索运行（计划中 / 执行中 / 已完成；已取消与已失败的不算；
+ * 执行中但执行声明已过期或不可验证的——进程中途死掉留下的——也不算），按建立先后。
+ * 用 JSON 路径在库里筛需求来源；不截条数（评估运行也带同一个需求来源，截断会把发现运行挤出去）。
  */
 async function runsForAnalysis(orgId: string, projectId: string, analysisRunId: string) {
   const rows = await db.supplierSearchRun.findMany({
@@ -50,10 +52,12 @@ async function runsForAnalysis(orgId: string, projectId: string, analysisRunId: 
       sourceConfigJson: { path: ["canonicalAnalysisRunId"], equals: analysisRunId },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: 50,
-    select: { id: true, sourceConfigJson: true },
+    select: { id: true, status: true, sourceConfigJson: true, statusDetailJson: true },
   });
-  return rows.filter((r) => readRunMode(r.sourceConfigJson) !== "EVALUATION_ONLY");
+  const now = new Date();
+  return rows.filter(
+    (r) => readRunMode(r.sourceConfigJson) !== "EVALUATION_ONLY" && !(r.status === "RUNNING" && classifyRunExecutionState(r, now) === "RECOVERY_REQUIRED"),
+  );
 }
 
 export async function maybeAutoSupplierRun(input: Input): Promise<AutoSupplierRunOutcome> {
@@ -126,6 +130,7 @@ async function run(input: Input): Promise<AutoSupplierRunOutcome> {
   try {
     await runService.startSearchRun(actor, searchRunId);
     if (!(await isEarliest())) {
+      // 先取消（终态之后谁也执行不了它）；取消不改状态详情，留在已取消运行上的执行声明无害
       await runService.cancelSearchRun(actor, searchRunId);
       return { created: false, reason: "DUPLICATE" };
     }
@@ -137,10 +142,16 @@ async function run(input: Input): Promise<AutoSupplierRunOutcome> {
       internalPoolLimit: AUTO_POOL_INTERNAL_LIMIT,
       finalize: true,
     });
+    if (result.runStatus !== "COMPLETED") {
+      // 三个内部来源都失败（执行器已把运行标为失败）或收口竞态：不算建成，不写建成的审计；失败的不算「已经有了」，下次重建
+      console.warn("[tender-intel] supplier auto run not completed:", result.runStatus);
+      return { created: false, reason: "FAILED" };
+    }
     candidatesCreated = result.candidatesCreated;
     sources = Object.fromEntries(Object.entries(result.sources).map(([k, v]) => [k, { status: v.status }]));
   } catch (err) {
-    // 标为失败（还没开始的标为取消）：失败的不算「已经有了」，下一次审核动作会重建
+    // 标为失败（整体改写状态详情，执行声明随之清掉）；还没开始执行的标为取消。
+    // 失败与取消的都不算「已经有了」，下一次审核动作会重建
     const reason = `auto run failed: ${err instanceof Error ? err.message : String(err)}`;
     await runService.failSearchRun(actor, searchRunId, reason).catch(() => runService.cancelSearchRun(actor, searchRunId).catch(() => undefined));
     throw err;

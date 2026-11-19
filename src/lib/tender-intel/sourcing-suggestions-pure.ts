@@ -7,7 +7,7 @@
  */
 
 import { normalizeBuyerName } from "@/lib/corporate-memory/normalize";
-import { gstNoteZh, quantityBasisZh, type CompareCostSuggestion } from "@/lib/tender-pricing/compare-cost-source";
+import { NONE_SELECTED_ZH, gstNoteZh, quantityBasisZh, type CompareCostSuggestion } from "@/lib/tender-pricing/compare-cost-source";
 
 export const SOURCING_PRICE_NOTE_ZH = "三种价格口径不同，不合并成一个数；报价由人定。";
 export const SOURCING_MAX_RECOMMENDATIONS = 3;
@@ -56,7 +56,7 @@ export type SourcingRecommendations =
 export const RECOMMENDATION_TEXT = {
   intelOff: "供应商情报没有开启，暂时没有推荐型号。",
   unavailable: "推荐型号暂时读不出来，请稍后刷新。",
-  notApproved: "招标分析还没有批准。批准后系统会从内部供应商库建候选池；候选在供应链页评估完，这里会列出推荐。",
+  notApproved: "招标分析还没有批准（请在「招标分析」里核对要求后批准）。批准后系统会从内部供应商库建候选池；候选在供应链页评估完，这里会列出推荐。",
   notEvaluated: "还没有评估过的候选。请到供应链页逐个评估候选（逐条判定要求），评估完这里会列出推荐。",
 } as const;
 
@@ -64,16 +64,17 @@ export const RECOMMENDATION_TEXT = {
 export function poolNoteZh(autoPoolCount: number | null): string | null {
   if (autoPoolCount === null) return null;
   return autoPoolCount > 0
-    ? `系统已在批准分析后从内部供应商库建了候选池（${autoPoolCount} 家，未筛选，还要逐个评估）。`
+    ? `系统已在批准分析后从内部供应商库建了候选池（${autoPoolCount} 家，未筛选）。`
     : "系统已在批准分析后查过内部供应商库，没有找到可放进候选池的供应商。";
 }
 
 function mandatoryZh(items: RankedCandidateInput["gateItems"]): string {
   if (items.length === 0) return "没有强制项";
   const withEvidence = items.filter((g) => g.gateVerdict === "PASS" && g.evidenceAdmissible).length;
+  // 判定通过的强制项必有可采信的证据（强制闸规则），后一句只是兜底
   return withEvidence === items.length
-    ? `强制项全部通过（${items.length} 条都有可采信的证据）`
-    : `强制项全部通过（${items.length} 条里 ${withEvidence} 条有可采信的证据）`;
+    ? `强制项全部通过（${items.length} 条，都有可采信的证据）`
+    : `强制项判定通过（${items.length} 条，其中 ${withEvidence} 条有可采信的证据）`;
 }
 
 /** 卡住最多的强制项（不满足 / 资料不足分开数；同样多时按编号排），最多 3 个 */
@@ -91,8 +92,8 @@ function blockedZh(ranked: readonly RankedCandidateInput[]): string {
   const top = [...tally.entries()]
     .sort((a, b) => b[1].fail + b[1].unknown - (a[1].fail + a[1].unknown) || a[0].localeCompare(b[0]))
     .slice(0, 3)
-    .map(([k, t]) => `${k}（${[t.fail ? `不满足 ${t.fail} 个` : "", t.unknown ? `资料不足 ${t.unknown} 个` : ""].filter(Boolean).join("、")}）`);
-  return top.length ? `卡得最多的强制项：${top.join("、")}。` : "";
+    .map(([k, t]) => `要求 ${k}：${[t.fail ? `${t.fail} 个不满足` : "", t.unknown ? `${t.unknown} 个资料不足` : ""].filter(Boolean).join("、")}`);
+  return top.length ? `卡得最多的：${top.join("；")}。` : "";
 }
 
 export function buildRecommendations(input: {
@@ -138,13 +139,13 @@ export function buildRecommendations(input: {
   const gatePassed = input.ranked.filter((r) => r.mandatoryGateResult === "PASS").length;
   const n = input.ranked.length;
   if (gatePassed === 0) {
-    return { status: "none_passed", messageZh: `评估过 ${n} 个候选，都没有通过强制项。${blockedZh(input.ranked)}`, href, hrefLabelZh: "去供应链页查看 →", poolNoteZh: pool };
+    return { status: "none_passed", messageZh: `评估过 ${n} 个候选，强制项都没有通过。${blockedZh(input.ranked)}`, href, hrefLabelZh: "去供应链页查看 →", poolNoteZh: pool };
   }
-  // 有通过强制项的，但都还待核实、风险高或分数不全——不算「没通过」，照实分开说
+  // 有通过强制项的，但处于「待核实」（含有维度分数待核实）或「重大风险」——不算「没通过」，照实分开说（用供应链页同一套说法）
   const notPassed = n - gatePassed;
   return {
     status: "not_ranked",
-    messageZh: `评估过 ${n} 个候选，暂时没有可推荐的：${gatePassed} 个通过了强制项，但还待核实、风险高或分数不全${notPassed ? `；${notPassed} 个没有通过强制项` : ""}。`,
+    messageZh: `评估过 ${n} 个候选，暂时没有可推荐的：${gatePassed} 个强制项已通过，但处于「待核实」或「重大风险」${notPassed ? `；${notPassed} 个强制项不通过` : ""}。`,
     href,
     hrefLabelZh: "去供应链页查看 →",
     poolNoteZh: pool,
@@ -159,7 +160,7 @@ export type AwardColumn =
   | { status: "missing"; messageZh: string };
 
 export const AWARD_TEXT = {
-  notConnected: "授标记录还没有接通。",
+  notConnected: "授标记录还没有接通（需管理员开启）。",
   unavailable: "授标记录暂时读不出来，请稍后刷新。",
   noBuyer: "项目没有采购方名称，没法比对。",
   tooFew: "同一采购方、同口径、同币种的授标（不含我方结果）不足 3 个，不做区间。",
@@ -185,7 +186,7 @@ export type MarketColumn =
 
 export const MARKET_TEXT = {
   neverRan: "还没有做过外部情报检索（可在情报室发起）。",
-  notConnected: "市场价格基准还没有接通。",
+  notConnected: "市场价格基准还没有接通（需管理员开启外部情报检索）。",
   noProduct: "分析里没有可检索的产品名称。",
   noneFound: "已查询，没有找到可比的市场价格。",
   unavailable: "市场价格基准暂时读不出来，请稍后刷新。",
@@ -208,7 +209,9 @@ export function buildMarketColumn(marketPricing: unknown, readError = false): Ma
     .slice(0, SOURCING_MAX_MARKET_ITEMS)
     .map((b) => ({ productName: str(b.productName) as string, vendor: str(b.vendor), priceRaw: str(b.priceRaw) as string, currency: str(b.currency), unit: str(b.unit) }));
   if (!items.length) return { status: "missing", messageZh: MARKET_TEXT.noneFound };
-  return { status: "ok", items, fxNoteZh: str(m.fxNoteZh) ?? MARKET_TEXT.fxFallback };
+  // 存下的换汇说明后半句是给报价引擎看的内部说法（「——换算与目标价测算请在报价引擎……」），只取破折号之前
+  const fx = str(m.fxNoteZh)?.split("——")[0].replace(/[。.\s]+$/, "");
+  return { status: "ok", items, fxNoteZh: fx ? `${fx}。` : MARKET_TEXT.fxFallback };
 }
 
 export type LandedColumn =
@@ -216,8 +219,8 @@ export type LandedColumn =
   | { status: "missing"; messageZh: string };
 
 export const LANDED_TEXT = {
-  notConnected: "我方落地价还没有接通。",
-  noneSelected: "比价矩阵里还没有选定报价。",
+  notConnected: "我方落地价还没有接通（需管理员开启比价矩阵成本来源）。",
+  noneSelected: NONE_SELECTED_ZH,
   unconvertible: "选定的报价换算不了落地价。",
   unavailable: "我方落地价暂时读不出来，请稍后刷新。",
 } as const;
