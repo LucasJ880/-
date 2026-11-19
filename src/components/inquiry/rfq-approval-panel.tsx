@@ -13,7 +13,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChevronDown, ChevronRight, Mail, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Mail, Paperclip, ShieldCheck, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-fetch";
 import { notifyPendingActionsChanged } from "@/lib/hooks/use-pending-approvals-badge";
@@ -25,6 +25,7 @@ import {
   friendlyExecutionError,
   type ChaseCardKind,
 } from "@/lib/tender-rfq/web-entry-pure";
+import { attachmentStaleMessageZh, attachmentSummaryZh } from "@/lib/tender-rfq/attachment-view";
 import { cn } from "@/lib/utils";
 import type { RfqApprovalInfo, RfqEmailPreview, RfqFollowUpCardView } from "./rfq-web-entry-types";
 
@@ -67,7 +68,9 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
   // 有了决策结果就不再给按钮：批准执行失败时执行器已把卡作废，再点只会得到「当前状态不支持」
   const decided = outcome !== null && outcome.text !== NETWORK_ERROR;
   const statusNote = approval ? approvalStatusNote(approval.status) : null;
-  const canApprove = !!approval?.canApprove && !decided && !statusNote;
+  // CHAIN-4a：附件内容在起草后变了 / 系统更新了版式——批准后执行器一定拒发，这里就不给批准（驳回照常）
+  const attachmentStale = !isChase ? (emails[0]?.attachment?.stale ?? null) : null;
+  const canApprove = !!approval?.canApprove && !decided && !statusNote && !attachmentStale;
   const canReject = !!approval?.canReject && !decided && !statusNote;
 
   async function decide(action: "approve" | "reject") {
@@ -186,6 +189,30 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         </div>
       )}
 
+      {!isChase && emails[0]?.attachment && (
+        // CHAIN-4a：同一轮每封都附带同一份询价单 PDF；预览按载荷重新生成（只读），内容变了会直接说
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-foreground/85" data-testid="rfq-attachment-row">
+          <Paperclip size={12} className="shrink-0 text-accent/70" />
+          <span>每封都附带同一份 PDF：{attachmentSummaryZh(emails[0].attachment)}</span>
+          {emails[0].attachment.previewHref && !attachmentStale && !decided && (
+            <a
+              href={emails[0].attachment.previewHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="预览询价单 PDF（新标签页打开）"
+              className="inline-flex items-center rounded px-1 py-1 text-accent underline-offset-2 hover:underline"
+            >
+              预览 PDF
+            </a>
+          )}
+        </p>
+      )}
+      {attachmentStale && !decided && (
+        <p className="text-xs text-danger" role="alert" data-testid="rfq-attachment-stale">
+          {attachmentStaleMessageZh(attachmentStale)}
+        </p>
+      )}
+
       {emails.length > 0 && (
         <ul className="divide-y divide-border/60 rounded-md border border-border bg-background">
           {emails.map((e, i) => {
@@ -246,11 +273,14 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         </p>
       ) : null}
 
-      {decided || statusNote ? null : canApprove ? (
+      {decided || statusNote ? null : canApprove || (attachmentStale && canReject) ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="accent" loading={busy === "approve"} loadingText="正在发出…" disabled={busy !== null} onClick={() => decide("approve")}>
-            批准并发送
-          </Button>
+          {/* CHAIN-4a：询价单 PDF 已对不上时只给驳回（批准后执行器一定拒发） */}
+          {canApprove && (
+            <Button size="sm" variant="accent" loading={busy === "approve"} loadingText="正在发出…" disabled={busy !== null} onClick={() => decide("approve")}>
+              批准并发送
+            </Button>
+          )}
           {canReject &&
             (confirmReject ? (
               <span className="inline-flex items-center gap-2 text-xs text-muted">
@@ -270,7 +300,7 @@ export function RfqApprovalPanel({ projectId, inquiryId, roundNumber, approval, 
         </div>
       ) : (
         <p className="text-xs text-muted">
-          {isChase ? "需要项目负责人或组织管理员批准。" : "需要组织管理员批准。"}
+          {attachmentStale ? "需要组织管理员驳回这张卡。" : isChase ? "需要项目负责人或组织管理员批准。" : "需要组织管理员批准。"}
           {approval ? (
             <>
               {" "}

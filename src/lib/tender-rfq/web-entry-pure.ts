@@ -7,6 +7,7 @@
  */
 
 // CHAIN-4b：只引说明文字那一半（不依赖 Node）；禁出清单本身在服务端
+import { readPayloadAttachment, rfqAttachmentFailedMessageZh, rfqAttachmentPreviewHref, type RfqAttachmentPreview } from "./attachment-view";
 import { identityLeakFieldMessageZh, identityLeakMessageZh, type IdentityHit } from "@/lib/bid-workflow/project-identity-messages";
 
 /* ---------------------------------- 类型 ---------------------------------- */
@@ -204,6 +205,7 @@ export type PrepareRfqErrorCode =
   | "NO_CONFIRMED_REQUIREMENTS"
   | "SENSITIVE_LEAK"
   | "IDENTITY_LEAK"
+  | "ATTACHMENT_FAILED"
   | "DRAFT_FAILED";
 
 /** 路由层在调 prepareRfqRound 之前自己判出来的（人工填写的栏目含内部词） */
@@ -215,7 +217,16 @@ export type UserMessage = { message: string; action: EntryAction | null };
 
 export function rfqErrorToUserMessage(
   code: RfqEntryErrorCode,
-  ctx: { projectId: string; now: Date; timeZone: string; blockedSuppliers?: BlockedSupplier[]; field?: string; identityHits?: IdentityHit[] },
+  ctx: {
+    projectId: string;
+    now: Date;
+    timeZone: string;
+    blockedSuppliers?: BlockedSupplier[];
+    field?: string;
+    identityHits?: IdentityHit[];
+    /** CHAIN-4a：ATTACHMENT_FAILED 的原因 */
+    attachmentReason?: "render_failed" | "too_large";
+  },
 ): UserMessage {
   switch (code) {
     case "FREE_TEXT_SENSITIVE":
@@ -257,6 +268,11 @@ export function rfqErrorToUserMessage(
       if (first?.kind === "human") return { message: identityLeakFieldMessageZh(first, hits), action: null };
       return { message: identityLeakMessageZh(hits), action: { label: "去「需求」检查", href: requirementsHref(ctx.projectId) } };
     }
+    case "ATTACHMENT_FAILED":
+      // CHAIN-4a：整轮没建。超过 5 MB 是要求太多，出路去「需求」；生成出错不是要求的问题，不给出路
+      return ctx.attachmentReason === "too_large"
+        ? { message: rfqAttachmentFailedMessageZh("too_large"), action: { label: "去「需求」检查", href: requirementsHref(ctx.projectId) } }
+        : { message: rfqAttachmentFailedMessageZh("render_failed"), action: null };
     case "PROJECT_NOT_FOUND":
       return { message: "这个项目不是投标项目，或你没有权限。", action: { label: "返回项目列表", href: "/projects" } };
     case "DRAFT_FAILED":
@@ -363,6 +379,8 @@ const GMAIL_AUTH_ERROR = /invalid_grant|unauthori[sz]ed|insufficient|invalid_tok
 /** 批准后执行失败的原文 → 用户能看懂的话；Gmail 授权类英文错误整体替换，其余加「没有发出去：」前缀，部分成功的摘要原样保留。 */
 export function friendlyExecutionError(raw: string): string {
   const text = raw.trim();
+  // CHAIN-4a：询价单 PDF 的执行失败说明本身已写明「一封都没有发」与怎么办，不再加「没有发出去：」
+  if (text.includes("一封都没有发")) return text;
   // 部分成功（「已发出 2/3：A、B；失败：C（invalid_grant）」）：保留谁发出了，只把括号里的英文授权错误换成人话
   if (/^已发出 [1-9]\d*\//.test(text)) {
     return text.replace(/（([^）]*)）/g, (whole, inner: string) => (GMAIL_AUTH_ERROR.test(inner) ? "（Gmail 授权失效）" : whole));
@@ -486,23 +504,38 @@ export function initialExpandedRound(input: {
 
 // ── T-1：催单卡在轮次里原地审批（spec tender/rfq-web-entry「待批催单卡的原地审批」，design D13） ──
 
-export type EmailPreview = { supplierName: string; to: string; subject: string; body: string };
+export type EmailPreview = {
+  supplierName: string;
+  to: string;
+  subject: string;
+  body: string;
+  /** CHAIN-4a：发询价卡带的询价单 PDF（同一轮每封相同）；不带附件时没有这个键 */
+  attachment?: RfqAttachmentPreview;
+};
 
 /**
  * 审批卡 payload → 每封将发出的邮件（发出的就是这份）：
  * 询价发送卡 `{ items: [{ supplierName, to, subject, body }] }`；催单 / 追问卡是单封 `{ supplierName, to, subject, body }`。
  * 缺收件人或正文的条目不列。
  */
-export function previewEmailsFromPayload(payload: unknown): EmailPreview[] {
+export function previewEmailsFromPayload(payload: unknown, opts?: { actionId?: string | null }): EmailPreview[] {
   if (!payload || typeof payload !== "object") return [];
-  const p = payload as { items?: unknown; supplierName?: unknown; to?: unknown; subject?: unknown; body?: unknown };
+  const p = payload as { items?: unknown; supplierName?: unknown; to?: unknown; subject?: unknown; body?: unknown; projectId?: unknown };
   const one = (x: unknown): EmailPreview | null => {
     if (!x || typeof x !== "object") return null;
     const e = x as { supplierName?: unknown; to?: unknown; subject?: unknown; body?: unknown };
     if (typeof e.to !== "string" || typeof e.body !== "string") return null;
     return { supplierName: String(e.supplierName ?? ""), to: e.to, subject: String(e.subject ?? ""), body: e.body };
   };
-  if (Array.isArray(p.items)) return p.items.map(one).filter((e): e is EmailPreview => e !== null);
+  if (Array.isArray(p.items)) {
+    const emails = p.items.map(one).filter((e): e is EmailPreview => e !== null);
+    // CHAIN-4a：只有发询价卡（items[]）会带附件；催单 / 追问卡是单封，不读
+    const a = readPayloadAttachment(payload);
+    if (!a) return emails;
+    const previewHref = opts?.actionId && typeof p.projectId === "string" ? rfqAttachmentPreviewHref(p.projectId, opts.actionId) : null;
+    const attachment: RfqAttachmentPreview = { filename: a.filename, pages: a.pages, sizeBytes: a.sizeBytes, previewHref };
+    return emails.map((e) => ({ ...e, attachment }));
+  }
   const single = one(p);
   return single ? [single] : [];
 }

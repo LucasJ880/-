@@ -11,7 +11,7 @@
 
 import { db } from "@/lib/db";
 import { isStageAutoAdvanceSwitchedOn } from "@/lib/tender/stage-auto-flags";
-import { hasGmailComposeScope, sendGmail } from "@/lib/google-email";
+import { hasGmailComposeScope, sendGmail, type EmailAttachment } from "@/lib/google-email";
 import { markItemSent } from "@/lib/inquiry/service";
 import { INQUIRY_STATUS } from "@/lib/inquiry/types";
 import { formatRfqContactNotes } from "./inbound-contract";
@@ -19,6 +19,12 @@ import { hashRfqPayloadItems, readTenderRfqSettings, resolveSender } from "./rou
 import { RFQ_IDENTITY_GUARD_VERSION, type TenderSendRfqPayload } from "./types";
 import { loadProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
 import { describeIdentityHits, scanOutboundRfqEmail } from "@/lib/bid-workflow/project-identity-deny";
+import { logAudit } from "@/lib/audit/logger";
+import { RFQ_ATTACHMENT_EXEC_FAILED_ZH, countPdfPages, readPayloadAttachment, sha256Hex } from "./attachment";
+import { rebuildFailureForExec, rebuildRfqAttachment, renderRfqAttachmentPdf } from "./attachment-service";
+
+/** CHAIN-4a：带附件的卡发出至少一封后写的审计 */
+export const RFQ_ATTACHMENT_SENT_AUDIT_ACTION = "tender.rfq_attachment_sent" as const;
 
 export type ExecTenderSendRfqContext = { userId: string; role: string | null | undefined; orgId?: string | null };
 export type ExecTenderSendRfqResult = { ok: boolean; resultRef?: string; message?: string; error?: string; errorCode?: string };
@@ -31,7 +37,12 @@ export async function execTenderSendRfq(
   if (!payload?.projectId || !payload.inquiryId || !Array.isArray(payload.items) || payload.items.length === 0) {
     return { ok: false, error: "询价 payload 不完整，拒绝执行", errorCode: "RFQ_PAYLOAD_INVALID" };
   }
-  if (hashRfqPayloadItems(payload.items) !== payload.rfqDocHash) {
+  // CHAIN-4a：载荷里有附件字段但读不出来（形状不对）→ 不猜，整张卡拒发
+  const attachment = readPayloadAttachment(payload);
+  if (payload.attachment != null && !attachment) {
+    return { ok: false, error: "询价附件信息不完整，拒绝执行", errorCode: "RFQ_PAYLOAD_INVALID" };
+  }
+  if (hashRfqPayloadItems(payload.items, attachment) !== payload.rfqDocHash) {
     return { ok: false, error: "询价内容与审批时不一致，拒绝执行", errorCode: "RFQ_PAYLOAD_TAMPERED" };
   }
 
@@ -68,6 +79,24 @@ export async function execTenderSendRfq(
   const sender = resolveSender(providers, mailboxEmail, hasGmailComposeScope);
   if (!sender.ok) return { ok: false, error: sender.message, errorCode: sender.errorCode };
 
+  // CHAIN-4a：带附件的卡——按执行时的资料重排、比对内容指纹，一致才生成 PDF；任何一步不过都一封不发、不动询价项。
+  // 放在发件账号检查之后（发不出去的卡不白生成一次 PDF）；询价项都已发过（重放）时不再生成。
+  // 不带附件的卡不做这一步，发出的邮件也不带附件。
+  let attachments: EmailAttachment[] | null = null;
+  if (attachment) {
+    const pendingCount = await db.inquiryItem.count({ where: { id: { in: payload.items.map((i) => i.inquiryItemId) }, status: "pending" } });
+    if (pendingCount > 0) {
+      const rebuilt = await rebuildRfqAttachment(payload, attachment);
+      if (!rebuilt.ok) {
+        const f = rebuildFailureForExec(rebuilt);
+        return { ok: false, error: f.message, errorCode: f.errorCode };
+      }
+      const rendered = await renderRfqAttachmentPdf(rebuilt.html);
+      if (!rendered.ok) return { ok: false, error: RFQ_ATTACHMENT_EXEC_FAILED_ZH, errorCode: "RFQ_ATTACHMENT_FAILED" };
+      attachments = [{ filename: attachment.filename, mimeType: attachment.mimeType, data: rendered.pdf }];
+    }
+  }
+
   const send = deps.send ?? sendGmail;
   const from = `"${payload.fromName.replace(/"/g, "")}" <${payload.fromEmail}>`;
   const sent: string[] = [];
@@ -85,8 +114,22 @@ export async function execTenderSendRfq(
       sent.push(`${item.supplierName}（此前已发）`);
       continue;
     }
+    // CHAIN-4a：带附件的卡在附件没准备好时绝不发出（不降级为不带附件发）
+    if (attachment && !attachments) {
+      failed.push({ supplierName: item.supplierName, error: "询价附件没有生成" });
+      continue;
+    }
     try {
-      const { messageId, threadId } = await send(sender.userId, { to: item.to, from, subject: item.subject, body: item.body, replyTo: payload.fromEmail, contentType: "text" });
+      const { messageId, threadId } = await send(sender.userId, {
+        to: item.to,
+        from,
+        subject: item.subject,
+        body: item.body,
+        replyTo: payload.fromEmail,
+        contentType: "text",
+        // CHAIN-4a：不带附件时不写这个键，发信参数与本功能之前相同
+        ...(attachments ? { attachments } : {}),
+      });
       await markItemSent({ projectId: payload.projectId, inquiryId: payload.inquiryId, itemId: item.inquiryItemId }, { sentVia: "email" });
       // threadId 是 P1-4 回信入站的唯一匹配键（formatRfqContactNotes / parseRfqThreadId 成对）
       await db.inquiryItem.update({
@@ -98,6 +141,28 @@ export async function execTenderSendRfq(
     } catch (err) {
       failed.push({ supplierName: item.supplierName, error: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  // CHAIN-4a：这一次真的发出了至少一封带附件的 → 记一条审计（PDF 字节的 SHA-256，不记内容）
+  if (attachment && attachments && newlySent > 0) {
+    await logAudit({
+      userId: ctx.userId,
+      orgId: project.orgId ?? undefined,
+      projectId: payload.projectId,
+      action: RFQ_ATTACHMENT_SENT_AUDIT_ACTION,
+      targetType: "tender_rfq_round",
+      targetId: payload.inquiryId,
+      afterData: {
+        roundNumber: payload.roundNumber,
+        filename: attachment.filename,
+        // 页数、字节数与 SHA-256 都按实际发出的那份 PDF（不是起草时卡上记的）
+        pages: countPdfPages(attachments[0].data),
+        sizeBytes: attachments[0].data.length,
+        pdfSha256: sha256Hex(attachments[0].data),
+        contentHash: attachment.contentHash,
+        sentCount: newlySent,
+      },
+    });
   }
 
   if (sent.length > 0) {

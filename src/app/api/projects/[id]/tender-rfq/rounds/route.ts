@@ -45,6 +45,7 @@ const STATUS_OF: Record<RfqEntryErrorCode, number> = {
   NO_CONFIRMED_REQUIREMENTS: 422,
   SENSITIVE_LEAK: 422,
   IDENTITY_LEAK: 422,
+  ATTACHMENT_FAILED: 422,
   DRAFT_FAILED: 500,
 };
 
@@ -108,6 +109,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       timeZone: await loadTimeZone(),
       blockedSuppliers: result.blockedSuppliers,
       identityHits: result.identityHits,
+      attachmentReason: result.attachmentReason,
     });
     return NextResponse.json(
       { ok: false, errorCode: result.errorCode, userMessage, candidates: result.candidates ?? [] },
