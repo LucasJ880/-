@@ -3,7 +3,7 @@
  * 运行：npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts
  */
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { buildProjectIdentityDenyList, scanIdentity, type ProjectIdentitySources } from "@/lib/bid-workflow/project-identity-deny";
 import { buildRfqDocument, renderRfqEmail, type RfqDocument, type RfqRequirementInput } from "../build";
@@ -219,7 +219,6 @@ const att: RfqPayloadAttachment = {
     const listSrc = cfgSrc.slice(cfgSrc.indexOf("const RFQ_ATTACHMENT_PDF_ROUTES"), cfgSrc.indexOf("];", cfgSrc.indexOf("const RFQ_ATTACHMENT_PDF_ROUTES")));
     const keys = [...listSrc.matchAll(/"([^"]+)"/g)].map((m) => m[1].replace(/\\/g, ""));
     ok(/\.\.\.Object\.fromEntries\(RFQ_ATTACHMENT_PDF_ROUTES\.map\(\(route\) => \[route, CJK_PDF_ASSETS\]\)\)/.test(cfgSrc) && /@sparticuz\/chromium\/bin\/\*\*/.test(cfgSrc.slice(0, cfgSrc.indexOf("const RFQ_ATTACHMENT_PDF_ROUTES"))), "next.config：清单里的路由都带上 CJK_PDF_ASSETS（含 Chromium 与 Noto Sans SC）");
-    const { readdirSync, statSync } = require("node:fs") as typeof import("node:fs");
     const routes: Array<{ route: string; src: string }> = [];
     const walk = (d: string) => { for (const f of readdirSync(d)) { const p = path.join(d, f); if (statSync(p).isDirectory()) walk(p); else if (f === "route.ts") routes.push({ route: "/" + path.relative(path.join(process.cwd(), "src/app"), path.dirname(p)), src: readFileSync(p, "utf8") }); } };
     walk(path.join(process.cwd(), "src/app/api"));
