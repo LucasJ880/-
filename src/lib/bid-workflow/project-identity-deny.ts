@@ -10,9 +10,6 @@
 
 import { createHash } from "node:crypto";
 import { normalizeBuyerName } from "@/lib/corporate-memory/normalize";
-
-/* ---------------------------------- 类别与说明（不依赖 Node，前后端共用） ---------------------------------- */
-
 import {
   identityLeakDocMessageZh,
   type DenyCategory,
@@ -20,6 +17,8 @@ import {
   type IdentityHit,
   type IdentitySegmentKind,
 } from "./project-identity-messages";
+
+/* ---------------------------------- 类别与说明（不依赖 Node，前后端共用；原样再导出） ---------------------------------- */
 
 export {
   IDENTITY_CATEGORY_ZH,

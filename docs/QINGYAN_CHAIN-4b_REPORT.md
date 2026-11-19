@@ -56,7 +56,8 @@
 4. **spec 里命中说明的写法统一为「类别·位置」**。原稿两个场景写成「采购方名称（要求 R-02）」，与入口说明「（命中：…）」嵌套括号；改为「命中：采购方名称·要求 R-02」。
 5. **`followup-auto-db.isolated.test.ts` 没有改**：它不执行发询价卡，用不到防护标记（tasks 3.1 原写要补）。
 6. **自审后补的两处**：生成文件抬头的生成日期不参与比对（截标当天生成会误拦）；北美电话要求区号与局号首位为 2–9（`100-123-4567` 这类编号不再误判）。spec 两条同步改写，「供应商侧生成文件」拆出一条「供应商侧文件命中时不生成」（strict 校验的长度限制）。
-7. **`supplier-groups-db.isolated.test.ts` 一条断言调整**：它比较两个同名项目的邮件「逐字相同」，以前标题都是项目名所以相同；现在每个项目有自己的询价编号（这正是 spec 要求的）。改为先把各自的编号换成同一占位再比，原意（按分组起草与手动勾选的内容一样）不变。
+7. **`/opsx:verify` 时补的两处**：spec 说项目名称也要在「正文里由模板写的句子」里查，送审时原来只查了标题与我方填入的变量——补上「招标原文留空再渲染一遍，模板句子按我方撰写查」；生成接口 422 与「写文件之前抛出」补了源码断言（`tender-doc-html.test.ts` 21 → 23）。
+8. **`supplier-groups-db.isolated.test.ts` 一条断言调整**：它比较两个同名项目的邮件「逐字相同」，以前标题都是项目名所以相同；现在每个项目有自己的询价编号（这正是 spec 要求的）。改为先把各自的编号换成同一占位再比，原意（按分组起草与手动勾选的内容一样）不变。
 
 ## 4. 测试（开工前 → 结束）
 
@@ -66,7 +67,7 @@
 | `tender-rfq/__tests__/build.test.ts` | 31 | 46（新增身份用例先在 main 的 `build.ts` 上跑：在第一条新断言处失败；换回新代码全部通过） |
 | `tender-rfq/__tests__/web-entry-pure.test.ts` | 151 | 158 |
 | `tender-rfq/__tests__/auto-draft-pure.test.ts` | 63 | 66 |
-| `projects/generate/__tests__/tender-doc-html.test.ts` | 10 | 21 |
+| `projects/generate/__tests__/tender-doc-html.test.ts` | 10 | 23 |
 | `bid-workflow/__tests__/china-supplier-brief.test.ts` | PASS（断言式，未注册） | PASS（新增 1 组），已注册 |
 | `pdf/__tests__/cjk-pdf.test.ts` | 11 | 11 |
 | `muse-bridge/__tests__/muse-bridge-pure.test.ts` | 75 | 75（未改断言） |

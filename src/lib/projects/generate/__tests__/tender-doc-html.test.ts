@@ -77,6 +77,9 @@ const legacyRfq = block(`if (input.docType === "supplier_rfq") {`, `} else if (i
 const techConfirm = block(`} else if (input.docType === "tech_confirm") {`, `} else if (input.docType === "bid_draft") {`);
 ok(legacyRfq.length > 0 && !/ctx|project\.name|project\.description/.test(legacyRfq), "国内供应商询价旧路径：不拼 ctx、项目名称、项目描述");
 ok(techConfirm.length > 0 && !/ctx|project\.name|project\.description/.test(techConfirm), "供应商技术确认表：不拼 ctx、项目名称、项目描述");
+const route = readFileSync(path.join(process.cwd(), "src/app/api/projects/[id]/generate-pdf/route.ts"), "utf8");
+ok(/e instanceof SupplierIdentityLeakError/.test(route) && /errorCode: e\.errorCode \}, \{ status: 422 \}/.test(route), "生成接口：身份命中返回 422 与 errorCode（其它错误仍是 500）");
+ok(/throw new SupplierIdentityLeakError/.test(src) && src.indexOf("throw new SupplierIdentityLeakError") < src.indexOf("async function persistGeneratedHtml"), "供应商侧文件命中时在写文件之前抛出（不写文件、不建记录）");
 ok(/const ctx = supplierFacing \? "" :/.test(src) && /supplierFacing\s*\?\s*`\$\{DOC_TITLES\[input\.docType\]\}\\n\\n\$\{textBody\}`/.test(src), "供应商侧文件不读项目 AI 上下文，正文开头不写 Project: 项目名");
 console.log(`\ntender-doc-html: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
