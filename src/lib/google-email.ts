@@ -31,6 +31,7 @@
  * 手动业务发信（报价等）仍可走 sendGmail → messages.send（compose scope 含发送能力）。
  */
 
+import { createHash } from "node:crypto";
 import { google } from "googleapis";
 import { db } from "@/lib/db";
 import { encryptField, decryptField } from "@/lib/crypto";
@@ -375,7 +376,15 @@ export interface SendEmailParams {
   references?: string;
   /** 正文类型：缺省 "html"（既有调用方）；纯文本正文（询价 / 催单模板）传 "text"，换行原样保留 */
   contentType?: "text" | "html";
+  /**
+   * CHAIN-4a：附件（目前只有发询价卡的询价单 PDF）。不传或空数组 = 与本字段之前逐字节相同的单段邮件；
+   * 有附件时原始邮件为 multipart/mixed。
+   */
+  attachments?: EmailAttachment[];
 }
+
+/** CHAIN-4a：随信发出的一个附件 */
+export type EmailAttachment = { filename: string; mimeType: string; data: Buffer };
 
 export type GmailSendApi = {
   users: {
@@ -1106,6 +1115,8 @@ function headerSafe(v: string | undefined): string | undefined {
 }
 
 export function buildRawEmail(params: SendEmailParams): string {
+  // CHAIN-4a：有附件才走 multipart；没有附件时下面的单段写法一个字节都不动
+  if (params.attachments && params.attachments.length > 0) return buildRawMultipartEmail(params, params.attachments);
   const lines = [
     `From: ${params.from}`,
     `To: ${params.to}`,
@@ -1127,6 +1138,81 @@ export function buildRawEmail(params: SendEmailParams): string {
 
   const raw = lines.join("\r\n");
   return Buffer.from(raw)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/* ── CHAIN-4a：带附件的原始邮件（multipart/mixed） ── */
+
+/** base64 每行 76 个字符（RFC 2045） */
+function base64Lines(data: Buffer): string {
+  return (data.toString("base64").match(/.{1,76}/g) ?? [""]).join("\r\n");
+}
+
+/** 文件名：去掉换行、引号与反斜杠（防头注入），空了用 attachment */
+function attachmentFilenameSafe(name: string): string {
+  const t = name.replace(/[\r\n"\\]+/g, "").trim();
+  return t || "attachment";
+}
+
+/** RFC 2231 扩展参数值：UTF-8 百分号编码（只留 attr-char） */
+function rfc2231Value(name: string): string {
+  return Array.from(Buffer.from(name, "utf8"))
+    .map((b) => (/[A-Za-z0-9!#$&+\-.^_`|~]/.test(String.fromCharCode(b)) ? String.fromCharCode(b) : `%${b.toString(16).toUpperCase().padStart(2, "0")}`))
+    .join("");
+}
+
+/** 文件名参数：纯 ASCII 直接写；否则 RFC 2047 编码词（兼容老客户端）+ RFC 2231（标准） */
+function attachmentHeaders(a: EmailAttachment): string[] {
+  const name = attachmentFilenameSafe(a.filename);
+  const mime = a.mimeType.replace(/[\r\n;"]+/g, "").trim() || "application/octet-stream";
+  if (/^[\x20-\x7e]+$/.test(name)) {
+    return [`Content-Type: ${mime}; name="${name}"`, `Content-Disposition: attachment; filename="${name}"`, "Content-Transfer-Encoding: base64"];
+  }
+  const encoded = `=?UTF-8?B?${Buffer.from(name, "utf8").toString("base64")}?=`;
+  return [
+    `Content-Type: ${mime}; name="${encoded}"`,
+    `Content-Disposition: attachment; filename="${encoded}"; filename*=UTF-8''${rfc2231Value(name)}`,
+    "Content-Transfer-Encoding: base64",
+  ];
+}
+
+function buildRawMultipartEmail(params: SendEmailParams, attachments: EmailAttachment[]): string {
+  // 分隔线由内容哈希确定（同样的输入 → 同样的原始邮件）；以 "=_" 开头，base64 与 RFC 2047 编码词里都不会出现
+  const h = createHash("sha256");
+  h.update(params.subject).update("\0").update(params.body);
+  for (const a of attachments) h.update("\0").update(a.filename).update("\0").update(a.data);
+  const boundary = `=_qy_${h.digest("hex").slice(0, 32)}`;
+
+  const lines = [
+    `From: ${params.from}`,
+    `To: ${params.to}`,
+    `Subject: =?UTF-8?B?${Buffer.from(params.subject).toString("base64")}?=`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+  ];
+  if (params.replyTo) lines.push(`Reply-To: ${params.replyTo}`);
+  const inReplyTo = headerSafe(params.inReplyTo);
+  const references = headerSafe(params.references) ?? inReplyTo;
+  if (inReplyTo) lines.push(`In-Reply-To: ${inReplyTo}`);
+  if (references) lines.push(`References: ${references}`);
+
+  lines.push(
+    "",
+    `--${boundary}`,
+    `Content-Type: ${params.contentType === "text" ? "text/plain" : "text/html"}; charset="UTF-8"`,
+    "Content-Transfer-Encoding: base64",
+    "",
+    base64Lines(Buffer.from(params.body)),
+  );
+  for (const a of attachments) {
+    lines.push(`--${boundary}`, ...attachmentHeaders(a), "", base64Lines(a.data));
+  }
+  lines.push(`--${boundary}--`, "");
+
+  return Buffer.from(lines.join("\r\n"))
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")

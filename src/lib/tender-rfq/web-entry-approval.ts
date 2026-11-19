@@ -16,6 +16,9 @@ import type { ApprovalViewer } from "@/lib/approval/audience";
 import { getTenantContext } from "@/lib/tenancy/context";
 import { makeApprovalId } from "@/lib/capabilities/approvals/types";
 import { previewEmailsFromPayload, type EmailPreview } from "./web-entry-pure";
+import { readPayloadAttachment } from "./attachment-view";
+import { rebuildFailureForCard, rebuildRfqAttachment } from "./attachment-service";
+import type { TenderSendRfqPayload } from "./types";
 
 export type RfqApprovalInfo = {
   approvalId: string;
@@ -101,6 +104,19 @@ export async function loadRfqSendEmails(orgId: string, actionIds: string[]): Pro
     where: { id: { in: actionIds }, orgId },
     select: { id: true, payload: true },
   });
-  for (const r of rows) out[r.id] = previewEmailsFromPayload(r.payload);
+  // CHAIN-4a：带卡 id，发询价卡的附件才有预览链接；带附件的卡按执行器同样的方式重排比对（不生成 PDF），
+  // 内容已变 / 版式已更新的在卡上提前说（批准后会被拒发），面板不给批准
+  for (const r of rows) {
+    const emails = previewEmailsFromPayload(r.payload, { actionId: r.id });
+    const attachment = readPayloadAttachment(r.payload);
+    if (attachment && emails.length > 0) {
+      const rebuilt = await rebuildRfqAttachment(r.payload as unknown as TenderSendRfqPayload, attachment).catch(() => null);
+      const stale = rebuilt && !rebuilt.ok ? rebuildFailureForCard(rebuilt).stale : null;
+      out[r.id] = emails.map((e) => (e.attachment ? { ...e, attachment: { ...e.attachment, stale } } : e));
+    } else {
+      out[r.id] = emails;
+    }
+  }
   return out;
 }
+

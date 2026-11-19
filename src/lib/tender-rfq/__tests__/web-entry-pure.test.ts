@@ -131,9 +131,13 @@ console.log("W-1 错误码 → 人话 + 出路");
   ok("PROJECT_NOT_FOUND → 返回项目列表", rfqErrorToUserMessage("PROJECT_NOT_FOUND", ctx).action?.href === "/projects");
   const draft = rfqErrorToUserMessage("DRAFT_FAILED", ctx);
   ok("DRAFT_FAILED → 请重试 + 组织时区的时间", draft.message.includes("请重试") && draft.message.includes("11-06 18:10"));
+  // CHAIN-4a：附件生成失败 / 超限
+  const att = rfqErrorToUserMessage("ATTACHMENT_FAILED", { ...ctx, attachmentReason: "render_failed" });
+  const big = rfqErrorToUserMessage("ATTACHMENT_FAILED", { ...ctx, attachmentReason: "too_large" });
+  ok("ATTACHMENT_FAILED → 写明没能生成与原因、这一轮没有建、无出路", att.message === "询价附件（PDF）没能生成（生成出错），这一轮没有建。稍后重试；一直不行请联系管理员。" && att.action === null && big.message.includes("（超过 5 MB）"));
   const free = rfqErrorToUserMessage("FREE_TEXT_SENSITIVE", { ...ctx, field: "补充说明" });
   ok("自己填的内容含内部词 → 指明是哪一栏、不把人引去需求 tab", free.message.startsWith("你填的补充说明里") && free.action === null);
-  for (const code of ["ROUND_LOCKED", "NO_SUPPLIERS", "SUPPLIERS_NOT_READY", "NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "IDENTITY_LEAK", "PROJECT_NOT_FOUND", "DRAFT_FAILED", "FREE_TEXT_SENSITIVE"] as const) {
+  for (const code of ["ROUND_LOCKED", "NO_SUPPLIERS", "SUPPLIERS_NOT_READY", "NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "IDENTITY_LEAK", "ATTACHMENT_FAILED", "PROJECT_NOT_FOUND", "DRAFT_FAILED", "FREE_TEXT_SENSITIVE"] as const) {
     ok(`${code} 的说明不含错误码`, noWord(rfqErrorToUserMessage(code, ctx).message));
   }
 }

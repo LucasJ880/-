@@ -321,7 +321,23 @@ function rfqIdentitySegments(doc: RfqDocument, input: RfqBuildInput, humanDestin
 /* ---------------------------------- 渲染 ---------------------------------- */
 
 /** 供应商邮件正文（中文为主，规格保留原文以免翻译歧义）。 */
-export function renderRfqEmail(doc: RfqDocument, opts?: { supplierName?: string | null; roundNumber?: number | null }): {
+/** 商务条件（邮件正文与 CHAIN-4a 附件共用同一份，两边不会写得不一样） */
+export function rfqCommercialTermsZh(doc: RfqDocument): Array<{ label: string; value: string }> {
+  const out = [
+    { label: "数量", value: doc.quantityTiers ? doc.quantityTiers.map((n) => `${n}`).join(" / ") + "（请分档报价）" : (doc.quantityNote ?? "") },
+    { label: "贸易条款", value: `${doc.incoterm ?? "请注明报价贸易条款"}${doc.destination ? `，目的地 ${doc.destination}` : ""}` },
+  ];
+  if (doc.requiredLeadTimeNote) out.push({ label: "交付要求", value: doc.requiredLeadTimeNote });
+  out.push({ label: "回复截止", value: doc.replyBy ?? "请尽快" });
+  return out;
+}
+
+/** CHAIN-4a：带附件时正文里的那一句 */
+export function rfqAttachmentBodyLineZh(filename: string): string {
+  return `附件《${filename}》是本邮件询价清单的 PDF 版，内容相同，便于转给技术同事逐条核对。`;
+}
+
+export function renderRfqEmail(doc: RfqDocument, opts?: { supplierName?: string | null; roundNumber?: number | null; attachmentFilename?: string | null }): {
   subject: string;
   body: string;
 } {
@@ -342,10 +358,7 @@ export function renderRfqEmail(doc: RfqDocument, opts?: { supplierName?: string 
   }
   L.push("");
   L.push("二、商务条件");
-  L.push(`- 数量：${doc.quantityTiers ? doc.quantityTiers.map((n) => `${n}`).join(" / ") + "（请分档报价）" : doc.quantityNote}`);
-  L.push(`- 贸易条款：${doc.incoterm ?? "请注明报价贸易条款"}${doc.destination ? `，目的地 ${doc.destination}` : ""}`);
-  if (doc.requiredLeadTimeNote) L.push(`- 交付要求：${doc.requiredLeadTimeNote}`);
-  L.push(`- 回复截止：${doc.replyBy ?? "请尽快"}`);
+  for (const c of rfqCommercialTermsZh(doc)) L.push(`- ${c.label}：${c.value}`);
   L.push("");
   L.push("三、请在回复中逐条回答");
   for (const q of doc.questions) L.push(`Q${q.seq}. ${q.text}`);
@@ -355,6 +368,11 @@ export function renderRfqEmail(doc: RfqDocument, opts?: { supplierName?: string 
     for (const a of doc.attachmentsRequested) L.push(`- ${a}`);
   }
   L.push("");
+  // CHAIN-4a：带附件的卡多这一句（不写页数：执行时重新生成 PDF，页数以卡上为准）
+  if (opts?.attachmentFilename) {
+    L.push(rfqAttachmentBodyLineZh(opts.attachmentFilename));
+    L.push("");
+  }
   L.push("为便于比对，请按上述编号逐项回复；若某项无法满足请直说，我们更看重准确。");
   L.push("");
   L.push(doc.buyerDisplayName);

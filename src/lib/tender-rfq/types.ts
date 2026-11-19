@@ -2,6 +2,8 @@
  * Tender RFQ（P1-2 / P1-3）— 类型
  */
 
+import type { RfqPayloadAttachment } from "./attachment-view";
+
 export const TENDER_SEND_RFQ_TYPE = "tender.send_rfq" as const;
 
 /** 一封待发的询价邮件（审批卡预览 = 这个数组） */
@@ -37,6 +39,12 @@ export type TenderSendRfqPayload = {
    * 执行器一律拒发；有标记的执行前按当时的项目资料再查一遍。不进 rfqDocHash（哈希保护的是邮件内容本身）。
    */
   identityGuard?: typeof RFQ_IDENTITY_GUARD_VERSION;
+  /**
+   * CHAIN-4a：随每一封发出的询价单 PDF（文件名、页数、大小、内容指纹、起草参数；不存 PDF 字节）。
+   * 文件名与内容指纹进 rfqDocHash；执行器发信前按执行时的资料重排、比对指纹后再生成 PDF。
+   * 缺省 = 不带附件，载荷与本功能之前逐字节相同。
+   */
+  attachment?: RfqPayloadAttachment;
 };
 
 /** CHAIN-4b 防护标记的当前版本 */

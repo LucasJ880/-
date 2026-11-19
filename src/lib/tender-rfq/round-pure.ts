@@ -6,6 +6,7 @@ import { followUpPolicySummaryZh, parseFollowUpPolicy } from "./followup-coverag
 import { createHash } from "node:crypto";
 import type { RfqFactInput } from "./build";
 import { TENDER_RFQ_DEFAULTS, type ResolvedTenderRfqSettings, type TenderSendRfqPayload } from "./types";
+import { attachmentSummaryZh, readPayloadAttachment, type RfqPayloadAttachment } from "./attachment-view";
 
 const DAY = 86_400_000;
 
@@ -169,9 +170,14 @@ export function factFromText(type: string, text: string): RfqFactInput {
 
 /* ---------------------------------- Payload ---------------------------------- */
 
-export function hashRfqPayloadItems(items: TenderSendRfqPayload["items"]): string {
+export function hashRfqPayloadItems(
+  items: TenderSendRfqPayload["items"],
+  attachment?: Pick<RfqPayloadAttachment, "filename" | "contentHash"> | null,
+): string {
   const h = createHash("sha256");
   for (const i of items) h.update(`${i.inquiryItemId}|${i.to}|${i.subject}|${i.body}\n`);
+  // CHAIN-4a：带附件时文件名与内容指纹也进哈希；不带附件时与本功能之前逐字节相同
+  if (attachment) h.update(`attachment|${attachment.filename}|${attachment.contentHash}\n`);
   return h.digest("hex").slice(0, 16);
 }
 
@@ -180,5 +186,8 @@ export function previewRfqPayload(p: TenderSendRfqPayload): string {
   const lines = p.items.map((i) => `· ${i.supplierName} <${i.to}>`);
   const policy = parseFollowUpPolicy(p.followUpPolicy);
   // RFQ-AUTO-1：带跟进授权时，所有展示这张卡的界面都能看到这一行
-  return `第 ${p.roundNumber} 轮询价，${p.items.length} 封邮件，发件人 "${p.fromName}" <${p.fromEmail}>：\n${lines.join("\n")}\n主题：${p.items[0]?.subject ?? ""}${policy ? `\n${followUpPolicySummaryZh(policy)}` : ""}`;
+  // CHAIN-4a：带附件时主题之后多一行附件；不带附件时输出不变
+  const attachment = readPayloadAttachment(p);
+  const attachmentLine = attachment ? `\n附件：${attachmentSummaryZh(attachment)}` : "";
+  return `第 ${p.roundNumber} 轮询价，${p.items.length} 封邮件，发件人 "${p.fromName}" <${p.fromEmail}>：\n${lines.join("\n")}\n主题：${p.items[0]?.subject ?? ""}${attachmentLine}${policy ? `\n${followUpPolicySummaryZh(policy)}` : ""}`;
 }

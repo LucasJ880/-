@@ -32,6 +32,10 @@ import { isRfqFollowUpPreapprovalEnabledForOrg } from "./followup-flags";
 import { RFQ_IDENTITY_GUARD_VERSION, TENDER_SEND_RFQ_TYPE, type RfqFollowUpPolicy, type TenderSendRfqPayload } from "./types";
 import { pickRfqIncoterm, pickRfqSuppliers, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
 import { loadProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
+import { resolveOrgTimezone } from "@/lib/automation/registry";
+import { isRfqAttachmentEnabledForOrg } from "./attachment-flags";
+import { rfqAttachmentDraftedOn, rfqAttachmentFailedMessageZh, rfqAttachmentFilename, type RfqPayloadAttachment } from "./attachment";
+import { draftRfqAttachment } from "./attachment-service";
 import { identityLeakMessageZh, scanIdentity, scanOutboundRfqEmail, type IdentityHit } from "@/lib/bid-workflow/project-identity-deny";
 
 const RFQ_FACT_TYPES = ["quantity", "delivery", "location", "warranty", "scope"] as const;
@@ -98,8 +102,11 @@ export type PrepareRfqResult =
         | "NO_CONFIRMED_REQUIREMENTS"
         | "SENSITIVE_LEAK"
         | "IDENTITY_LEAK"
+        | "ATTACHMENT_FAILED"
         | "DRAFT_FAILED";
       message: string;
+      /** CHAIN-4a：ATTACHMENT_FAILED 时是生成出错还是超过 5 MB */
+      attachmentReason?: "render_failed" | "too_large";
       /** CHAIN-4b：IDENTITY_LEAK 时命中的类别与位置（不含原文） */
       identityHits?: IdentityHit[];
       /** NO_SUPPLIERS 时给候选，让 Muse 渲染成可选项 */
@@ -190,16 +197,44 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   // 在建轮次之前做，命中就什么都不建。轮次号只在标题里加「（第 N 轮）」，不影响结论。
   // 另把招标原文（规格、交付要求、从地点派生的目的地）留空再渲染一遍，模板写的句子也查项目名称
   const templateOnly = { ...doc, lineItems: doc.lineItems.map((li) => ({ ...li, specZh: "", specOriginal: "" })), requiredLeadTimeNote: null, destination: input.destination?.trim() || null };
+  // CHAIN-4a：开关打开时这一轮带附件；正文那一句只写文件名，所以先定文件名再渲染、复查
+  const attachmentOn = isRfqAttachmentEnabledForOrg(input.orgId);
+  const attachmentFilename = attachmentOn ? rfqAttachmentFilename(doc.reference) : null;
   const renderHits = ready.flatMap((s, i) => {
     const where = `第 ${i + 1} 家`;
     // 问候语里的供应商名来自我方供应商库，模板句子的检查不带它
-    const tpl = renderRfqEmail(templateOnly, { supplierName: null });
+    const tpl = renderRfqEmail(templateOnly, { supplierName: null, attachmentFilename });
     return [
-      ...scanOutboundRfqEmail(identity.denyList, renderRfqEmail(doc, { supplierName: s.name }), where),
+      ...scanOutboundRfqEmail(identity.denyList, renderRfqEmail(doc, { supplierName: s.name, attachmentFilename }), where),
       ...scanIdentity(identity.denyList, [{ where: `${where}邮件正文的模板句子`, text: tpl.body, kind: "authored" }]),
     ];
   });
   if (renderHits.length) return { ok: false, errorCode: "IDENTITY_LEAK", message: identityLeakMessageZh(renderHits), identityHits: renderHits };
+
+  // CHAIN-4a：建轮次之前生成一次附件 PDF（确认生成得了、拿页数与大小）；失败或模板命中就什么都不建，不降级为不带附件
+  let attachment: RfqPayloadAttachment | null = null;
+  if (attachmentOn) {
+    const drafted = await draftRfqAttachment({
+      doc,
+      templateOnlyDoc: templateOnly,
+      denyList: identity.denyList,
+      draft: {
+        reference: doc.reference,
+        draftedAt: now.toISOString(),
+        draftedOn: rfqAttachmentDraftedOn(now, resolveOrgTimezone(project.org?.settingsJson)),
+        replyLeadDays: settings.replyLeadDays,
+        scopeNote: input.scopeNote ?? null,
+        extraQuestions: input.extraQuestions ?? [],
+        destination: input.destination ?? null,
+        quantityTiers: input.quantityTiers ?? [],
+      },
+    });
+    if (!drafted.ok) {
+      if (drafted.reason === "identity") return { ok: false, errorCode: "IDENTITY_LEAK", message: identityLeakMessageZh(drafted.hits), identityHits: drafted.hits };
+      return { ok: false, errorCode: "ATTACHMENT_FAILED", message: rfqAttachmentFailedMessageZh(drafted.reason), attachmentReason: drafted.reason };
+    }
+    attachment = drafted.attachment;
+  }
 
   // ── 建轮次（draft，零出站） ──
   let inquiry: Awaited<ReturnType<typeof createInquiry>>;
@@ -215,7 +250,7 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   }
   // 轮次已建、审批卡还没建成之前出任何错：把这一轮标为已取消再抛出，不留下一轮没有审批卡的草稿
   try {
-    return await draftRoundCard(input, { project, settings, doc, inquiry, ready, blocked, requirements, term, supplierSource: pick.source });
+    return await draftRoundCard(input, { project, settings, doc, inquiry, ready, blocked, requirements, term, supplierSource: pick.source, attachment });
   } catch (err) {
     await db.projectInquiry.update({ where: { id: inquiry.id }, data: { status: "canceled" } }).catch(() => undefined);
     throw err;
@@ -232,16 +267,18 @@ type DraftRoundContext = {
   requirements: RfqRequirementInput[];
   term: { incoterm: "EXW" | "FOB" | "CIF" | "DDP" | "DAP" | null; fromPrefs: boolean };
   supplierSource: "explicit" | "hint" | "prefs";
+  /** CHAIN-4a：这一轮的附件；null = 不带 */
+  attachment: RfqPayloadAttachment | null;
 };
 
 /** 给刚建好的轮次加询价项、建发询价审批卡（零出站） */
 async function draftRoundCard(input: PrepareRfqInput, c: DraftRoundContext): Promise<PrepareRfqResult> {
-  const { project, settings, doc, inquiry, ready, blocked, requirements, term } = c;
+  const { project, settings, doc, inquiry, ready, blocked, requirements, term, attachment } = c;
   const pick = { source: c.supplierSource };
   const items: TenderSendRfqPayload["items"] = [];
   for (const s of ready) {
     const item = await addInquiryItem({ projectId: project.id, inquiryId: inquiry.id }, s.id, input.userId);
-    const mail = renderRfqEmail(doc, { supplierName: s.name, roundNumber: inquiry.roundNumber });
+    const mail = renderRfqEmail(doc, { supplierName: s.name, roundNumber: inquiry.roundNumber, attachmentFilename: attachment?.filename ?? null });
     items.push({ inquiryItemId: item.id, supplierId: s.id, supplierName: s.name, to: s.contactEmail, subject: mail.subject, body: mail.body });
   }
 
@@ -274,12 +311,14 @@ async function draftRoundCard(input: PrepareRfqInput, c: DraftRoundContext): Pro
     fromName: settings.fromName,
     fromEmail: settings.fromEmail,
     items,
-    rfqDocHash: hashRfqPayloadItems(items),
+    rfqDocHash: hashRfqPayloadItems(items, attachment),
     incoterm: term.incoterm,
     // 不带授权时不写这个键：载荷与本功能之前逐字节相同
     ...(followUpPolicy ? { followUpPolicy } : {}),
     // CHAIN-4b：起草时已过身份防护；执行器见不到这个标记就拒发
     identityGuard: RFQ_IDENTITY_GUARD_VERSION,
+    // CHAIN-4a：不带附件时不写这个键（载荷与本功能之前逐字节相同）
+    ...(attachment ? { attachment } : {}),
   };
 
   // 新审批一律走 canonical 入口 requestApproval（runtime-architecture 守卫禁止新代码直接调旧的草稿创建 helper）
