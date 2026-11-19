@@ -354,6 +354,7 @@ async function main() {
       "src/app/api/projects/[id]/discussion/messages/route.ts": "预览中不建讨论会话",
       "src/app/api/projects/[id]/discussion/route.ts": "预览中不建讨论会话",
       "src/app/api/projects/[id]/reviews/route.ts": "预览中不建复盘草稿",
+      "src/app/api/projects/[id]/tender-rfq/attachment/route.ts": "只写限流计数（询价单 PDF 预览每人每分钟 6 次），不写业务数据",
       "src/app/api/sales/daily-briefing/route.ts": "预览中不生成、不建通知、不覆盖缓存",
       "src/app/api/sales/quotes/share/[token]/route.ts": "客户分享链接：带本人预览 cookie 时不记客户查看",
       "src/app/api/tasks/route.ts": "当前企业解析预览感知，不写",
