@@ -1,11 +1,19 @@
 # CHAIN 招标情报串联「分析完自己往下走，人只决定发不发」— 任务书
 
-> 入库：2026-11-19（任务书原文，未改字）。四件套与实现中发现的出入记在各 change 的 design.md「审核关注点」，不回改本文。
+> 入库：2026-11-19（任务书原文，未改字）；同日 13:05 修订版替换（新增 CHAIN-0c 与判断点 8、CHAIN-0 第 1 项改为已验证、CHAIN-0b 入后续队列）。四件套与实现中发现的出入记在各 change 的 design.md「审核关注点」，不回改本文。
 
-TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（登记到 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`）：CHAIN-0（运维核查，不是 change）+ CHAIN-1、CHAIN-2、CHAIN-3、CHAIN-4a、CHAIN-4b 五个 change，一个 change = 一个 PR，按下文「上线顺序」合并。本任务书合并时同步放一份到 `docs/QINGYAN_CHAIN_TENDER_INTEL_CHAIN_TASKBRIEF.md`。
+TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（登记到 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`）：CHAIN-0（运维核查，不是 change）+ CHAIN-0c、CHAIN-1、CHAIN-2、CHAIN-3、CHAIN-4a、CHAIN-4b 六个 change，一个 change = 一个 PR，按下文「上线顺序」合并。本任务书合并时同步放一份到 `docs/QINGYAN_CHAIN_TENDER_INTEL_CHAIN_TASKBRIEF.md`。
 与 TI-0 的关系：本任务书实现 `docs/tender-intelligence-gap-analysis.md` §12 里还没开始的 **TI-5（只读适配器：官方授标来源）**、**N5（进口线索接到供应商线索）** 和 **TI-7 的「寻源到询价的交接」**，不重做 TI-1～TI-4c；Gate A 的 10 项拍板（§10a）全部继续有效。
 需求方：Sunny 线（Evan，2026-11-19）：「确认招标要求的文件解析时间非常久」；「多部门功能很多，但是没有串联起来——分析完成后应该自主查找上一个中标者或者类似项目、预计中标价格、推荐型号；找到中标者后反查对方的海关数据，看谁是对方的供货商」；「查到供货商后自动分析，形成询价邮件，把我们上传的文件重新编排、隐藏敏感信息，生成新的 PDF 附件，人工只选择发还是不发」。
-状态：判断点 1–7 待拍板。CHAIN-0 不写代码，可先做。
+状态：判断点 1–8 待拍板。CHAIN-0 不写代码，可先做。CHAIN-0c（2026-11-19 生产事件，见下）只有判断点 8 与它有关，未拍板前按 A 实现，排第一。
+修订：2026-11-19 13:05 —— 生产核查后改 CHAIN-0 第 1 项为「已配置、已验证」；新增 CHAIN-0c；CHAIN-0b 入后续队列。
+
+## 2026-11-19 生产事件（CHAIN-0c 的起因）
+
+- 项目「12-01 21C31-254242」10:19 发起一键 AI 投标分析（确定性编排，9 步）。10:20 第 1 步「校验输入」、第 2 步「解析投标文件」完成——**解析本身只用了约 1 分钟**。
+- 第 3 步「Canonical V2 包级分析」10:32 让出一次并续跑（Vercel 运行日志：`[cron.agent-runs] continuation trigger { depth: 0, childDepth: 1, attempted: true, outcome: 'accepted', httpStatus: 200 }`），10:42 任务时间线记「任务未能完成」，第 3 步「未成功」，第 4–9 步未开始，详情页「需要人工处理」框内**没有任何原因**。
+- 需求方确认：10:42 之后项目页一直显示「分析中」，**没有收到任何通知**，直到约 12:25 打开 AI 任务详情才发现失败。用户感受到的「解析时间非常久」，主要是这 1 小时 40 分钟的「失败了却显示分析中」。
+- 第 3 步的失败原因尚未查明（待 Vercel 10:15–10:45 Warning / Error 日志），见「不确定处」。
 依据（均在 `github.com/LucasJ880/-` main `15bb79c`（2026-11-16）核对，只读代码，未运行应用，看不到 Vercel 上的实际环境变量）：
 
 - **分析慢的机制**：分析由 `/api/cron/agent-runs` 推进，`vercel.json` 里是 `*/2`（每 2 分钟一班）；每班活跃预算 240 秒（`src/lib/workforce-runtime/constants.ts` `AGENT_RUNS_INVOCATION_BUDGET_MS`），干不完就让出等下一班。观察期包 1 的报告（`docs/QINGYAN_TENDER_OBS_P1_LATENCY_REPORT.md` §1）实测 163 页首单 35.6 分钟，其中约 10–15 分钟是等班空转。修复「让出后立即自触发下一班」已在 main（`src/lib/workforce-runtime/self-trigger.ts`），但开关 `WORKFORCE_CONTINUATION_SELF_TRIGGER_URL` **未配置即关闭**。另外 `WORKFORCE_JOB_MAX_PARALLEL_TASKS` 缺省 1、上限 4（`parallel.ts:34-35`）；分窗并发 3、每窗 ≤4 页 / 9,000 字（`tender-understanding/analyzer.ts:55`、`manifest.ts:77-78`）是代码常量。
@@ -37,7 +45,7 @@ TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（�
 
 | # | 环境变量 | 作用 | 建议 |
 |---|---|---|---|
-| 1 | `WORKFORCE_CONTINUATION_SELF_TRIGGER_URL` | 分析让出后立即续跑，消除 2 分钟空等 | 设为 `https://qingyan.ca`（必须是生产主域，不能是 `.vercel.app`，见 OBS-P1 报告 §2） |
+| 1 | `WORKFORCE_CONTINUATION_SELF_TRIGGER_URL` | 分析让出后立即续跑，消除 2 分钟空等 | **已配置、已验证（2026-11-19）**：生产 Production 环境已有此变量；10:32 运行日志 `outcome: 'accepted'`、`httpStatus: 200`。无需改动 |
 | 2 | `WORKFORCE_JOB_MAX_PARALLEL_TASKS` | 同一分析任务内并行的步骤数 | 1 → 2，观察一单再定是否到 3；上限 4 |
 | 3 | `TENDER_EXTERNAL_INTEL_ENABLED` | 授标检索总门 | 必须是 `1`（不是 `true`） |
 | 4 | `T4_AWARD_INTELLIGENCE_SCHEMA_READY` | 授标自动入库 | 核对迁移已在生产后开 |
@@ -46,11 +54,36 @@ TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（�
 | 7 | `TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED`、`TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED` | 询价自动起草 / 分组 / 一次批准管整轮 | **等 CHAIN-4b 合并后再开**（否则自动起草出来的东西仍会带项目名） |
 
 验证：
-- 第 1 项生效的证据：下一单分析的事件里，`job.queued(yielded=true)` 到下一次 `job.claimed` 的间隔从约 2 分钟降到 15 秒以内。目标：160 页级别的标包 ≤ 20 分钟。
+- 第 1 项生效的证据：Vercel → Logs → Runtime Logs 搜 `continuation trigger`，有 `outcome: 'accepted'` 即生效（2026-11-19 已见）；`not accepted` + `httpStatus: 3xx` = 网址会跳转，`401` = `CRON_SECRET` 不一致。目标：160 页级别的标包 ≤ 20 分钟。
+- 注意：续跑只覆盖一键 AI 分析（`/api/cron/agent-runs`）。上传后自动分析的 legacy 队列 `/api/cron/tender-auto-analysis`（同为 `*/2`、240 秒）没有续跑，见后续队列 CHAIN-0b。
 - 第 3–5 项生效的证据：项目情报室 `summaryJson.externalIntelStatus.status = "ran"`，`awardCandidates` 有计数。用 TBS 24062-27-057（联邦标）测。
 - 扫描版 PDF 的页面会被标 `OCR_REQUIRED`（`tender-auto-analysis/page-parse.ts:38`），不会自动识别文字。这影响的是读不全，不是速度；本任务书不处理，见「后续队列」CHAIN-6。
 
-## What（五个 change）
+## What（六个 change）
+
+### CHAIN-0c `tender-job-failure-surfacing`：分析失败立刻告诉人（排第一）
+
+**现状（代码核对）**
+- 项目上的分析状态（`TenderAnalysisRun.status`）由第 9 步「Canonical V2 状态终态化」改成「待审阅」。中途某步失败时第 9 步不会执行，状态停在 `AGENT_ANALYZING`（界面「AI 数字员工分析中」）。
+- 把它改成「AI 分析未完成」（`AGENT_FAILED`）的唯一函数 `failWorkforceTenderAnalysisRun`（`src/lib/tender-workforce/analysis-run-service.ts:420`）只在两处被调用：用户重新发起（`trigger-service.ts:162`）和用户取消（`trigger-service.ts:263`）。**Job 自己失败或卡住时没有任何地方调用它。**
+- 失败通知 `notifyTenderRunFailed`（`tender-auto-analysis/alerts.ts:58`）已支持 `AGENT_FAILED`，并且就在 `failWorkforceTenderAnalysisRun` 里调用——所以状态不变，通知也就不发。
+- Job 进入失败 / 卡住的写入点在 `src/lib/workforce-runtime/processor.ts`：重试耗尽 → `failed`（`requeueWorkforceJobAfterError`）、运行中陈旧耗尽 → `failed`（`stale_running_exhausted`）、其它 `failed` 分支、以及几处 `needs_human`。
+
+**改动**
+- 新增一个只对招投标 Job 生效的收尾函数（放 `src/lib/tender-workforce/`）：Job 的 fenced 状态写入成功、且新状态是 `failed` 或 `needs_human` 时调用。它做三件事：
+  1. 调用既有 `failWorkforceTenderAnalysisRun`，`errorCode` 用 Job 的错误码，`errorMessage` 写「卡在第 N 步〈步骤名〉：〈错误信息前 300 字〉」。
+  2. 由上一步自然触发既有失败通知（站内通知给项目负责人与发起人，沿用 `resolveFailureRecipients`）。
+  3. 写一条 AuditLog `tender.workforce.failed_surfaced`，以 jobId 幂等（同一个 Job 只收尾一次）。
+- 收尾失败不影响 Job 本身的状态写入（try/catch，记 console.warn），不新增重试、队列或定时任务。
+- 详情页「需要人工处理」框（`src/app/(main)/workforce/[id]/page.tsx`）显示失败步骤名与错误信息；没有时写「系统未记录原因」，不留空白。
+- 项目页分析卡片在 `AGENT_FAILED` 时显示原因与「重新发起分析」按钮（重新发起已有，`trigger-service.ts` restart）。
+- `needs_human` 是否也收尾为失败见判断点 8。
+- 实现前先用 `12-01 21C31-254242` 这个 Job 的 AgentRun / 事件记录确认本次走的是哪条写入（`job.failed` 还是 `job.waiting_human`），把它写进 design.md 的复现段，并作为第一个测试用例。
+
+**测试**
+- 纯函数：错误信息拼装（步骤名、截断、无信息时的兜底文案）；只对 `workDomain = tender` 的 Job 生效。
+- 隔离库：注入一个第 3 步必然失败的工具 → Job 失败后，`TenderAnalysisRun.status = AGENT_FAILED`、`errorMessage` 含步骤名、发起人收到一条失败通知；重放同一收尾不产生第二条通知；非招投标 Job 失败时不触发。
+- 回归：正常完成路径、用户取消、重新发起的行为与现在一致（现有测试不改期望值）。
 
 ### CHAIN-4b `rfq-supplier-identity-guard`：询价不再带出招标身份（先做，堵现存泄露）
 
@@ -113,9 +146,11 @@ TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（�
 5. **附件里放什么**：A（推荐）只放重排的询价单 PDF（白名单字段）；B 另外允许人逐页勾选原标书里的图纸 / 规格页一起发，系统检查页面文字不含禁出清单。B 的风险是图签、页眉页脚常印着编号和机构名，扫描页的文字查不出来。
 6. **对供应商怎么称呼这个项目**：A（推荐）用中性询价名称，如「RFQ-SUNNY-2026-031 · 户外睡袋及睡垫」（组织代码 + 年份 + 序号 + 品类，品类取自确认要求的类别），不出项目名；B 维持现状用项目名，只拦编号和机构名。项目名经常就是招标标题，B 等于把标题给出去。
 7. **「自动分析供应商」要不要用模型**：A（推荐）全部确定性：票数、最近日期、品名关键词重合度、是否过期；B 为每个出口商调一次模型写画像，要为硬纪律第 7 条开例外。
+8. **分析卡住（`needs_human`）时项目状态怎么显示**（CHAIN-0c）：A（推荐）和失败一样收尾为「AI 分析未完成」并通知，处理方式是「重新发起分析」——用户从项目页就能看到并行动；B 新增一个「AI 分析暂停，需要处理」的状态值，可以原地恢复。B 要改所有读这个状态的地方（显示文案、下一步判定、提交前检查），而且招投标 Job 卡住后能不能原地恢复要另外核对。
 
 ## Impact
 
+- 修改（CHAIN-0c）：新增 `src/lib/tender-workforce/job-failure-surfacing.ts`；`src/lib/workforce-runtime/processor.ts`（失败 / 卡住写入成功后调用收尾）；`src/app/(main)/workforce/[id]/page.tsx`（原因显示）；项目页分析卡片 `src/components/tender-analysis/agent-card.tsx`（失败原因与重新发起）。不加开关（修「失败不提示」不应该能关掉）。
 - 修改（CHAIN-4b）：新增 `src/lib/bid-workflow/project-identity-deny.ts`；`src/lib/tender-rfq/build.ts`（标题、项目称呼、出前检查）；`src/lib/projects/generate/generate-docs.ts`、`tender-doc-html.ts`（对外抬头模式）。
 - 修改（CHAIN-4a）：`src/lib/google-email.ts`（`SendEmailParams.attachments`、`buildRawEmail` multipart）；`src/lib/tender-rfq/types.ts`、`round-pure.ts`（载荷哈希含附件摘要）、`execute.ts`（发前重算比对）；新增 `src/lib/tender-rfq/attachment.ts`；审批卡组件（附件行与预览）；一个只读预览路由。
 - 修改（CHAIN-1）：新增 `src/lib/tender-intel/apc.ts`；`orchestrate.ts`；`awards.ts`（`AWARD_SOURCE_TYPES` 加值；判断点 2 取 A 时改白名单）；`procurement-records/watch-config.ts`（Alberta 从 `PROVINCIAL_MANUAL` 改为已接通）。
@@ -130,17 +165,18 @@ TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（�
   4. 脱敏：CHAIN-4b 加强对供应商侧的脱敏；价格卡只给有财务查看权的人看我方落地价（沿用 TI-4a 的财务访问规则）；Muse 通道不涉及。
   5. 不爬登录页：CHAIN-1 只读匿名公告且有「遇登录 / 人机验证即停」的前置核查；CHAIN-3 不抓任何网站。
   6. 邮箱分离：不涉及，发件仍走 `resolveSender`。
-  7. 确定性优先：五个 change 零新增 LLM 调用（判断点 7 取 B 才需要例外）。
+  7. 确定性优先：六个 change 零新增 LLM 调用（判断点 7 取 B 才需要例外）。
   8. 测试注册：每个 change 遵守。
 
 ## 上线顺序
 
-1. **CHAIN-0**（运维，当天可做）：先开 1–6 项，第 7 项等 CHAIN-4b。
-2. **CHAIN-4b**（堵泄露，最高优先级；不加开关，合并即生效）。合并后再开 CHAIN-0 第 7 项的三个询价开关。
-3. **CHAIN-4a**（附件；staging 用测试邮箱收一封，打开 PDF 核对中文与内容后开生产）。
-4. **CHAIN-1**（前置核查通过才写代码）。
-5. **CHAIN-2**（依赖 `SUPPLIER_INTEL_ENABLED` 已开）。
-6. **CHAIN-3**（依赖 CHAIN-2 的收件人合并；判断点 3 取 B 时，接 API 另开一个 change）。
+1. **CHAIN-0**（运维，当天可做）：第 1 项已开；再开 2–6 项，第 7 项等 CHAIN-4b。
+2. **CHAIN-0c**（失败要提示；不加开关，合并即生效）。
+3. **CHAIN-4b**（堵泄露，最高优先级；不加开关，合并即生效）。合并后再开 CHAIN-0 第 7 项的三个询价开关。
+4. **CHAIN-4a**（附件；staging 用测试邮箱收一封，打开 PDF 核对中文与内容后开生产）。
+5. **CHAIN-1**（前置核查通过才写代码）。
+6. **CHAIN-2**（依赖 `SUPPLIER_INTEL_ENABLED` 已开）。
+7. **CHAIN-3**（依赖 CHAIN-2 的收件人合并；判断点 3 取 B 时，接 API 另开一个 change）。
 
 每个 change 合并后 archive 一个小 PR，并把「Phase F（续）— 情报串联」状态列改为实际值；各出一份报告 `docs/QINGYAN_CHAIN-<n>_REPORT.md`。
 
@@ -160,6 +196,10 @@ TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（�
 **提速（CHAIN-0）**
 - 一份 150 页以上的标包：总耗时 ≤ 20 分钟；事件里让出到下一次认领的间隔 ≤ 15 秒。
 
+**失败提示（CHAIN-0c）**
+- 重现一次第 3 步失败：2 分钟内（下一次定时任务）项目页从「分析中」变为「AI 分析未完成」，写明卡在哪一步、什么原因；发起人与项目负责人各收到一条站内通知；AI 任务详情页「需要人工处理」框里有同样的原因。
+- 点「重新发起分析」可以重新跑；正常跑完的分析不受影响，仍进入「待审阅」。
+
 **泄露（CHAIN-4b）**
 - 用 TBS 24062-27-057 起草询价：邮件标题、正文、「供应商询价与符合性确认表」里都没有 `24062-27-057`、`Treasury Board`、截标日期；内部决策备忘录里照旧有。
 - 人为在一条已确认要求里写进采购方名称再起草 → 起草失败，卡上写「命中：采购方名称」。
@@ -178,12 +218,13 @@ TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（�
 
 **工程**
 - `npm run test:ci`、`npm run typecheck`、架构守卫通过；新增测试全部在 `scripts/test-all.sh` 注册。
-- Prisma schema 无 diff；`vercel.json` 无 diff；源码断言五个 change 无新增 LLM 调用点。
+- Prisma schema 无 diff；`vercel.json` 无 diff；源码断言六个 change 无新增 LLM 调用点。
 - `openspec validate <change>` 通过。
 
 ## 不确定处（实现前先核对，结果写进各自的 design.md）
 
-- 生产上第 1–7 项环境变量的现值，代码里看不到；尤其 `TENDER_EXTERNAL_INTEL_ENABLED` 是否恰好为 `1`。
+- **2026-11-19 事件第 3 步的失败原因未查明**。按代码，最可能是：`ANALYSIS_EMPTY`（本次模型调用全部失败——密钥、额度或 GPT-6 Astra 不可用）、`429` 限流、单窗口 180 秒超时、或重试耗尽。待取 Vercel 运行日志（2026-11-19 10:15–10:45，Warning / Error）与该 Job 的 AgentRun `errorCode / errorMessage`。原因若是模型侧，CHAIN-0c 只能让失败被看见，修不了失败本身，另立。
+- 生产上第 2–7 项环境变量的现值，代码里看不到；尤其 `TENDER_EXTERNAL_INTEL_ENABLED` 是否恰好为 `1`。
 - APC 匿名公告的数据里是否稳定带中标方与金额；小额货物类授标是否都公布；APC 使用条款是否允许程序化读取。第三方页面显示 APC 有匿名 JSON 接口、文件下载要登录，但这需要实现者亲自核对，不能以第三方描述为准。
 - `Supplier.contactEmail` 的填充率；填得少时判断点 4 的 B 实际能加进来的供应商很少。
 - 供应商情报 run 的耗时：若一次 run 超过自动起草所在请求的时间预算，要改成「先起草、run 完成后在卡上补充推荐」，不能为此新增队列。
@@ -197,6 +238,7 @@ TASKFLOW：在 Phase F 下新增一节「Phase F（续）— 情报串联」（�
 
 | ID | Why | What | 前置 |
 |---|---|---|---|
+| CHAIN-0b 自动分析也接续跑 | 上传后自动分析的 legacy 队列 `/api/cron/tender-auto-analysis` 同样 `*/2` + 240 秒、让出后空等，没有续跑 | 复用 `self-trigger.ts` 的机制接到该路由（同一开关、同样五层防风暴） | 先确认 Sunny 是否还在走这条管线：Vercel Request Logs 看 `/api/cron/tender-auto-analysis` 在上传后是否有连续多条、每条接近 240 秒的记录 |
 | CHAIN-5 授权贸易数据 API | 人工导入验证有价值之后，省掉手工查 | 为 `ImportLeadProvider` 接一家授权数据源；每次调用计费上限、按项目记用量 | 判断点 3 改 B；付费授权；合同允许程序化使用 |
 | CHAIN-6 扫描件 OCR | 扫描版标书的 `OCR_REQUIRED` 页读不出文字，要求会漏 | 对 `OCR_REQUIRED` 页做 OCR 后重进分窗；候选：docling（MIT）、liteparse（Apache-2.0）；不用 AGPL 的 PyMuPDF / mupdf.js | 评估 Vercel 上的运行方式与耗时 |
 | CHAIN-7 其他省市授标来源 | Ottawa、Ontario 等标查不到历史中标 | 逐个核查 bids&tenders、Ontario Tenders Portal 等是否有匿名可读的授标数据，能读的按 CHAIN-1 接入 | CHAIN-1 上线 |

@@ -22,10 +22,12 @@
 
 ## 5. 全量门禁与实测
 
-- [ ] 5.1 全量门禁与真实标包实测：`npm test`、`npm run typecheck`、`npm run lint:baseline`、`openspec validate rfq-supplier-identity-guard --strict`；`git diff --stat main -- prisma/schema.prisma vercel.json` 为空；用联邦 TBS 24062-27-057 与一个 Alberta 标包（本机或 staging）各起草一次询价并生成一次「供应商询价与符合性确认表」，记下标题、正文与文件里有无编号 / 采购方 / 截标日期，以及整单失败的次数与命中类别（design Q7 的依据）；verify：命令输出与实测记录写进报告（进度：门禁已跑完，结果见报告 §5；真实标包实测要 staging 数据，本会话做不了，见报告 §6——这一步做完才打勾）
+- [x] 5.1 全量门禁：`npm test`、`npm run typecheck`、`npm run lint:baseline`、`openspec validate rfq-supplier-identity-guard --strict`；`git diff --stat main -- prisma/schema.prisma vercel.json` 为空；verify：命令输出写进报告 §5（实施记录：原任务里的「真实标包实测」要合并后的代码先部署到 staging 才能做，移到下面的 Workflow follow-up，未完成，见报告 §6）
 - [x] 5.2 写 `docs/QINGYAN_CHAIN-4b_REPORT.md`（基线与结束时的测试数、实测记录、已知限制、Q1–Q7 拍板结果）+ 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`「Phase F（续）— 情报串联」CHAIN-4b 状态列；verify：两个文件在 PR diff 里
 
 ## Workflow follow-up
+
+- **staging 真实标包实测（未完成，原 5.1 的后半）**：用 TBS 24062-27-057 与一个 Alberta 标包各起草一次询价、生成一次「供应商询价与符合性确认表」，记下有无编号 / 采购方 / 截标日期，以及整单失败的次数与命中类别（design Q7 的依据）；步骤见 `docs/QINGYAN_CHAIN-4b_REPORT.md` §6，结果补进该节。做完之前不开 CHAIN-0 第 7 项的三个询价开关。
 
 - `/opsx:verify rfq-supplier-identity-guard` → 开 PR（一个 change = 一个 PR）。
 - PR 合并后 `/opsx:archive rfq-supplier-identity-guard --yes`（独立小 PR），同步 TASKFLOW 状态列；之后才开 CHAIN-0 第 7 项的三个询价开关。
