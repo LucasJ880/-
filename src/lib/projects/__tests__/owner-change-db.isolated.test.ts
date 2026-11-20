@@ -96,7 +96,7 @@ async function main() {
     /* ---------- 换给别人 ---------- */
     const a0 = await audits(P);
     const pa = await patchProject(PADMIN, { name: "Renamed by padmin", ownerId: TARGET });
-    ok(pa.status === 403 && pa.body.code === F.forbidden && pa.body.error === "只有项目负责人、组织管理员、持「管理项目财务」权限的人或平台管理员能更换项目负责人。" && (await ownerOf(P)) === OWNER && (await nameOf(P)).startsWith("Fixture Owner Project") && (await audits(P)) === a0, "不是负责人的项目管理员换给别人：403，负责人与名称都不变、没有审计", pa.body);
+    ok(pa.status === 403 && pa.body.code === F.forbidden && pa.body.error === "只有项目负责人、组织管理员、持「管理项目财务」权限的人或平台管理员能更换项目负责人。请找现在的主负责人或组织管理员。" && (await ownerOf(P)) === OWNER && (await nameOf(P)).startsWith("Fixture Owner Project") && (await audits(P)) === a0, "不是负责人的项目管理员换给别人：403，负责人与名称都不变、没有审计", pa.body);
     for (const [u, label] of [[OADMIN, "组织管理员"], [OWNER, "当前负责人"], [FIN, "持组织范围 project.finance.manage 的项目管理员"], [SUPER, "平台超级管理员"]] as const) {
       const r = await patchProject(u, { ownerId: TARGET });
       ok(r.status === 200 && (await ownerOf(P)) === TARGET, `${label}换给别人：成功`, r.body);
@@ -106,7 +106,7 @@ async function main() {
     /* ---------- 换给自己 ---------- */
     for (const [u, label] of [[OADMIN, "组织管理员"], [PADMIN, "项目管理员"]] as const) {
       const r = await patchProject(u, { ownerId: u });
-      ok(r.status === 403 && r.body.code === F.self && r.body.error === "不能把自己设为负责人：需要「管理项目财务」权限。可以请项目负责人或组织管理员把负责人交给你。" && (await ownerOf(P)) === OWNER, `${label}把自己设为负责人：403`, r.body);
+      ok(r.status === 403 && r.body.code === F.self && r.body.error === "你不能把自己设为主负责人（需要「管理项目财务」权限），可以请现在的主负责人或另一位组织管理员交给你。" && (await ownerOf(P)) === OWNER, `${label}把自己设为负责人：403`, r.body);
     }
     const superNotMember = await patchProject(SUPER, { ownerId: SUPER });
     ok(superNotMember.status === 400 && superNotMember.body.code === F.invalid && (await ownerOf(P)) === OWNER, "平台超级管理员不是本组织成员时把自己设为负责人：权限通过，但新负责人不合格 → 400", superNotMember.body);
@@ -124,7 +124,7 @@ async function main() {
     const outside = await patchProject(OADMIN, { ownerId: OUTSIDER });
     const leftRow = await patchMember(OADMIN, LEFT, { duty: "owner" });
     const permFirst = await patchProject(PADMIN, { ownerId: INACTIVE });
-    ok(inact.status === 400 && inact.body.code === F.invalid && inact.body.error === "新的负责人必须是本组织在用的成员。" && outside.status === 400 && outside.body.code === F.invalid && leftRow.status === 400 && leftRow.body.code === F.invalid && permFirst.status === 403 && (await ownerOf(P)) === OWNER, "已停用、别的组织、已离开本组织的成员：400；没有权限的人先 403", [inact.body, outside.body, leftRow.body, permFirst.body]);
+    ok(inact.status === 400 && inact.body.code === F.invalid && inact.body.error === "新负责人必须是本组织的有效成员（账号没停用、没离开组织），请换一位。" && outside.status === 400 && outside.body.code === F.invalid && leftRow.status === 400 && leftRow.body.code === F.invalid && permFirst.status === 403 && (await ownerOf(P)) === OWNER, "已停用、别的组织、已离开本组织的成员：400；没有权限的人先 403", [inact.body, outside.body, leftRow.body, permFirst.body]);
 
     /* ---------- 审计 ---------- */
     const r1 = await patchProject(OADMIN, { ownerId: TARGET });
@@ -138,20 +138,37 @@ async function main() {
 
     /* ---------- 成员接口 ---------- */
     const mBefore = await db.projectMember.count({ where: { projectId: P } });
+    const aBeforeMembers = await audits(P);
     const addByPadmin = await addMember(PADMIN, { userId: TARGET2, duty: "owner" });
     const addSelf = await addMember(OADMIN, { userId: OADMIN, duty: "owner" });
-    ok(addByPadmin.status === 403 && addByPadmin.body.code === F.forbidden && addSelf.status === 403 && addSelf.body.code === F.self && (await db.projectMember.count({ where: { projectId: P } })) === mBefore && (await ownerOf(P)) === OWNER, "加成员并设为负责人：项目管理员 403、组织管理员加自己 403；没有新成员", [addByPadmin.body, addSelf.body]);
+    ok(addByPadmin.status === 403 && addByPadmin.body.code === F.forbidden && addSelf.status === 403 && addSelf.body.code === F.self && (await db.projectMember.count({ where: { projectId: P } })) === mBefore && (await ownerOf(P)) === OWNER && (await audits(P)) === aBeforeMembers, "加成员并设为负责人：项目管理员 403、组织管理员加自己 403；没有新成员、没有新审计", [addByPadmin.body, addSelf.body]);
     const selfRow = await patchMember(PADMIN, PADMIN, { duty: "owner" });
     const padminRow = await db.projectMember.findFirstOrThrow({ where: { projectId: P, userId: PADMIN } });
-    ok(selfRow.status === 403 && selfRow.body.code === F.self && padminRow.role === "project_admin" && (await ownerOf(P)) === OWNER, "项目管理员把自己那一行改为主负责人：403，角色与身份不变", selfRow.body);
+    ok(selfRow.status === 403 && selfRow.body.code === F.self && padminRow.role === "project_admin" && (await ownerOf(P)) === OWNER && (await audits(P)) === aBeforeMembers, "项目管理员把自己那一行改为主负责人：403，角色与身份不变、没有新审计", selfRow.body);
     const addOk = await addMember(OADMIN, { userId: TARGET2, duty: "owner" });
-    ok(addOk.status === 200 || addOk.status === 201 ? (await ownerOf(P)) === TARGET2 : false, "组织管理员加一位成员并设为负责人：成功", addOk.body);
+    const addAudit = await db.auditLog.findFirst({ where: { projectId: P, userId: OADMIN, targetType: "project_member" }, orderBy: { createdAt: "desc" } });
+    ok((addOk.status === 200 || addOk.status === 201) && (await ownerOf(P)) === TARGET2 && (JSON.parse(addAudit?.beforeData ?? "{}") as Rec).ownerId === OWNER && (JSON.parse(addAudit?.afterData ?? "{}") as Rec).ownerId === TARGET2, "组织管理员加一位成员并设为负责人：成功，审计带前后负责人", { body: addOk.body, addAudit });
     await resetOwner(P, OWNER);
     const flags = async (u: string) => (await listMembers(u)).body.ownerChange as Rec | undefined;
     const fl = [await flags(PADMIN), await flags(OADMIN), await flags(FIN), await flags(VIEWER)];
     ok(JSON.stringify(fl) === JSON.stringify([{ canChange: false, canSelfAssign: false }, { canChange: true, canSelfAssign: false }, { canChange: true, canSelfAssign: true }, { canChange: false, canSelfAssign: false }]), "成员接口的两个标记：项目管理员、组织管理员、持财务键的项目管理员、只读成员", fl);
 
-    /* ---------- 同时更换 ---------- */
+    /* ---------- 同时更换：经真实路由（在判定之后、写入之前把负责人改掉）与直接调写入 ---------- */
+    {
+      const orig = db.$transaction.bind(db) as (...args: unknown[]) => Promise<unknown>;
+      (db as unknown as { $transaction: unknown }).$transaction = async (...args: unknown[]) => {
+        await db.project.update({ where: { id: P }, data: { ownerId: TARGET2 } });
+        return orig(...args);
+      };
+      let raced: { status: number; body: Rec };
+      try {
+        raced = await patchProject(OADMIN, { name: "Raced rename", ownerId: TARGET });
+      } finally {
+        (db as unknown as { $transaction: unknown }).$transaction = orig;
+      }
+      ok(raced.status === 409 && raced.body.code === "OWNER_CONFLICT" && raced.body.error === "负责人刚被别人换过了，请刷新页面，看清现在的负责人再操作。" && (await ownerOf(P)) === TARGET2 && !(await nameOf(P)).startsWith("Raced"), "PATCH：判定之后负责人被别人换了 → 409，不覆盖、名称也不写", raced.body);
+      await resetOwner(P, OWNER);
+    }
     await resetOwner(P, TARGET);
     let conflict = false;
     try {
@@ -163,8 +180,12 @@ async function main() {
     await resetOwner(P, OWNER);
 
     /* ---------- 执行项目 ---------- */
+    const aD0 = await audits(D);
     const dSelf = await patchOps(OADMIN3, { name: "Delivery renamed", ownerId: OADMIN3 });
-    ok(dSelf.status === 403 && dSelf.body.code === F.self && (await ownerOf(D)) === OWNER3 && (await nameOf(D)) === `Fixture Delivery ${stamp}`, "执行项目：组织管理员同时改名并把自己设为负责人 → 403，名称与负责人都不变", dSelf.body);
+    ok(dSelf.status === 403 && dSelf.body.code === F.self && (await ownerOf(D)) === OWNER3 && (await nameOf(D)) === `Fixture Delivery ${stamp}` && (await audits(D)) === aD0, "执行项目：组织管理员同时改名并把自己设为负责人 → 403，名称与负责人都不变、没有新审计", dSelf.body);
+    const dNonMgr = await patchOps(OWNER3, { ownerId: TARGET3 });
+    // 普通组织成员连运营中心都进不去（原来的 OPS_FORBIDDEN）；能进运营中心但不能管理执行项目的人得到原来的 403「无权重新分配负责人」——由 owner-change.test.ts 的源码断言守住
+    ok(dNonMgr.status === 403 && dNonMgr.body.code === "OPS_FORBIDDEN" && (await ownerOf(D)) === OWNER3, "执行项目：不是管理者的负责人 → 原来的 403（不是 OWNER_CHANGE_FORBIDDEN）", dNonMgr.body);
     const dOk = await patchOps(OADMIN3, { ownerId: TARGET3 });
     const dAudit = await db.auditLog.findFirst({ where: { projectId: D, userId: OADMIN3, targetType: "project" }, orderBy: { createdAt: "desc" } });
     ok(dOk.status === 200 && (await ownerOf(D)) === TARGET3 && (JSON.parse(dAudit?.beforeData ?? "{}") as Rec).ownerId === OWNER3 && (JSON.parse(dAudit?.afterData ?? "{}") as Rec).ownerId === TARGET3, "执行项目：组织管理员交给别人 → 成功，写审计（前后负责人）", { status: dOk.status, body: dOk.body, dAudit });
@@ -176,7 +197,7 @@ async function main() {
     const pp1 = await patchProject(PADMIN2, { ownerId: TARGET }, PP);
     const ppInactive = await patchProject(POWNER, { ownerId: INACTIVE }, PP);
     const pp2 = await patchProject(POWNER, { ownerId: PADMIN2 }, PP);
-    ok(pp1.status === 403 && ppInactive.status === 400 && ppInactive.body.error === "新的负责人必须是在用的用户。" && pp2.status === 200 && (await ownerOf(PP)) === PADMIN2, "个人项目：项目管理员不能修改（既有 403）、换成已停用的用户 400（个人项目的话）、负责人交给别人成功", [pp1.body, ppInactive.body, pp2.status]);
+    ok(pp1.status === 403 && ppInactive.status === 400 && ppInactive.body.error === "新负责人的账号已停用，请换一位。" && pp2.status === 200 && (await ownerOf(PP)) === PADMIN2, "个人项目：项目管理员不能修改（既有 403）、换成已停用的用户 400（个人项目的话）、负责人交给别人成功", [pp1.body, ppInactive.body, pp2.status]);
   } finally {
     await db.auditLog.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { userId: { in: USERS } }, { orgId: { in: [ORG, ORG2, ORG3] } }] } });
     await db.projectEvent.deleteMany({ where: { projectId: { in: projectIds } } }).catch(() => undefined);

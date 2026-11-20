@@ -58,7 +58,7 @@ import { ACTIVITY_TYPE_LABELS, PROJECT_DUTY_LABELS, PROJECT_MEMBER_STATUS_LABELS
 import type { FormattedActivity } from "@/lib/activity/formatter";
 import type { ProjectProgress } from "@/lib/progress/types";
 import type { ProjectDuty } from "@/lib/projects/duty";
-import { ownerChangeHint } from "@/lib/projects/owner-change";
+import { ownerChangeConfirm, ownerChangeHint } from "@/lib/projects/owner-change";
 import type { TenderWorkbenchState } from "@/lib/tender/workbench-state";
 import type { WebNextStepTarget, WebNextStepView } from "@/lib/tender-next-step/targets";
 import { NextStepCard } from "@/components/project-detail/next-step-card";
@@ -258,6 +258,7 @@ export function WorkbenchTab({
       <TeamCard
         projectId={projectId}
         orgId={project.orgId ?? null}
+        ownerId={project.owner?.id ?? null}
         members={members}
         ownerChange={ownerChange ?? { canChange: false, canSelfAssign: false }}
         canManage={canManage}
@@ -394,6 +395,7 @@ function MemberAvatar({ name, avatar }: { name: string; avatar?: string | null }
 function TeamCard({
   projectId,
   orgId,
+  ownerId,
   members,
   ownerChange,
   canManage,
@@ -403,6 +405,8 @@ function TeamCard({
 }: {
   projectId: string;
   orgId: string | null;
+  /** 项目负责人（取自项目本身：负责人不一定有成员行） */
+  ownerId: string | null;
   members: MemberRow[];
   ownerChange: { canChange: boolean; canSelfAssign: boolean };
   canManage: boolean;
@@ -411,13 +415,16 @@ function TeamCard({
   onMention: (draft: { userId: string; name: string }) => void;
 }) {
   const [addDuty, setAddDuty] = useState<ProjectDuty>("participant");
-  // CHAIN-2c：给谁「主负责人」选项——能换给别人才给；给自己（含加自己为成员）还要能换给自己；当前负责人那一行照旧显示
-  const isCurrentOwner = members.some((m) => m.userId === currentUserId && m.duty === "owner");
-  const ownerOptionFor = (userId: string | null | undefined, currentDuty?: ProjectDuty) =>
-    currentDuty === "owner" || (ownerChange.canChange && (userId !== currentUserId || ownerChange.canSelfAssign));
-  const dutiesFor = (userId: string | null | undefined, currentDuty?: ProjectDuty) =>
-    PROJECT_DUTIES.filter((d) => d !== "owner" || ownerOptionFor(userId, currentDuty));
+  // CHAIN-2c：给谁「主负责人」选项——能换给别人才给；给自己（含加自己为成员）还要能换给自己；
+  // 已离开本组织的成员（orgRole 为空）不给；当前负责人那一行照旧显示（它是当前值）
+  const isCurrentOwner = !!ownerId && ownerId === currentUserId;
+  const ownerOptionFor = (userId: string | null | undefined, currentDuty?: ProjectDuty, memberOrgRole?: string | null) =>
+    currentDuty === "owner" ||
+    (ownerChange.canChange && (userId !== currentUserId || ownerChange.canSelfAssign) && !(orgId && memberOrgRole === null));
+  const dutiesFor = (userId: string | null | undefined, currentDuty?: ProjectDuty, memberOrgRole?: string | null) =>
+    PROJECT_DUTIES.filter((d) => d !== "owner" || ownerOptionFor(userId, currentDuty, memberOrgRole));
   const ownerHint = ownerChangeHint(ownerChange, { hasOrg: !!orgId, isCurrentOwner, canManage });
+  const confirmOwnerChange = (name: string) => window.confirm(ownerChangeConfirm(name, isCurrentOwner));
 
   // 选人组合框（输入过滤 + 下拉；替代旧的手输 userId——cuid 没人会输）：
   // 候选 = 组织活跃成员（既有 org members 端点，邮箱按其权限规则可见与否），
@@ -425,8 +432,6 @@ function TeamCard({
   const [memberQuery, setMemberQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<{ id: string; name: string } | null>(null);
-  // 选了「主负责人」后又换成不能给的人（例如自己）：下拉显示并提交「参与者」，不悄悄用别的值
-  const effectiveAddDuty: ProjectDuty = addDuty === "owner" && !ownerOptionFor(selectedUser?.id) ? "participant" : addDuty;
   const [candidates, setCandidates] = useState<
     Array<{ id: string; name: string; nickname: string | null; email: string | null }>
   >([]);
@@ -479,15 +484,19 @@ function TeamCard({
     e.preventDefault();
     const uid = selectedUser?.id ?? "";
     if (!uid) return;
+    if (addDuty === "owner" && !confirmOwnerChange(selectedUser?.name ?? "")) return;
     setBusy("member");
     try {
       const res = await apiFetch(`/api/projects/${projectId}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: uid, duty: effectiveAddDuty }),
+        body: JSON.stringify({ userId: uid, duty: addDuty }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "添加失败");
+      if (!res.ok) {
+        if (res.status === 409) onChanged();
+        throw new Error(data.error || "添加失败");
+      }
       setSelectedUser(null);
       setMemberQuery("");
       setAddDuty("participant");
@@ -500,6 +509,10 @@ function TeamCard({
   }
 
   async function patchMemberDuty(memberId: string, duty: ProjectDuty) {
+    if (duty === "owner") {
+      const who = members.find((m) => m.id === memberId)?.user.name ?? "";
+      if (!confirmOwnerChange(who)) return;
+    }
     setBusy(memberId);
     try {
       const res = await apiFetch(`/api/projects/${projectId}/members/${memberId}`, {
@@ -508,7 +521,10 @@ function TeamCard({
         body: JSON.stringify({ duty }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "更新失败");
+      if (!res.ok) {
+        if (res.status === 409) onChanged();
+        throw new Error(data.error || "更新失败");
+      }
       onChanged();
     } catch (err) {
       alert(err instanceof Error ? err.message : "更新失败");
@@ -588,6 +604,8 @@ function TeamCard({
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => {
                               setSelectedUser({ id: c.id, name: c.name });
+                              // 选了「主负责人」后又选了不能给的人（例如自己）：身份改回「参与者」
+                              if (addDuty === "owner" && !ownerOptionFor(c.id)) setAddDuty("participant");
                               setPickerOpen(false);
                             }}
                             className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent/10"
@@ -617,7 +635,7 @@ function TeamCard({
             )}
           </div>
           <select
-            value={effectiveAddDuty}
+            value={addDuty}
             onChange={(e) => setAddDuty(e.target.value as ProjectDuty)}
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
           >
@@ -673,7 +691,7 @@ function TeamCard({
                       onChange={(e) => patchMemberDuty(m.id, e.target.value as ProjectDuty)}
                       className="rounded border border-border bg-background px-2 py-1 text-xs"
                     >
-                      {dutiesFor(m.userId, m.duty).map((d) => (
+                      {dutiesFor(m.userId, m.duty, m.orgRole).map((d) => (
                         <option key={d} value={d}>{PROJECT_DUTY_LABELS[d]}</option>
                       ))}
                     </select>

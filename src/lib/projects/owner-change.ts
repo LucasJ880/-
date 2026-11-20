@@ -11,18 +11,19 @@
  */
 
 export const OWNER_CHANGE_TEXT = {
-  forbiddenOrg: "只有项目负责人、组织管理员、持「管理项目财务」权限的人或平台管理员能更换项目负责人。",
+  forbiddenOrg: "只有项目负责人、组织管理员、持「管理项目财务」权限的人或平台管理员能更换项目负责人。请找现在的主负责人或组织管理员。",
   forbiddenPersonal: "这是个人项目，只有项目负责人或平台管理员能更换负责人。",
-  selfOrg: "不能把自己设为负责人：需要「管理项目财务」权限。可以请项目负责人或组织管理员把负责人交给你。",
+  selfOrg: "你不能把自己设为主负责人（需要「管理项目财务」权限），可以请现在的主负责人或另一位组织管理员交给你。",
   selfPersonal: "不能把自己设为负责人：请项目负责人把负责人交给你。",
-  invalidOrg: "新的负责人必须是本组织在用的成员。",
-  invalidPersonal: "新的负责人必须是在用的用户。",
-  conflict: "负责人刚被别人改过，请刷新后看清现在的负责人再操作。",
-  /** 成员卡片上的说明（不能换 / 不能换给自己时各一句） */
-  hintCannotChangeOrg: "只有项目负责人、组织管理员、持「管理项目财务」权限的人或平台管理员能更换负责人。",
-  hintCannotChangePersonal: "这是个人项目，只有项目负责人或平台管理员能更换负责人。",
-  hintCannotSelfOrg: "把自己设为负责人需要「管理项目财务」权限；可以请项目负责人或组织管理员把负责人交给你。",
-  hintCannotSelfPersonal: "要成为负责人，请项目负责人把负责人交给你。",
+  invalidOrg: "新负责人必须是本组织的有效成员（账号没停用、没离开组织），请换一位。",
+  invalidPersonal: "新负责人的账号已停用，请换一位。",
+  conflict: "负责人刚被别人换过了，请刷新页面，看清现在的负责人再操作。",
+  /** 项目团队卡片上的说明（只有组织项目会出现：个人项目能修改的只有负责人与平台管理员） */
+  hintCannotChange: "你不能更换主负责人。需要更换，请找现在的主负责人或组织管理员。",
+  hintCannotSelf: "你不能把自己设为主负责人（需要「管理项目财务」权限），可以请现在的主负责人或另一位组织管理员交给你。",
+  /** 换主负责人前的确认；调用人是现在的负责人时多一句 */
+  confirm: (name: string) => `把主负责人换成「${name}」？`,
+  confirmOwnerSuffix: "换完后你不能自己改回来，要请新的主负责人或组织管理员交还。",
 } as const;
 
 export type OwnerChangeCode = "OWNER_CHANGE_FORBIDDEN" | "OWNER_SELF_ASSIGN_FORBIDDEN" | "OWNER_INVALID" | "OWNER_CONFLICT";
@@ -73,10 +74,18 @@ export function checkNewOwner(input: { hasOrg: boolean; userActive: boolean; org
   return { ok: true };
 }
 
-/** 成员卡片的说明：不能换给别人 → 第一句；能换但不能换给自己、且自己不是负责人 → 第二句；否则不写 */
+/**
+ * 项目团队卡片的说明：不能换给别人 → 第一句；能换但不能换给自己、且自己不是负责人 → 第二句；否则不写。
+ * 个人项目不写（能修改个人项目的只有负责人与平台管理员，两句都不会出现）。
+ */
 export function ownerChangeHint(flags: { canChange: boolean; canSelfAssign: boolean }, opts: { hasOrg: boolean; isCurrentOwner: boolean; canManage: boolean }): string | null {
-  if (!opts.canManage) return null;
-  if (!flags.canChange) return opts.hasOrg ? OWNER_CHANGE_TEXT.hintCannotChangeOrg : OWNER_CHANGE_TEXT.hintCannotChangePersonal;
-  if (!flags.canSelfAssign && !opts.isCurrentOwner) return opts.hasOrg ? OWNER_CHANGE_TEXT.hintCannotSelfOrg : OWNER_CHANGE_TEXT.hintCannotSelfPersonal;
+  if (!opts.canManage || !opts.hasOrg) return null;
+  if (!flags.canChange) return OWNER_CHANGE_TEXT.hintCannotChange;
+  if (!flags.canSelfAssign && !opts.isCurrentOwner) return OWNER_CHANGE_TEXT.hintCannotSelf;
   return null;
+}
+
+/** 换主负责人前的确认 */
+export function ownerChangeConfirm(name: string, callerIsCurrentOwner: boolean): string {
+  return callerIsCurrentOwner ? `${OWNER_CHANGE_TEXT.confirm(name)}${OWNER_CHANGE_TEXT.confirmOwnerSuffix}` : OWNER_CHANGE_TEXT.confirm(name);
 }

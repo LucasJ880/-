@@ -40,7 +40,10 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     project.ownerId === access.user.id ||
     (!!project.orgId && !!access.orgRole && hasOrgRole(access.orgRole, "org_admin")) ||
     (!!access.projectRole && hasProjectRole(access.projectRole, "project_admin"));
-  const ownerChange = ownerChangeFlags(await resolveOwnerChangeActor(access.user, project.orgId ?? null), project.ownerId, canEditProject);
+  // 不能修改本项目的人两项都是 false，也不去查授权（只读成员读列表不因授权查询出错而失败）
+  const ownerChange = canEditProject
+    ? ownerChangeFlags(await resolveOwnerChangeActor(access.user, project.orgId ?? null), project.ownerId, true)
+    : { canChange: false, canSelfAssign: false };
 
   const members = await db.projectMember.findMany({
     where: { projectId },
@@ -252,7 +255,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     action: AUDIT_ACTIONS.CREATE,
     targetType: AUDIT_TARGETS.PROJECT_MEMBER,
     targetId: member.id,
-    afterData: { userId, role: member.role, duty },
+    ...(ownerChanged ? { beforeData: { ownerId: project.ownerId } } : {}),
+    afterData: { userId, role: member.role, duty, ...(ownerChanged ? { ownerId: userId } : {}) },
     request,
   });
 
