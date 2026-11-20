@@ -62,6 +62,8 @@
 | `openspec validate import-leads-alias-admin-revoke --strict` | valid（每条要求不超过 500 字，最长 495） |
 | `git diff origin/main -- prisma/ vercel.json` | 空 |
 
+全量 `npm test` 是在补派规格一致性审查之前跑的；之后的修改只加测试与改文档，补完后重跑了 `npm run test:ci`（PASS）、`npm run typecheck`、`npm run lint:baseline`（PASS），以及改到的单测与隔离库测试（见 §3 / §5 的条数）。
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与 CHAIN-3 代码）**——逐条核实后全部并入四件套（`43444121`）：
