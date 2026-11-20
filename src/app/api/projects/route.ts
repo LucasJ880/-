@@ -24,6 +24,7 @@ import {
   withBidWorkflowSchemaFallback,
 } from "@/lib/bid-workflow/schema-drift";
 import { LEGACY_PROJECT_LIST_SELECT } from "@/lib/bid-workflow/legacy-project-select";
+import { redactRoomSummaryCost } from "@/lib/tender-pricing/finance-view";
 
 const projectInclude = {
   owner: { select: { id: true, name: true } },
@@ -102,8 +103,11 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const unavailable = bidWorkflowUnavailableFields();
   const mapped = projects.map((p) => {
     if (!usedFallback) {
+      // CHAIN-2b：房间 JSON 里的我方成本与成本来源不给项目读者（界面不读它们；成本走报价表助手、按财务查看权）
+      const room = (p as { intelligenceRoom?: { summaryJson?: unknown } | null }).intelligenceRoom;
       return {
         ...p,
+        ...(room ? { intelligenceRoom: { ...room, summaryJson: redactRoomSummaryCost(room.summaryJson) } } : {}),
         intelligenceAvailable: true,
       };
     }
