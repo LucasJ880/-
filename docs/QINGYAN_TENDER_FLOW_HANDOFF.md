@@ -378,7 +378,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 - 隔离库：本机 Postgres 16（`pg_ctlcluster 16 main start`），先 `apt-get install -y postgresql-16-pgvector` 才能 `prisma migrate deploy`；环境变量 `DATABASE_URL` / `DIRECT_URL` 指 localhost、`NODE_ENV=test DATABASE_ENVIRONMENT=isolated`，另要 `JWT_SECRET`（测试值即可）。Postgres 可能中途停掉，跑隔离库前先 `pg_lsclusters`。
 - 全量 `npm test` 带隔离库约 1.5 小时；**不要同时在同一个库上并行跑别的隔离库测试**（本会话因此让 Mention Gateway M2-A 撞了唯一约束）。在本机 main 上也失败的 9 项名单见 `docs/QINGYAN_CHAIN-4b_REPORT.md` §5，比对时用。（第四十四次：现在是 11 项，CHAIN-3 时 701/712，名单见 `docs/QINGYAN_CHAIN-3_REPORT.md` §4。）
 - （第四十五次）几个 change 并行时每个用一个 `git worktree`（`node_modules` 符号链接过去）；两个隔离库（`qingyan_iso`、`qingyan_iso_gate`）可以各跑一个全量，同一个库上不要并行。`npm run test:ci` 要在 `env -u DATABASE_URL -u DIRECT_URL` 下跑（与 CI 一样不带库；带着库会跑 DB 测试，撞上 main 上既有失败的「招标询价自动起草 DB 75 / 76」）。
-- （第四十五次更正）Mention Gateway M2-A Identity DB 只在新库的第一次全量能过：它建的平台级网关（`orgId = __qingyan_platform__`、`channel = wecom`）测完不清理，再跑就撞 `WeChatGateway (orgId, channel)` 唯一约束（这一轮 5 次全量只有 `qingyan_iso_gate` 上第一次那次过了）。上面「本会话因此让 Mention Gateway M2-A 撞了唯一约束」的原因不是并行，是这一行残留。比对时按既有失败处理；要它过，先删掉那一行。
+- （第四十五次更正）Mention Gateway M2-A Identity DB 只在新库的第一次全量能过：它建的平台级网关（`orgId = __qingyan_platform__`、`channel = wecom`）测完不清理，再跑就撞 `WeChatGateway (orgId, channel)` 唯一约束（这一轮前 5 次全量只有 `qingyan_iso_gate` 上第一次那次过了；第 6 次跑之前删掉 `qingyan_iso` 里那一行，就过了，印证了原因）。上面「本会话因此让 Mention Gateway M2-A 撞了唯一约束」的原因不是并行，是这一行残留。比对时按既有失败处理；要它过，先删掉那一行。
 - 判重 / 查找类逻辑别靠「读最早 N 条」：CHAIN-3 第一轮审查就抓到查重只读 2000 条；按键用 `$queryRaw` 在 JSON 字段上查（`"rawMetadataJson"->>'dedupeKey' = ANY(...)`）。
 
 ### 0.6 实施中沿用的约定
