@@ -17,4 +17,4 @@
 ## 4. 门禁与报告
 
 - [x] 4.1 既有不改期望与门禁（verify：成员、执行项目相关的既有测试原样通过；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate project-owner-change-guard --strict`；`git diff origin/main -- prisma/ vercel.json` 为空；全量 `npm test` 由会话统一跑）
-- [ ] 4.2 写 `docs/QINGYAN_CHAIN-2c_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、「谁能更换负责人」与「中标后转执行」两个 GATE 问题；TASKFLOW 在 CHAIN-2 一行后新增 CHAIN-2c 一行为 `[~]`）
+- [x] 4.2 写 `docs/QINGYAN_CHAIN-2c_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、「谁能更换负责人」与「中标后转执行」两个 GATE 问题；TASKFLOW 在 CHAIN-2 一行后新增 CHAIN-2c 一行为 `[~]`）
