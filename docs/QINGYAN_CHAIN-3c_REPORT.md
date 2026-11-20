@@ -64,6 +64,8 @@
 
 上表的全量是第一次的结果；之后补派规格一致性审查的修复、以及按 GATE 加的撤回原因（改了接口、服务与面板）都在其后，结果见下面「GATE 之后的重跑」。
 
+**GATE 之后的重跑**（撤回原因与它的四维度审查修复之后，`8804f7fd`）：`npm test` `702/712 通过, 10 失败`，10 项全是 main 上同样失败的既有项（跑之前删掉了测试库里 Mention Gateway M2-A 上次留下的那一行，它这次过了）；`npm run test:ci`（不带库）PASS；`npm run typecheck` 通过；`npm run lint:baseline` PASS；`openspec validate import-leads-alias-admin-revoke --strict` valid。
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与 CHAIN-3 代码）**——逐条核实后全部并入四件套（`43444121`）：
