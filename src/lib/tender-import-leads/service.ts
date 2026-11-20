@@ -24,6 +24,7 @@ import { importLeadSourceNotesZh, manualPasteProvider } from "./provider";
 import { candidatePairKeys, createCandidatePairFinder, createImporterMatcher, uniqueWinnerNames } from "./match-pure";
 import { IMPORT_LEAD_ALIAS_AUDIT_ACTION, IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, effectiveDecisions, type EffectiveDecision } from "./alias-decisions";
 import {
+  normalizeRevokeReason,
   IMPORT_LEADS_TEXT,
   aggregateByExporter,
   winnersStateMessage,
@@ -441,6 +442,9 @@ export async function revokeImportLeadAlias(input: {
   now?: Date;
 }): Promise<{ ok: true; view: ImportLeadsView; revokedDecision: "CONFIRMED" | "REJECTED" } | ServiceFailure> {
   const now = input.now ?? new Date();
+  // 原因在接口里已规整；这里再规整一次，别的调用方也写不进空原因
+  const reason = normalizeRevokeReason(input.reason);
+  if (!reason.ok) return { ok: false, status: 400, code: reason.code, messageZh: reason.messageZh };
   const state = await loadProjectState(input.orgId, input.projectId, now);
   // 中标者名单读不出来时照实说，不当成「这一对不在本项目里」
   if (state.winners.status !== "ok") return { ok: false, status: 422, code: "NO_WINNERS", messageZh: state.winners.messageZh };
@@ -464,7 +468,7 @@ export async function revokeImportLeadAlias(input: {
         targetType: IMPORT_LEAD_ALIAS_TARGET,
         targetId,
         beforeData: JSON.stringify(decision),
-        afterData: JSON.stringify({ pairKey: input.pairKey, revokedAuditId: auditId, revokedBy: input.userId, revokedAt: now.toISOString(), reason: input.reason }),
+        afterData: JSON.stringify({ pairKey: input.pairKey, revokedAuditId: auditId, revokedBy: input.userId, revokedAt: now.toISOString(), reason: reason.reason }),
       },
     });
     return decision.decision;

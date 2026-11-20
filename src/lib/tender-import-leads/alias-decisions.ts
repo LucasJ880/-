@@ -2,7 +2,7 @@
  * CHAIN-3c 「是不是同一家」的裁决与撤回：从审计行算出每对的有效裁决（纯函数）
  *
  * 裁决行：action = tender.import_lead_alias_decided，afterData 是 AliasDecision。
- * 撤回行：action = tender.import_lead_alias_revoked，beforeData 是原裁决，afterData = { pairKey, revokedAuditId, revokedBy, revokedAt }。
+ * 撤回行：action = tender.import_lead_alias_revoked，beforeData 是原裁决，afterData = { pairKey, revokedAuditId, revokedBy, revokedAt, reason }。
  */
 import type { AliasDecision } from "@/lib/tender-competition/company-identity";
 

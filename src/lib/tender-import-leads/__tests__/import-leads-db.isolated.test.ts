@@ -326,7 +326,7 @@ async function main() {
     const noReason = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId }, owner, false);
     const blankReason = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId, reason: "   " });
     const longReason = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId, reason: "x".repeat(201) });
-    ok(noReason.status === 400 && noReason.json.error === "请填写撤回原因。" && blankReason.status === 400 && longReason.status === 400 && longReason.json.error === "撤回原因太长了（最多 200 字）。" && (await aliasRows()) === rowsNoReason, "撤回不填原因、只填空白、超过 200 字：400，没有审计行", [noReason.json, blankReason.json, longReason.json]);
+    ok(noReason.status === 400 && noReason.json.error === "请填写撤回原因。" && blankReason.status === 400 && blankReason.json.error === "请填写撤回原因。" && longReason.status === 400 && longReason.json.error === "撤回原因最多 200 字，请删减后再提交。" && (await aliasRows()) === rowsNoReason, "撤回不填原因、只填空白、超过 200 字：400，没有审计行", [noReason.json, blankReason.json, longReason.json]);
     const pR2 = await mkProject(RBUYER);
     const r2i = await doImport(pR2, { text: "Importer,Exporter,URL\nGlacier Linen Supply,Xiamen Linen Co,https://example.test/r2/1\n" });
     ok(r2i.json.result?.matched === 1, "另一个同采购方项目：确认过的一对直接挂上", r2i.json.result);

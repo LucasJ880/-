@@ -143,7 +143,7 @@ export const IMPORT_LEADS_TEXT = {
   notOrgAdmin: "只有组织管理员能确认、否决或撤回「是不是同一家」（对本组织所有项目生效）。",
   revokeConflict: "同事已经撤回或改过这一对的裁决，页面已更新；请看清现在的结论再操作。",
   revokeReasonRequired: "请填写撤回原因。",
-  revokeReasonTooLong: `撤回原因太长了（最多 ${IMPORT_LEAD_REVOKE_REASON_MAX} 字）。`,
+  revokeReasonTooLong: `撤回原因最多 ${IMPORT_LEAD_REVOKE_REASON_MAX} 字，请删减后再提交。`,
   pairNotInProject: "本项目已没有涉及这一对的记录（可能刚在供应链页标为不采用，或历史中标者有变），页面已更新。",
   revokedConfirmed: (importer: string, winner: string) => `已撤回「${importer}」和「${winner}」的确认，这一对回到待确认；靠它对上的记录已移出出口商汇总（已加入供应商库的不受影响）。`,
   revokedRejected: (importer: string, winner: string) => `已撤回「${importer}」和「${winner}」的否决，这一对回到待确认。否决期间导入时被当作「不是这个采购方的中标者」跳过的记录没有保存，需要的话请重新导入原表（已导入的不会重复）。`,
