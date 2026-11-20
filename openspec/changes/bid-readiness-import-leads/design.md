@@ -11,16 +11,16 @@
 **Goals**：项目有导入的进口记录时，阶段表如实说「执行（只处理人工提供的进口线索）」；开关关或没有记录时与现在逐字节相同。
 
 **Non-Goals**：
-- `src/lib/tender-bid-readiness/stage-policy.ts`（策略表与说明文字）。
+- `src/lib/tender-bid-readiness/stage-policy.ts`（策略表与说明文字；主规格只改正文措辞，见 Risks）。
 - `src/lib/tender-import-leads/service.ts`、`match-pure.ts`、`aggregate-pure.ts`（导入、匹配、汇总）。
 - 「历史授标与采购」阶段的 `AWARD_RECORDS` 推导。
-- `src/components/tender/bid-workspace-panel.tsx`（面板照旧按读取结果显示）。
+- `src/components/tender/bid-workspace-panel.tsx` 只改两处：未接通清单的标题、取决于来源的阶段写出说明（其余照旧）。
 
 ## Decisions
 
 ### D1：材料「进口线索」= 本项目有一条未被标为不采用的导入记录（CHAIN-3 的 `storedLeadCount` 口径）
 
-条件：`orgId` = 项目组织、`projectId` = 本项目、`platform = "TRADE_DATA"`、`rawMetadataJson.kind = "import_lead_v1"`、`status ≠ "REJECTED"`（供应链页上的「不采用」）。这就是 CHAIN-3 读视图里 `storedLeadCount`（「已导入 N 条」）的口径：材料存在 ⇔ `storedLeadCount > 0`（隔离库测试逐一核对）。CHAIN-3 导入写 `NEW`，加入供应商库后变 `LINKED`（也算）。
+条件：`orgId` = 项目组织、`projectId` = 本项目、`platform = "TRADE_DATA"`、`rawMetadataJson.kind = "import_lead_v1"`、`status ≠ "REJECTED"`（供应链页上的「不采用」）。这就是 CHAIN-3 读视图里 `storedLeadCount`（「已导入 N 条」）的口径：对 CHAIN-3 导入写入的记录，材料存在 ⇔ `storedLeadCount > 0`（隔离库测试在开关开着的各步核对；`storedLeadCount` 另要求元数据完整、只看最早 5000 条，CHAIN-3 写入的记录都满足）。CHAIN-3 导入写 `NEW`，加入供应商库后变 `LINKED`（也算）。
 
 - 备选 A：只数当前「挂上」的（读时按别名裁决与中标者名单重算）。否决：要加载中标者名单与裁决、重跑比对，读取工作区的代价变大；阶段表回答的是「该不该处理」，人已经提供了线索就该处理——哪几条挂上、哪几条待确认是供应链槽的事，阶段说明「只处理人工提供的进口线索」也没有说「都已挂上」。
 - 备选 B：连 `REJECTED` 也算。否决：在供应链页被人标为不采用的线索，不应再让阶段说「有材料」。
@@ -49,7 +49,7 @@
 4. 脱敏：不涉及（读取结果只多一个材料键，不带任何线索内容或金额）。
 5. 不爬登录页：不涉及（不访问任何网站）。
 6. 邮箱分离：不涉及。
-7. 确定性优先：遵守（一次计数查询，零模型调用）。
+7. 确定性优先：遵守（一次存在性查询，零模型调用）。
 8. 测试注册：新隔离库测试登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
 
 ## 验证方式
@@ -63,6 +63,6 @@
 
 - 存着但在供应链槽里不显示的情形，阶段仍说「执行」：导入的记录全部因别名被否决、采购方改了名、中标者读不出或授标情报开关关着（槽里写「已导入 N 条……」）。说明是「只处理人工提供的进口线索」，没有说有几条挂上，与槽里「已导入 N 条」一致；可接受（D1 备选 A）。
 - 「未接通的来源」清单里不再出现「授权贸易 / 提单数据」，但这个来源本身仍没接通（进口线索面板照旧写明「未接通」）。
-- 读取工作区多一次查询：信号表没有带 `projectId` 的索引（只有 `[orgId, platform]` 等），按 `orgId + platform` 走索引再过滤；`findFirst` 找到一条就停，没有导入记录的项目要扫完本组织的 `TRADE_DATA` 行（受 CHAIN-3 每项目 5000 条约束）。零 schema，不加索引。
-- 阶段策略主规格「未接通的来源不询问、不执行」的正文写「未接通 → 未接通」，场景与代码是「有人工材料 → 执行」；本 change 让这条路径第一次在线上出现，规格措辞的澄清另立只改规格的小 change（本次不改 `tender/stage-policy`）。
+- 读取工作区多一次查询：信号表没有带 `projectId` 的索引（只有 `[orgId, platform]` 等），按 `orgId + platform` 走索引再过滤；`findFirst` 找到一条就停，没有导入记录的项目要扫完本组织的 `TRADE_DATA` 行（上限约为每项目 5000 条 × 有导入的项目数，另加发现流程写的信号）；两个开关都开时，投标工作区读写、成本核算、项目页「下一步」卡都会跑这一次。零 schema，不加索引。
+- 阶段策略主规格「未接通的来源不询问、不执行」的正文写「未接通 → 未接通」，场景与代码是「有人工材料 → 执行」；本 change 让这条路径第一次在线上出现，所以一并用 MODIFIED 把正文改成与场景、代码一致（不改 `stage-policy.ts`）。面板的未接通清单标题改为「未接通、也没有人工材料的来源」，取决于来源的阶段在下面写出说明（触屏、读屏看不到悬停提示）。
 - 已被移出组织、但项目成员记录还在的人能读投标工作区（只要项目读权限），能从阶段变「执行」看出「有导入记录」（看不到内容）；影响可忽略。

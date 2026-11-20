@@ -115,11 +115,16 @@ async function main() {
     const w1 = await readWorkspace(P);
     const s1 = stageOf(w1.view);
     ok(w1.view!.materials.includes("IMPORT_LEADS") && s1?.decision === "RUN" && s1.detailZh === "只处理人工提供的进口线索" && !w1.view!.stages.lists.notConnected.some((n) => n.stageKey === "import_leads"), "导入之后：手头材料有进口线索，阶段执行、只处理人工提供的，不在未接通清单里", s1);
+    ok(!/Northfield|Ningbo|example\.test|Mattress/.test(w1.text), "读取结果里没有进口记录的内容（进口商、出口商、品名、来源网址）");
 
     // —— 3. 别的项目、别的组织、非 import_lead_v1 的 TRADE_DATA 信号不算 ——
     ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P2 })) === false && (await consistent(P2)), "同组织的另一个项目：false（导入记录在别的项目）");
     await db.supplierDiscoverySignal.create({ data: { orgId: ORG, projectId: P2, platform: "TRADE_DATA", contentType: "PROFILE", sourceOrigin: "PUBLIC_WEB", title: "search hit", rawMetadataJson: { provider: "search-engine" } } as never });
     ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P2 })) === false && (await consistent(P2)), "非 import_lead_v1 的 TRADE_DATA 信号：不算");
+    await db.supplierDiscoverySignal.create({ data: { orgId: ORG, projectId: P2, platform: "OPEN_WEB", contentType: "USER_SUBMITTED", sourceOrigin: "MANUAL_ENTRY", title: "not trade data", rawMetadataJson: { kind: "import_lead_v1" } } as never });
+    ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P2 })) === false, "kind 是 import_lead_v1 但平台不是进口记录：不算");
+    const wP2 = await readWorkspace(P2);
+    ok(wP2.status === 200 && stageOf(wP2.view)?.decision === "NOT_CONNECTED" && !wP2.view!.materials.includes("IMPORT_LEADS"), "开关开着、只有别的平台或别的项目的信号：阶段仍未接通");
     const PO = await mkProject(ORG2, OTHER);
     await db.supplierDiscoverySignal.create({ data: { orgId: ORG2, projectId: PO, platform: "TRADE_DATA", contentType: "USER_SUBMITTED", sourceOrigin: "MANUAL_ENTRY", title: "lead", rawMetadataJson: { kind: "import_lead_v1" } } as never });
     ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: PO })) === false && (await hasImportLeadsForReadiness({ orgId: ORG2, projectId: P })) === false, "组织与项目要对上：别的组织的记录、拿别的组织查本项目都不算");
@@ -129,7 +134,7 @@ async function main() {
     ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P })) === false, "进口线索导入开关关：false（库里有记录也不算）");
     const wOff = await readWorkspace(P);
     const wOffEmpty = await readWorkspace(P2);
-    ok(!wOff.view!.materials.includes("IMPORT_LEADS") && stageOf(wOff.view)?.decision === "NOT_CONNECTED" && JSON.stringify(wOff.view!.stages) === JSON.stringify(wOffEmpty.view!.stages), "开关关：阶段与没有导入记录的项目完全相同", [stageOf(wOff.view), stageOf(wOffEmpty.view)]);
+    ok(!wOff.view!.materials.includes("IMPORT_LEADS") && stageOf(wOff.view)?.decision === "NOT_CONNECTED" && wOff.text === wOffEmpty.text, "开关关：整份读取结果与没有导入记录的项目完全相同", [stageOf(wOff.view), stageOf(wOffEmpty.view)]);
     process.env.TENDER_IMPORT_LEADS_ENABLED = "1";
 
     // —— 5. 在供应链页标为不采用：不算 ——

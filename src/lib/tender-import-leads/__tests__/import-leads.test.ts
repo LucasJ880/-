@@ -271,6 +271,10 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(JSON.stringify(imports.sort()) === JSON.stringify(["./flags", "@/lib/db"]), "投标准备度：readiness-count.ts 只 import @/lib/db 与 ./flags", imports);
   ok(/status: \{ not: "REJECTED" \}/.test(rc) && /findFirst\(/.test(rc) && !/\.count\(/.test(rc) && /if \(!isImportLeadsEnabledForOrg\(input\.orgId\)\) return false;/.test(rc) && rc.indexOf("isImportLeadsEnabledForOrg(input.orgId)") < rc.indexOf("findFirst("), "投标准备度：开关关时不查库；不采用的不算；只判有没有（findFirst）");
   ok(/status !== "REJECTED"/.test(svcSrc) && /storedLeadCount: state\.signals\.filter\(\(s\) => s\.status !== "REJECTED"\)\.length/.test(svcSrc), "投标准备度与读视图的「已导入 N 条」同一口径（不采用的不算）");
+  ok(/orgId: input\.orgId,/.test(rc) && /projectId: input\.projectId,/.test(rc) && /platform: READINESS_IMPORT_LEAD_PLATFORM,/.test(rc) && /rawMetadataJson: \{ path: \["kind"\], equals: READINESS_IMPORT_LEAD_KIND \}/.test(rc), "投标准备度：按组织、项目、平台、kind 过滤");
+  ok(!/^export [^;]* from /m.test(rc) && !/\bimport\(/.test(rc) && !/\brequire\(/.test(rc), "投标准备度：没有 export…from、动态 import、require");
+  const store = readFileSync(path.join(root, "src/lib/tender-bid-workspace/store.ts"), "utf8");
+  ok(store.includes('from "@/lib/tender-import-leads/readiness-count"') && !store.includes("tender-import-leads/service") && store.includes("hasImportLeadsForReadiness({ orgId, projectId }),") && /\n    hasImportLeads,\n  \};/.test(store), "投标工作区读取：接上 hasImportLeadsForReadiness、返回 hasImportLeads，不 import service.ts");
 }
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
