@@ -8,14 +8,14 @@ CHAIN-4a 归档（LucasJ880/-#527）的 MODIFIED 增量把「原地审批与待�
 
 ## What Changes
 
-- 移除「原地审批与待批轮次保护」，拆成下面两条新增要求（OpenSpec 不允许 MODIFIED 丢场景、也不允许同名既删又加，所以原条换一个名字重新加，见 design D2）。
+- 移除「原地审批与待批轮次保护」（写明 Reason 与 Migration；OpenSpec 不允许 MODIFIED 丢场景、也不允许同名既删又加，所以原条换一个名字重新加，见 design D2）。
 - 新增要求「询价卡的原地审批与待批轮次保护」：原条去掉 CHAIN-4a 那句例外后的正文（351 字，与 CHAIN-4a 之前的原条逐字相同）加一句不含 SHALL 的指引「带询价单 PDF 的卡对不上时的例外，见「询价单 PDF 对不上时只给驳回」。」（共 390 字），四个场景逐字不变。
 - 新增要求「询价单 PDF 对不上时只给驳回」：承接移出的那句例外（只把开头「例外（CHAIN-4a）：卡带……」补全为「本条是「询价卡的原地审批与待批轮次保护」的例外（CHAIN-4a）：待批的发询价卡带……」，规范性语句逐字不变），并带走原来挂在原条下面的场景「询价单 PDF 对不上时只给驳回」（逐字不变）。
 
 ## Out of scope
 
 - 不改 `tender/rfq-supplier-attachment`（「卡上提前说附件已变」的说明文字照旧由它规定，新要求照旧引用它）。
-- 不改其它规格里接近 500 字的要求（本规格「生成并送审」473 字、「可选供应商与默认条款」452 字，都没超）。
+- 不改其它接近 500 字的要求：本规格「生成并送审」473 字、「可选供应商与默认条款」452 字；别的规格里 `tender/import-leads` 498 / 497、`cockpit/company-log` 496、`revenue-spine/fde-v2-readiness` 492、`sales/period-summary` 491——都没超。
 - 不改任何代码、测试、界面文字。
 
 ## Capabilities
@@ -30,6 +30,6 @@ CHAIN-4a 归档（LucasJ880/-#527）的 MODIFIED 增量把「原地审批与待�
 
 ## Impact
 
-- 只改 `openspec/changes/rfq-web-entry-spec-split/**`；归档后改 `openspec/specs/tender/rfq-web-entry/spec.md`。
+- 本 PR 改 `openspec/changes/rfq-web-entry-spec-split/**`，新增报告 `docs/QINGYAN_CHAIN-4c_REPORT.md`，在 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 加一行；归档后改 `openspec/specs/tender/rfq-web-entry/spec.md`，归档 PR 同时改交接文档 §0.5h 那句。
 - 不改任何行为：本规格的要求数 13 → 14、场景总数 35 不变，规范性语句只搬位置，不增不减；不改代码、测试与其它规格。
 - 零 schema、零代码、零依赖。
