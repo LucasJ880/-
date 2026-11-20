@@ -6,7 +6,7 @@
 | TASKFLOW | FIX-12（Phase F（续）— 生产实测修复，2026-11-20） |
 | 来源 | Lucas 2026-11-20 生产实测「12-3 Indoor Canadian Flag」（Job 09:27 创建）：一键分析第 3 步 09:46:29、09:54:29 两次 504「Task timed out after 300 seconds」；11-19「12-01」Job 的「长时间没有进展」（`stale_running_exhausted`）同一根因 |
 | 拍板 | 四件套 Lucas 2026-11-20 同意；截止失败计入 3 次上限同意；窗口门槛 45 → 80 秒为 Lucas 建议、本次采纳（design D8） |
-| PR | Draft，见 TASKFLOW |
+| PR | Draft（编号见 TASKFLOW） |
 | 分支 | `claude/amazing-planck-0s5wnb` |
 | 性质 | 修既有的超时链。零 schema、零新模型调用（只会少调）、没有出站。**没有开关——合并即生效** |
 
@@ -83,7 +83,16 @@
 
 ## 4. 门禁
 
-（见下方，跑完后填）
+| 项 | 结果 |
+|---|---|
+| `npm test`（本机，带隔离库，多维审查修复之后） | `703/713 通过, 10 失败`；10 项全在既有失败清单里（`docs/QINGYAN_CHAIN-3_REPORT.md` §4：来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB 75 / 76）；清单里的 Mention Gateway M2-A 这次在新建的隔离库上通过 |
+| CI 环境变量下 `bash scripts/test-ci-unit.sh` | `CI unit subset PASS`（审查修复之后重跑） |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS（无新增指纹） |
+| `bash scripts/test-runtime-architecture.sh` | PASS |
+| `bash scripts/check-test-registry.sh` | 已注册 680 个，历史欠账 66 条 |
+| `openspec validate tender-analysis-call-deadline --strict` | valid |
+| `git diff origin/main -- prisma/ vercel.json` | 空 |
 
 ## 5. 多维审查
 

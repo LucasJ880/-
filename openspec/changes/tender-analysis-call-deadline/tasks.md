@@ -13,8 +13,8 @@
 
 ## 3. 验收
 
-- [ ] 3.1 全部门禁；verify：`npm test` 与既有失败清单（`docs/QINGYAN_CHAIN-3_REPORT.md` §4）对照无新增失败；CI 环境变量下 `bash scripts/test-ci-unit.sh` 末行 `CI unit subset PASS`；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`openspec validate tender-analysis-call-deadline --strict` valid；`git diff origin/main -- prisma/ vercel.json` 为空
-- [ ] 3.2 写 `docs/QINGYAN_FIX-12_REPORT.md`（时间线与来源、改前 / 改后测试输出、多维审查结论）+ 更新 TASKFLOW 状态列（新增 FIX-12 一行，`[~]`）；verify：报告存在，`grep -n "FIX-12" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行
+- [x] 3.1 全部门禁；verify：`npm test` 与既有失败清单（`docs/QINGYAN_CHAIN-3_REPORT.md` §4）对照无新增失败；CI 环境变量下 `bash scripts/test-ci-unit.sh` 末行 `CI unit subset PASS`；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`openspec validate tender-analysis-call-deadline --strict` valid；`git diff origin/main -- prisma/ vercel.json` 为空
+- [x] 3.2 写 `docs/QINGYAN_FIX-12_REPORT.md`（时间线与来源、改前 / 改后测试输出、多维审查结论）+ 更新 TASKFLOW 状态列（新增 FIX-12 一行，`[~]`）；verify：报告存在，`grep -n "FIX-12" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行
 
 ## Workflow follow-up
 
