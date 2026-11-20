@@ -20,8 +20,9 @@ export const MANUAL_ENTRY_TEXT = {
   collapsedNote: "把在 APC 上看到的中标结果录进来，经人工确认后计入统计。",
   noticeGroup: "公告信息",
   winnerGroup: "这个中标方",
-  buyerHint: "先从候选里选（本组织招标项目和已有授标里用过的写法）；候选里没有，再照公告上的采购机构原文填。大小写、标点、开头的 The 不影响匹配，其余要和项目里的采购方一字不差，系统才能对上。",
-  solicitationHint: "建议填写。同一采购方、同一中标方的不同招标靠编号区分，不填容易被当成疑似重复。公告上没有单独的招标编号时，填链接里的 APC 编号（例如 AB-2026-07664）。",
+  buyerHint: "先从候选里选（本组织招标项目和已有授标里用过的写法）；候选里没有，再照公告上的采购方原文填。大小写、标点、开头的 The 不影响匹配，其余要和项目里的采购方一字不差，系统才能对上。",
+  solicitationHint: "照公告上的招标编号原样填，用来区分同一采购方的不同招标。公告上找不到就留空，不要填链接里的 AB-… 编号：编号和已有记录对不上时，系统会把它标为疑似重复，等组织管理员裁决。",
+  urlHint: "在 APC 打开这条公告，从浏览器地址栏复制，只要到编号为止（…/posting/AB-年份-编号）。搜索结果页、附件下载链接不行。",
   amountHint: "一条公告有几个中标方就录几条；金额填这个中标方自己的合同金额。公告只给总额或预估值时留空。",
   scopeHint: "写一句能反复用的采购内容，不带年份、编号、地点（例如 Snow removal services）。大小写和标点不影响；同一采购方、同一句、同一币种的已确认记录满 3 条，才会算出可比价格。",
   clearNotice: "换一条公告（清空）",
@@ -44,7 +45,7 @@ export const MANUAL_ENTRY_TEXT = {
   missingBuyer: "请填写采购方。",
   missingWinner: "请填写中标方。",
   missingUrl: "请填写 APC 公告链接。",
-  badUrl: "APC 公告链接要像 https://purchasing.alberta.ca/posting/AB-2026-07664 这样，指向具体的一条公告。",
+  badUrl: "这不是一条 APC 公告的链接。请在 APC 打开这条公告，复制地址栏里形如 https://purchasing.alberta.ca/posting/AB-2026-07664 的链接（搜索结果页、附件链接都不行）。",
   badDate: "授标日期要写成 年-月-日，且在 1900 年到今天之间。",
   badAmount: "合同金额只填数字（可以带千分位逗号和 $），不能为负，最多两位小数。",
   badCurrency: "币种只能是 CAD 或 USD。",
@@ -188,7 +189,9 @@ export function manualEntryMessageZh(outcome: ManualEntryOutcome): string {
 
 /** 挂到既有记录时是哪种相同：既有记录的招标编号与提交的相同 → 按编号；否则按中标方、授标日期、金额 */
 export function attachCause(submittedSolicitation: string | null, targetSolicitation: string | null): "ATTACHED_BY_SOLICITATION" | "ATTACHED_BY_DATE_AMOUNT" {
-  return submittedSolicitation && targetSolicitation && submittedSolicitation.trim() === targetSolicitation.trim() ? "ATTACHED_BY_SOLICITATION" : "ATTACHED_BY_DATE_AMOUNT";
+  // 只差大小写 / 空白 / 标点也算同一个编号（与写入服务的规范化同一口径）
+  const key = (v: string | null) => (v ?? "").toUpperCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  return key(submittedSolicitation) && key(submittedSolicitation) === key(targetSolicitation) ? "ATTACHED_BY_SOLICITATION" : "ATTACHED_BY_DATE_AMOUNT";
 }
 
 /** 列表里显示的 APC 链接：只认人工录入、manual:apc: 来源，再校验一次主机 */

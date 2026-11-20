@@ -272,12 +272,14 @@ console.log("tender-intel awards（T4 canonical service + read model）");
     ok(r.outcome === "NEEDS_REVIEW", "T4-01f 一方没编号 → NEEDS_REVIEW（保持原规则）");
   }
 
-  /* T4-01h（CHAIN-1b，Lucas 2026-11-20 收紧）中标方、授标日期、金额都相同时：两条都有编号且规范化后不同 → 不挂上；编号缺一方或只差写法 → 照旧挂上 */
+  /* T4-01h（CHAIN-1b，Lucas 2026-11-20 收紧）中标方、授标日期、金额都相同时：
+     两条都有编号且规范化后不同 → 不挂上，新记录标为疑似重复指向那条（同一笔授标常有两套编号，不悄悄算两次）；
+     编号缺一方或只差写法 → 照旧挂上 */
   {
-    const attachTry = async (solicitationNumber: string | null, key: string) => {
+    const attachTry = async (solicitationNumber: string | null, key: string, buyerNameRaw = "Other Buyer Office") => {
       const { client, records } = makeFakeDb();
       await createOrObserveAwardRecord(canadabuysInput("orgA"), { client });
-      const input = canadabuysInput("orgA", { solicitationNumber, buyerNameRaw: "Other Buyer Office" });
+      const input = canadabuysInput("orgA", { solicitationNumber, buyerNameRaw });
       input.source.sourceType = "USER_ENTRY";
       input.source.sourceKey = key;
       input.verificationStatus = "NEEDS_REVIEW";
@@ -285,14 +287,16 @@ console.log("tender-intel awards（T4 canonical service + read model）");
       return { r, first: records[0], count: records.length };
     };
     const a = await attachTry("PW-2024-002", "manual:distinct");
+    const aSame = await attachTry("PW-2024-002", "manual:distinct-same-buyer", canadabuysInput("orgA").award.buyerNameRaw ?? undefined);
     const b = await attachTry(null, "manual:no-number");
     const c = await attachTry("pw 2024 001", "manual:spelled");
     ok(
-      a.r.outcome === "CREATED" && a.count === 2 && a.r.record.solicitationNumber === "PW-2024-002" && a.r.record.status === "ACTIVE" &&
+      a.r.outcome === "NEEDS_REVIEW" && a.count === 2 && a.r.record.status === "NEEDS_REVIEW" && a.r.record.possibleDuplicateOfId === a.first.id && a.r.record.solicitationNumber === "PW-2024-002" &&
+        aSame.r.outcome === "NEEDS_REVIEW" && aSame.r.record.possibleDuplicateOfId === aSame.first.id &&
         b.r.outcome === "ATTACHED_EXISTING" && b.r.record.id === b.first.id && b.count === 1 &&
         c.r.outcome === "ATTACHED_EXISTING" && c.r.record.id === c.first.id && c.count === 1,
-      "T4-01h 同中标方同日期同金额：编号不同 → 新建（ACTIVE）；没编号或只差写法 → 挂到既有",
-      [a.r.outcome, b.r.outcome, c.r.outcome],
+      "T4-01h 同中标方同日期同金额：编号不同 → 不挂上、新记录疑似重复指向那条（采购方同不同都一样）；没编号或只差写法 → 挂到既有",
+      [a.r.outcome, aSame.r.outcome, b.r.outcome, c.r.outcome],
     );
   }
 

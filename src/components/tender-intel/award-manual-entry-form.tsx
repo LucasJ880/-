@@ -120,7 +120,8 @@ export function AwardManualEntryForm({
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
                 <label htmlFor={FIELD_IDS.apcUrl} className="text-xs">APC 公告链接（必填）</label>
-                <input id={FIELD_IDS.apcUrl} className={field} value={form.apcUrl} onChange={set("apcUrl")} placeholder="https://purchasing.alberta.ca/posting/AB-2026-07664" inputMode="url" required aria-invalid={invalid("apcUrl")} aria-describedby={describedBy("apcUrl")} />
+                <input id={FIELD_IDS.apcUrl} className={field} value={form.apcUrl} onChange={set("apcUrl")} placeholder="例如 https://purchasing.alberta.ca/posting/AB-2026-07664" inputMode="url" required aria-invalid={invalid("apcUrl")} aria-describedby={describedBy("apcUrl", "ame-url-hint")} />
+                <p id="ame-url-hint" className={hint}>{MANUAL_ENTRY_TEXT.urlHint}</p>
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <label htmlFor={FIELD_IDS.buyerName} className="text-xs">采购方（必填）</label>
