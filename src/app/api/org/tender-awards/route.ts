@@ -87,7 +87,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
   }
   // 采购方候选：调用人看得到的本组织招标项目的采购方写法（项目写法优先）+ 已有授标（未撤回）的采购方写法；
   // 按规整名去重（「The City of Calgary」与「City of Calgary」只留一个），最近的在前，最多 200 个；只给能录入的人
-  let buyerSuggestions: string[] = [];
+  const buyerSuggestions: string[] = [];
   if (canEnterManual) {
     const visibility = await buildProjectVisibilityWhere(user);
     const [projectBuyers, awardBuyers] = await Promise.all([
