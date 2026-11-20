@@ -4,6 +4,7 @@
  * T4 — 组织历史授标（READ-ONLY 组织级 canonical 情报）。
  * 数据源 = AwardRecord（人工确认/权威公开来源沉淀），不是项目级调查室草稿。
  * P0 是数据是真的：每行带 verificationStatus 分层 + 来源可核验；不做花哨 dashboard。
+ * CHAIN-1b：能录入的成员可在这里人工录入 Alberta 授标（APC 公告链接、待人工复核）；系统不打开那个链接。
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -11,6 +12,8 @@ import { Landmark, Loader2 } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { IntelHubShell } from "@/components/bid-workflow/intel-hub-shell";
 import { useCurrentOrgId } from "@/lib/hooks/use-current-org-id";
+import { AwardManualEntryForm } from "@/components/tender-intel/award-manual-entry-form";
+import { MANUAL_ENTRY_TEXT } from "@/lib/tender-intel/award-manual-entry";
 
 type AwardRow = {
   id: string;
@@ -25,6 +28,8 @@ type AwardRow = {
   status: string;
   projectId: string | null;
   possibleDuplicateOfId?: string | null;
+  /** CHAIN-1b：人工录入的 APC 公告链接（只有人工录入的才有） */
+  manualApcUrl?: string | null;
 };
 
 /** 线索 / 疑似重复：管理员可「确认」；任何未撤回记录：管理员可「撤回」（P2-0d） */
@@ -97,6 +102,8 @@ export default function IntelAwardsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [notEnabled, setNotEnabled] = useState(false);
   const [canReview, setCanReview] = useState(false);
+  const [canEnterManual, setCanEnterManual] = useState(false);
+  const [buyerSuggestions, setBuyerSuggestions] = useState<string[]>([]);
   const [retracting, setRetracting] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [acting, setActing] = useState<string | null>(null);
@@ -117,12 +124,16 @@ export default function IntelAwardsPage() {
       const res = await apiJson<{
         available: boolean;
         canReview?: boolean;
+        canEnterManual?: boolean;
+        buyerSuggestions?: string[];
         reason?: string;
         records: AwardRow[];
         intelligence: Intelligence | null;
       }>(`/api/org/tender-awards${qs ? `?${qs}` : ""}`);
       setNotEnabled(res.available === false);
       setCanReview(res.canReview === true);
+      setCanEnterManual(res.canEnterManual === true);
+      setBuyerSuggestions(Array.isArray(res.buyerSuggestions) ? res.buyerSuggestions : []);
       setRows(res.records);
       setIntel(res.intelligence);
     } catch (e) {
@@ -189,7 +200,7 @@ export default function IntelAwardsPage() {
               共 <b className="text-[var(--foreground)]">{intel.basis.totalRecords}</b> 条组织授标记录
             </span>
             <span>已确认/权威 {intel.basis.authoritative}</span>
-            <span>AI 待确认 {intel.basis.aiOnly}</span>
+            <span>{MANUAL_ENTRY_TEXT.pendingStat} {intel.basis.aiOnly}</span>
             {intel.basis.needsReview > 0 && <span>待复核（不计入统计）{intel.basis.needsReview}</span>}
             {intel.historicalValues.byCurrency.map((g) => (
               <span key={g.currency}>
@@ -237,6 +248,7 @@ export default function IntelAwardsPage() {
         </div>
 
         {err && <p className="text-sm text-red-500">{err}</p>}
+        {canEnterManual && orgId ? <AwardManualEntryForm orgId={orgId} buyerSuggestions={buyerSuggestions} onSaved={() => void load()} /> : null}
         {actionMsg && (
           <p className="text-sm text-[var(--muted)]" data-testid="award-review-msg">
             {actionMsg}
@@ -287,7 +299,14 @@ export default function IntelAwardsPage() {
                       <td className="px-3 py-2 text-xs text-[var(--muted)]">
                         {r.solicitationNumber ?? "—"}
                       </td>
-                      <td className="px-3 py-2 font-medium">{r.winnerName}</td>
+                      <td className="px-3 py-2 font-medium">
+                        {r.winnerName}
+                        {r.manualApcUrl ? (
+                          <a href={r.manualApcUrl} target="_blank" rel="noopener noreferrer" className="block text-xs font-normal text-[var(--muted)] underline">
+                            {MANUAL_ENTRY_TEXT.listSource}
+                          </a>
+                        ) : null}
+                      </td>
                       <td className="px-3 py-2">{fmtAmount(r.contractAmount, r.currency)}</td>
                       <td className="px-3 py-2">{r.awardDate ?? "—"}</td>
                       <td className="px-3 py-2">

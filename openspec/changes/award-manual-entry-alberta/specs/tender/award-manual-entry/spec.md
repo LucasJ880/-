@@ -13,13 +13,13 @@
 
 #### Scenario: 开关关闭
 - **WHEN** 授标情报开关关闭时调用录入接口
-- **THEN** 409 `组织授标情报尚未启用`，授标表的查询次数为 0（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+- **THEN** 409 `组织授标情报尚未启用`，没有新记录；开关在访问授标表之前判断（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 源码断言；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 录入的校验
 采购方、中标方、APC 公告链接 SHALL 必填（去空白后非空，采购方与中标方各 ≤ 200 字）。APC 公告链接 SHALL 先规整（去掉 `#` 之后、主机名小写、去掉路径末尾的 `/`）再判：只接受 `https:`、主机名恰为 `purchasing.alberta.ca`、没有端口与用户名密码、路径不为空、规整后 ≤ 2048 字。招标编号选填 ≤ 100 字；授标日期选填，SHALL 是真实存在的 `年-月-日` 且不晚于今天；合同金额选填，SHALL 是 0 到 1,000,000,000,000 之间、最多两位小数的数字，币种只认 `CAD`、`USD`（缺省 `CAD`，没填金额时忽略）；范围摘要选填 ≤ 2000 字。不合格时 SHALL 返回 400 与第一处错误的那句话，SHALL NOT 写库。
 
 #### Scenario: 逐项校验
-- **WHEN** 分别漏填采购方、中标方、链接；链接是 `http://purchasing.alberta.ca/x`、`https://purchasing.alberta.ca//`、`https://purchasing.alberta.ca:8443/x`、`https://evil.example/purchasing.alberta.ca`；日期是明天、`2023-02-29`；金额是 -1、1.234；币种是 EUR；摘要 2001 字
+- **WHEN** 分别漏填采购方、中标方、链接；链接是 `http://purchasing.alberta.ca/x`、`https://purchasing.alberta.ca//`、`https://purchasing.alberta.ca:8443/x`、`https://evil.example/purchasing.alberta.ca`；日期是后天、`2023-02-29`；金额是 -1、1.234；币种是 EUR；摘要 2001 字
 - **THEN** 每次 400，依次是 `请填写采购方。`、`请填写中标方。`、`请填写 APC 公告链接。`、四次 `APC 公告链接要以 https://purchasing.alberta.ca/ 开头，并指向具体的公告。`、两次 `授标日期要写成 年-月-日，且不能晚于今天。`、两次 `合同金额要是不小于 0 的数字，最多两位小数。`、`币种只能是 CAD 或 USD。`、`范围摘要太长了（最多 2000 字）。`；库里没有新记录（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 落库口径

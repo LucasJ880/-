@@ -14,6 +14,7 @@ import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { listAwardsForOrg, toAmountNumber } from "@/lib/tender-intel/awards";
 import { deriveAwardIntelligence } from "@/lib/tender-intel/award-intelligence";
 import { isT4AwardSchemaReady } from "@/lib/tender-intel/award-flags";
+import { MANUAL_APC_SOURCE_PREFIX, listableApcUrl } from "@/lib/tender-intel/award-manual-entry";
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
@@ -61,11 +62,39 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const membership = isSuperAdmin(user.role) ? null : await getOrgMembership(user.id, orgId);
   const canReview =
     isSuperAdmin(user.role) || (membership?.status === "active" && hasOrgRole(membership.role, "org_admin"));
+  // CHAIN-1b：Alberta 授标的人工录入——本组织 org_member 以上的有效成员（平台超级管理员按既有规则）
+  const canEnterManual =
+    isSuperAdmin(user.role) || (membership?.status === "active" && hasOrgRole(membership.role, "org_member"));
+  // 列表里只显示人工录入的 APC 链接（再校验一次主机）；别的来源的链接与原文片段不返回
+  const apcSources = records.length
+    ? await db.awardRecordSource.findMany({
+        where: { orgId, awardRecordId: { in: records.map((r) => r.id) }, sourceType: "USER_ENTRY", sourceKey: { startsWith: MANUAL_APC_SOURCE_PREFIX } },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { awardRecordId: true, sourceType: true, sourceKey: true, sourceUrl: true },
+      })
+    : [];
+  const apcByRecord = new Map<string, string>();
+  for (const src of apcSources) {
+    if (apcByRecord.has(src.awardRecordId)) continue;
+    const url = listableApcUrl(src);
+    if (url) apcByRecord.set(src.awardRecordId, url);
+  }
+  // 采购方候选：本组织项目的采购方写法 + 已有授标的采购方写法（去重，最多 200 个），只给能录入的人
+  let buyerSuggestions: string[] = [];
+  if (canEnterManual) {
+    const [projectBuyers, awardBuyers] = await Promise.all([
+      db.project.findMany({ where: { orgId, clientOrganization: { not: null } }, select: { clientOrganization: true }, distinct: ["clientOrganization"], take: 200 }),
+      db.awardRecord.findMany({ where: { orgId, buyerNameRaw: { not: null }, status: { not: "RETRACTED" } }, select: { buyerNameRaw: true }, distinct: ["buyerNameRaw"], take: 200 }),
+    ]);
+    buyerSuggestions = [...new Set([...projectBuyers.map((p) => p.clientOrganization), ...awardBuyers.map((a) => a.buyerNameRaw)].map((b) => (b ?? "").trim()).filter(Boolean))].slice(0, 200);
+  }
 
   return NextResponse.json({
     orgId,
     available: true,
     canReview,
+    canEnterManual,
+    buyerSuggestions,
     records: records.map((r) => ({
       id: r.id,
       buyerName: r.buyerNameRaw,
@@ -80,6 +109,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
       projectId: r.projectId,
       possibleDuplicateOfId: r.possibleDuplicateOfId,
       confirmedAt: r.confirmedAt ? r.confirmedAt.toISOString() : null,
+      manualApcUrl: apcByRecord.get(r.id) ?? null,
     })),
     intelligence,
   });
