@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-20 第四十四次（情报串联 CHAIN：CHAIN-4a #526 / #527、CHAIN-2 #528 / #529、CHAIN-3 #530 / #531 已合并并归档，CHAIN-1 前置核查不通过已停；新增规则「多维审查」；新会话从 §0.5h 进。上一次：2026-11-19 第四十三次，CHAIN-4b / CHAIN-0c） |
+| 最后更新 | 2026-11-20 第四十五次（生产实测修复：FIX-12 一键分析不再被 300 秒硬杀，Draft PR __PR12__；FIX-13 解析出的 U+0000 让文件「解析失败」且看不到原因，四件套待审；记录：生产 GPT-6 Astra 未启用。新会话从 §0.5i 进。上一次：2026-11-20 第四十四次，情报串联 CHAIN） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]`；Phase F（续）情报串联：CHAIN-0c、CHAIN-4b、CHAIN-4a、CHAIN-2、CHAIN-3 为 `[x]`，CHAIN-0 `[~]`（第 2–7 项待生产权限），CHAIN-1 `[ ]`（前置核查不通过，已停） |
 | 工作分支 | 没有进行中的链。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用。情报串联：CHAIN-0c、CHAIN-4b 不加开关，合并即生效；CHAIN-4a、CHAIN-2、CHAIN-3 都在默认关的开关之后，生产未启用（§0.5h） |
-| 进行中的 change | 没有。情报串联能在容器里做的都已做完，剩下的见 §0.5h「之后还有什么」。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
+| 进行中的 change | `tender-analysis-call-deadline`（FIX-12，已实施，Draft PR __PR12__，分支 `claude/amazing-planck-0s5wnb`）；`document-parse-nul-and-reason`（FIX-13，四件套待审，分支 `claude/amazing-planck-0s5wnb-parse-error`）。见 §0.5i。情报串联能在容器里做的都已做完，剩下的见 §0.5h「之后还有什么」。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
 
 ---
 
@@ -347,6 +347,24 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 - 隔离库：本机 Postgres 16（`pg_ctlcluster 16 main start`），先 `apt-get install -y postgresql-16-pgvector` 才能 `prisma migrate deploy`；环境变量 `DATABASE_URL` / `DIRECT_URL` 指 localhost、`NODE_ENV=test DATABASE_ENVIRONMENT=isolated`，另要 `JWT_SECRET`（测试值即可）。Postgres 可能中途停掉，跑隔离库前先 `pg_lsclusters`。
 - 全量 `npm test` 带隔离库约 1.5 小时；**不要同时在同一个库上并行跑别的隔离库测试**（本会话因此让 Mention Gateway M2-A 撞了唯一约束）。在本机 main 上也失败的 9 项名单见 `docs/QINGYAN_CHAIN-4b_REPORT.md` §5，比对时用。（第四十四次：现在是 11 项，CHAIN-3 时 701/712，名单见 `docs/QINGYAN_CHAIN-3_REPORT.md` §4。）
 - 判重 / 查找类逻辑别靠「读最早 N 条」：CHAIN-3 第一轮审查就抓到查重只读 2000 条；按键用 `$queryRaw` 在 JSON 字段上查（`"rawMetadataJson"->>'dedupeKey' = ANY(...)`）。
+
+### 0.5i 生产实测修复（FIX-12 / FIX-13，2026-11-20）
+
+来源：Lucas 2026-11-20 生产实测（项目「12-3 Indoor Canadian Flag」，Job 09:27 创建）发现三件事：「各开一个 change、Draft PR，流程照旧」；第 3 件「只在交接文档里记一笔，不改」。三件各用一个从 `claude/amazing-planck-0s5wnb` 派生的分支、各一个 Draft PR、都直接指向 `main`、互不叠层（Lucas 同意）。**这次没有合并授权**：Draft PR 由 Lucas / Evan 看过后合并。
+
+| 件 | change / TASKFLOW | 分支 | PR | 状态 |
+|---|---|---|---|---|
+| 1 一键分析第 3 步被 Vercel 300 秒硬杀（09:46:29、09:54:29 两次 504）；11-19「12-01」的「长时间没有进展」同一根因 | `tender-analysis-call-deadline` / FIX-12 | `claude/amazing-planck-0s5wnb` | Draft __PR12__ | 已实施；报告 `docs/QINGYAN_FIX-12_REPORT.md`。四件套 Lucas 同意；截止失败计入窗口 3 次上限同意；窗口开批门槛 45 → 80 秒是 Lucas 的建议、已采纳（design D8） |
+| 2 招标文件「文件解析失败」不显示原因（上传 6、纳入 4，两份 `2026004-Appendix-B-RFP-e(PDF).pdf` / `-f(PDF).pdf` 被排除） | `document-parse-nul-and-reason` / FIX-13 | `claude/amazing-planck-0s5wnb-parse-error` | 未开（四件套已推到分支，等审） | 修法 Lucas 已定：两条解析路径写库前清掉 U+0000（顺带落单代理字符），不解密；界面显示 `parseError` 原文 |
+| 3 生产 GPT-6 Astra 未启用 | — | — | — | 只记录（见下面第 3 条） |
+
+接手要知道的：
+
+1. **FIX-12 的根因（已核对代码）**：窗口超时按剩余预算裁到 35.3 秒是对的，但被中止后 `createTenderCompletion`（`src/lib/ai/model-policy/tender.ts`）的换备用（terra → sol）和 `callStructured`（`src/lib/tender-understanding/llm.ts`）的「瞬时错误再试一次」都沿用同一个超时——一次窗口调用最多四段。**t+260s 那轮 terra / retryCount 0 来自 `callStructured` 的重试**（钉住的模型只在备用成功后才换，`retryCount` 缺省 0），不是窗口层。修法：每个阶段算一个绝对截止时间（切片截止 − 15 秒）带到每一次请求；剩余 < 5 秒不再重试 / 换模型（错误码 `CALL_DEADLINE_EXCEEDED`），以 `call_deadline` 让出。回归测试 `src/lib/tender-auto-analysis/__tests__/v2-slice-deadline.test.ts` 用虚拟时钟复现了生产时间线（改前 330 秒，改后 190 秒让出）。
+2. **FIX-13 的根因（Lucas 本地证实）**：英文版 Appendix B 用 unpdf 1.4.0 `extractText(mergePages:false)` 读出 4 页，第 2 页利益冲突一节的勾选框被抽成 1 个 U+0000（`"...check the box.\n\u0000 The Bidder declare..."`），其余页为 0，落单代理字符 0；`pdffonts` 显示有 SymbolMT（CID TrueType、Identity-H）。PostgreSQL 文本列不收 U+0000（22021），整份写库失败、被标成「failed」。去掉权限加密后的版本同样含该字符——**加密已排除**。法文版没测，按同一来源推断相同。生产库查询改为可选（有权限的人复核用）：`SELECT d.title, d."parseStatus", d."parseError" FROM "ProjectDocument" d JOIN "Project" p ON p.id = d."projectId" WHERE p.name = '12-3 Indoor Canadian Flag';`。排查时已排除：文件名里的「(PDF)」（上传时括号换成下划线，Blob 路径来回一致）。
+3. **记录（不改）**：生产 `ai.call` 日志 `flagDecision = kill_switch`（`ENABLE_GPT6_ASTRA` 没开，`src/lib/ai/model-policy/flags.ts` 约 75 行），实际模型 `gpt-5.6-terra`（招标角色的基线是推理模型），备用 `gpt-5.6-sol`；**GPT-6 Astra 当前未启用**。后果：`tender.ts` 里的同模型重试（`retry_same`）只对 Astra 生效，生产上第一次失败就直接换 sol；`tender.ts` 头注释「GPT-6 Astra 是招标推理主模型」写的是开关打开之后的状态。要不要开由 Lucas 定。
+4. **上线后**：FIX-12 合并部署后，「12-01」「12-3」两个项目在项目页点「重新分析」；Vercel 上 `/api/cron/agent-runs` 不应再有 300 秒 504。FIX-13 合并部署后，打开「12-3」的项目文件页（会自动重试失败的文件）或点重试，确认两份附录 B 变为已解析，再重新发起分析。
+5. 本会话的环境做法同 §0.5h「本会话的环境做法」（Node 24、本机 Postgres + pgvector、隔离库变量）；两个 change 各在自己的 git worktree 里做，避免一个跑全量测试时另一个切分支。
 
 ### 0.6 实施中沿用的约定
 
