@@ -21,6 +21,12 @@ import {
   TENDER_PRIMARY_WHEN_ENABLED,
   TENDER_WORKFLOW,
   createPinnedTenderInvoker,
+  createTenderCompletion,
+  classifyModelError,
+  isTenderCallDeadlineError,
+  TenderCallDeadlineError,
+  TENDER_RETRY_MIN_BUDGET_MS,
+  type TenderCompletionFn,
 } from "../index";
 
 let total = 0;
@@ -287,7 +293,167 @@ expect(
   "tender UNKNOWN discipline remains enforced",
 );
 
-console.log(
-  `\n${failed === 0 ? "✅" : "❌"} gpt6-tender: ${total - failed}/${total}`,
+/* ---------------- FIX-12：调用截止时间贯穿同模型重试 / 换备用 ---------------- */
+
+type Req = { model: string; timeoutMs: number | undefined; at: number; retryCount?: number };
+
+/** 顺序调用的假模型 + 假时钟：每次请求把时钟拨过 min(耗时, 超时)。 */
+function scripted(
+  steps: Array<{ latencyMs: number; error?: { status?: number; message: string } }>,
+  startAt = 1_000_000,
+) {
+  let t = startAt;
+  const reqs: Req[] = [];
+  const complete: TenderCompletionFn = async (opts) => {
+    const step = steps[reqs.length] ?? { latencyMs: 1, error: { message: "no more steps" } };
+    reqs.push({ model: opts.model ?? "?", timeoutMs: opts.timeoutMs, at: t, retryCount: opts.retryCount });
+    const timeout = opts.timeoutMs ?? Number.POSITIVE_INFINITY;
+    t += Math.min(step.latencyMs, timeout);
+    if (step.latencyMs > timeout) {
+      throw Object.assign(new Error("Request was aborted."), { name: "APIUserAbortError" });
+    }
+    if (step.error) throw Object.assign(new Error(step.error.message), { status: step.error.status });
+    return { content: "{}", finishReason: "stop", model: opts.model ?? "?", elapsedMs: step.latencyMs };
+  };
+  return { complete, reqs, now: () => t, start: startAt };
+}
+
+const terraPolicy = resolveTenderModelPolicy({ env: {} });
+const astraPolicy = resolveTenderModelPolicy({ env: { ENABLE_GPT6_ASTRA: "1" } });
+
+async function deadlineCases() {
+  // DL-01 本方截止中止 → 零重试、零换模型
+  {
+    const m = scripted([{ latencyMs: Number.POSITIVE_INFINITY }]);
+    let err: unknown = null;
+    try {
+      await createTenderCompletion({
+        systemPrompt: "s", userPrompt: "u", timeoutMs: 180_000,
+        pinnedPolicy: terraPolicy, deadlineAt: m.start + 35_300, now: m.now, complete: m.complete,
+      });
+    } catch (e) { err = e; }
+    expect(isTenderCallDeadlineError(err), "DL-01 截止中止 → CALL_DEADLINE_EXCEEDED");
+    expect(m.reqs.length === 1 && m.reqs[0]!.timeoutMs === 35_300, "DL-01 只发一次请求，超时 = 剩余 35.3s");
+  }
+  // DL-02 剩余充足时照旧换备用，超时不超过剩余
+  {
+    const m = scripted([{ latencyMs: 10_000, error: { status: 429, message: "429 rate limit" } }, { latencyMs: 2_000 }]);
+    const res = await createTenderCompletion({
+      systemPrompt: "s", userPrompt: "u", timeoutMs: 100_000,
+      pinnedPolicy: terraPolicy, deadlineAt: m.start + 70_000, now: m.now, complete: m.complete,
+    });
+    expect(res.fallbackUsed && m.reqs.length === 2, "DL-02 主模型限流 → 照旧换备用");
+    expect(
+      m.reqs[1]!.model === terraPolicy.fallbackModel && m.reqs[1]!.timeoutMs === 60_000,
+      `DL-02 备用超时 = 剩余 60s（实际 ${m.reqs[1]!.timeoutMs}）`,
+    );
+  }
+  // DL-03 不带截止时间：备用超时 = 原超时（旧行为）
+  {
+    const m = scripted([{ latencyMs: 10_000, error: { status: 429, message: "429 rate limit" } }, { latencyMs: 2_000 }]);
+    await createTenderCompletion({
+      systemPrompt: "s", userPrompt: "u", timeoutMs: 100_000,
+      pinnedPolicy: terraPolicy, now: m.now, complete: m.complete,
+    });
+    expect(
+      m.reqs.length === 2 && m.reqs[0]!.timeoutMs === 100_000 && m.reqs[1]!.timeoutMs === 100_000,
+      "DL-03 无截止时间 → 主 / 备超时都 = 调用方给的 100s",
+    );
+  }
+  // DL-04 剩余不足 1 秒 → 不发请求
+  {
+    const m = scripted([{ latencyMs: 1 }]);
+    let err: unknown = null;
+    try {
+      await createTenderCompletion({
+        systemPrompt: "s", userPrompt: "u", timeoutMs: 60_000,
+        pinnedPolicy: terraPolicy, deadlineAt: m.start + 900, now: m.now, complete: m.complete,
+      });
+    } catch (e) { err = e; }
+    expect(isTenderCallDeadlineError(err) && m.reqs.length === 0, "DL-04 剩余 0.9s → 不发请求");
+  }
+  // DL-05 结构化层的重试：剩余 < 5s 不发；≥ 5s 照发且超时 ≤ 剩余
+  {
+    const m = scripted([{ latencyMs: 1 }]);
+    let err: unknown = null;
+    try {
+      await createTenderCompletion({
+        systemPrompt: "s", userPrompt: "u", timeoutMs: 60_000, structuredRetry: true,
+        pinnedPolicy: terraPolicy, deadlineAt: m.start + TENDER_RETRY_MIN_BUDGET_MS - 1, now: m.now, complete: m.complete,
+      });
+    } catch (e) { err = e; }
+    expect(isTenderCallDeadlineError(err) && m.reqs.length === 0, "DL-05 结构化重试、剩余 < 5s → 不发");
+    const m2 = scripted([{ latencyMs: 1 }]);
+    await createTenderCompletion({
+      systemPrompt: "s", userPrompt: "u", timeoutMs: 60_000, structuredRetry: true,
+      pinnedPolicy: terraPolicy, deadlineAt: m2.start + 10_000, now: m2.now, complete: m2.complete,
+    });
+    expect(m2.reqs.length === 1 && m2.reqs[0]!.timeoutMs === 10_000, "DL-05 结构化重试、剩余 10s → 照发，超时 10s");
+  }
+  // DL-06 不可重试的错误仍按原错误抛出（不被改写成截止）
+  {
+    const m = scripted([{ latencyMs: 1_000, error: { status: 400, message: "400 invalid_request" } }]);
+    let err: unknown = null;
+    try {
+      await createTenderCompletion({
+        systemPrompt: "s", userPrompt: "u", timeoutMs: 60_000,
+        pinnedPolicy: terraPolicy, deadlineAt: m.start + 2_000, now: m.now, complete: m.complete,
+      });
+    } catch (e) { err = e; }
+    expect(!isTenderCallDeadlineError(err) && m.reqs.length === 1, "DL-06 400 → 原错误、不重试");
+  }
+  // DL-07 Astra 同模型重试也只用剩余；重试失败后剩余 < 5s → 不再换备用
+  {
+    const m = scripted([
+      { latencyMs: 40_000, error: { status: 500, message: "500 server error" } },
+      { latencyMs: 27_000, error: { status: 500, message: "500 server error" } },
+    ]);
+    let err: unknown = null;
+    try {
+      await createTenderCompletion({
+        systemPrompt: "s", userPrompt: "u", timeoutMs: 180_000,
+        pinnedPolicy: astraPolicy, deadlineAt: m.start + 70_000, now: m.now, complete: m.complete,
+      });
+    } catch (e) { err = e; }
+    expect(
+      astraPolicy.model !== terraPolicy.model && m.reqs.length === 2 && m.reqs[1]!.model === astraPolicy.model && m.reqs[1]!.timeoutMs === 30_000,
+      `DL-07 Astra 同模型重试超时 = 剩余 30s（实际 ${m.reqs[1]?.timeoutMs}）`,
+    );
+    expect(isTenderCallDeadlineError(err), "DL-07 重试失败后剩余 3s → 截止，不换备用");
+  }
+  // DL-08 截止错误不会被任何一层判为可重试
+  expect(
+    classifyModelError(new TenderCallDeadlineError(0, new Error("Request was aborted."))) === "non_retryable",
+    "DL-08 截止错误分类为 non_retryable",
+  );
+  // DL-09 钉住模型的 invoker 透传截止时间
+  {
+    const m = scripted([{ latencyMs: Number.POSITIVE_INFINITY }]);
+    const inv = createPinnedTenderInvoker({ env: {}, now: m.now, complete: m.complete });
+    let err: unknown = null;
+    try {
+      await inv({
+        promptName: "p", promptVersion: "v", systemPrompt: "s", userPrompt: "u",
+        maxTokens: 10, timeoutMs: 180_000, deadlineAt: m.start + 20_000,
+      });
+    } catch (e) { err = e; }
+    expect(
+      isTenderCallDeadlineError(err) && m.reqs.length === 1 && m.reqs[0]!.timeoutMs === 20_000,
+      "DL-09 pinned invoker 透传 deadlineAt：超时 20s、截止后零重试",
+    );
+    expect(inv.snapshot().activeModel === terraPolicy.model, "DL-09 截止失败不改钉住的模型");
+  }
+}
+
+deadlineCases().then(
+  () => {
+    console.log(
+      `\n${failed === 0 ? "✅" : "❌"} gpt6-tender: ${total - failed}/${total}`,
+    );
+    if (failed) process.exit(1);
+  },
+  (e) => {
+    console.error(e);
+    process.exit(1);
+  },
 );
-if (failed) process.exit(1);

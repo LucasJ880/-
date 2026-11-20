@@ -13,6 +13,8 @@
 import type { z } from "zod";
 import {
   createPinnedTenderInvoker,
+  isTenderCallDeadlineError,
+  TENDER_CALL_DEADLINE_CODE,
   type TenderStage,
 } from "@/lib/ai/model-policy";
 import { PROMPT_EXTRACT } from "./prompts";
@@ -25,6 +27,13 @@ export type LlmCallRequest = {
   maxTokens: number;
   timeoutMs: number;
   tenderStage?: TenderStage;
+  /**
+   * 调用截止时间（epoch ms，FIX-12）：本次调用连同全部重试与换模型都不越过它。
+   * 生产 invoker 据此裁剪每次请求的超时；截止触发时抛带 code=CALL_DEADLINE_EXCEEDED 的错误。
+   */
+  deadlineAt?: number;
+  /** callStructured 在一次失败之后的重试（只在带 deadlineAt 时设置） */
+  retry?: boolean;
 };
 
 export type LlmCallResponse = {
@@ -110,7 +119,8 @@ export type StructuredCallResult<T> =
       errorCode:
         | "TRANSIENT_MODEL_ERROR"
         | "INVALID_STRUCTURED_OUTPUT"
-        | "EMPTY_OUTPUT";
+        | "EMPTY_OUTPUT"
+        | typeof TENDER_CALL_DEADLINE_CODE;
       logs: LlmCallLog[];
     };
 
@@ -128,8 +138,27 @@ export async function callStructured<T>(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let res: LlmCallResponse;
     try {
-      res = await invoker({ ...req, userPrompt });
+      res = await invoker({
+        ...req,
+        userPrompt,
+        // 带截止时间时告诉 invoker「这是失败之后的重试」：剩余不足就不发（FIX-12）
+        ...(attempt > 1 && req.deadlineAt != null ? { retry: true } : {}),
+      });
     } catch (err) {
+      if (isTenderCallDeadlineError(err)) {
+        // 截止：不做 transient 重试、不做结构化重试，直接交回调用方让出
+        logs.push({
+          promptName: req.promptName,
+          promptVersion: req.promptVersion,
+          model: "unknown",
+          elapsedMs: 0,
+          inputChars: req.systemPrompt.length + userPrompt.length,
+          outputChars: 0,
+          ok: false,
+          errorCode: TENDER_CALL_DEADLINE_CODE,
+        });
+        return { ok: false, errorCode: TENDER_CALL_DEADLINE_CODE, logs };
+      }
       logs.push({
         promptName: req.promptName,
         promptVersion: req.promptVersion,

@@ -22,7 +22,8 @@ TASKFLOW：FIX-12（Phase F（续）— 生产实测修复，2026-11-20）
 - 剩余不足 1 秒时不再发起请求；一次请求失败后剩余不足 5 秒（我方截止触发的中止必然落在这里）时，不做同模型重试、不换备用模型、不做结构化输出重试，直接返回错误码 `CALL_DEADLINE_EXCEEDED`。
 - 窗口阶段：拿到 `CALL_DEADLINE_EXCEEDED` 的窗口记一次失败（计入既有的 3 次上限），本批结果写检查点后立即让出本切片，让出理由 `call_deadline`。
 - 澄清、Analyst 两遍、落库前的中文化同样带截止时间；澄清 / Analyst 遇到截止按既有失败语义记下后让出，中文化遇到截止按既有「这一批保留原文」处理。
-- 新增回归测试：注入慢模型（不在超时内返回），按生产时间线（240 秒预算、t+190s 起一批）驱动一个切片，断言从开始到让出（含所有重试）不超过 `预算 + PHASE_SAFETY_MS`，且中止后没有任何重试或换模型的请求；同一测试在只加测试注入口、不加截止判断的代码上失败（t+330s 才结束）。
+- 把窗口阶段「开一批新窗口」的剩余时间门槛从 45 秒提到 80 秒（design D8）：生产日志单次窗口调用 17–73 秒，45 秒门槛下一批最短只拿到 30 秒超时，t+190s 那批注定被裁短；80 秒时最短超时 65 秒。其它阶段门槛不变。
+- 新增回归测试：注入慢模型（不在超时内返回），按 240 秒预算驱动一个切片，断言从开始到让出（含所有重试）不超过 `预算 + PHASE_SAFETY_MS`，且中止后没有任何重试或换模型的请求；另按生产时间线（两批各 95 秒、t+190s 还有窗口）断言不再开批、零裁短。两个用例在只加测试注入口、不加截止判断与新门槛的代码上都失败（分别到 t+435s、t+330s 才结束）。
 - 补单元测试：招标模型调用层在有剩余时仍按原规则重试 / 换模型且每次超时不超过剩余；没有截止时间的调用方行为逐字节不变。
 
 ## Capabilities
@@ -37,14 +38,14 @@ TASKFLOW：FIX-12（Phase F（续）— 生产实测修复，2026-11-20）
 
 ## Impact
 
-- 代码：`src/lib/ai/model-policy/tender.ts`（截止时间、重试 / 换模型前的剩余判断、测试注入口）、`src/lib/tender-understanding/llm.ts`（请求带截止时间、遇截止不重试、新错误码）、`src/lib/tender-understanding/analyzer.ts` / `clarify.ts`、`src/lib/tender-analyst/synthesize.ts`（透传）、`src/lib/tender-auto-analysis/v2-resumable.ts`（每阶段算截止、截止即让出）、`src/lib/tender-auto-analysis/requirement-translate.ts`（中文化带截止）。
+- 代码：`src/lib/ai/model-policy/tender.ts`（截止时间、重试 / 换模型前的剩余判断、测试注入口）、`src/lib/tender-understanding/llm.ts`（请求带截止时间、遇截止不重试、新错误码）、`src/lib/tender-understanding/analyzer.ts` / `clarify.ts`、`src/lib/tender-analyst/synthesize.ts`（透传）、`src/lib/tender-auto-analysis/v2-resumable.ts`（每阶段算截止、截止即让出）、`src/lib/tender-auto-analysis/v2-cursor.ts`（窗口门槛 45s → 80s）、`src/lib/tender-auto-analysis/requirement-translate.ts`（中文化带截止）。
 - 两条入口都受益：workforce 的 `/api/cron/agent-runs`（一键分析）与旧的 `/api/cron/tender-auto-analysis`，都经同一个 `advanceV2Analysis`。
 - 测试：新增 `src/lib/tender-auto-analysis/__tests__/v2-slice-deadline.test.ts`（注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`）；扩 `src/lib/ai/model-policy/__tests__/tender.test.ts`。
 - 无 schema、无新开关、无新队列、无新 LLM 调用（只会少调）；合并即生效。
 
 ## Out of scope
 
-- 不改切片预算与阈值：`AGENT_RUNS_INVOCATION_BUDGET_MS`（240s）、`maxDuration`（300s）、`V2_PHASE_MIN_MS`、`PHASE_SAFETY_MS`（15s）、`MAX_WINDOW_ATTEMPTS`（3）、各阶段超时上限都不动。
+- 不改切片预算与其它阈值：`AGENT_RUNS_INVOCATION_BUDGET_MS`（240s）、`maxDuration`（300s）、`V2_PHASE_MIN_MS` 里窗口以外的各阶段门槛、`PHASE_SAFETY_MS`（15s）、`HARD_MIN_PHASE_MS`（10s）、`MAX_WINDOW_ATTEMPTS`（3）、各阶段超时上限都不动。
 - 不改 `ai.call` 日志里 `retryCount` 的口径（结构化输出层的重试仍记 0）；本次只在报告里写明它的来源。
 - 不改 `kickQueuedWorkforceJobSlice` 以「被调用时刻」起算预算的做法（只在路由层调用，与本次 504 无关）。
 - 不改切片之外的模型调用方（报价推导、分析备忘、供应商情报、补翻端点以外的调用等）：它们不传截止时间，行为不变。
