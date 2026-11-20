@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-20 第四十六次（Lucas 对五个 GATE 问题（涉及 #532 / #534 / #536）的回答已落实：#534 撤回要填原因、#536 收紧匹配与链接形状；新开两个 Draft PR：CHAIN-2c #539、CHAIN-2d #538。七个 Draft PR **都没有合并**（#532–#536、#538、#539）；新会话从 §0.5h「第四十六次」进。上一次：同日第四十五次） |
+| 最后更新 | 2026-11-20 第四十七次（Lucas 第三轮回答「#539的规则不用变，532统一，534 需要单独计数，536 不要限制」：#534 单独计数已做并推送；#532 ④「统一」新开 CHAIN-2e，四件套已写、分支已推送、**还没实现、没开 PR**；账号额度将尽，交接给下一个账号。七个 Draft PR **都没有合并**；新会话从 §0.5h「第四十七次」进。上一次：同日第四十六次） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
-| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]`；Phase F（续）情报串联：CHAIN-0c、CHAIN-4b、CHAIN-4a、CHAIN-2、CHAIN-3 为 `[x]`，CHAIN-0 `[~]`（第 2–7 项待生产权限），CHAIN-1 `[ ]`（前置核查不通过，已停）；CHAIN-4c / 2b / 3b / 3c / 1b / 2c / 2d 七行在各自的 Draft PR 里（`[~]`，main 上的 TASKFLOW 还没有这七行，合并后才有） |
-| 工作分支 | 没有叠层的链。七个 Draft PR 各在 `claude/inspiring-johnson-o54xbt-chain-{4c,2b,3b,3c,1b,2c,2d}`，都从 main `91d928e4` 开、直接指向 `main`。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
+| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]`；Phase F（续）情报串联：CHAIN-0c、CHAIN-4b、CHAIN-4a、CHAIN-2、CHAIN-3 为 `[x]`，CHAIN-0 `[~]`（第 2–7 项待生产权限），CHAIN-1 `[ ]`（前置核查不通过，已停）；CHAIN-4c / 2b / 3b / 3c / 1b / 2c / 2d 七行在各自的 Draft PR 里（`[~]`，main 上的 TASKFLOW 还没有这七行，合并后才有）；CHAIN-2e 只有四件套（分支上，TASKFLOW 行还没加） |
+| 工作分支 | 没有叠层的链。七个 Draft PR 各在 `claude/inspiring-johnson-o54xbt-chain-{4c,2b,3b,3c,1b,2c,2d}`，都从 main `91d928e4` 开、直接指向 `main`；CHAIN-2e 在 `claude/inspiring-johnson-o54xbt-chain-2e`（同样从 `91d928e4` 开，还没有 PR）。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用。情报串联：CHAIN-0c、CHAIN-4b 不加开关，合并即生效；CHAIN-4a、CHAIN-2、CHAIN-3 都在默认关的开关之后，生产未启用（§0.5h） |
-| 进行中的 change | 七个，各在自己的分支上、Draft PR 待审（main 上 `openspec list` 仍为空）：`rfq-web-entry-spec-split`（#533）、`pricing-helper-finance-gate`（#532）、`bid-readiness-import-leads`（#535）、`import-leads-alias-admin-revoke`（#534）、`award-manual-entry-alberta`（#536）、`project-owner-change-guard`（#539）、`strategy-memo-cost-strip`（#538），见 §0.5h「第四十五次」「第四十六次」。合并后各自 `/opsx:archive <change> --yes`（独立小 PR）。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
+| 进行中的 change | 七个，各在自己的分支上、Draft PR 待审（main 上 `openspec list` 仍为空）：`rfq-web-entry-spec-split`（#533）、`pricing-helper-finance-gate`（#532）、`bid-readiness-import-leads`（#535）、`import-leads-alias-admin-revoke`（#534）、`award-manual-entry-alberta`（#536）、`project-owner-change-guard`（#539）、`strategy-memo-cost-strip`（#538），见 §0.5h「第四十五次」「第四十六次」；另有第八个 `finance-view-compare-quote-gate`（CHAIN-2e，只有四件套、没有 PR，见「第四十七次」）。合并后各自 `/opsx:archive <change> --yes`（独立小 PR）。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
 
 ---
 
@@ -334,6 +334,36 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 每个改动都按规则走了四维度审查（每个子 agent 一个维度）与全量门禁（各 PR 正文与报告 §4 / §5）。新的或仍未答的 GATE 问题：#539 三条（谁能换负责人的范围、组织管理员借同伙绕回、中标转执行可自选负责人）；#538 五条后续（旧版投标文件草稿未裁剪等）；#536 ④ 的疑似重复选择；以及还没答的旧问题——#532 ④ 两处口径不同的页面、#534 ③ 否决了几对要不要单独计数、#536 ③ 组织管理员自录自确认。后续另有 #539 的两条：`POST /api/ops/projects` 新建时不查负责人是否本组织有效成员；负责人离开组织后仍有写权限与财务特权（既有问题）。
 
 **合并顺序（第四十六次更新，取代上面「合并时要知道的」里的顺序与冲突说法）**：#533 → #532 → #535 → #534 → #536 → #539 → #538（#538 必须在 #532 之后；按此顺序演练归档七个，`--specs --strict` 147 / 147）。归档时另要改：#539、#538 都不加开关、合并即生效（页头「性质」行补上），并改下面第四十五次「之后还有什么」第 2 条里对应的那两项。冲突：#535 × #534 两处（见上）；TASKFLOW 情报串联表 CHAIN-2 行后 #532 / #539 / #538 各加一行，保留全部（2b、2c、2d）。其余两两试合干净。
+
+**第四十七次（Lucas 2026-11-20 第三轮回答；本账号额度将尽，交接给下一个账号）**：原话「#539的规则不用变，532统一， 534 需要单独计数， 536 不要限制」。
+
+| 问题 | 回答 | 落实（已推送） | 还没做 |
+|---|---|---|---|
+| #539 三条 GATE（谁能换负责人等） | 规则不用变 | 代码不变 | PR #539 正文的 GATE 一节写上回答 |
+| #532 ④ 比价矩阵、同页「报价与成本」卡口径更宽 | 统一（都按财务查看权） | 新开 **CHAIN-2e `finance-view-compare-quote-gate`**：四件套 `f18e1ccf`（分支 `claude/inspiring-johnson-o54xbt-chain-2e`，`openspec validate --strict` 通过）。**只有规划文档，没有实现代码、没有 PR、TASKFLOW 行还没加** | 见下面「CHAIN-2e」；PR #532 正文 GATE ④ 写「已答：统一，另开 CHAIN-2e」 |
+| #534 ③ 否决了几对要不要单独计数 | 要 | `520acdce`：槽里另写 `已标为不是同一家 N 对（涉及 M 条进口记录）`（M 由服务去重算好放进视图 `rejectedPairRecordCount`，`countRecordsTouchingRejected`；不说「不显示」），「已裁决的」一节标题后 `本项目涉及：已确认是同一家 a 对，已标为不是同一家 b 对`。第一版 `e68d61ef` 经四维度审查（每个子 agent 一个维度）发现「因此不显示」不成立、同一条记录重复计，已修；报告 §1 / §2 / §3 / §5 / §6、规格、design D8、tasks、proposal 已同步。单测 131、隔离库 69 过；typecheck、`lint:baseline`、`test:ci`（不带库）、`validate --strict` 过 | **全量 `npm test` 没跑完**（本容器里起了、额度用完前没出结果）——新会话重跑，结果补进报告 §4（「单独计数之后的重跑」，现在 §4 最后一次重跑停在 `8804f7fd`）；PR #534 正文更新（「做了什么」加单独计数一行、多维审查加这一轮、GATE ③ 已答） |
+| #536 ③ 组织管理员自录自确认 | 不要限制 | 代码不变 | PR #536 正文 GATE 一节写上；**#536 ④ 的「不挂时新记录标为疑似重复」仍等 Lucas 确认**（这一轮没答） |
+
+**CHAIN-2e `finance-view-compare-quote-gate`（规划，fork 起草，本账号还没审）**——没有财务查看权（`resolveFinancePrivilege(...).canReadAll`）时：
+
+- 比价矩阵 / AI 报价分析：每家落地价为空，换算说明（运费、保险、关税、清关金额与汇率）清空，一句话结论换成不含金额与百分比的版本，响应带 `costHidden`；分析仍只调一次模型，模型输入里没有落地价。
+- 报价引擎：「看内部成本」只认财务查看权；编辑、批准也要先能看成本（否则编辑接口会漏出成本行）。
+- 询价追踪页：按每行所在项目判断，没权的那格写「落地价只给有财务查看权的人看」。
+- 照常显示：供应商报价原价、排序与「最便宜 / 推荐」标记、交期 / 有效期 / 强制项检查、换算不出的原因；Muse 通道不改（决定 A 允许落地价出）。
+- 要改：`project-finance/access.ts`（加一个出错时收紧的统一判断）、`quote-engine/access.ts`、报价引擎四个组件、`tender-rfq/compare.ts`、比价两条接口、分析面板、`tracker.ts`、`tracker-pure.ts`，新增一个隔离库测试（要在 `scripts/test-all.sh` 注册）。
+- fork 的意外发现（都写在四件套里，**新会话先核对再信**）：① 项目只读角色 `viewer` 也带成本读权限，今天每个项目成员都能看报价引擎内部成本；现有测试用了不存在的角色名 `project_viewer`，测成了「看不到」。② 没有内部权限的人打开单个报价页会一直停在「加载报价引擎…」，改完后只读成员会碰到，本 change 一起修。③ 询价追踪页是第三处显示落地价的地方，GATE ④ 原话没提到。
+- 留给 Lucas 的三个问题（第四十七次总结里已问，**答复前不要实施第 1 条涉及的部分**）：① 不是项目负责人的投标同事（项目角色 `operator`，`bids` 岗位只有本人参与范围的财务读权限）改完后不能新建、编辑、批准报价，接不接受？② 单个报价页的完整成本视图也只给有财务查看权的人、其他人只看客户视图？③ 没权的人仍能看到排序和「最便宜」标记（知道谁便宜、看不到差多少）？
+- 合并顺序：排在 #532 之后（同一口径）；与 #532 / #538 / 其他分支的冲突**未核对**。
+
+**第四十七次时各分支的头**（都已推送）：#533 `chain-4c` `f50ab494`；#532 `chain-2b` `ae7415f3`；#535 `chain-3b` `f9d52315`；#534 `chain-3c` `520acdce`；#536 `chain-1b` `8f47b190`；#538 `chain-2d` `5f7d5c46`；#539 `chain-2c` `d10e2c52`；CHAIN-2e `chain-2e` `f18e1ccf`（分支名前缀都是 `claude/inspiring-johnson-o54xbt-`）。本文件在 `claude/inspiring-johnson-o54xbt`（Draft PR #537）。
+
+**下一个账号按这个顺序做**：
+
+1. 搭环境（下面「本会话的环境做法」；新容器里没有本会话的隔离库与 worktree，要重建）。
+2. #534：在 `chain-3c` 上跑全量 `npm test`（先删 `WeChatGateway` 残留那一行），预期只有 main 上同样的 10 项既有失败（名单见 `docs/QINGYAN_CHAIN-3c_REPORT.md` §4），结果补进报告 §4；更新 PR #534 正文。
+3. 更新 PR #539、#536、#532 正文的 GATE 一节（按上表）。
+4. CHAIN-2e：先按 `openspec/config.yaml` 审四件套（核对上面三条意外发现），等 Lucas 答上面三个问题，再 `/opsx:apply` → `npm test` → `/opsx:verify` → 四维度审查（每个子 agent 一个维度）→ 报告 `docs/QINGYAN_CHAIN-2e_REPORT.md` + TASKFLOW 情报串联表 CHAIN-2 行后加一行 `[~]` → 推送 → **Draft PR**（不合并）。
+5. 更新本文件（第四十八次），用一个子 agent 核对。
 
 **多维审查的执行情况**：#532 实现后四个子 agent 各审一个维度；#533 只改规格，开 PR 前两个维度（规格等价、产物与文档）；#535 / #534 / #536 实现后起初三个子 agent，其中一个同时审「安全」与「规格一致性」，不合 `openspec/config.yaml`「每个只管一个维度」，开 PR 后各补派一个只审规格—代码—测试一致性的子 agent，发现（#534、#536 各一条阻塞）都已修并推上去，PR 正文与报告 §5 照实写了。
 
