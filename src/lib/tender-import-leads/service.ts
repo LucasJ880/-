@@ -21,8 +21,10 @@ import { createImportLead, type ImportLead } from "@/lib/tender-competition/impo
 import { decideAlias, normalizeCompanyName, type AliasDecision } from "@/lib/tender-competition/company-identity";
 import { groupProblems, type DateOrder, type GroupedProblem } from "./parse";
 import { importLeadSourceNotesZh, manualPasteProvider } from "./provider";
-import { candidatePairKeys, createImporterMatcher, uniqueWinnerNames } from "./match-pure";
+import { candidatePairKeys, createCandidatePairFinder, createImporterMatcher, uniqueWinnerNames } from "./match-pure";
+import { IMPORT_LEAD_ALIAS_AUDIT_ACTION, IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, effectiveDecisions, type EffectiveDecision } from "./alias-decisions";
 import {
+  normalizeRevokeReason,
   IMPORT_LEADS_TEXT,
   aggregateByExporter,
   winnersStateMessage,
@@ -30,14 +32,16 @@ import {
   type ImportLeadsView,
   type LinkedSupplierRef,
   type MatchedLeadInput,
+  type DecidedPairView,
   type PendingSuggestionView,
   type WinnersState,
+  countRecordsTouchingRejected,
 } from "./aggregate-pure";
 
 export const IMPORT_LEAD_PLATFORM = "TRADE_DATA";
 export const IMPORT_LEAD_KIND = "import_lead_v1";
 export const IMPORT_LEADS_AUDIT_ACTION = "tender.import_leads_imported";
-export const IMPORT_LEAD_ALIAS_AUDIT_ACTION = "tender.import_lead_alias_decided";
+export { IMPORT_LEAD_ALIAS_AUDIT_ACTION, IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION } from "./alias-decisions";
 export const IMPORT_LEAD_SUPPLIER_AUDIT_ACTION = "tender.import_lead_supplier_added";
 export const IMPORT_LEAD_ALIAS_TARGET = "import_lead_alias";
 export const TRADE_DATA_SUPPLIER_SOURCE = "trade_data";
@@ -72,33 +76,15 @@ export async function loadProjectWinners(orgId: string, buyer: string | null): P
   }
 }
 
-function parseDecision(afterData: string | null, pairKey: string): AliasDecision | null {
-  try {
-    const d = JSON.parse(afterData ?? "") as Partial<AliasDecision>;
-    if (d.pairKey !== pairKey || (d.decision !== "CONFIRMED" && d.decision !== "REJECTED")) return null;
-    return { pairKey: d.pairKey, nameA: String(d.nameA ?? ""), nameB: String(d.nameB ?? ""), decision: d.decision, decidedBy: String(d.decidedBy ?? ""), decidedAt: String(d.decidedAt ?? "") };
-  } catch {
-    return null;
-  }
-}
-
-/** 按对查回最新的裁决（没有条数上限：只查这几对） */
-async function loadDecisions(client: Tx | typeof db, orgId: string, pairKeys: readonly string[]): Promise<AliasDecision[]> {
+/** 按对查回有效的裁决（没有条数上限：只查这几对）；裁决与撤回两种审计行都读，撤回过的不算 */
+async function loadDecisions(client: Tx | typeof db, orgId: string, pairKeys: readonly string[]): Promise<EffectiveDecision[]> {
   if (!pairKeys.length) return [];
   const byTarget = new Map(pairKeys.map((k) => [aliasTargetId(k), k]));
   const rows = await client.auditLog.findMany({
-    where: { orgId, action: IMPORT_LEAD_ALIAS_AUDIT_ACTION, targetType: IMPORT_LEAD_ALIAS_TARGET, targetId: { in: [...byTarget.keys()] } },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { targetId: true, afterData: true },
+    where: { orgId, action: { in: [IMPORT_LEAD_ALIAS_AUDIT_ACTION, IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION] }, targetType: IMPORT_LEAD_ALIAS_TARGET, targetId: { in: [...byTarget.keys()] } },
+    select: { id: true, action: true, targetId: true, afterData: true, createdAt: true },
   });
-  const out = new Map<string, AliasDecision>();
-  for (const r of rows) {
-    const pairKey = r.targetId ? byTarget.get(r.targetId) : undefined;
-    if (!pairKey || out.has(pairKey)) continue;
-    const d = parseDecision(r.afterData, pairKey);
-    if (d) out.set(pairKey, d);
-  }
-  return [...out.values()];
+  return effectiveDecisions(rows, byTarget);
 }
 
 type LeadMeta = {
@@ -190,10 +176,25 @@ type ProjectState = {
   project: { clientOrganization: string | null };
   winners: WinnersState;
   signals: LeadSignal[];
-  decisions: AliasDecision[];
+  decisions: EffectiveDecision[];
   classified: Classified;
   exporters: ExporterSummary[];
+  /** CHAIN-3c：本项目现有记录（不含不采用的）与当前中标者之间「疑似同一家」的对 */
+  activePairKeys: Set<string>;
+  decidedPairs: DecidedPairView[];
+  /** 本项目记录里（不含不采用的）至少涉及一对「不是同一家」的条数（去重） */
+  rejectedPairRecordCount: number;
 };
+
+/** CHAIN-3c：裁决人显示名只取本组织现有成员（没填名字写「本组织成员（未填姓名）」）；其余写「本组织以外的人」（不带邮箱、不带用户 id） */
+async function loadDeciderNames(orgId: string, userIds: readonly string[]): Promise<Map<string, string>> {
+  if (!userIds.length) return new Map();
+  const rows = await db.organizationMember.findMany({
+    where: { orgId, status: "active", userId: { in: [...new Set(userIds)] } },
+    select: { userId: true, user: { select: { name: true } } },
+  });
+  return new Map(rows.map((r) => [r.userId, r.user?.name?.trim() || IMPORT_LEADS_TEXT.unnamedMember]));
+}
 
 async function loadProjectState(orgId: string, projectId: string, now: Date): Promise<ProjectState> {
   const project = await db.project.findFirst({ where: { id: projectId, orgId }, select: { clientOrganization: true } });
@@ -205,6 +206,32 @@ async function loadProjectState(orgId: string, projectId: string, now: Date): Pr
   const winnerNames = winners.status === "ok" ? winners.names : [];
   const decisions = await loadDecisions(db, orgId, candidatePairKeys(signals.map((s) => s.meta.importerRaw), winnerNames));
   const classified = winners.status === "ok" ? classify(signals, winnerNames, decisions) : { matched: [], suggestions: [] };
+  // CHAIN-3c：本项目现有记录涉及的对（不含不采用的）与其中有有效裁决的那些
+  const finder = createCandidatePairFinder(winnerNames);
+  const activePairKeys = new Set<string>();
+  const decisionByPair = new Map(decisions.map((d) => [d.pairKey, d]));
+  const decidedAcc = new Map<string, { importerName: string; winnerName: string; recordCount: number }>();
+  const recordPairKeys: string[][] = [];
+  for (const s of signals) {
+    if (s.status === "REJECTED") continue;
+    const keys: string[] = [];
+    recordPairKeys.push(keys);
+    for (const p of finder(s.meta.importerRaw)) {
+      activePairKeys.add(p.pairKey);
+      keys.push(p.pairKey);
+      if (!decisionByPair.has(p.pairKey)) continue;
+      const cur = decidedAcc.get(p.pairKey) ?? { importerName: s.meta.importerRaw, winnerName: p.winnerName, recordCount: 0 };
+      cur.recordCount += 1;
+      decidedAcc.set(p.pairKey, cur);
+    }
+  }
+  const rejectedPairRecordCount = countRecordsTouchingRejected(recordPairKeys, new Set(decisions.filter((d) => d.decision === "REJECTED").map((d) => d.pairKey)));
+  const names = await loadDeciderNames(orgId, [...decidedAcc.keys()].map((k) => decisionByPair.get(k)!.decidedBy));
+  const decidedPairs: DecidedPairView[] = [...decidedAcc.entries()].map(([pairKey, a]) => {
+    const d = decisionByPair.get(pairKey)!;
+    const decidedOn = /^\d{4}-\d{2}-\d{2}/.test(d.decidedAt) ? d.decidedAt.slice(0, 10) : d.recordedAt.slice(0, 10);
+    return { pairKey, decisionId: d.auditId, importerName: a.importerName, winnerName: a.winnerName, decision: d.decision, deciderName: names.get(d.decidedBy) ?? IMPORT_LEADS_TEXT.formerMember, decidedOn, recordCount: a.recordCount };
+  }).sort((x, y) => (x.decidedOn < y.decidedOn ? 1 : x.decidedOn > y.decidedOn ? -1 : 0));
   const leads: MatchedLeadInput[] = classified.matched.map((s) => ({
     exporterName: s.meta.lead.exporterName,
     shipmentDate: s.meta.lead.shipmentDate,
@@ -213,10 +240,10 @@ async function loadProjectState(orgId: string, projectId: string, now: Date): Pr
     linkedSupplier: s.linkedSupplier,
     linkable: !s.linkedSupplier && (s.status === "NEW" || s.status === "REVIEWED"),
   }));
-  return { project: { clientOrganization: project?.clientOrganization ?? null }, winners, signals, decisions, classified, exporters: aggregateByExporter(leads, { now, requirementTexts }) };
+  return { project: { clientOrganization: project?.clientOrganization ?? null }, winners, signals, decisions, classified, exporters: aggregateByExporter(leads, { now, requirementTexts }), activePairKeys, decidedPairs, rejectedPairRecordCount };
 }
 
-function toView(state: ProjectState, canEdit: boolean): ImportLeadsView {
+function toView(state: ProjectState, canEdit: boolean, canDecideAliases: boolean): ImportLeadsView {
   return {
     caveatZh: IMPORT_LEADS_TEXT.caveat,
     leadStatusZh: IMPORT_LEADS_TEXT.leadStatus,
@@ -227,11 +254,14 @@ function toView(state: ProjectState, canEdit: boolean): ImportLeadsView {
     leadCount: state.classified.matched.length,
     storedLeadCount: state.signals.filter((s) => s.status !== "REJECTED").length,
     canEdit,
+    canDecideAliases,
+    decidedPairs: state.decidedPairs,
+    rejectedPairRecordCount: state.rejectedPairRecordCount,
   };
 }
 
-export async function loadImportLeadsView(input: { orgId: string; projectId: string; canEdit: boolean; now?: Date }): Promise<ImportLeadsView> {
-  return toView(await loadProjectState(input.orgId, input.projectId, input.now ?? new Date()), input.canEdit);
+export async function loadImportLeadsView(input: { orgId: string; projectId: string; canEdit: boolean; canDecideAliases?: boolean; now?: Date }): Promise<ImportLeadsView> {
+  return toView(await loadProjectState(input.orgId, input.projectId, input.now ?? new Date()), input.canEdit, input.canDecideAliases === true);
 }
 
 /* ---------------------------------- 导入 ---------------------------------- */
@@ -257,6 +287,8 @@ export async function importLeads(input: {
   text: string;
   sourceLabel: string | null;
   dateOrder: DateOrder | null;
+  /** CHAIN-3c：返回的视图里带调用人的真实裁决权限 */
+  canDecideAliases?: boolean;
   now?: Date;
 }): Promise<{ ok: true; result: ImportResult; view: ImportLeadsView } | ServiceFailure> {
   const now = input.now ?? new Date();
@@ -352,7 +384,7 @@ export async function importLeads(input: {
     targetId: input.projectId,
     afterData: { batchId, imported: result.imported, matched: result.matched, suggested: result.suggested, duplicates: result.duplicates, unrelated: result.unrelated, problemRecords: parsed.problems.length, totalRecords: parsed.totalRecords, sourceLabel },
   });
-  return { ok: true, result, view: await loadImportLeadsView({ orgId: input.orgId, projectId: input.projectId, canEdit: true, now }) };
+  return { ok: true, result, view: await loadImportLeadsView({ orgId: input.orgId, projectId: input.projectId, canEdit: true, canDecideAliases: input.canDecideAliases === true, now }) };
 }
 
 /* ---------------------------------- 别名裁决 ---------------------------------- */
@@ -363,6 +395,8 @@ export async function decideImportLeadAlias(input: {
   userId: string;
   pairKey: string;
   decision: "CONFIRMED" | "REJECTED";
+  /** 调用人能不能修改本项目（组织管理员一般都能） */
+  canEdit?: boolean;
   now?: Date;
 }): Promise<{ ok: true; view: ImportLeadsView } | ServiceFailure> {
   const now = input.now ?? new Date();
@@ -395,7 +429,61 @@ export async function decideImportLeadAlias(input: {
     return true;
   });
   if (!written) return { ok: false, status: 409, code: "ALREADY_DECIDED", messageZh: IMPORT_LEADS_TEXT.aliasConflict };
-  return { ok: true, view: await loadImportLeadsView({ orgId: input.orgId, projectId: input.projectId, canEdit: true, now }) };
+  return { ok: true, view: await loadImportLeadsView({ orgId: input.orgId, projectId: input.projectId, canEdit: input.canEdit !== false, canDecideAliases: true, now }) };
+}
+
+/* ---------------------------------- 撤回裁决（CHAIN-3c） ---------------------------------- */
+
+/**
+ * 撤回本项目现有记录涉及的一对的当前裁决（调用方已确认是组织管理员）。
+ * 判定：不是本项目现有记录涉及的对 → 404；现在没有有效裁决、或有效裁决不是请求带的那一条 → 409；锁内再查一次 → 409。
+ * 写一条撤回审计行（beforeData = 原裁决，afterData.revokedAuditId 指向原裁决的审计行），不改旧行、不碰信号与供应商。
+ */
+export async function revokeImportLeadAlias(input: {
+  orgId: string;
+  projectId: string;
+  userId: string;
+  pairKey: string;
+  decisionId: string;
+  /** 撤回原因（已规整，必填） */
+  reason: string;
+  canEdit?: boolean;
+  now?: Date;
+}): Promise<{ ok: true; view: ImportLeadsView; revokedDecision: "CONFIRMED" | "REJECTED" } | ServiceFailure> {
+  const now = input.now ?? new Date();
+  // 原因在接口里已规整；这里再规整一次，别的调用方也写不进空原因
+  const reason = normalizeRevokeReason(input.reason);
+  if (!reason.ok) return { ok: false, status: 400, code: reason.code, messageZh: reason.messageZh };
+  const state = await loadProjectState(input.orgId, input.projectId, now);
+  // 中标者名单读不出来时照实说，不当成「这一对不在本项目里」
+  if (state.winners.status !== "ok") return { ok: false, status: 422, code: "NO_WINNERS", messageZh: state.winners.messageZh };
+  if (!state.activePairKeys.has(input.pairKey)) return { ok: false, status: 404, code: "PAIR_NOT_IN_PROJECT", messageZh: IMPORT_LEADS_TEXT.pairNotInProject };
+  const current = state.decisions.find((d) => d.pairKey === input.pairKey);
+  if (!current || current.auditId !== input.decisionId) return { ok: false, status: 409, code: "NOTHING_TO_REVOKE", messageZh: IMPORT_LEADS_TEXT.revokeConflict };
+
+  const targetId = aliasTargetId(input.pairKey);
+  const revoked = await db.$transaction(async (tx) => {
+    await advisoryLock(tx, `import-lead-alias:${input.orgId}:${targetId}`);
+    const latest = (await loadDecisions(tx, input.orgId, [input.pairKey]))[0];
+    if (!latest || latest.auditId !== input.decisionId) return null;
+    const { auditId, recordedAt: _recordedAt, ...decision } = latest;
+    void _recordedAt;
+    await tx.auditLog.create({
+      data: {
+        userId: input.userId,
+        orgId: input.orgId,
+        projectId: input.projectId,
+        action: IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION,
+        targetType: IMPORT_LEAD_ALIAS_TARGET,
+        targetId,
+        beforeData: JSON.stringify(decision),
+        afterData: JSON.stringify({ pairKey: input.pairKey, revokedAuditId: auditId, revokedBy: input.userId, revokedAt: now.toISOString(), reason: reason.reason }),
+      },
+    });
+    return decision.decision;
+  });
+  if (!revoked) return { ok: false, status: 409, code: "NOTHING_TO_REVOKE", messageZh: IMPORT_LEADS_TEXT.revokeConflict };
+  return { ok: true, revokedDecision: revoked, view: await loadImportLeadsView({ orgId: input.orgId, projectId: input.projectId, canEdit: input.canEdit !== false, canDecideAliases: true, now }) };
 }
 
 /* ---------------------------------- 加入供应商库 ---------------------------------- */
@@ -411,6 +499,8 @@ export async function addImportLeadSupplier(input: {
   projectId: string;
   userId: string;
   exporterKey: string;
+  /** CHAIN-3c：返回的视图里带调用人的真实裁决权限 */
+  canDecideAliases?: boolean;
   now?: Date;
 }): Promise<{ ok: true; result: AddSupplierResult; view: ImportLeadsView } | ServiceFailure> {
   const now = input.now ?? new Date();
@@ -480,6 +570,6 @@ export async function addImportLeadSupplier(input: {
   return {
     ok: true,
     result: { supplier: { id: picked.id, name: picked.name, created: picked.created, hasEmail, active }, linkedLeads, messageZh },
-    view: await loadImportLeadsView({ orgId: input.orgId, projectId: input.projectId, canEdit: true, now }),
+    view: await loadImportLeadsView({ orgId: input.orgId, projectId: input.projectId, canEdit: true, canDecideAliases: input.canDecideAliases === true, now }),
   };
 }

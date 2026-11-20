@@ -101,6 +101,27 @@ export function matchImporter(importer: string, winners: readonly string[], deci
 }
 
 /** 本项目所有记录可能用到的「进口商 ⇄ 中标者」候选对（用来按对查裁决）；进口商按规整后名称只比一次 */
+export type CandidatePair = { pairKey: string; winnerName: string };
+
+/**
+ * CHAIN-3c：一个进口商（原文）与中标者之间所有「疑似同一家」的一对（不看裁决）；同一个规整名只算一次。
+ * 「已裁决的」一节与撤回接口据此判断一对是不是本项目现有记录涉及的。
+ */
+export function createCandidatePairFinder(winners: readonly string[]): (importer: string) => CandidatePair[] {
+  const prepared = winners.map(prepareName);
+  const memo = new Map<string, CandidatePair[]>();
+  return (importer: string) => {
+    const imp = prepareName(importer);
+    if (!imp.norm) return [];
+    const hit = memo.get(imp.norm);
+    if (hit) return hit;
+    const out: CandidatePair[] = [];
+    for (const w of prepared) if (relatePrepared(imp, w).relation === "SUGGEST_SAME_ENTITY") out.push({ pairKey: preparedPairKey(imp, w), winnerName: w.raw });
+    memo.set(imp.norm, out);
+    return out;
+  };
+}
+
 export function candidatePairKeys(importers: readonly string[], winners: readonly string[]): string[] {
   const prepared = winners.map(prepareName);
   const seenImporters = new Set<string>();

@@ -18,7 +18,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const body = await readJsonBody(request, 16 * 1024);
   const exporterKey = body && body !== "TOO_LARGE" && typeof body.exporterKey === "string" ? body.exporterKey : "";
   if (!exporterKey) return NextResponse.json({ error: "请求不完整", code: "INVALID_INPUT" }, { status: 400, headers: NO_STORE });
-  const out = await addImportLeadSupplier({ orgId: gate.orgId, projectId, userId: gate.access.user.id, exporterKey });
+  const out = await addImportLeadSupplier({ orgId: gate.orgId, projectId, userId: gate.access.user.id, exporterKey, canDecideAliases: gate.canDecideAliases });
   if (!out.ok) return NextResponse.json({ error: out.messageZh, code: out.code }, { status: out.status, headers: NO_STORE });
   return NextResponse.json({ result: out.result, view: out.view }, { headers: NO_STORE });
 }
