@@ -35,7 +35,7 @@ TASKFLOW：CHAIN-3b（新增一行；Phase F（续）— 情报串联的后续�
 
 ## Impact
 
-- 修改：`src/lib/tender-bid-workspace/store.ts`（`loadWorkspaceContext` 多查一次「有没有」）、`src/lib/tender-bid-workspace/workspace-view.ts`（`deriveMaterials` 多一条、上下文多一个可选字段）；新增 `src/lib/tender-import-leads/readiness-count.ts`（只读，只依赖 `@/lib/db` 与 `./flags`；不改该目录既有文件）。
+- 修改：`src/lib/tender-bid-workspace/store.ts`（`loadWorkspaceContext` 多查一次「有没有」）、`src/lib/tender-bid-workspace/workspace-view.ts`（`deriveMaterials` 多一条、上下文多一个可选字段）；新增 `src/lib/tender-import-leads/readiness-count.ts`（只读，只依赖 `@/lib/db` 与 `./flags`；不改该目录既有源码文件，只在既有测试 `import-leads.test.ts` 里加源码断言）。
 - `loadWorkspaceContext` 的其它调用方也会多这一次查询：成本核算接口（不用材料，输出不变）、项目页「下一步」卡（`src/lib/tender-next-step/service.ts`，只用价格表与可投标判定的阻断项，输出不变）、投标工作区保存（`PUT` 的返回里同样带 `view`，材料与阶段随之变化）。
 - 测试：`workspace-view.test.ts` 加用例；`import-leads.test.ts`、`panel-helpers.test.ts` 加源码断言；新增隔离库用例（注册进 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`）。
 - 零 schema、零依赖、零新增模型调用。

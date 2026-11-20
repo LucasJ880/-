@@ -90,8 +90,8 @@ async function main() {
   };
   const readWorkspace = async (p: string) => {
     const res = await workspaceRoute.GET(new NextRequest(`http://localhost/api/projects/${p}/bid-workspace`, { headers: { cookie: owner } }), { params: Promise.resolve({ id: p }) });
-    const json = (await res.json()) as { view?: View };
-    return { status: res.status, text: JSON.stringify(json.view ?? null), view: json.view };
+    const json = (await res.json()) as { view?: View } & Record<string, unknown>;
+    return { status: res.status, text: JSON.stringify(json.view ?? null), full: JSON.stringify(json), json, view: json.view };
   };
   const stageOf = (v: View | undefined) => v?.stages.stages.find((s) => s.key === "import_leads");
   const stored = async (p: string) => (await svc.loadImportLeadsView({ orgId: ORG, projectId: p, canEdit: true })).storedLeadCount;
@@ -115,12 +115,16 @@ async function main() {
     const w1 = await readWorkspace(P);
     const s1 = stageOf(w1.view);
     ok(w1.view!.materials.includes("IMPORT_LEADS") && s1?.decision === "RUN" && s1.detailZh === "只处理人工提供的进口线索" && !w1.view!.stages.lists.notConnected.some((n) => n.stageKey === "import_leads"), "导入之后：手头材料有进口线索，阶段执行、只处理人工提供的，不在未接通清单里", s1);
-    ok(!/Northfield|Ningbo|example\.test|Mattress/.test(w1.text), "读取结果里没有进口记录的内容（进口商、出口商、品名、来源网址）");
+    ok(!w1.view!.stages.lists.missingMaterials.some((m) => m.stageKey === "import_leads"), "导入之后：也不在缺材料（仅人工）清单里");
+    ok(!/Northfield|Ningbo|example\.test|Mattress/.test(w1.full), "整个读取响应里没有进口记录的内容（进口商、出口商、品名、来源网址）");
+    // 读取结果不含进口记录的条数：除了材料与阶段（及其清单），导入前后整个响应逐字相同
+    const strip = (r: { json: Record<string, unknown>; view?: View }) => JSON.stringify({ ...r.json, view: { ...r.view, materials: null, stages: null } });
+    ok(strip(w1) === strip(w0), "导入前后：除了手头材料与阶段，整个读取响应逐字相同（不带条数与内容）");
 
     // —— 3. 别的项目、别的组织、非 import_lead_v1 的 TRADE_DATA 信号不算 ——
     ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P2 })) === false && (await consistent(P2)), "同组织的另一个项目：false（导入记录在别的项目）");
-    await db.supplierDiscoverySignal.create({ data: { orgId: ORG, projectId: P2, platform: "TRADE_DATA", contentType: "PROFILE", sourceOrigin: "PUBLIC_WEB", title: "search hit", rawMetadataJson: { provider: "search-engine" } } as never });
-    ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P2 })) === false && (await consistent(P2)), "非 import_lead_v1 的 TRADE_DATA 信号：不算");
+    await db.supplierDiscoverySignal.create({ data: { orgId: ORG, projectId: P2, platform: "TRADE_DATA", contentType: "PROFILE", sourceOrigin: "PUBLIC_WEB", title: "search hit", rawMetadataJson: { kind: "search_hit_v1", provider: "search-engine" } } as never });
+    ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P2 })) === false && (await consistent(P2)), "别的 kind（search_hit_v1）的 TRADE_DATA 信号：不算");
     await db.supplierDiscoverySignal.create({ data: { orgId: ORG, projectId: P2, platform: "OPEN_WEB", contentType: "USER_SUBMITTED", sourceOrigin: "MANUAL_ENTRY", title: "not trade data", rawMetadataJson: { kind: "import_lead_v1" } } as never });
     ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P2 })) === false, "kind 是 import_lead_v1 但平台不是进口记录：不算");
     const wP2 = await readWorkspace(P2);
@@ -143,6 +147,7 @@ async function main() {
     ok((await hasImportLeadsForReadiness({ orgId: ORG, projectId: P })) === false && (await consistent(P)) && (await stored(P)) === 0, "唯一一条标为不采用：false，与已导入 0 条一致");
     const w2 = await readWorkspace(P);
     ok(stageOf(w2.view)?.decision === "NOT_CONNECTED" && !w2.view!.materials.includes("IMPORT_LEADS"), "标为不采用之后：阶段回到未接通");
+    ok(w2.full === w0.full, "标为不采用之后：整个读取响应与导入之前逐字相同", [w0.full.length, w2.full.length]);
 
     ok(outbound === 0, "外部请求次数为 0");
   } finally {

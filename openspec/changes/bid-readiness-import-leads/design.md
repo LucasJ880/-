@@ -55,7 +55,7 @@
 ## 验证方式
 
 - 纯函数：`npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts`（`hasImportLeads` 缺省 / false / true 时的材料与「进口线索」阶段决定；缺省与 false 的读取结果 `JSON.stringify` 相同；既有断言原样不动）。
-- 隔离库：`NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/readiness-count-db.isolated.test.ts`——经 CHAIN-3 真实导入接口导入一条（开 T4 授标开关与授标 fixture）；开关关 → false 且读取结果不变；开关开、无记录 → false；有一条 → true；标为不采用 → false；别的项目、别的组织的记录、非 `import_lead_v1` 的 `TRADE_DATA` 信号不算；每一步都核对与 `loadImportLeadsView().storedLeadCount > 0` 一致；并经 `GET` 投标工作区读取看到「进口线索」阶段为执行、不在未接通清单里。单测断言两个字面量与 `service.ts` 常量相等、`readiness-count.ts` 只 import `@/lib/db` 与 `./flags`。
+- 隔离库：`NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/readiness-count-db.isolated.test.ts`——经 CHAIN-3 真实导入接口导入一条（开 T4 授标开关与授标 fixture）；开关关 → false 且读取结果不变；开关开、无记录 → false；有一条 → true；标为不采用 → false；别的项目、别的组织的记录、别的 kind 的 `TRADE_DATA` 信号、别的平台的 `import_lead_v1` 信号不算；开关开着的五处核对与 `loadImportLeadsView().storedLeadCount > 0` 一致；并经 `GET` 投标工作区读取看到「进口线索」阶段为执行、不在未接通与缺材料两张清单里；除材料与阶段外，导入前后整个读取响应逐字相同（不带条数与内容），标为不采用后整个响应与导入前相同。单测断言两个字面量与 `service.ts` 常量相等、`readiness-count.ts` 只 import `@/lib/db` 与 `./flags`。
 - 既有不改期望：`stage-policy.test.ts`、`workspace-view.test.ts` 既有断言、`bid-workspace-db.isolated.test.ts`、`readiness-submission-db.isolated.test.ts`、CHAIN-3 的 `import-leads.test.ts` 与 `import-leads-db.isolated.test.ts`。
 - 全量：`npm test`、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`。
 

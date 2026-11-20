@@ -67,6 +67,7 @@ console.log("tender-bid-workspace view");
   assert.ok(withLeads.stages.ok);
   const leads = withLeads.stages.stages.find((s) => s.key === "import_leads")!;
   ok("有导入的进口记录 → 进口线索阶段执行，只处理人工提供的", leads.decision === "RUN" && leads.detailZh === "只处理人工提供的进口线索" && withLeads.materials.includes("IMPORT_LEADS"));
+  ok("面板写在阶段标签下的那一行：进口线索：只处理人工提供的进口线索", `${withLeads.stages.stages.find((s) => s.key === "import_leads")!.labelZh}：${leads.detailZh}` === "进口线索：只处理人工提供的进口线索");
   ok("有导入的进口记录 → 未接通清单里没有进口线索；历史授标照旧在未接通 / 仅人工清单里", !withLeads.stages.lists.notConnected.some((n) => n.stageKey === "import_leads") && withLeads.stages.lists.notConnected.some((n) => n.stageKey === "historical_awards"));
 }
 {
