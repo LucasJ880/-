@@ -12,7 +12,12 @@
  *   SD-04 主模型 t+215s 限流 → 备用只用剩下的 10 秒，t+225s 截止后不再重试
  *   SD-05 澄清：阶段上限（60 秒）先到 → 照旧换备用但只用剩余 15 秒 → 截止 → 记未解决并让出
  *   SD-06 Analyst 第一遍撞截止 → 失败次数 +1、不在本切片再请求
- *   SD-07 中文化每批请求带截止时间
+ *   SD-07 中文化每批请求带截止时间；截止的那一批保留原文
+ *   SD-08 同一批里有的成功有的撞截止 → 成功的记下、其余各记一次失败、让出
+ *   SD-09 小预算（60 秒）沿用 10 秒最小门槛，窗口照常开批
+ *   SD-10 极小预算（12 秒，截止 = 开工 + 1 秒）首次请求照常发出
+ *   SD-11 Analyst 第二遍（复核）撞截止 → 失败次数 +1、让出
+ *   SD-12 全部窗口都不返回：阶段上限先到、备用只用剩余 → 225 秒让出
  */
 
 import type { CompletionOptions, DetailedCompletionResult } from "@/lib/ai/client";
@@ -26,7 +31,12 @@ import {
   EXTRACT_SYSTEM_PROMPT,
   RESOLVE_SYSTEM_PROMPT,
 } from "@/lib/tender-understanding/prompts";
-import { ANALYST_SYSTEM_PROMPT } from "@/lib/tender-analyst/prompts";
+import {
+  ANALYST_QA_SYSTEM_PROMPT,
+  ANALYST_SYSTEM_PROMPT,
+} from "@/lib/tender-analyst/prompts";
+import type { AnalystLlmOutput } from "@/lib/tender-analyst/contract";
+import { TenderCallDeadlineError } from "@/lib/ai/model-policy";
 import { advanceV2Analysis, fingerprintAnalyzerInput } from "../v2-resumable";
 import { translateRequirementTexts } from "../requirement-translate";
 import {
@@ -187,7 +197,37 @@ function extractionWithAmbiguity(i: number) {
   };
 }
 
-type Kind = "window" | "resolve" | "analyst" | "other";
+const ANALYST_OUTPUT: AnalystLlmOutput = {
+  executiveBrief: {
+    oneLinerZh: "合成招标：按期交付若干物项。",
+    whatIsBeingBoughtZh: "若干物项的供货与交付。",
+    bidderTakeawayZh: "交期是主要约束。",
+    keyPoints: ["交期严格"],
+  },
+  scope: {
+    overviewZh: "供货范围为合成测试物项。",
+    deliverables: ["物项若干"],
+    quantities: [],
+    deliveryScope: [],
+    exclusionsOrUnknowns: [],
+  },
+  keyRequirements: [],
+  technicalRequirements: [],
+  commercialAndDelivery: [],
+  risksAndGaps: [],
+  clarifications: [],
+  currentAssessment: {
+    status: "NEEDS_CLARIFICATION",
+    summaryZh: "需澄清包装规格后方可报价。",
+    reasons: ["包装规格缺失"],
+    mustResolveBeforePricing: ["包装规格"],
+  },
+  nextActions: [
+    { order: 1, actionZh: "发出澄清函", reasonZh: "包装规格未定义", targetArea: "clarifications" },
+  ],
+};
+
+type Kind = "window" | "resolve" | "analyst" | "analyst_qa" | "other";
 type ReqLog = {
   kind: Kind;
   page: number | null;
@@ -215,6 +255,7 @@ function kindOf(opts: CompletionOptions): { kind: Kind; page: number | null } {
   }
   if (opts.systemPrompt === RESOLVE_SYSTEM_PROMPT) return { kind: "resolve", page: null };
   if (opts.systemPrompt === ANALYST_SYSTEM_PROMPT) return { kind: "analyst", page: null };
+  if (opts.systemPrompt === ANALYST_QA_SYSTEM_PROMPT) return { kind: "analyst_qa", page: null };
   return { kind: "other", page: null };
 }
 
@@ -277,15 +318,17 @@ async function runSlice(args: {
   cursor: V2CursorState;
   invoker: LlmInvoker;
   sliceStart: number;
+  budget?: number;
 }): Promise<SliceResult> {
   const checkpoints: number[] = [];
+  const budget = args.budget ?? BUDGET;
   const outcome = await args.clock.run(
     advanceV2Analysis({
       input: args.input,
       coverage: COVERAGE,
       cursor: args.cursor,
-      deadlineAt: args.sliceStart + BUDGET,
-      tickBudgetMs: BUDGET,
+      deadlineAt: args.sliceStart + budget,
+      tickBudgetMs: budget,
       invoker: args.invoker,
       maxConcurrency: 3,
       windowOptions: WINDOW_OPTIONS,
@@ -411,6 +454,10 @@ async function main() {
       `SD-03 切片从开始到让出 ≤ 预算 + PHASE_SAFETY_MS（${S(r.endedAt)}）`,
     );
     ok(r.endedAt === 190_000, `SD-03 t+190s 剩 50 秒 < 80 秒门槛 → 当即让出（实际 ${S(r.endedAt)}）`);
+    ok(
+      r.outcome.status === "YIELD" && r.outcome.phase === "WINDOWS" && r.outcome.reason.startsWith("budget_remaining_ms="),
+      `SD-03 让出理由是剩余预算（实际 ${reason}）`,
+    );
     ok(model.log.length === 6, `SD-03 只开了两批、6 个请求（实际 ${model.log.length}）`);
     ok(
       model.log.every((e) => e.outcome === "ok"),
@@ -532,11 +579,131 @@ async function main() {
       timeoutMs: 20_000,
       apply: () => undefined,
     });
+    const endedAt = Date.now();
     const d = seen[0]?.deadlineAt;
     ok(
-      seen.length === 1 && typeof d === "number" && d <= Date.now() + 20_000 && d >= startedAt + 19_000,
-      "SD-07 中文化以 20 秒总预算开始一批请求 → 请求带的截止时间不晚于开始后 20 秒",
+      seen.length === 1 && typeof d === "number" && d >= startedAt + 20_000 && d <= endedAt + 20_000,
+      "SD-07 中文化以 20 秒总预算开始一批请求 → 请求带的截止时间 = 开始时刻 + 20 秒",
     );
+  }
+  {
+    let applied = 0;
+    const invoker: LlmInvoker = async () => {
+      throw new TenderCallDeadlineError(0);
+    };
+    const out = await translateRequirementTexts(["Vendor must supply curtain rails."], {
+      invoker,
+      timeoutMs: 20_000,
+      apply: () => {
+        applied++;
+      },
+    });
+    ok(
+      out.translated === 0 && out.failed === 1 && applied === 0 && out.llmCalls === 0,
+      `SD-07 截止的那一批保留原文、计为未翻译、照常返回；发之前就拒的不计调用（${JSON.stringify(out)}）`,
+    );
+  }
+
+  /* ---------------- SD-08 同一批里有的成功有的撞截止 ---------------- */
+  {
+    const clock = new VirtualClock(T0);
+    const input = buildInput(9);
+    const model = makeSlowModel(clock, ({ kind, page }) => {
+      if (kind !== "window" || page == null) return { latencyMs: 1_000 };
+      if (page <= 6) return { latencyMs: 77_500 };
+      if (page === 7) return { latencyMs: 40_000 };
+      return { latencyMs: Number.POSITIVE_INFINITY };
+    });
+    const invoker = invokerFor(clock, model.complete);
+    const cursor = newCursor(input, clock);
+    const r = await runSlice({ clock, input, cursor, invoker, sliceStart: T0 });
+    ok(
+      Object.keys(cursor.windows.outputs).length === 7 && countDeadlineFailures(cursor) === 2,
+      `SD-08 成功的 p7 记下（共 ${Object.keys(cursor.windows.outputs).length} 个结果），p8 / p9 各记一次截止失败（${countDeadlineFailures(cursor)}）`,
+    );
+    ok(
+      r.outcome.status === "YIELD" && r.outcome.reason === "call_deadline" && r.endedAt === 225_000,
+      `SD-08 以 call_deadline 在 t+225s 让出（实际 ${S(r.endedAt)}）`,
+    );
+  }
+
+  /* ---------------- SD-09 小预算沿用最小门槛 ---------------- */
+  {
+    const clock = new VirtualClock(T0);
+    const input = buildInput(3);
+    const model = makeSlowModel(clock, () => ({ latencyMs: 1_000 }));
+    const invoker = invokerFor(clock, model.complete);
+    const cursor = newCursor(input, clock);
+    await runSlice({ clock, input, cursor, invoker, sliceStart: T0, budget: 60_000 });
+    const windowReqs = model.log.filter((e) => e.kind === "window");
+    ok(
+      windowReqs.length === 3 && Object.keys(cursor.windows.outputs).length === 3,
+      `SD-09 预算 60 秒（< 80 秒门槛）→ 照常开批、3 个窗口都有结果（请求 ${windowReqs.length}）`,
+    );
+  }
+
+  /* ---------------- SD-10 极小预算：截止 = 开工 + 1 秒，首次请求照常发出 ---------------- */
+  {
+    const clock = new VirtualClock(T0);
+    const input = buildInput(3);
+    const model = makeSlowModel(clock, () => ({ latencyMs: 500 }));
+    const invoker = invokerFor(clock, model.complete);
+    const cursor = newCursor(input, clock);
+    await runSlice({ clock, input, cursor, invoker, sliceStart: T0, budget: 12_000 });
+    const windowReqs = model.log.filter((e) => e.kind === "window");
+    ok(
+      windowReqs.length === 3 &&
+        windowReqs.every((e) => (e.timeoutMs ?? 0) > 0 && (e.timeoutMs ?? 0) <= 1_000) &&
+        Object.keys(cursor.windows.outputs).length === 3,
+      `SD-10 预算 12 秒 → 3 个窗口请求照常发出（超时 ≤ 1 秒）并有结果（请求 ${windowReqs.length}）`,
+    );
+  }
+
+  /* ---------------- SD-11 Analyst 第二遍撞截止 ---------------- */
+  {
+    const clock = new VirtualClock(T0);
+    const input = buildInput(3);
+    const model = makeSlowModel(clock, ({ kind }) => {
+      if (kind === "analyst") return { latencyMs: 1_000, content: JSON.stringify(ANALYST_OUTPUT) };
+      if (kind === "analyst_qa") return { latencyMs: Number.POSITIVE_INFINITY };
+      return { latencyMs: 1_000 };
+    });
+    const invoker = invokerFor(clock, model.complete);
+    const cursor = newCursor(input, clock);
+    const r = await runSlice({ clock, input, cursor, invoker, sliceStart: T0 });
+    const reason = r.outcome.status === "YIELD" ? `${r.outcome.phase}/${r.outcome.reason}` : "(READY)";
+    ok(cursor.analyst.passA != null, "SD-11 前提：第一遍已完成");
+    ok(
+      cursor.analyst.passBAttempts === 1 && cursor.analyst.passBErrorCode === "CALL_DEADLINE_EXCEEDED",
+      `SD-11 第二遍失败次数 1、错误码 CALL_DEADLINE_EXCEEDED（实际 ${cursor.analyst.passBAttempts} / ${cursor.analyst.passBErrorCode}）`,
+    );
+    ok(
+      r.outcome.status === "YIELD" && r.outcome.phase === "ANALYST_B" && r.outcome.reason === "call_deadline" && r.endedAt <= 225_000,
+      `SD-11 以 call_deadline 让出、不晚于 t+225s（实际 ${reason} ${S(r.endedAt)}）`,
+    );
+  }
+
+  /* ---------------- SD-12 全部窗口都不返回 ---------------- */
+  {
+    const clock = new VirtualClock(T0);
+    const input = buildInput(12);
+    const model = makeSlowModel(clock, ({ kind }) =>
+      kind === "window" ? { latencyMs: Number.POSITIVE_INFINITY } : { latencyMs: 1_000 },
+    );
+    const invoker = invokerFor(clock, model.complete);
+    const cursor = newCursor(input, clock);
+    const r = await runSlice({ clock, input, cursor, invoker, sliceStart: T0 });
+    const fb = model.log.filter((e) => e.model === FALLBACK);
+    console.log(`  · SD-12 让出于 ${S(r.endedAt)}；请求 ${model.log.map((e) => `${e.model === PRIMARY ? "主" : "备"}@${S(e.start)}/${S(e.timeoutMs ?? 0)}`).join(" ")}`);
+    ok(
+      r.endedAt <= BUDGET + PHASE_SAFETY_MS && r.endedAt === 225_000,
+      `SD-12 切片从开始到让出 ≤ 预算 + PHASE_SAFETY_MS，且在 t+225s（实际 ${S(r.endedAt)}）`,
+    );
+    ok(
+      fb.length === 3 && fb.every((e) => e.start === 180_000 && e.timeoutMs === 45_000),
+      "SD-12 阶段上限 180 秒先到 → 照旧换备用，备用只用剩余的 45 秒",
+    );
+    ok(countDeadlineFailures(cursor) === 3, "SD-12 第一批 3 个窗口各记一次截止失败");
   }
 
   console.log(`\n通过 ${pass}，失败 ${fail}`);

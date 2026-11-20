@@ -146,8 +146,10 @@ export async function callStructured<T>(
       });
     } catch (err) {
       if (isTenderCallDeadlineError(err)) {
-        // 截止：不做 transient 重试、不做结构化重试，直接交回调用方让出
-        logs.push({
+        // 截止：不做 transient 重试、不做结构化重试，直接交回调用方让出。
+        // 发之前就被拒（没有真实请求）的不记调用日志，免得算进调用次数。
+        const sent = (err as { requestSent?: boolean }).requestSent !== false;
+        if (sent) logs.push({
           promptName: req.promptName,
           promptVersion: req.promptVersion,
           model: "unknown",

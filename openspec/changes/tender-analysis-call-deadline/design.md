@@ -41,14 +41,14 @@
 
 ### D2 只在招标模型调用层看时钟，`callStructured` 只认一个带类型的「截止」错误
 
-`createTenderCompletion` 是唯一读时钟、算超时、决定要不要再请求的地方：发起前剩余 < 1s 不发；失败后剩余 < 5s 抛 `TenderCallDeadlineError`（`code = "CALL_DEADLINE_EXCEEDED"`）而不进入 `decideTenderRecovery`。`callStructured` 捕到这个错误（按 `code` 识别）就记日志、以 `CALL_DEADLINE_EXCEEDED` 返回，不做 transient 重试；结构化不合格后的第二次尝试照常调 invoker，由 invoker 在剩余不足时抛同一个错误。
+`createTenderCompletion` 是唯一读时钟、算超时、决定要不要再请求的地方：发起前剩余 < 0.5s 不发（低于 `callTimeoutFor` 的 1 秒下限，保证小预算下首次请求不会因为过去了几毫秒就被拒）；可重试的失败后、或结构化层的重试前剩余 < 5s 抛 `TenderCallDeadlineError`（`code = "CALL_DEADLINE_EXCEEDED"`）而不进入 `decideTenderRecovery`。`callStructured` 捕到这个错误（按 `code` 识别）就记日志、以 `CALL_DEADLINE_EXCEEDED` 返回，不做 transient 重试；结构化不合格后的第二次尝试照常调 invoker，由 invoker 在剩余不足时抛同一个错误。
 
 - 否决：在 `createCompletionDetailed` 里统一做截止。它是全平台共用的入口（聊天、报价、销售……），改它的影响面远超本次。
 - 否决：`callStructured` 自己也读 `Date.now()` 判截止。两处时钟要保持一致，测试里的虚拟时钟要注入两遍；而且测试用的假 invoker 会被误判。
 
 ### D3 「我方截止触发」按剩余时间判定，不解析错误文本
 
-规则：失败后若 `callDeadlineAt − now < 5_000`，不论错误是本方计时器中止、限流还是 5xx，一律按截止处理。本方计时器在截止时刻触发时剩余必然 ≈ 0，落在这条规则里。
+规则：可重试的失败（本方计时器中止、限流、5xx 等）或结构化输出不合格之后，若 `callDeadlineAt − now < 5_000`，一律按截止处理；不可重试的错误（400 等）本来就不重试，原样交回。本方计时器在截止时刻触发时剩余必然 ≈ 0，落在这条规则里。
 
 - 否决：认「Request was aborted」/ `APIUserAbortError` 文本判断是不是我方中止。依赖 SDK 的错误文案，换供应商或升级 SDK 就失效；也分不清「阶段上限到了」与「截止到了」。
 - 5 秒的取舍：不足 5 秒的备用请求几乎不可能完成一次窗口抽取，只会多烧一次调用再被中止。阶段上限先到（如澄清 60s）而剩余还多时，不受此限，照旧换模型。
@@ -67,7 +67,7 @@
 
 ### D6 落库前的中文化用它自己的截止时间
 
-`translateRequirementsZh` 已经有「总预算 → 截止 → 每批取剩余」的结构，只是没往下传。改为把它算出的截止时间放进每批请求的 `deadlineAt`。总预算公式（`min(240s, max(10s, remaining − 5s))`）不改。
+`translateRequirementTexts`（`requirement-translate.ts`）已经有「总预算 → 截止 → 每批取剩余」的结构，只是没往下传。改为把它算出的截止时间放进每批请求的 `deadlineAt`。两个调用方都受益：PERSIST 阶段（总预算 `min(240s, max(10s, remaining − 5s))`，不改）与「补翻」接口 `POST /api/projects/[id]/bid-fit/translate`（总预算 100 秒、`maxDuration` 120 秒——以前重试 + 换备用可能越过 120 秒）。
 
 - 否决：在 PERSIST 阶段也改用 `callTimeoutFor(remaining)` 作为中文化预算。会把中文化预算缩短 10 秒，属于另一处取舍，不在本次「重试不越过截止」的范围里。
 

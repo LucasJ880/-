@@ -64,6 +64,7 @@ import { TenderV2LeaseLostError } from "./v2-errors";
 import {
   callTimeoutFor,
   canStartPhase,
+  PHASE_SAFETY_MS,
   computeV2Fingerprint,
   MAX_ANALYST_ATTEMPTS,
   MAX_WINDOW_ATTEMPTS,
@@ -177,13 +178,14 @@ export async function advanceV2Analysis(
     });
 
   /**
-   * 本阶段的调用截止时间（FIX-12）：= 发起时刻 + callTimeoutFor(remaining)，
-   * 即切片截止 − PHASE_SAFETY_MS（最短 1 秒）。本阶段所有请求连同重试 / 换模型都不越过它。
+   * 本阶段的调用截止时间（FIX-12）：切片截止 − PHASE_SAFETY_MS（最短为现在之后 1 秒）。
+   * 本阶段所有请求连同重试 / 换模型都不越过它。
    * 不限预算（单次编排 / 测试）→ undefined，行为不变。
    */
-  const callDeadlineFor = (remaining: number): number | undefined => {
-    const t = callTimeoutFor(remaining);
-    return t === undefined ? undefined : now() + t;
+  const callDeadlineFor = (): number | undefined => {
+    if (!Number.isFinite(args.deadlineAt)) return undefined;
+    // 锚定切片截止（不受阶段内同步计算耗时影响）；最短为现在之后 1 秒，与 callTimeoutFor 的下限一致
+    return Math.max(now() + 1_000, args.deadlineAt - PHASE_SAFETY_MS);
   };
 
   for (;;) {
@@ -203,7 +205,7 @@ export async function advanceV2Analysis(
 
       const batch = pending.slice(0, concurrency);
       const timeoutMs = callTimeoutFor(remaining);
-      const deadlineAt = callDeadlineFor(remaining);
+      const deadlineAt = callDeadlineFor();
       const results = await Promise.all(
         batch.map((w) => runExtractionWindow(invoker, w, { timeoutMs, deadlineAt })),
       );
@@ -246,7 +248,7 @@ export async function advanceV2Analysis(
 
       const res = await resolveClarificationItem(next, invoker, {
         timeoutMs: callTimeoutFor(remaining),
-        deadlineAt: callDeadlineFor(remaining),
+        deadlineAt: callDeadlineFor(),
       });
       cursor.logs.push(...res.logs);
       cursor.clarify.resolutions[next.key] = res.resolution;
@@ -279,7 +281,7 @@ export async function advanceV2Analysis(
           result: buildResult(),
           invoker,
           timeoutMs: callTimeoutFor(remaining),
-          deadlineAt: callDeadlineFor(remaining),
+          deadlineAt: callDeadlineFor(),
         });
         cursor.analyst.logs.push(...passA.logs);
         cursor.analyst.analystLatencyMs = passA.latencyMs;
@@ -324,7 +326,7 @@ export async function advanceV2Analysis(
           draft,
           invoker,
           timeoutMs: callTimeoutFor(remaining),
-          deadlineAt: callDeadlineFor(remaining),
+          deadlineAt: callDeadlineFor(),
         });
         cursor.analyst.logs.push(...passB.logs);
         cursor.analyst.reviewLatencyMs = passB.latencyMs;

@@ -360,17 +360,44 @@ async function deadlineCases() {
       "DL-03 无截止时间 → 主 / 备超时都 = 调用方给的 100s",
     );
   }
-  // DL-04 剩余不足 1 秒 → 不发请求
+  // DL-04 剩余不足 0.5 秒 → 不发请求
   {
     const m = scripted([{ latencyMs: 1 }]);
     let err: unknown = null;
     try {
       await createTenderCompletion({
         systemPrompt: "s", userPrompt: "u", timeoutMs: 60_000,
-        pinnedPolicy: terraPolicy, deadlineAt: m.start + 900, now: m.now, complete: m.complete,
+        pinnedPolicy: terraPolicy, deadlineAt: m.start + 400, now: m.now, complete: m.complete,
       });
     } catch (e) { err = e; }
-    expect(isTenderCallDeadlineError(err) && m.reqs.length === 0, "DL-04 剩余 0.9s → 不发请求");
+    expect(isTenderCallDeadlineError(err) && m.reqs.length === 0, "DL-04 剩余 0.4s → 不发请求");
+  }
+  // DL-10 最短 1 秒的截止（小预算）过了几毫秒仍发出首次请求
+  {
+    const m = scripted([{ latencyMs: 10 }]);
+    await createTenderCompletion({
+      systemPrompt: "s", userPrompt: "u", timeoutMs: 60_000,
+      pinnedPolicy: terraPolicy, deadlineAt: m.start + 997, now: m.now, complete: m.complete,
+    });
+    expect(m.reqs.length === 1 && m.reqs[0]!.timeoutMs === 997, "DL-10 截止 = 开工 + 1s、已过 3ms → 照发，超时 0.997s");
+  }
+  // DL-11 主模型早早限流、备用在截止时被中止 → 记为截止（不当瞬时错误让上一层再试）
+  {
+    const m = scripted([
+      { latencyMs: 5_000, error: { status: 429, message: "429 rate limit" } },
+      { latencyMs: Number.POSITIVE_INFINITY },
+    ]);
+    let err: unknown = null;
+    try {
+      await createTenderCompletion({
+        systemPrompt: "s", userPrompt: "u", timeoutMs: 180_000,
+        pinnedPolicy: terraPolicy, deadlineAt: m.start + 35_000, now: m.now, complete: m.complete,
+      });
+    } catch (e) { err = e; }
+    expect(
+      isTenderCallDeadlineError(err) && m.reqs.length === 2 && m.reqs[1]!.timeoutMs === 30_000,
+      "DL-11 备用超时 = 剩余 30s，截止中止后记为 CALL_DEADLINE_EXCEEDED",
+    );
   }
   // DL-05 结构化层的重试：剩余 < 5s 不发；≥ 5s 照发且超时 ≤ 剩余
   {
