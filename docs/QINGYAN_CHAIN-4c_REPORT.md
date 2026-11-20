@@ -80,7 +80,7 @@ sys.exit(0 if (r1 and r2 and r3 and len(nb)<=500 and len(pb)<=500) else 1)
 | 项 | 结果 |
 |---|---|
 | `npm test`（本机，带隔离库） | `702/712 通过, 10 失败`，10 项全是 main 上同样失败的既有项（`docs/QINGYAN_CHAIN-3_REPORT.md` §4 那 11 项里，这一轮 Mention Gateway M2-A 过了）。本 change 不改代码，结果与 main 相同 |
-| `npm run test:ci`（不带数据库，与 CI 相同） | 待跑（见下次更新） |
+| `npm run test:ci`（不带数据库，与 CI 相同） | PASS（注册校验：已注册 679 个，历史欠账 66 条） |
 | `npm run typecheck` / `npm run lint:baseline` | 不改代码；与 main 相同 |
 | `openspec validate rfq-web-entry-spec-split --strict` | valid |
 | `git diff origin/main --stat` | 只有 `openspec/changes/rfq-web-entry-spec-split/**`、本报告与 TASKFLOW 一行 |
