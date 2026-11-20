@@ -35,6 +35,7 @@ CHAIN-3 让任何能修改本项目的人做「是不是同一家」的裁决，
 
 ## Impact
 
+- 新增：`src/lib/tender-import-leads/alias-decisions.ts`（从审计行算有效裁决，纯函数）。
 - 修改：`src/lib/tender-import-leads/match-pure.ts`（列出候选的对）、`src/lib/tender-import-leads/service.ts`（裁决读取认撤回、撤回服务、视图带已裁决的对与真实的裁决权限）、`src/lib/tender-import-leads/api-access.ts`（组织管理员判定）、`src/lib/tender-import-leads/aggregate-pure.ts`（视图类型与文字）、`src/app/api/projects/[id]/tender-intel/import-leads/{route.ts,aliases/route.ts,suppliers/route.ts}`；新增 `…/aliases/revoke/route.ts`；`src/components/tender-intel/import-leads-panel.tsx`。
-- 测试：`import-leads.test.ts`、`import-leads-db.isolated.test.ts` 补用例（既有期望不改；既有裁决用例本来就是组织管理员做的）。
+- 测试：`import-leads.test.ts`、`import-leads-db.isolated.test.ts` 补用例；既有裁决用例本来就是组织管理员做的，不换人；既有断言只有槽里与导入结果里那两句的期望字符串随文字改动更新。
 - 零 schema（撤回也写 `AuditLog`）、零依赖、零新增模型调用。

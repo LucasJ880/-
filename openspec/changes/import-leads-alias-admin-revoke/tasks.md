@@ -2,7 +2,7 @@
 
 ## 1. 纯函数
 
-- [x] 1.1 `match-pure.ts`：`createCandidatePairFinder(winners)`（每个进口商与中标者之间「疑似同一家」的对，按规整名记忆）；`service.ts` 的 `effectiveDecisions(rows)`（排除被撤回指向的，再取每对最新）；文字常量（verify：`npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts` 新用例；`ImportLeadsView` 字面量补字段后通过）
+- [x] 1.1 `match-pure.ts`：`createCandidatePairFinder(winners)`（每个进口商与中标者之间「疑似同一家」的对，按规整名记忆）；`alias-decisions.ts` 的 `effectiveDecisions(rows)`（排除被撤回指向的，再取每对最新）；文字常量（verify：`npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts` 新用例；`ImportLeadsView` 字面量补字段后通过）
 
 ## 2. 服务与接口
 

@@ -20,8 +20,8 @@ export function parseDecision(afterData: string | null, pairKey: string): AliasD
   }
 }
 
-/** CHAIN-3c：带审计行 id 的有效裁决（撤回请求要带上这个 id） */
-export type EffectiveDecision = AliasDecision & { auditId: string };
+/** CHAIN-3c：带审计行 id 与写入时间的有效裁决（撤回请求要带上这个 id） */
+export type EffectiveDecision = AliasDecision & { auditId: string; recordedAt: string };
 
 export type AliasAuditRow = { id: string; action: string; targetId: string | null; afterData: string | null; createdAt: Date };
 
@@ -48,7 +48,7 @@ export function effectiveDecisions(rows: readonly AliasAuditRow[], pairKeyOfTarg
     const pairKey = r.targetId ? pairKeyOfTarget.get(r.targetId) : undefined;
     if (!pairKey || out.has(pairKey)) continue;
     const d = parseDecision(r.afterData, pairKey);
-    if (d) out.set(pairKey, { ...d, auditId: r.id });
+    if (d) out.set(pairKey, { ...d, auditId: r.id, recordedAt: r.createdAt.toISOString() });
   }
   return [...out.values()];
 }

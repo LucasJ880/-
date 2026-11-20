@@ -182,14 +182,14 @@ type ProjectState = {
   decidedPairs: DecidedPairView[];
 };
 
-/** CHAIN-3c：裁决人显示名只取本组织现有成员；其余写「不是本组织现有成员」（不带邮箱、不带用户 id） */
+/** CHAIN-3c：裁决人显示名只取本组织现有成员（没填名字写「本组织成员（未填姓名）」）；其余写「本组织以外的人」（不带邮箱、不带用户 id） */
 async function loadDeciderNames(orgId: string, userIds: readonly string[]): Promise<Map<string, string>> {
   if (!userIds.length) return new Map();
   const rows = await db.organizationMember.findMany({
     where: { orgId, status: "active", userId: { in: [...new Set(userIds)] } },
     select: { userId: true, user: { select: { name: true } } },
   });
-  return new Map(rows.map((r) => [r.userId, r.user?.name?.trim() || IMPORT_LEADS_TEXT.formerMember]));
+  return new Map(rows.map((r) => [r.userId, r.user?.name?.trim() || IMPORT_LEADS_TEXT.unnamedMember]));
 }
 
 async function loadProjectState(orgId: string, projectId: string, now: Date): Promise<ProjectState> {
@@ -220,8 +220,9 @@ async function loadProjectState(orgId: string, projectId: string, now: Date): Pr
   const names = await loadDeciderNames(orgId, [...decidedAcc.keys()].map((k) => decisionByPair.get(k)!.decidedBy));
   const decidedPairs: DecidedPairView[] = [...decidedAcc.entries()].map(([pairKey, a]) => {
     const d = decisionByPair.get(pairKey)!;
-    return { pairKey, decisionId: d.auditId, importerName: a.importerName, winnerName: a.winnerName, decision: d.decision, deciderName: names.get(d.decidedBy) ?? IMPORT_LEADS_TEXT.formerMember, decidedOn: d.decidedAt.slice(0, 10), recordCount: a.recordCount };
-  });
+    const decidedOn = /^\d{4}-\d{2}-\d{2}/.test(d.decidedAt) ? d.decidedAt.slice(0, 10) : d.recordedAt.slice(0, 10);
+    return { pairKey, decisionId: d.auditId, importerName: a.importerName, winnerName: a.winnerName, decision: d.decision, deciderName: names.get(d.decidedBy) ?? IMPORT_LEADS_TEXT.formerMember, decidedOn, recordCount: a.recordCount };
+  }).sort((x, y) => (x.decidedOn < y.decidedOn ? 1 : x.decidedOn > y.decidedOn ? -1 : 0));
   const leads: MatchedLeadInput[] = classified.matched.map((s) => ({
     exporterName: s.meta.lead.exporterName,
     shipmentDate: s.meta.lead.shipmentDate,
@@ -439,6 +440,8 @@ export async function revokeImportLeadAlias(input: {
 }): Promise<{ ok: true; view: ImportLeadsView; revokedDecision: "CONFIRMED" | "REJECTED" } | ServiceFailure> {
   const now = input.now ?? new Date();
   const state = await loadProjectState(input.orgId, input.projectId, now);
+  // 中标者名单读不出来时照实说，不当成「这一对不在本项目里」
+  if (state.winners.status !== "ok") return { ok: false, status: 422, code: "NO_WINNERS", messageZh: state.winners.messageZh };
   if (!state.activePairKeys.has(input.pairKey)) return { ok: false, status: 404, code: "PAIR_NOT_IN_PROJECT", messageZh: IMPORT_LEADS_TEXT.pairNotInProject };
   const current = state.decisions.find((d) => d.pairKey === input.pairKey);
   if (!current || current.auditId !== input.decisionId) return { ok: false, status: 409, code: "NOTHING_TO_REVOKE", messageZh: IMPORT_LEADS_TEXT.revokeConflict };
@@ -448,7 +451,8 @@ export async function revokeImportLeadAlias(input: {
     await advisoryLock(tx, `import-lead-alias:${input.orgId}:${targetId}`);
     const latest = (await loadDecisions(tx, input.orgId, [input.pairKey]))[0];
     if (!latest || latest.auditId !== input.decisionId) return null;
-    const { auditId, ...decision } = latest;
+    const { auditId, recordedAt: _recordedAt, ...decision } = latest;
+    void _recordedAt;
     await tx.auditLog.create({
       data: {
         userId: input.userId,

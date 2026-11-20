@@ -131,18 +131,23 @@ export const IMPORT_LEADS_TEXT = {
   aliasConflict: "同事已经处理过这一对，页面已更新。",
   /** CHAIN-3c：裁决与撤回只限组织管理员 */
   notOrgAdmin: "只有组织管理员能确认、否决或撤回「是不是同一家」（对本组织所有项目生效）。",
-  revokeConflict: "这一对现在没有可撤回的裁决，页面已更新。",
-  pairNotInProject: "这一对不在本项目里。",
-  revoked: "已撤回，这一对回到待确认。",
-  revokedRejection: "之前因否决没有导入的记录需要重新导入。",
-  formerMember: "不是本组织现有成员",
+  revokeConflict: "同事已经撤回或改过这一对的裁决，页面已更新；请看清现在的结论再操作。",
+  pairNotInProject: "本项目已没有涉及这一对的记录（可能刚在供应链页标为不采用，或历史中标者有变），页面已更新。",
+  revokedConfirmed: (importer: string, winner: string) => `已撤回「${importer}」和「${winner}」的确认，这一对回到待确认；靠它对上的记录已移出出口商汇总（已加入供应商库的不受影响）。`,
+  revokedRejected: (importer: string, winner: string) => `已撤回「${importer}」和「${winner}」的否决，这一对回到待确认。否决期间导入时被当作「不是这个采购方的中标者」跳过的记录没有保存，需要的话请重新导入原表（已导入的不会重复）。`,
+  /** 撤回后这一对在本项目里不显示为待确认：进口商已和别的中标者对上 */
+  revokedNotPendingHere: "本项目里这家进口商已和别的中标者对上，这一对不会显示为待确认。",
+  /** 裁决人不是本组织现有成员（已离开，或平台人员） */
+  formerMember: "本组织以外的人",
+  /** 本组织现有成员、但没有填名字 */
+  unnamedMember: "本组织成员（未填姓名）",
   aliasNotPending: "这一对已不需要确认。",
   exporterNotInSummary: "这家出口商不在本项目的进口线索汇总里。",
   aliasConfirmed: "已确认是同一家，相关记录已加入出口商汇总。",
   aliasRejected: "已标为不是同一家，这些记录不再显示。",
   leadCap: (n: number, cap: number) => `这个项目已有 ${n} 条进口记录（含在供应链页标为不采用的），最多 ${cap} 条，这一批放不下了。`,
   storedButHidden: (n: number) => `已导入 ${n} 条进口记录；历史中标者现在读不出来，先不显示。`,
-  storedPending: (n: number) => `已导入 ${n} 条进口记录，都在等确认是不是同一家（打开进口线索查看）。`,
+  storedPending: (n: number) => `已导入 ${n} 条进口记录，都在等组织管理员确认是不是同一家（打开进口线索查看）。`,
   storedUnmatched: (n: number) => `已导入 ${n} 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。`,
   cannotImport: (reason: string) => `暂时不能导入：${reason}`,
   supplierCreated: "已加入供应商库。进口记录通常没有邮箱，请先补上联系邮箱才能发询价；补上后在项目里点「问供应商要价」就能勾选它。",
@@ -230,11 +235,11 @@ export type ImportResultCounts = {
 };
 
 /**
- * 导入结果那一句：「共 N 条：导入 a 条（b 条已对应中标者，c 条要你确认是不是同一家）；重复跳过 d 条；
+ * 导入结果那一句：「共 N 条：导入 a 条（b 条已对应中标者，c 条要等组织管理员确认是不是同一家）；重复跳过 d 条；
  * e 条的进口商不是这个采购方的中标者，没有保存（甲、乙）；f 条有问题没有导入，见下。」——为 0 的那半句不写。
  */
 export function importResultZh(r: ImportResultCounts): string {
-  const detail = [r.matched ? `${r.matched} 条已对应中标者` : "", r.suggested ? `${r.suggested} 条要确认是不是同一家` : ""].filter(Boolean).join("，");
+  const detail = [r.matched ? `${r.matched} 条已对应中标者` : "", r.suggested ? `${r.suggested} 条要等组织管理员确认是不是同一家` : ""].filter(Boolean).join("，");
   const parts = [r.imported ? `导入 ${r.imported} 条${detail ? `（${detail}）` : ""}` : "没有新导入"];
   if (r.duplicates) parts.push(`重复跳过 ${r.duplicates} 条`);
   if (r.unrelated) parts.push(`${r.unrelated} 条的进口商不是这个采购方的中标者，没有保存${r.unrelatedImporters.length ? `（${r.unrelatedImporters.join("、")}）` : ""}`);
