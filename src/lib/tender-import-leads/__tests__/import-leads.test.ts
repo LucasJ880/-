@@ -9,7 +9,7 @@ import { BATCH_TEXT, IMPORT_COLUMNS_HINT_ZH, IMPORT_HEADER_NAMES_ZH, groupProble
 import { MANUAL_SOURCE_NOTE_ZH, importLeadSourceNotesZh, manualPasteProvider } from "../provider";
 import { candidatePairKeys, createCandidatePairFinder, createImporterMatcher, matchImporter, preparedPairKey, prepareName, relatePrepared, uniqueWinnerNames } from "../match-pure";
 import { IMPORT_LEAD_ALIAS_AUDIT_ACTION, IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, effectiveDecisions } from "../alias-decisions";
-import { IMPORT_LEADS_TEXT, IMPORT_LEAD_REVOKE_REASON_MAX, normalizeRevokeReason, aggregateByExporter, importResultZh, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
+import { IMPORT_LEADS_TEXT, IMPORT_LEAD_REVOKE_REASON_MAX, normalizeRevokeReason, rejectedPairsSummaryZh, decidedCountsZh, aggregateByExporter, importResultZh, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
 import { aliasPairKey, compareCompanyNames, decideAlias } from "@/lib/tender-competition/company-identity";
 import { createImportLead } from "@/lib/tender-competition/import-leads";
 import { platformDisplay, sourceOriginDisplay } from "@/lib/supplier-intel/workspace-labels";
@@ -285,6 +285,14 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
     ok(a.ok && a.reason === "判断 错了" && !b.ok && b.code === "REASON_REQUIRED" && b.messageZh === "请填写撤回原因。" && !c.ok && !d.ok && d.code === "REASON_TOO_LONG" && d.messageZh === "撤回原因最多 200 字，请删减后再提交。" && e.ok && IMPORT_LEAD_REVOKE_REASON_MAX === 200, "撤回原因：空白折叠、去首尾空白、必填、最多 200 字（与授标记录撤回同一口径）");
     const route = readFileSync(path.join(process.cwd(), "src/app/api/projects/[id]/tender-intel/import-leads/aliases/revoke/route.ts"), "utf8");
     ok(route.indexOf("normalizeRevokeReason(") > route.indexOf('"请求不完整"') && route.indexOf("normalizeRevokeReason(") < route.indexOf("revokeImportLeadAlias({") && route.includes("reason: reason.reason"), "撤回接口：先查请求完整、再查原因、再调服务");
+  }
+  {
+    // CHAIN-3c（Lucas 2026-11-20「需要单独计数」）：已标为不是同一家的对单独计数
+    const pairs = [{ decision: "CONFIRMED" as const, recordCount: 3 }, { decision: "REJECTED" as const, recordCount: 2 }, { decision: "REJECTED" as const, recordCount: 4 }];
+    ok(rejectedPairsSummaryZh(pairs) === "已标为不是同一家 2 对（6 条进口记录因此不显示）" && rejectedPairsSummaryZh([{ decision: "CONFIRMED", recordCount: 1 }]) === null && rejectedPairsSummaryZh([]) === null, "已标为不是同一家：对数与不显示的记录条数，没有就不写");
+    ok(decidedCountsZh(pairs) === "已确认是同一家 1 对，已标为不是同一家 2 对" && decidedCountsZh([{ decision: "REJECTED" }]) === "已标为不是同一家 1 对" && decidedCountsZh([]) === "", "已裁决的一节标题后面：两种结论各几对，为 0 的不写");
+    const panelSrc = readFileSync(path.join(process.cwd(), "src/components/tender-intel/import-leads-panel.tsx"), "utf8");
+    ok(panelSrc.includes("{rejectedPairsSummaryZh(v.decidedPairs) ? <p>{rejectedPairsSummaryZh(v.decidedPairs)}</p> : null}") && panelSrc.includes("{decidedCountsZh(view.decidedPairs)}"), "槽里与已裁决的一节都写单独计数");
   }
   ok(IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION === "tender.import_lead_alias_revoked" && IMPORT_LEAD_ALIAS_AUDIT_ACTION === "tender.import_lead_alias_decided", "两种审计 action");
   const finder = createCandidatePairFinder(["Northfield Pest Supply Inc.", "Boreal Outfitters"]);

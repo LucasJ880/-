@@ -303,6 +303,10 @@ async function main() {
     const dv = c3.json.view!;
     const dG = dv.decidedPairs.find((d) => d.pairKey === pG), dH = dv.decidedPairs.find((d) => d.pairKey === pH), dC = dv.decidedPairs.find((d) => d.pairKey === pC);
     ok(dv.decidedPairs.length === 3 && dG?.decision === "CONFIRMED" && dG.importerName === "Glacier Linen Supply" && dG.winnerName === "Glacier Linen Supply Inc." && dG.deciderName === `Fixture ${OWNER}` && dG.recordCount === 1 && /^\d{4}-\d{2}-\d{2}$/.test(dG.decidedOn) && dH?.decision === "REJECTED" && dH.deciderName === "所有者 Fixture" && dC?.deciderName === "本组织以外的人", "已裁决的一节：三对、结论、裁决人（平台超级管理员不是本组织成员）、条数、日期", dv.decidedPairs);
+    {
+      const { rejectedPairsSummaryZh, decidedCountsZh } = await import("../aggregate-pure");
+      ok(rejectedPairsSummaryZh(dv.decidedPairs) === "已标为不是同一家 1 对（1 条进口记录因此不显示）" && decidedCountsZh(dv.decidedPairs) === "已确认是同一家 2 对，已标为不是同一家 1 对", "单独计数：一对否决（1 条记录不显示），两对确认", [rejectedPairsSummaryZh(dv.decidedPairs), decidedCountsZh(dv.decidedPairs)]);
+    }
     const edAfter = (await get(pR, editor)).json.decidedPairs;
     ok(JSON.stringify(edAfter) === JSON.stringify(dv.decidedPairs), "编辑者看到的已裁决的对与组织管理员相同", edAfter);
     // 排序：按裁决日期从新到旧（把两条裁决的日期改早，三条分在三天）

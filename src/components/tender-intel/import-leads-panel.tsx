@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
-import { IMPORT_LEAD_REVOKE_REASON_MAX, IMPORT_LEADS_TEXT, importResultZh, slotSummaryZh, type DecidedPairView, type ExporterSummary, type ImportLeadsView, type PendingSuggestionView } from "@/lib/tender-import-leads/aggregate-pure";
+import { IMPORT_LEAD_REVOKE_REASON_MAX, IMPORT_LEADS_TEXT, importResultZh, slotSummaryZh, rejectedPairsSummaryZh, decidedCountsZh, type DecidedPairView, type ExporterSummary, type ImportLeadsView, type PendingSuggestionView } from "@/lib/tender-import-leads/aggregate-pure";
 import { IMPORT_HEADER_NAMES_ZH } from "@/lib/tender-import-leads/parse";
 import type { ImportResult } from "@/lib/tender-import-leads/service";
 
@@ -114,6 +114,7 @@ export function ImportLeadsSlotSummary({ state, open, onToggle }: { state: Impor
         </p>
       ))}
       {v.suggestions.length ? <p>另有 {v.suggestions.length} 对等组织管理员确认是不是同一家</p> : null}
+      {rejectedPairsSummaryZh(v.decidedPairs) ? <p>{rejectedPairsSummaryZh(v.decidedPairs)}</p> : null}
       <button
         type="button"
         onClick={onToggle}
@@ -388,7 +389,10 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
 
       {view.decidedPairs.length ? (
         <div className="mt-3">
-          <p className="font-medium text-foreground">{IMPORT_LEADS_UI.decidedTitle}</p>
+          <p className="font-medium text-foreground">
+            {IMPORT_LEADS_UI.decidedTitle}
+            <span className="ml-1 font-normal text-muted">{decidedCountsZh(view.decidedPairs)}</span>
+          </p>
           <ul className="mt-1 divide-y divide-border/50">
             {view.decidedPairs.map((d) => (
               <li key={d.pairKey} className="flex flex-wrap items-center gap-2 py-1.5">

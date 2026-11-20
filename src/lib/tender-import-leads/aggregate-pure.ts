@@ -235,6 +235,24 @@ export function slotSummaryZh(view: Pick<ImportLeadsView, "exporters" | "leadCou
   return IMPORT_LEADS_TEXT.empty;
 }
 
+/**
+ * CHAIN-3c（Lucas 2026-11-20「需要单独计数」）：已标为「不是同一家」的对单独计数——
+ * 槽里与面板上写「已标为不是同一家 N 对（M 条进口记录因此不显示）」；没有就不写。条数口径同已裁决的一节（不含不采用的）。
+ */
+export function rejectedPairsSummaryZh(decidedPairs: Pick<DecidedPairView, "decision" | "recordCount">[]): string | null {
+  const rejected = decidedPairs.filter((d) => d.decision === "REJECTED");
+  if (!rejected.length) return null;
+  const records = rejected.reduce((sum, d) => sum + d.recordCount, 0);
+  return `已标为不是同一家 ${rejected.length} 对（${records} 条进口记录因此不显示）`;
+}
+
+/** 已裁决的一节的标题后面写两种结论各几对（为 0 的不写） */
+export function decidedCountsZh(decidedPairs: Pick<DecidedPairView, "decision">[]): string {
+  const confirmed = decidedPairs.filter((d) => d.decision === "CONFIRMED").length;
+  const rejected = decidedPairs.filter((d) => d.decision === "REJECTED").length;
+  return [confirmed ? `已确认是同一家 ${confirmed} 对` : "", rejected ? `已标为不是同一家 ${rejected} 对` : ""].filter(Boolean).join("，");
+}
+
 export type ImportResultCounts = {
   totalRecords: number;
   imported: number;
