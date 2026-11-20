@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-20 第四十五次（情报串联后续：五个 change 各开一个 Draft PR，**都没有合并**，等 Lucas / Evan 审——CHAIN-4c #533、CHAIN-2b #532、CHAIN-3b #535、CHAIN-3c #534、CHAIN-1b #536；新会话从 §0.5h「第四十五次」进。上一次：同日第四十四次，CHAIN-4a / 2 / 3 合并并归档） |
+| 最后更新 | 2026-11-20 第四十六次（Lucas 对五个 Draft PR 的 GATE 回答已落实：#534 撤回要填原因、#536 收紧匹配与链接形状；新开两个 Draft PR：CHAIN-2c #539、CHAIN-2d #538。七个 Draft PR **都没有合并**（#532–#536、#538、#539）；新会话从 §0.5h「第四十六次」进。上一次：同日第四十五次） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]`；Phase F（续）情报串联：CHAIN-0c、CHAIN-4b、CHAIN-4a、CHAIN-2、CHAIN-3 为 `[x]`，CHAIN-0 `[~]`（第 2–7 项待生产权限），CHAIN-1 `[ ]`（前置核查不通过，已停）；CHAIN-4c / 2b / 3b / 3c / 1b 五行在各自的 Draft PR 里（`[~]`，main 上的 TASKFLOW 还没有这五行，合并后才有） |
-| 工作分支 | 没有叠层的链。五个 Draft PR 各在 `claude/inspiring-johnson-o54xbt-chain-{4c,2b,3b,3c,1b}`，都从 main `91d928e4` 开、直接指向 `main`。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
+| 工作分支 | 没有叠层的链。七个 Draft PR 各在 `claude/inspiring-johnson-o54xbt-chain-{4c,2b,3b,3c,1b,2c,2d}`，都从 main `91d928e4` 开、直接指向 `main`。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用。情报串联：CHAIN-0c、CHAIN-4b 不加开关，合并即生效；CHAIN-4a、CHAIN-2、CHAIN-3 都在默认关的开关之后，生产未启用（§0.5h） |
-| 进行中的 change | 五个，各在自己的分支上、Draft PR 待审（main 上 `openspec list` 仍为空）：`rfq-web-entry-spec-split`（#533）、`pricing-helper-finance-gate`（#532）、`bid-readiness-import-leads`（#535）、`import-leads-alias-admin-revoke`（#534）、`award-manual-entry-alberta`（#536），见 §0.5h「第四十五次」。合并后各自 `/opsx:archive <change> --yes`（独立小 PR）。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
+| 进行中的 change | 七个，各在自己的分支上、Draft PR 待审（main 上 `openspec list` 仍为空）：`rfq-web-entry-spec-split`（#533）、`pricing-helper-finance-gate`（#532）、`bid-readiness-import-leads`（#535）、`import-leads-alias-admin-revoke`（#534）、`award-manual-entry-alberta`（#536）、`project-owner-change-guard`（#539）、`strategy-memo-cost-strip`（#538），见 §0.5h「第四十五次」「第四十六次」。合并后各自 `/opsx:archive <change> --yes`（独立小 PR）。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
 
 ---
 
@@ -321,6 +321,20 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 | #536 | 第四十四次第 1 条；「已完成」表与 TASKFLOW 的 CHAIN-1 一行 |
 | 每个 | 页头「进行中的 change」「主线状态」两行 |
 
+**第四十六次（Lucas 2026-11-20 对第四十五次总结里五个 GATE 问题的回答）**：「1. 不用 2.可以 3.也能裁决，撤回也需要填原因 4.收紧 5.https://purchasing.alberta.ca/posting/AB-2026-07664」。落实如下（都推到各自分支、PR 正文已更新，**仍没有合并**）：
+
+| 问题 | 回答 | 落实 |
+|---|---|---|
+| ① #532 投标同事（`bids`）看不到成本，要不要给组织范围财务权 | 不用 | #532 不改 |
+| ② #532 负责人可被改成自己；投标策略备忘可能转述成本 | 可以（另立 change） | 新开 **CHAIN-2c `project-owner-change-guard` #539**（四个改负责人的入口用同一判定，只有持「管理项目财务」的人与平台超级管理员能把自己设为负责人）与 **CHAIN-2d `strategy-memo-cost-strip` #538**（备忘的模型输入只有对手价；旧版备忘在四个读取处统一裁剪；**须在 #532 之后合并**） |
+| ③ #534 平台超级管理员能不能裁决；撤回要不要原因 | 也能；要原因 | #534：超级管理员照旧；撤回必须填 1–200 字原因、记进撤回审计、面板行内填（表单按裁决标识开） |
+| ④ #536 按日期金额挂到既有不看编号 | 收紧 | #536：`awards.ts` 两边编号都有且不同就不挂；**我在收紧之内的选择**：不挂时新记录标为疑似重复（同一笔授标常有两套编号，直接 `ACTIVE` 会算两次），请 Lucas 确认 |
+| ⑤ APC 链接样例 | `…/posting/AB-2026-07664` | #536：只认 `/posting/AB-年份-编号`（4–6 位），统一一种写法；没有打开这个链接，也没有访问 APC |
+
+每个改动都按规则走了四维度审查（每个子 agent 一个维度）与全量门禁（各 PR 正文与报告 §4 / §5）。新的 GATE 问题：#539 三条（谁能换负责人的范围、组织管理员借同伙绕回、中标转执行可自选负责人）、#538 五条后续（旧版投标文件草稿未裁剪等）、#536 ④ 的疑似重复选择。
+
+**合并顺序（第四十六次更新）**：#533 → #532 → #535 → #534 → #536 → #539 → #538（#538 必须在 #532 之后）。冲突：#535 × #534 两处（见上）；TASKFLOW 情报串联表 CHAIN-2 行后 #532 / #539 / #538 各加一行，保留全部（2b、2c、2d）。其余两两试合干净。
+
 **多维审查的执行情况**：#532 实现后四个子 agent 各审一个维度；#533 只改规格，开 PR 前两个维度（规格等价、产物与文档）；#535 / #534 / #536 实现后起初三个子 agent，其中一个同时审「安全」与「规格一致性」，不合 `openspec/config.yaml`「每个只管一个维度」，开 PR 后各补派一个只审规格—代码—测试一致性的子 agent，发现（#534、#536 各一条阻塞）都已修并推上去，PR 正文与报告 §5 照实写了。
 
 **第四十五次之后还有什么**（第四十四次的「之后还有什么」第 1、3、4 条已在本次开成上面的 Draft PR）：
@@ -377,7 +391,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 - Node 24：从 nodejs.org 下到 `/tmp/claude-0/node24/` 再加进 PATH（系统自带 22）；`npm ci` 后 `npx prisma generate`。
 - 隔离库：本机 Postgres 16（`pg_ctlcluster 16 main start`），先 `apt-get install -y postgresql-16-pgvector` 才能 `prisma migrate deploy`；环境变量 `DATABASE_URL` / `DIRECT_URL` 指 localhost、`NODE_ENV=test DATABASE_ENVIRONMENT=isolated`，另要 `JWT_SECRET`（测试值即可）。Postgres 可能中途停掉，跑隔离库前先 `pg_lsclusters`。
 - 全量 `npm test` 带隔离库约 1.5 小时；**不要同时在同一个库上并行跑别的隔离库测试**（本会话因此让 Mention Gateway M2-A 撞了唯一约束）。在本机 main 上也失败的 9 项名单见 `docs/QINGYAN_CHAIN-4b_REPORT.md` §5，比对时用。（第四十四次：现在是 11 项，CHAIN-3 时 701/712，名单见 `docs/QINGYAN_CHAIN-3_REPORT.md` §4。）
-- （第四十五次）几个 change 并行时每个用一个 `git worktree`（`node_modules` 符号链接过去）；两个隔离库（`qingyan_iso`、`qingyan_iso_gate`）可以各跑一个全量，同一个库上不要并行。`npm run test:ci` 要在 `env -u DATABASE_URL -u DIRECT_URL` 下跑（与 CI 一样不带库；带着库会跑 DB 测试，撞上 main 上既有失败的「招标询价自动起草 DB 75 / 76」）。
+- （第四十五次）几个 change 并行时每个用一个 `git worktree`（`node_modules` 符号链接过去）；两个隔离库（`qingyan_iso`、`qingyan_iso_gate`）可以各跑一个全量，同一个库上不要并行。（第四十六次：又建了 `qingyan_iso_c2c`、`qingyan_iso_c2d` 给并行的 fork 用——`PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "create database …"`，`create extension vector`，再 `prisma migrate deploy`；`createdb` 不带 `PGPASSWORD` 会卡在输入密码。）`npm run test:ci` 要在 `env -u DATABASE_URL -u DIRECT_URL` 下跑（与 CI 一样不带库；带着库会跑 DB 测试，撞上 main 上既有失败的「招标询价自动起草 DB 75 / 76」）。
 - （第四十五次更正）Mention Gateway M2-A Identity DB 只在新库的第一次全量能过：它建的平台级网关（`orgId = __qingyan_platform__`、`channel = wecom`）测完不清理，再跑就撞 `WeChatGateway (orgId, channel)` 唯一约束（这一轮前 5 次全量只有 `qingyan_iso_gate` 上第一次那次过了；第 6 次跑之前删掉 `qingyan_iso` 里那一行，就过了，印证了原因）。上面「本会话因此让 Mention Gateway M2-A 撞了唯一约束」的原因不是并行，是这一行残留。比对时按既有失败处理；要它过，先删掉那一行。
 - 判重 / 查找类逻辑别靠「读最早 N 条」：CHAIN-3 第一轮审查就抓到查重只读 2000 条；按键用 `$queryRaw` 在 JSON 字段上查（`"rawMetadataJson"->>'dedupeKey' = ANY(...)`）。
 
