@@ -22,7 +22,7 @@ import {
   type OurCostSourceClaim,
 } from "@/lib/tender-pricing/compare-cost-source";
 import { CompareCostSourceBlock, MarkupHint } from "./pricing-compare-source";
-import { COST_HIDDEN_FIELD_ZH, COST_HIDDEN_NOTE_ZH } from "@/lib/tender-pricing/finance-view";
+import { COST_ACCESS_HINT_ZH, COST_HIDDEN_FIELD_ZH, COST_HIDDEN_NOTE_ZH, COST_TARGET_MARGIN_NOTE_ZH } from "@/lib/tender-pricing/finance-view";
 
 type Payload = {
   runId: string | null;
@@ -73,6 +73,7 @@ export function PricingHelperCard({
   const [data, setData] = useState<Payload | null>(null);
   const [busy, setBusy] = useState<"save" | "derive" | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [msgIsError, setMsgIsError] = useState(false);
   const [form, setForm] = useState<{ competitor: string; cost: string; margin: string }>({
     competitor: "",
     cost: "",
@@ -103,6 +104,7 @@ export function PricingHelperCard({
   const post = async (body: Record<string, unknown>, kind: "save" | "derive") => {
     setBusy(kind);
     setMsg(null);
+    setMsgIsError(false);
     try {
       const res = await apiFetch(`/api/projects/${projectId}/pricing-helper`, {
         method: "POST",
@@ -110,7 +112,12 @@ export function PricingHelperCard({
         body: JSON.stringify(body),
       });
       const json = (await res.json()) as { error?: string; via?: string; keptHumanOverride?: boolean };
-      if (!res.ok) setMsg(json.error ?? "操作失败");
+      if (!res.ok) {
+        setMsg(json.error ?? "操作失败");
+        setMsgIsError(true);
+        // CHAIN-2b：成本不能改（403）时保留表单里刚填的对手价与目标毛利，不重新读取
+        if (res.status === 403) return;
+      }
       else if (kind === "derive")
         setMsg(
           json.keptHumanOverride
@@ -257,6 +264,7 @@ export function PricingHelperCard({
             ))}
           </div>
           <MarkupHint enabled={compareOn} margin={form.margin} />
+          {costHidden ? <p className="mt-1 text-[10px] text-muted">{COST_TARGET_MARGIN_NOTE_ZH}</p> : null}
           {canManage ? (
             <button
               type="button"
@@ -268,11 +276,23 @@ export function PricingHelperCard({
               {busy === "save" ? "保存中…" : "保存并重算"}
             </button>
           ) : null}
-          {msg ? <span className="ml-2 text-[10px] text-muted">{msg}</span> : null}
+          {msg ? (
+            <span className={`ml-2 text-[10px] ${msgIsError ? "text-danger" : "text-muted"}`} role="status" aria-live="polite">
+              {msg}
+            </span>
+          ) : null}
         </div>
       </div>
 
       {cc ? <CompareCostSourceBlock view={cc} canManage={canManage} onFill={fill} /> : null}
+
+      {/* CHAIN-2b：没有财务查看权时，情景表上方说明少了什么、找谁 */}
+      {costHidden && r ? (
+        <p className="mt-3 text-[11px] text-muted" data-testid="pricing-cost-hidden-note">
+          {COST_HIDDEN_NOTE_ZH}
+          {COST_ACCESS_HINT_ZH}
+        </p>
+      ) : null}
 
       {/* 情景表 */}
       {r && r.scenarios.length > 0 ? (
@@ -319,7 +339,7 @@ export function PricingHelperCard({
         <p className="mt-3 text-[11px] text-muted">{r.breakEvenNoteZh}</p>
       ) : null}
 
-      {/* CHAIN-2b：没有财务查看权时成本那一格已经写了，假设说明里同义的那句不再重复 */}
+      {/* CHAIN-2b：没有财务查看权时那句已经写在情景表上方，假设说明里不再重复 */}
       {r && r.assumptionsZh.filter((a) => !(costHidden && a === COST_HIDDEN_NOTE_ZH)).length > 0 ? (
         <ul className="mt-2 list-disc pl-4 text-[10px] text-muted">
           {r.assumptionsZh

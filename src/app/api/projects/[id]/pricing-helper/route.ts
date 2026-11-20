@@ -5,7 +5,7 @@ import {
   requireProjectWriteAccess,
   type ProjectAccessContext,
 } from "@/lib/projects/access";
-import { decideFinancePrivilege, resolveFinancePrivilege } from "@/lib/project-finance/access";
+import { resolveFinancePrivilege } from "@/lib/project-finance/access";
 import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 import {
   PRICING_MODEL_VERSION,
@@ -37,6 +37,7 @@ import {
   COST_WRITE_FORBIDDEN_ZH,
   buildPricingHelperView,
   buildSavedInputsView,
+  resolvePricingCostVisibility,
   touchesCost,
 } from "@/lib/tender-pricing/finance-view";
 
@@ -59,20 +60,10 @@ import {
  */
 async function canSeePricingCost(access: ProjectAccessContext): Promise<boolean> {
   const { user, project } = access;
-  const withoutOrgKeys = () =>
-    decideFinancePrivilege({
-      isPlatformSuperAdmin: isPlatformSuperAdmin(user.role),
-      isProjectOwner: !!project.ownerId && project.ownerId === user.id,
-      holdsManage: false,
-      holdsRead: false,
-    }).canReadAll;
-  if (!project.orgId) return withoutOrgKeys();
-  try {
-    return (await resolveFinancePrivilege(user, project.orgId, project.ownerId)).canReadAll;
-  } catch (err) {
-    console.warn("[pricing-helper] finance privilege", err instanceof Error ? err.message : err);
-    return withoutOrgKeys();
-  }
+  return resolvePricingCostVisibility(
+    { isPlatformSuperAdmin: isPlatformSuperAdmin(user.role), isProjectOwner: !!project.ownerId && project.ownerId === user.id, orgId: project.orgId },
+    async (orgId) => (await resolveFinancePrivilege(user, orgId, project.ownerId)).canReadAll,
+  );
 }
 
 
@@ -112,7 +103,7 @@ export async function GET(
   const canSeeCost = await canSeePricingCost(access);
   const compareEnabled = !!orgId && isPricingCompareSourceEnabledForOrg(orgId);
   let compareCost: CompareCostView | null = null;
-  if (orgId && canSeeCost && isPricingCompareSourceEnabledForOrg(orgId)) {
+  if (orgId && canSeeCost && compareEnabled) {
     const suggestion = await loadCompareCostSuggestionSafe({ projectId, orgId });
     const source = readCostSource((saved as Record<string, unknown>).ourCostSource);
     compareCost = { suggestion, source, staleNoteZh: staleNoteZh(source, inputs.ourCostCad, suggestion) };
@@ -261,7 +252,9 @@ export async function POST(
   const access = await requireProjectWriteAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
-  const body = (await request.json().catch(() => ({}))) as PricingPostBody;
+  const raw = asRec(await request.json().catch(() => ({})));
+  // inputs 不是对象时当作没带（原来会在 buildSave 里抛错变 500）
+  const body = { ...raw, ...(raw.inputs !== undefined ? { inputs: asRec(raw.inputs) } : {}) } as PricingPostBody;
   const room = await db.bidIntelligenceRoom.findUnique({
     where: { projectId },
     select: { id: true, summaryJson: true },

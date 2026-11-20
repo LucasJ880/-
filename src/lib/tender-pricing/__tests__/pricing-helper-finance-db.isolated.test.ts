@@ -31,6 +31,7 @@ const rec = (v: unknown): Rec => (v && typeof v === "object" && !Array.isArray(v
 const COST = 91234.56;
 const LANDED = 87654.32;
 const COST_STRINGS = ["91234", "91,234", "87654", "87,654"];
+const DAY = 24 * 3600 * 1000;
 
 async function main() {
   const { NextRequest } = await import("next/server");
@@ -81,8 +82,17 @@ async function main() {
     for (const [u, role] of [[VIEWER, "viewer"], [EDITOR, "project_admin"], [BIDS, "viewer"], [FINREAD, "project_admin"]] as const) {
       await db.projectMember.create({ data: { projectId: pid, userId: u, role, status: "active" } });
     }
-    await db.bidIntelligenceRoom.create({ data: { orgId: ORG, projectId: pid, summaryJson: { pricingModel: model, pricingInputs, otherFeature: { keep: true } } as never } });
+    await db.bidIntelligenceRoom.create({ data: { orgId: ORG, projectId: pid, summaryJson: { pricingModel: model, pricingInputs, otherFeature: { keep: true }, bidStrategyMemo: { pricingStrategyZh: `按成本 ${COST} 定价` }, majorBlockers: ["fixture blocker"] } as never } });
     return pid;
+  }
+  /** 一轮已报价、人工选定的询价（比价矩阵按组织的落地价设置算出一个落地价） */
+  const supplierIds: string[] = [];
+  async function mkSelectedRound(projectId: string, unitPrice: number) {
+    const sup = await db.supplier.create({ data: { orgId: ORG, name: `Fixture Supplier ${stamp}`, contactEmail: `sup_${stamp}@supplier-fixture.test`, status: "active", createdById: OWNER } as never });
+    supplierIds.push(sup.id);
+    const inquiry = await db.projectInquiry.create({ data: { projectId, roundNumber: 1, status: "in_progress", createdById: OWNER } });
+    await db.pendingAction.create({ data: { type: "tender.send_rfq", title: "第 1 轮询价", preview: "fixture", payload: { inquiryId: inquiry.id, projectId, roundNumber: 1, items: [{ supplierId: sup.id, body: "- 数量：1500 件\n" }] }, status: "executed", createdById: OWNER, orgId: ORG, projectId, decidedById: OWNER, decidedAt: new Date(), executedAt: new Date(), expiresAt: new Date(Date.now() + 3 * DAY), idempotencyKey: `pf-${stamp}-${projectId}-1` } });
+    await db.inquiryItem.create({ data: { inquiryId: inquiry.id, supplierId: sup.id, status: "quoted", unitPrice, currency: "CNY", deliveryDays: 20, validUntil: new Date(Date.now() + 60 * DAY), repliedAt: new Date(Date.now() - DAY), quoteNotes: "[auto 2026-11-01T00:00:00.000Z msg=m1] 贸易条款=FOB", isSelected: true, createdById: OWNER } as never });
   }
   const cookieOf = async (userId: string) => `qy_session=${await createSession({ sub: userId, email: email(userId), role: userId === SUPER ? "super_admin" : "user" })}`;
   const get = async (projectId: string, userId: string) => {
@@ -104,6 +114,16 @@ async function main() {
   try {
     const baseInputs = { competitorPriceCad: 100000, ourCostCad: COST, targetMarginPct: 15, ourCostSource: costSource, ourPriceCad: 99000, ourPriceStatus: "AUTHORITATIVE" };
     const P = await mkProject(baseInputs);
+    await db.organization.update({ where: { id: ORG }, data: { settingsJson: { tenderRfq: { landedCost: { fxRates: { CNY: 0.19 }, fxAsOf: new Date(Date.now() - 2 * DAY).toISOString().slice(0, 10), fxSource: "MANUAL", freightEstimate: { mode: "per_unit", value: 6 }, insurancePct: 1, clearanceFlatCad: 150, projects: { [P]: { dutyRatePct: 6.5 } } } } } as never } });
+    await mkSelectedRound(P, 313.37);
+    // 有财务查看权的人看到的比价矩阵落地价：之后在没有权限的人的响应里搜这个数
+    process.env.TENDER_PRICING_COMPARE_SOURCE_ENABLED = "1";
+    const gProbe = await get(P, OWNER);
+    const sugg = rec(rec(gProbe.body.compareCost).suggestion);
+    const landed = typeof sugg.landedCadTotal === "number" ? (sugg.landedCadTotal as number) : NaN;
+    ok(sugg.status === "ok" && Number.isFinite(landed) && landed > 1000, "比价矩阵有选定：负责人拿到落地价建议", sugg);
+    const li = Math.floor(landed);
+    COST_STRINGS.push(String(li), li.toLocaleString("en-CA"));
 
     /* ---------- 1. 开关开着：没有财务查看权的四种人 ---------- */
     process.env.TENDER_PRICING_COMPARE_SOURCE_ENABLED = "1";
@@ -152,9 +172,9 @@ async function main() {
     const w1 = await post(P, { action: "save", inputs: { competitorPriceCad: 100000, ourCostCad: 1, targetMarginPct: 15 } }, EDITOR);
     ok(w1.status === 403 && w1.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snap, "编辑者带 ourCostCad 保存：403、库不变", w1.body);
     const w2 = await post(P, { action: "save", inputs: { competitorPriceCad: 100000 }, ourCostSource: null }, EDITOR);
-    ok(w2.status === 403 && JSON.stringify(await roomSj(P)) === snap, "编辑者带 ourCostSource: null 保存：403、库不变", w2.body);
+    ok(w2.status === 403 && w2.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snap, "编辑者带 ourCostSource: null 保存：403、库不变", w2.body);
     const w3 = await post(P, { action: "save", inputs: { competitorPriceCad: 100000, ourCostCad: null }, ourCostSource: { kind: "rfq_compare", inquiryItemId: "x" } }, ADMIN);
-    ok(w3.status === 403 && JSON.stringify(await roomSj(P)) === snap, "org_admin（无财务键）带成本保存：403、库不变", w3.body);
+    ok(w3.status === 403 && w3.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snap, "org_admin（无财务键）带成本保存：403、库不变", w3.body);
     const w4 = await post(P, { action: "save", inputs: { competitorPriceCad: 105000, targetMarginPct: 12 } }, EDITOR);
     const afterPi = rec((await roomSj(P)).pricingInputs);
     ok(
@@ -167,7 +187,7 @@ async function main() {
     const w5 = await post(P, { action: "save", inputs: { competitorPriceCad: 105000, targetMarginPct: 100 } }, EDITOR);
     ok(w5.status === 400, "编辑者不碰成本但目标毛利 100：400（财务判定之后才是目标毛利）", w5.body);
     const w6 = await post(P, { action: "save", inputs: { targetMarginPct: 100, ourCostCad: 5 } }, EDITOR);
-    ok(w6.status === 403, "编辑者带成本且目标毛利 100：403 先于 400", w6.body);
+    ok(w6.status === 403 && w6.body.error === COST_WRITE_FORBIDDEN_ZH, "编辑者带成本且目标毛利 100：403 先于 400", w6.body);
 
     /* ---------- 5. 有财务查看权的人照常保存成本 ---------- */
     const o1 = await post(P, { action: "save", inputs: { competitorPriceCad: 105000, ourCostCad: 90000, targetMarginPct: 12 } }, OWNER);
@@ -188,18 +208,27 @@ async function main() {
     const rr = await roomRoute.GET(new NextRequest(`http://localhost/api/projects/${P}/bid-intelligence`, { headers: { cookie: await cookieOf(OWNER) } }), { params: Promise.resolve({ id: P }) });
     const roomBody = rec(await rr.json());
     const roomPi = rec(rec(rec(roomBody.room).summaryJson).pricingInputs);
-    ok(rr.status === 200 && !("ourCostCad" in roomPi) && !("ourCostSource" in roomPi) && roomPi.ourPriceCad === 99000 && roomPi.competitorPriceCad === 105000 && rec(rec(rec(roomBody.room).summaryJson).otherFeature).keep === true, "调查室读取（负责人）：pricingInputs 没有成本与来源，其它键还在", roomPi);
-    const lr = await listRoute.GET(new NextRequest(`http://localhost/api/projects?orgId=${ORG}`, { headers: { cookie: await cookieOf(VIEWER) } }), { params: Promise.resolve({}) } as never);
-    const list = (await lr.json()) as Rec[];
-    const mine = Array.isArray(list) ? list.find((p) => p.id === P) : undefined;
-    const listPi = rec(rec(rec(mine?.intelligenceRoom).summaryJson).pricingInputs);
-    ok(lr.status === 200 && !!mine && !("ourCostCad" in listPi) && !("ourCostSource" in listPi) && listPi.ourPriceCad === 99000, "项目列表（只读成员）：pricingInputs 没有成本与来源，其它键还在", mine ? listPi : list);
+    const roomSjOut = rec(rec(roomBody.room).summaryJson);
+    ok(rr.status === 200 && !("ourCostCad" in roomPi) && !("ourCostSource" in roomPi) && roomPi.ourPriceCad === 99000 && roomPi.competitorPriceCad === 105000 && rec(roomSjOut.otherFeature).keep === true && !("bidStrategyMemo" in roomSjOut) && Array.isArray(roomSjOut.majorBlockers), "调查室读取（负责人）：pricingInputs 没有成本与来源、没有投标策略备忘，其它键还在", roomPi);
+    let mine: Rec | undefined;
+    for (const [u, label] of [[VIEWER, "只读成员"], [OWNER, "项目负责人"]] as const) {
+      const lr = await listRoute.GET(new NextRequest(`http://localhost/api/projects?orgId=${ORG}`, { headers: { cookie: await cookieOf(u) } }), { params: Promise.resolve({}) } as never);
+      const list = (await lr.json()) as Rec[];
+      mine = Array.isArray(list) ? list.find((p) => p.id === P) : undefined;
+      const listSj = rec(rec(mine?.intelligenceRoom).summaryJson);
+      const listPi = rec(listSj.pricingInputs);
+      ok(lr.status === 200 && !!mine && !("ourCostCad" in listPi) && !("ourCostSource" in listPi) && listPi.ourPriceCad === 99000 && !("bidStrategyMemo" in listSj) && Array.isArray(listSj.majorBlockers), `项目列表（${label}）：pricingInputs 没有成本与来源、没有投标策略备忘，其它键还在`, mine ? listSj : list);
+    }
     ok(noCostIn(JSON.stringify(mine ?? {})) && noCostIn(JSON.stringify(roomBody)), "两个接口的 JSON 里都搜不到成本与落地价的数字");
     ok(JSON.stringify(await roomSj(P)) === before, "两个接口都不改库");
   } finally {
     if (prevFlag === undefined) delete process.env.TENDER_PRICING_COMPARE_SOURCE_ENABLED;
     else process.env.TENDER_PRICING_COMPARE_SOURCE_ENABLED = prevFlag;
     await db.bidIntelligenceRoom.deleteMany({ where: { projectId: { in: projectIds } } });
+    await db.inquiryItem.deleteMany({ where: { inquiry: { projectId: { in: projectIds } } } });
+    await db.projectInquiry.deleteMany({ where: { projectId: { in: projectIds } } });
+    await db.pendingAction.deleteMany({ where: { projectId: { in: projectIds } } });
+    await db.supplier.deleteMany({ where: { id: { in: supplierIds } } });
     await db.auditLog.deleteMany({ where: { OR: [{ orgId: ORG }, { userId: { in: users } }, { projectId: { in: projectIds } }] } });
     await db.projectMember.deleteMany({ where: { projectId: { in: projectIds } } });
     await db.project.deleteMany({ where: { id: { in: projectIds } } });

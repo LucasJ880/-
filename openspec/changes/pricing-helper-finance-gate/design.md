@@ -21,7 +21,7 @@
 
 ## Decisions
 
-### D1：判定沿用 `resolveFinancePrivilege(...).canReadAll`，出错只收「组织键」
+### D1：判定沿用 `resolveFinancePrivilege(...).canReadAll`，出错只收「组织键」（`resolvePricingCostVisibility`，注入判定以便单测两条兜底分支）
 
 与成本核算接口、寻源建议卡同一个函数、同样的参数（用户、项目组织、项目负责人）。`resolveFinancePrivilege` 抛错时，按「不持组织键」重算一次（`decideFinancePrivilege`：平台超级管理员与项目负责人仍有，其余人没有）——比寻源卡的「一律无权」少误伤负责人与超级管理员，对其余人同样失败即收。项目没有组织时同样按「不持组织键」判定。只在读取与 `save` 时判定，`derive` 不判定。
 
@@ -31,7 +31,7 @@
 
 ### D2：读取：裁剪而不是 403，裁剪写在纯函数里
 
-`finance-view.ts` 的 `buildPricingHelperView({ model, inputs, canSeeCost, compareEnabled, compareCost })`：`canSeeCost` 为 true 时调用 `buildScenarios(model, inputs)` 并原样返回（与改动前同一个结果）；为 false 时用 `ourCostCad = null` 调用 `buildScenarios`，再把假设说明里「未填我方成本——毛利列为空；成本底价情景未生成」那句去掉、在末尾加「需要财务查看权才能看我方成本；毛利一栏与成本底价情景也不显示。」（有情景结果时才加；没有评分模型时没有结果，也就没有假设说明），返回 `inputs.ourCostCad = null`、`costHidden: true`，开关开着时 `compareCostHidden: true`、不带 `compareCost`。路由在 `canSeeCost` 为 false 时不调用 `loadCompareCostSuggestionSafe`（源码断言）。
+`finance-view.ts` 的 `buildPricingHelperView({ model, inputs, canSeeCost, compareEnabled, compareCost })`：`canSeeCost` 为 true 时调用 `buildScenarios(model, inputs)` 并原样返回（与改动前同一个结果）；为 false 时用 `ourCostCad = null` 调用 `buildScenarios`，再把假设说明里「未填我方成本——毛利列为空；成本底价情景未生成」那句去掉、在末尾加「需要财务查看权才能看我方成本；毛利一栏和「成本 + 目标毛利」「成本价」两种情景也不显示。」（有情景结果时才加；没有评分模型时没有结果，也就没有假设说明），返回 `inputs.ourCostCad = null`、`costHidden: true`，开关开着时 `compareCostHidden: true`、不带 `compareCost`。路由在 `canSeeCost` 为 false 时不调用 `loadCompareCostSuggestionSafe`（源码断言）。
 
 - 备选 A：整个接口 403。否决：评分模型、对手价、打平价不是财务数据，投标的人照样要用。
 - 备选 B：去掉 `inputs.ourCostCad` 这个键。否决：`inputs` 的形状由「保存的对外行为」固定为三项；`null` + `costHidden` 更清楚。
@@ -40,20 +40,20 @@
 
 ### D3：保存：碰了成本就 403，不碰照常；判定顺序 409 → 403 → 400
 
-「碰了成本」= 请求 `inputs`（按对象读，不是对象当作没有）里有 `ourCostCad` 这个键（不论值），或请求顶层有 `ourCostSource` 这个键（含 `null`）。没有财务查看权且碰了成本 → 403「需要财务查看权才能修改我方成本。」，不写库。判定在锁外、在「项目没有投标调查室 → 409」之后、在「目标毛利不小于 100 → 400」（锁内）之前。不碰时照常保存（`buildSave` 对请求里没有的键沿用原值，成本与来源原样保留——`compareEnabled` 照旧按开关算，保证已记来源不被当成「开关关了」清掉）；返回用 `buildSavedInputsView` 裁剪：`inputs.ourCostCad = null`、`costHidden: true`、不带 `ourCostSource`。
+「碰了成本」= 请求 `inputs`（按对象读，不是对象当作没有）里有 `ourCostCad` 这个键（不论值），或请求顶层有 `ourCostSource` 这个键（含 `null`）。没有财务查看权且碰了成本 → 403「没有保存：需要财务查看权才能修改我方成本。请刷新页面，重新填写后再保存。」（上线前打开的旧页面每次保存都带成本，所以要叫人刷新），不写库。请求的 `inputs` 不是对象时当作没带（原来会 500）。判定在锁外、在「项目没有投标调查室 → 409」之后、在「目标毛利不小于 100 → 400」（锁内）之前。不碰时照常保存（`buildSave` 对请求里没有的键沿用原值，成本与来源原样保留——`compareEnabled` 照旧按开关算，保证已记来源不被当成「开关关了」清掉）；返回用 `buildSavedInputsView` 裁剪：`inputs.ourCostCad = null`、`costHidden: true`、不带 `ourCostSource`。
 
 - 备选 A：静默忽略请求里的成本。否决：人以为存上了。
 - 备选 B：允许「只写不读」。否决：能覆盖一个自己看不见的数，等于能清掉别人填的成本。
 
 ### D4：卡片
 
-`costHidden` 时：「我方成本」输入框换成「需要财务查看权才能看我方成本。」（假设说明列表里那句同义长句不再重复显示）；保存请求不带 `ourCostCad`；情景表不显示毛利一栏。目标毛利的标签与成本加成提示（`MarkupHint`，只由目标毛利算出）照旧：开关开着（`compareCost` 或 `compareCostHidden`）时显示「毛利率（按售价）」与「相当于成本加成 x%」，关着时与现在相同。卡片的数据在 `useEffect` 里取，不能静态渲染测试，用源码断言（与 `compare-cost-source.test.tsx` 同样的接线断言方式）。
+`costHidden` 时：「我方成本」输入框换成「需要财务查看权才能看我方成本。」；情景表上方写假设说明里那句（少了毛利一栏与哪两种情景）加「只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。」（权限键在岗位设置里叫「查看项目结算」；绑岗位只有平台管理员能做，最近的是项目负责人），假设说明列表里不再重复；目标毛利下面写「目标毛利只用于按成本算的底价情景；你这里改了，情景表不会变。」；保存请求不带 `ourCostCad`；情景表不显示毛利一栏；保存被拒（403）时用错误样式写出、读屏播报，并保留表单（不重新读取）。目标毛利的标签与成本加成提示（`MarkupHint`，只由目标毛利算出）照旧：开关开着（`compareCost` 或 `compareCostHidden`）时显示「毛利率（按售价）」与「相当于成本加成 x%」，关着时与现在相同。卡片的数据在 `useEffect` 里取，不能静态渲染测试，用源码断言（与 `compare-cost-source.test.tsx` 同样的接线断言方式）。
 
 - 备选：输入框保留但禁用。否决：禁用的空框读起来像「还没填」。
 
 ### D5：房间 JSON 对所有人都去掉成本
 
-`redactRoomSummaryCost(summaryJson)`：返回一份去掉 `pricingInputs.ourCostCad` 与 `pricingInputs.ourCostSource` 的副本（其余键原样，不改库）。`GET /api/projects` 对每个项目的 `intelligenceRoom.summaryJson`、`GET /api/projects/[id]/bid-intelligence` 对 `room.summaryJson` 调用它。对所有人都去掉：两处界面都不读这两个键，有财务查看权的人从报价表助手拿成本；项目列表若按项目逐个判定财务权，每页要多几十次授权查询。
+`redactRoomSummaryCost(summaryJson)`：返回一份去掉 `pricingInputs.ourCostCad`、`pricingInputs.ourCostSource` 与 `bidStrategyMemo` 的副本（其余键原样，不改库）。投标策略备忘由含成本、成本底价情景与毛利的情景写成，可能转述成本；这两个接口的界面都不读它（项目列表只读 `majorBlockers`，调查室区块只读旧版几个键）。`GET /api/projects` 对每个项目的 `intelligenceRoom.summaryJson`、`GET /api/projects/[id]/bid-intelligence` 对 `room.summaryJson` 调用它。对所有人都去掉：两处界面都不读这两个键，有财务查看权的人从报价表助手拿成本；项目列表若按项目逐个判定财务权，每页要多几十次授权查询。
 
 - 备选：只对没有财务查看权的人去掉。否决：没有读者需要这两个键，逐个判定只是代价。
 
@@ -80,3 +80,4 @@
 - 做标的人看不到成本了：`bids` 岗位的 `project.finance.read` 只在 ASSIGNED 范围，不算财务查看权；不是项目负责人的投标同事要看、要改成本，需要组织给他组织范围的 `project.finance.read` 或 `manage`（这会让他看到全组织的财务数据）。这与成本核算接口、寻源卡一致，但对现有用法是收紧，PR 里写明请 GATE 确认。
 - 口径不同的页面仍对项目读者显示成本或落地价（比价矩阵、报价引擎卡、投标策略备忘）——本 change 不改，报告列出，要不要统一另议。
 - 多一次授权查询：每次读取与保存多 2 次 `authorize`（与成本核算接口相同代价）。
+- 能编辑项目的人可以把项目负责人改成自己，从而拿到财务查看权（成本核算、寻源卡同样）；投标策略备忘仍经情报页签、工作台摘要、投标文件草稿给项目读者；同页的「报价与成本」卡口径更宽——三项都写给 GATE，另立 change。

@@ -2,7 +2,7 @@
 
 ## 1. 纯函数
 
-- [x] 1.1 新增 `src/lib/tender-pricing/finance-view.ts`（`buildPricingHelperView`、`buildSavedInputsView`、`touchesCost`、`redactRoomSummaryCost`、两句固定文字）与 `src/lib/tender-pricing/__tests__/finance-view.test.ts`，测试同时登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`（verify：`npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts` 通过；有权限时与直接 `buildScenarios` 的结果 `JSON.stringify` 相同；`bash scripts/check-test-registry.sh` 通过）
+- [x] 1.1 新增 `src/lib/tender-pricing/finance-view.ts`（`buildPricingHelperView`、`buildSavedInputsView`、`touchesCost`、`redactRoomSummaryCost`、`resolvePricingCostVisibility`、固定文字）与 `src/lib/tender-pricing/__tests__/finance-view.test.ts`，测试同时登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`（verify：`npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts` 通过；有权限时与直接 `buildScenarios` 的结果 `JSON.stringify` 相同；`bash scripts/check-test-registry.sh` 通过）
 
 ## 2. 接口
 
