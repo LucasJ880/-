@@ -45,6 +45,7 @@ async function main() {
   const svc = await import("../service");
   const leadsRoute = await import("@/app/api/projects/[id]/tender-intel/import-leads/route");
   const aliasesRoute = await import("@/app/api/projects/[id]/tender-intel/import-leads/aliases/route");
+  const revokeRoute = await import("@/app/api/projects/[id]/tender-intel/import-leads/aliases/revoke/route");
   const suppliersRoute = await import("@/app/api/projects/[id]/tender-intel/import-leads/suppliers/route");
   type View = import("../aggregate-pure").ImportLeadsView;
   type Result = import("../service").ImportResult;
@@ -98,6 +99,10 @@ async function main() {
   const decide = async (p: string, body: unknown, who: string | null = owner) => {
     const res = await aliasesRoute.POST(post(`${base(p)}/aliases`, body, who), { params: Promise.resolve({ id: p }) });
     return { status: res.status, json: (await res.json()) as { view?: View; error?: string } };
+  };
+  const revoke = async (p: string, body: unknown, who: string | null = owner) => {
+    const res = await revokeRoute.POST(post(`${base(p)}/aliases/revoke`, body, who), { params: Promise.resolve({ id: p }) });
+    return { status: res.status, json: (await res.json()) as { view?: View; error?: string; revokedDecision?: string } };
   };
   const addSupplier = async (p: string, exporterKey: string, who: string | null = owner) => {
     const res = await suppliersRoute.POST(post(`${base(p)}/suppliers`, { exporterKey }, who), { params: Promise.resolve({ id: p }) });
@@ -254,6 +259,85 @@ async function main() {
     const memberDecide = await decide(p1, { pairKey: pairBoreal, decision: "CONFIRMED" }, member);
     ok(outRead.status === 404 && outWrite.status === 404 && anon.status === 401 && removed.status === 404 && memberWrite.status === 403 && memberDecide.status === 403, "别的组织读写 404、未登录 401、被移出组织 404、只读成员写 403", [outRead.status, outWrite.status, anon.status, removed.status, memberWrite.status, memberDecide.status]);
     ok(memberRead.status === 200 && memberRead.json.canEdit === false, "只读成员能看，canEdit 为 false", memberRead.json.canEdit);
+
+    // —— 9b. CHAIN-3c：裁决与撤回只限组织管理员；撤回指向原裁决；已裁决的一节 ——
+    const EDITOR = `ileditor_${stamp}`, ORGOWNER = `ilorgowner_${stamp}`, SUPER = `ilsuper_${stamp}`;
+    USERS.push(EDITOR, ORGOWNER, SUPER);
+    await db.user.create({ data: { id: EDITOR, email: email(EDITOR), name: "编辑 Fixture", role: "user" } });
+    await db.user.create({ data: { id: ORGOWNER, email: email(ORGOWNER), name: "所有者 Fixture", role: "user" } });
+    await db.user.create({ data: { id: SUPER, email: email(SUPER), name: "平台 Fixture", role: "super_admin" } });
+    await db.organizationMember.create({ data: { orgId: ORG, userId: EDITOR, role: "org_member", status: "active" } });
+    await db.organizationMember.create({ data: { orgId: ORG, userId: ORGOWNER, role: "org_owner", status: "active" } });
+    const RBUYER = "Town of Revoke Fixture";
+    await mkAward(RBUYER, "Glacier Linen Supply Inc.");
+    await mkAward(RBUYER, "Harbour Bedding Wholesale Ltd.");
+    await mkAward(RBUYER, "Cedar Tents Inc.");
+    const pR = await mkProject(RBUYER);
+    await db.projectMember.create({ data: { projectId: pR, userId: EDITOR, role: "project_admin", status: "active" } });
+    const editor = await cookieOf(EDITOR);
+    const orgOwner = await cookieOf(ORGOWNER);
+    const superCookie = `qy_session=${await createSession({ sub: SUPER, email: email(SUPER), role: "super_admin" })}`;
+    const RCSV = ["Importer,Exporter,URL", "Glacier Linen Supply,Ningbo Linen Co,https://example.test/r/1", "Harbour Bedding Wholesale,Qingdao Bedding Co,https://example.test/r/2", "Cedar Tents,Fuzhou Tent Co,https://example.test/r/3"].join("\n");
+    const ri = await doImport(pR, { text: RCSV }, editor);
+    ok(ri.status === 200 && ri.json.view?.canEdit === true && ri.json.view.canDecideAliases === false && ri.json.view.suggestions.length === 3, "编辑者（不是组织管理员）能导入；导入返回的视图 canDecideAliases 为 false", ri.json.view && { c: ri.json.view.canDecideAliases, s: ri.json.view.suggestions.length });
+    const sugKey = (v: View | undefined, imp: string) => v?.suggestions.find((x) => x.importerName === imp)?.pairKey ?? "";
+    const pG = sugKey(ri.json.view, "Glacier Linen Supply"), pH = sugKey(ri.json.view, "Harbour Bedding Wholesale"), pC = sugKey(ri.json.view, "Cedar Tents");
+    const aliasRows = () => db.auditLog.count({ where: { orgId: ORG, action: { in: ["tender.import_lead_alias_decided", "tender.import_lead_alias_revoked"] } } });
+    const rows0 = await aliasRows();
+    const ed = await decide(pR, { pairKey: pG, decision: "CONFIRMED" }, editor);
+    ok(ed.status === 403 && ed.json.error === "只有组织管理员能确认、否决或撤回「是不是同一家」（对本组织所有项目生效）。" && (await aliasRows()) === rows0, "编辑者裁决：403，没有审计行", ed);
+    const edRead = await get(pR, editor);
+    ok(edRead.json.canDecideAliases === false && edRead.json.canEdit === true && edRead.json.suggestions.length === 3, "编辑者读取：canDecideAliases 为 false，三对仍待确认");
+    ok((await get(pR)).json.canDecideAliases === true, "组织管理员读取：canDecideAliases 为 true");
+    const byOwner = await decide(pR, { pairKey: pH, decision: "REJECTED" }, orgOwner);
+    const bySuper = await decide(pR, { pairKey: pC, decision: "CONFIRMED" }, superCookie);
+    ok(byOwner.status === 200 && bySuper.status === 200, "组织所有者、平台超级管理员可以裁决", [byOwner.status, bySuper.status]);
+    const c3 = await decide(pR, { pairKey: pG, decision: "CONFIRMED" });
+    ok(c3.status === 200 && !!c3.json.view?.exporters.some((e) => e.exporterName === "Ningbo Linen Co"), "组织管理员确认：记录挂上、进汇总");
+    const dv = c3.json.view!;
+    const dG = dv.decidedPairs.find((d) => d.pairKey === pG), dH = dv.decidedPairs.find((d) => d.pairKey === pH), dC = dv.decidedPairs.find((d) => d.pairKey === pC);
+    ok(dv.decidedPairs.length === 3 && dG?.decision === "CONFIRMED" && dG.importerName === "Glacier Linen Supply" && dG.winnerName === "Glacier Linen Supply Inc." && dG.deciderName === `Fixture ${OWNER}` && dG.recordCount === 1 && /^\d{4}-\d{2}-\d{2}$/.test(dG.decidedOn) && dH?.decision === "REJECTED" && dH.deciderName === "所有者 Fixture" && dC?.deciderName === "不是本组织现有成员", "已裁决的一节：三对、结论、裁决人（平台超级管理员不是本组织成员）、条数、日期", dv.decidedPairs);
+    const edRev = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId }, editor);
+    ok(edRev.status === 403 && (await aliasRows()) === rows0 + 3, "编辑者撤回：403，没有新审计行", edRev);
+    const wrong = await revoke(pR, { pairKey: pG, decisionId: dH!.decisionId });
+    ok(wrong.status === 409 && wrong.json.error === "这一对现在没有可撤回的裁决，页面已更新。", "拿别的裁决的标识撤回：409", wrong);
+    const nip = await revoke(pR, { pairKey: pairNorth, decisionId: "x" });
+    ok(nip.status === 404 && nip.json.error === "这一对不在本项目里。", "撤回一对不在本项目里的：404", nip);
+    ok((await revoke(pR, { pairKey: pG })).status === 400, "撤回不带裁决标识：400");
+    const pR2 = await mkProject(RBUYER);
+    const r2i = await doImport(pR2, { text: "Importer,Exporter,URL\nGlacier Linen Supply,Xiamen Linen Co,https://example.test/r2/1\n" });
+    ok(r2i.json.result?.matched === 1, "另一个同采购方项目：确认过的一对直接挂上", r2i.json.result);
+    const rv1 = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId });
+    ok(rv1.status === 200 && rv1.json.revokedDecision === "CONFIRMED" && !!rv1.json.view?.suggestions.some((x) => x.pairKey === pG) && !rv1.json.view.exporters.some((e) => e.exporterName === "Ningbo Linen Co") && !rv1.json.view.decidedPairs.some((d) => d.pairKey === pG), "撤回确认：回到待确认，不在汇总，不在已裁决里", rv1.json);
+    const revRows = await db.auditLog.findMany({ where: { orgId: ORG, action: "tender.import_lead_alias_revoked" } });
+    const ra = JSON.parse(revRows[0]?.afterData ?? "{}") as Record<string, unknown>, rb = JSON.parse(revRows[0]?.beforeData ?? "{}") as Record<string, unknown>;
+    ok(revRows.length === 1 && revRows[0].userId === OWNER && revRows[0].targetType === "import_lead_alias" && ra.revokedAuditId === dG!.decisionId && ra.revokedBy === OWNER && typeof ra.revokedAt === "string" && rb.decision === "CONFIRMED" && rb.pairKey === pG, "撤回审计：指向原裁决的审计行，带原裁决、撤回人、时间", revRows);
+    const decidedRow = await db.auditLog.findUnique({ where: { id: dG!.decisionId } });
+    ok(!!decidedRow && JSON.parse(decidedRow.afterData ?? "{}").decision === "CONFIRMED", "原裁决的审计行还在、没有改");
+    const other2 = await get(pR2);
+    ok(other2.json.suggestions.some((x) => x.pairKey === pG) && !other2.json.exporters.some((e) => e.exporterName === "Xiamen Linen Co"), "另一个项目随之改变：回到待确认");
+    ok((await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId })).status === 409, "再撤回一次：409");
+    const re = await decide(pR, { pairKey: pG, decision: "REJECTED" });
+    const dG2 = re.json.view?.decidedPairs.find((d) => d.pairKey === pG);
+    ok(re.status === 200 && dG2?.decision === "REJECTED" && !re.json.view?.suggestions.some((x) => x.pairKey === pG), "撤回后能重新裁决（否决）", re.json.view?.decidedPairs);
+    const rv3 = await revoke(pR, { pairKey: pG, decisionId: dG2!.decisionId });
+    ok(rv3.status === 200 && rv3.json.revokedDecision === "REJECTED" && !!rv3.json.view?.suggestions.some((x) => x.pairKey === pG), "撤回否决：重新待确认", rv3.json);
+    const fz = (await get(pR)).json.exporters.find((e) => e.exporterName === "Fuzhou Tent Co");
+    const asR = await addSupplier(pR, fz!.exporterKey, editor);
+    const supId = asR.json.result?.supplier.id;
+    const linkedBefore = (await leadSignals(pR)).filter((x) => x.linkedSupplierId === supId).length;
+    ok(asR.status === 200 && asR.json.view?.canDecideAliases === false, "编辑者加入供应商库：返回的视图 canDecideAliases 为 false", asR.json.view?.canDecideAliases);
+    const dCnow = (await get(pR)).json.decidedPairs.find((d) => d.pairKey === pC)!;
+    const rv4 = await revoke(pR, { pairKey: pC, decisionId: dCnow.decisionId }, superCookie);
+    const linkedAfter = (await leadSignals(pR)).filter((x) => x.linkedSupplierId === supId).length;
+    ok(rv4.status === 200 && linkedBefore === 1 && linkedAfter === 1, "平台超级管理员可以撤回；撤回不解除已建立的供应商关联", [rv4.status, linkedBefore, linkedAfter]);
+    const vals: string[] = [];
+    const walkV = (x: unknown) => { if (Array.isArray(x)) x.forEach(walkV); else if (x && typeof x === "object") Object.values(x).forEach(walkV); else if (typeof x === "string") vals.push(x); };
+    walkV((await get(pR)).json);
+    ok(!vals.some((v) => /@/.test(v) || USERS.includes(v)), "视图里没有邮箱，也没有用户 id");
+    process.env.TENDER_IMPORT_LEADS_ENABLED = "0";
+    ok((await decide(pR, { pairKey: pG, decision: "CONFIRMED" })).status === 404 && (await revoke(pR, { pairKey: pG, decisionId: "x" })).status === 404, "开关关：裁决与撤回都是 404");
+    process.env.TENDER_IMPORT_LEADS_ENABLED = "1";
 
     // —— 10. 外部请求 ——
     ok(outbound === 0, "整个过程外部请求 0 次", outbound);

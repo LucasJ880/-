@@ -32,10 +32,17 @@ export const IMPORT_LEADS_UI = {
   noImportWithoutWinners: "没有可比对的历史中标者，暂时不能导入。",
   noBuyerNext: "在项目信息里填上采购方名称后再来。",
   noneNext: "先在本项目的「历史授标检索」里人工确认这个采购方的中标记录（或请组织管理员在「历史中标」页确认），再来导入。",
-  readOnly: "你只有查看权限；导入、确认和加入供应商库需要能修改本项目。",
+  readOnly: "你只有查看权限；导入和加入供应商库需要能修改本项目。",
+  /** CHAIN-3c：不是组织管理员时，待确认的一对下面写这一句 */
+  notAdminNote: "只有组织管理员能确认或否决；对本组织所有项目生效。",
+  decidedTitle: "已裁决的（对本组织所有项目生效）",
+  decidedConfirmed: "已确认是同一家",
+  decidedRejected: "已标为不是同一家",
+  revokeButton: "撤回",
+  confirmRevoke: "撤回后这一对回到「要确认是不是同一家」，本组织所有项目都会随之改变。确定撤回吗？",
   rejectedNote: "在「国内采购 / 找供应商」页的「供应商线索」里标为不采用的记录不会显示在这里。",
-  confirmSame: "确定是同一家吗？确认后本组织所有项目都会把这两个名称当成同一家，不能撤回。",
-  confirmReject: "确定不是同一家吗？否决后本组织所有项目都不再把这两个名称当成同一家，也不再提示，不能撤回。",
+  confirmSame: "确定是同一家吗？确认后本组织所有项目都会把这两个名称当成同一家；组织管理员可以撤回。",
+  confirmReject: "确定不是同一家吗？否决后本组织所有项目都不再把这两个名称当成同一家，也不再提示；组织管理员可以撤回。",
   addSupplier: "加入供应商库",
   adding: "正在加入…",
   linkNew: (n: number) => `关联新导入的 ${n} 条`,
@@ -146,13 +153,13 @@ function SupplierCell({ e, canEdit, busyKey, onAdd }: { e: ExporterSummary; canE
   );
 }
 
-function SuggestionRow({ s, canEdit, busy, onDecide }: { s: PendingSuggestionView; canEdit: boolean; busy: boolean; onDecide: (decision: "CONFIRMED" | "REJECTED") => void }) {
+function SuggestionRow({ s, canDecide, busy, onDecide }: { s: PendingSuggestionView; canDecide: boolean; busy: boolean; onDecide: (decision: "CONFIRMED" | "REJECTED") => void }) {
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span>
         「{s.importerName}」和中标者「{s.winnerName}」可能是同一家（{s.basisZh}），涉及 {s.recordCount} 条记录。
       </span>
-      {canEdit ? (
+      {canDecide ? (
         <span className="flex gap-1">
           <button
             type="button"
@@ -239,6 +246,19 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
       }
       onView(out.json.view as ImportLeadsView);
       setNotice(decision === "CONFIRMED" ? IMPORT_LEADS_TEXT.aliasConfirmed : IMPORT_LEADS_TEXT.aliasRejected);
+    });
+  // CHAIN-3c：撤回（组织管理员）；裁决已被同事换掉时 409，刷新后照实说
+  const revoke = (pairKey: string, decisionId: string) =>
+    run("decide", async () => {
+      const out = await postJson(`${base}/aliases/revoke`, { pairKey, decisionId });
+      if (!out.ok) {
+        setError(out.error);
+        await refresh();
+        return;
+      }
+      onView(out.json.view as ImportLeadsView);
+      const wasRejected = (out.json as { revokedDecision?: string }).revokedDecision === "REJECTED";
+      setNotice(wasRejected ? `${IMPORT_LEADS_TEXT.revoked}${IMPORT_LEADS_TEXT.revokedRejection}` : IMPORT_LEADS_TEXT.revoked);
     });
   const addSupplier = (exporterKey: string) =>
     run(`row:${exporterKey}`, async () => {
@@ -339,7 +359,36 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
           <p className="font-medium text-foreground">要确认是不是同一家</p>
           <ul className="mt-1 space-y-1">
             {view.suggestions.map((s) => (
-              <SuggestionRow key={s.pairKey} s={s} canEdit={view.canEdit} busy={busy !== null} onDecide={(d) => decide(s.pairKey, d)} />
+              <SuggestionRow key={s.pairKey} s={s} canDecide={view.canDecideAliases} busy={busy !== null} onDecide={(d) => decide(s.pairKey, d)} />
+            ))}
+          </ul>
+          {view.canDecideAliases ? null : <p className="mt-1 text-muted">{IMPORT_LEADS_UI.notAdminNote}</p>}
+        </div>
+      ) : null}
+
+      {view.decidedPairs.length ? (
+        <div className="mt-3">
+          <p className="font-medium text-foreground">{IMPORT_LEADS_UI.decidedTitle}</p>
+          <ul className="mt-1 space-y-1">
+            {view.decidedPairs.map((d) => (
+              <li key={d.pairKey} className="flex flex-wrap items-center gap-2">
+                <span>
+                  「{d.importerName}」和「{d.winnerName}」：{d.decision === "CONFIRMED" ? IMPORT_LEADS_UI.decidedConfirmed : IMPORT_LEADS_UI.decidedRejected}（{d.deciderName}，{d.decidedOn}），涉及 {d.recordCount} 条记录
+                </span>
+                {view.canDecideAliases ? (
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={() => {
+                      if (window.confirm(IMPORT_LEADS_UI.confirmRevoke)) revoke(d.pairKey, d.decisionId);
+                    }}
+                    className={btn}
+                    aria-label={`撤回「${d.importerName}」和「${d.winnerName}」的裁决`}
+                  >
+                    {IMPORT_LEADS_UI.revokeButton}
+                  </button>
+                ) : null}
+              </li>
             ))}
           </ul>
         </div>

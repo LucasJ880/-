@@ -7,7 +7,8 @@ import path from "node:path";
 import { isImportLeadsEnabledForOrgWithEnv } from "../flags";
 import { BATCH_TEXT, IMPORT_COLUMNS_HINT_ZH, IMPORT_HEADER_NAMES_ZH, groupProblems, importDedupeKey, isHttpUrl, parseDelimited, parseImportText, parseShipmentDate } from "../parse";
 import { MANUAL_SOURCE_NOTE_ZH, importLeadSourceNotesZh, manualPasteProvider } from "../provider";
-import { candidatePairKeys, createImporterMatcher, matchImporter, preparedPairKey, prepareName, relatePrepared, uniqueWinnerNames } from "../match-pure";
+import { candidatePairKeys, createCandidatePairFinder, createImporterMatcher, matchImporter, preparedPairKey, prepareName, relatePrepared, uniqueWinnerNames } from "../match-pure";
+import { IMPORT_LEAD_ALIAS_AUDIT_ACTION, IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, effectiveDecisions } from "../alias-decisions";
 import { IMPORT_LEADS_TEXT, aggregateByExporter, importResultZh, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
 import { aliasPairKey, compareCompanyNames, decideAlias } from "@/lib/tender-competition/company-identity";
 import { createImportLead } from "@/lib/tender-competition/import-leads";
@@ -170,7 +171,7 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
     caveatZh: IMPORT_LEADS_TEXT.caveat, leadStatusZh: IMPORT_LEADS_TEXT.leadStatus, sourceNotesZh: notes, winners: { status: "ok", names: ["W"] },
     suggestions: [{ pairKey: "k", importerName: "I", winnerName: "W", basisZh: "只差公司后缀", recordCount: 1 }],
     exporters: aggregateByExporter([{ exporterName: "E", shipmentDate: "2026-01-01", goods: "tent", winners: ["W"], linkedSupplier: { id: "s", name: "E", hasEmail: false, active: true } }], { now: NOW, requirementTexts: ["Tents"] }),
-    leadCount: 1, storedLeadCount: 2, canEdit: true,
+    leadCount: 1, storedLeadCount: 2, canDecideAliases: false, decidedPairs: [], canEdit: true,
   };
   const keys = new Set<string>();
   const walk = (v: unknown) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { keys.add(k); walk(x); } };
@@ -202,14 +203,14 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   const okW = { status: "ok" as const, names: ["W1"] };
   const pend = [{ pairKey: "k", importerName: "I", winnerName: "W", basisZh: "只差公司后缀", recordCount: 3 }];
   ok(slotSummaryZh({ exporters: s, leadCount: 11, storedLeadCount: 11, winners: okW, suggestions: [] }) === "3 家出口商（11 条线索）" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 0, winners: okW, suggestions: [] }) === "还没有导入进口记录。", "槽里的摘要：有线索 / 一条都没有");
-  ok(slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW, suggestions: pend }) === "已导入 3 条进口记录，都在等你确认是不是同一家（打开进口线索去确认）。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: { status: "unavailable", messageZh: "x" }, suggestions: [] }) === "已导入 3 条进口记录；历史中标者现在读不出来，先不显示。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW, suggestions: [] }) === "已导入 3 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。", "存着线索但在等确认 / 中标者读不出来 / 都对不上：照实说，不说成没导入");
+  ok(slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW, suggestions: pend }) === "已导入 3 条进口记录，都在等确认是不是同一家（打开进口线索查看）。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: { status: "unavailable", messageZh: "x" }, suggestions: [] }) === "已导入 3 条进口记录；历史中标者现在读不出来，先不显示。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW, suggestions: [] }) === "已导入 3 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。", "存着线索但在等确认 / 中标者读不出来 / 都对不上：照实说，不说成没导入");
   ok(slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 0, winners: { status: "no_buyer", messageZh: "项目没有采购方名称，没法找历史中标者。" }, suggestions: [] }) === "暂时不能导入：项目没有采购方名称，没法找历史中标者。", "第一次来、没有可比对的中标者：槽里直接说为什么不能导入");
   const linkable = aggregateByExporter([
     { exporterName: "E", shipmentDate: null, goods: null, winners: ["W"], linkedSupplier: { id: "s", name: "E", hasEmail: true, active: true } },
     { exporterName: "E", shipmentDate: null, goods: null, winners: ["W"], linkedSupplier: null, linkable: true },
   ], { now: NOW, requirementTexts: [] });
   ok(linkable[0].supplier?.id === "s" && linkable[0].unlinkedLeads === 1, "已在供应商库、又新导入了一条：还有 1 条没关联", linkable);
-  ok(importResultZh({ totalRecords: 20, imported: 5, matched: 3, suggested: 2, duplicates: 1, unrelated: 4, unrelatedImporters: ["甲", "乙"], problemRecords: 10 }) === "共 20 条：导入 5 条（3 条已对应中标者，2 条要你确认是不是同一家）；重复跳过 1 条；4 条的进口商不是这个采购方的中标者，没有保存（甲、乙）；10 条有问题没有导入，见下。", "导入结果那一句");
+  ok(importResultZh({ totalRecords: 20, imported: 5, matched: 3, suggested: 2, duplicates: 1, unrelated: 4, unrelatedImporters: ["甲", "乙"], problemRecords: 10 }) === "共 20 条：导入 5 条（3 条已对应中标者，2 条要确认是不是同一家）；重复跳过 1 条；4 条的进口商不是这个采购方的中标者，没有保存（甲、乙）；10 条有问题没有导入，见下。", "导入结果那一句");
   ok(importResultZh({ totalRecords: 4, imported: 0, matched: 0, suggested: 0, duplicates: 4, unrelated: 0, unrelatedImporters: [], problemRecords: 0 }) === "共 4 条：没有新导入；重复跳过 4 条。" && importResultZh({ totalRecords: 2, imported: 2, matched: 2, suggested: 0, duplicates: 0, unrelated: 0, unrelatedImporters: [], problemRecords: 0 }) === "共 2 条：导入 2 条（2 条已对应中标者）。", "为 0 的那半句不写");
 }
 
@@ -231,7 +232,7 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   const strip = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   const dir = "src/lib/tender-import-leads";
   const files = readdirSync(path.join(root, dir)).filter((f) => f.endsWith(".ts")).map((f) => `${dir}/${f}`);
-  const routes = ["src/app/api/projects/[id]/tender-intel/import-leads/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/aliases/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/suppliers/route.ts"];
+  const routes = ["src/app/api/projects/[id]/tender-intel/import-leads/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/aliases/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/aliases/revoke/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/suppliers/route.ts"];
   for (const f of [...files, ...routes, "src/components/tender-intel/import-leads-panel.tsx"]) {
     let code = "";
     try { code = strip(read(f)); } catch { ok(false, `${f} 存在`); continue; }
@@ -240,7 +241,10 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(readdirSync(path.join(root, "src/lib/tender-competition")).filter((f) => f.endsWith(".ts")).length === 5, "tender-competition/ 仍是 5 个文件（线索层不碰库的守卫不动）");
   const access = read("src/lib/tender-import-leads/api-access.ts");
   ok(/access\.status === 401 \? access : notFound\(\)/.test(access) && /!isSuperAdmin\(access\.user\.role\) && !access\.orgRole/.test(access) && access.indexOf("isImportLeadsEnabledForOrg(orgId)") > access.indexOf("access.orgRole") && /status: 403/.test(access), "接口判定顺序：401 → 不能读或非有效成员 404 → 开关 404 → 写不了 403");
-  for (const r of routes) ok(/requireImportLeads(Read|Write)\(request, projectId\)/.test(read(r)), `${r}：走统一的权限判定`);
+  for (const r of routes) ok(/requireImportLeads(Read|Write|AliasDecide)\(request, projectId\)/.test(read(r)), `${r}：走统一的权限判定`);
+  // CHAIN-3c：裁决与撤回只限组织管理员
+  for (const r of ["src/app/api/projects/[id]/tender-intel/import-leads/aliases/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/aliases/revoke/route.ts"]) ok(/requireImportLeadsAliasDecide\(request, projectId\)/.test(read(r)) && !/requireImportLeadsWrite\(/.test(read(r)), `${r}：裁决与撤回走组织管理员判定`);
+  ok(/isSuperAdmin\(access\.user\.role\) \|\| \(!!access\.orgRole && hasOrgRole\(access\.orgRole, "org_admin"\)\)/.test(access) && /IMPORT_LEADS_TEXT\.notOrgAdmin, code: "NOT_ORG_ADMIN" \}, \{ status: 403/.test(access), "组织管理员 = 平台超级管理员或组织角色不低于 org_admin 的有效成员；其他人 403");
   const svc = read("src/lib/tender-import-leads/service.ts");
   ok(/linkSignalToSupplier\(/.test(svc) && /sourceOrigin: "MANUAL_ENTRY"/.test(svc) && /pg_advisory_xact_lock/.test(svc) && !/supplierDiscoverySignal\.update(Many)?\(/.test(svc), "服务：线索走既有关联流程、不直接改信号；来源人工录入；写操作加锁");
   ok(/export const MAX_PROJECT_LEADS = 5000;/.test(svc) && /stored \+ fresh\.length > MAX_PROJECT_LEADS/.test(svc) && /= ANY\(\$\{keys\}::text\[\]\)/.test(svc), "每个项目最多 5000 条，到了上限拒绝；查重在库里按这一批的去重键查（不受读视图条数限制）");
@@ -258,6 +262,29 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(/供货给：/.test(panel) && /共 \{e\.shipments\} 票，近 12 个月 \{e\.last12Months\} 票/.test(panel) && /最近一票 /.test(panel) && /和本标要求重合的词：/.test(panel) && /IMPORT_LEADS_UI\.linkNew\(e\.unlinkedLeads\)/.test(panel), "出口商汇总的说法与「关联新导入的 N 条」");
   ok(/view\.caveatZh/.test(panel) && /view\.sourceNotesZh/.test(panel) && /需要的列：进口商、出口商；可选：日期、品名、数量、来源网址。/.test(panel) && /window\.confirm\(IMPORT_LEADS_UI\.confirmReject\)/.test(panel) && /window\.confirm\(IMPORT_LEADS_UI\.confirmSame\)/.test(panel) && /本组织所有项目/.test(panel) && /view\.canEdit \?/.test(panel) && /IMPORT_LEADS_UI\.readOnly/.test(panel) && /进口线索暂时读不出来，请稍后刷新。/.test(panel) && /导入 \/ 查看进口线索/.test(panel) && /aria-live="polite"/.test(panel) && /if \(r\.problems\.length === 0 && r\.unrelated === 0\) setText\(""\)/.test(panel), "面板：线索说明、来源情况、需要的列；两种裁决都先确认并说明对全组织生效；只读的人有说明；出错一句话；有没导入的记录时保留原文");
   ok(IMPORT_COLUMNS_HINT_ZH === "把表格里的记录连同表头一起粘贴进来（逗号或制表符分隔）。需要的列：进口商、出口商；可选：日期、品名、数量、来源网址。", "导入框说明需要的列");
+}
+
+{
+  // CHAIN-3c：有效裁决由撤回行指向决定，不靠时间先后
+  const tgt = new Map([["t1", "p1"], ["t2", "p2"]]);
+  const dec = (id: string, targetId: string, pairKey: string, decision: string, at: number) => ({ id, action: IMPORT_LEAD_ALIAS_AUDIT_ACTION, targetId, createdAt: new Date(at), afterData: JSON.stringify({ pairKey, nameA: "A", nameB: "B", decision, decidedBy: "u", decidedAt: new Date(at).toISOString() }) });
+  const rev = (id: string, targetId: string, revokedAuditId: string, at: number) => ({ id, action: IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, targetId, createdAt: new Date(at), afterData: JSON.stringify({ pairKey: "p1", revokedAuditId, revokedBy: "u", revokedAt: "x" }) });
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000)], tgt)[0]?.auditId === "a1", "只有一条裁决：有效，带审计行 id");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "a1", 500)], tgt).length === 0, "撤回行时间比裁决早（时钟偏差）：照样撤回");
+  const again = effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "a1", 2000), dec("a2", "t1", "p1", "REJECTED", 1500)], tgt);
+  ok(again.length === 1 && again[0].auditId === "a2" && again[0].decision === "REJECTED", "撤回后重新裁决（新裁决的时间甚至早于撤回行）：新裁决有效");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "other", 2000)], tgt)[0]?.auditId === "a1", "撤回行指向别的裁决：这条仍有效");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), { ...rev("r1", "t1", "a1", 2000), afterData: "not json" }], tgt).length === 1, "形状不对的撤回行不算");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), dec("a2", "t2", "p2", "REJECTED", 1000), rev("r1", "t1", "a1", 2000)], tgt).map((d) => d.pairKey).join() === "p2", "撤回只影响它指向的那一对");
+  ok(IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION === "tender.import_lead_alias_revoked" && IMPORT_LEAD_ALIAS_AUDIT_ACTION === "tender.import_lead_alias_decided", "两种审计 action");
+  const finder = createCandidatePairFinder(["Northfield Pest Supply Inc.", "Boreal Outfitters"]);
+  const pairs = finder("NORTHFIELD PEST SUPPLY");
+  ok(pairs.length === 1 && pairs[0].winnerName === "Northfield Pest Supply Inc." && pairs[0].pairKey === candidatePairKeys(["NORTHFIELD PEST SUPPLY"], ["Northfield Pest Supply Inc.", "Boreal Outfitters"])[0] && finder("Northfield Pest Supply Inc.").length === 0 && finder("").length === 0, "候选的对：只列疑似同一家（同名不算），与 candidatePairKeys 同一把键");
+  ok(IMPORT_LEADS_TEXT.notOrgAdmin === "只有组织管理员能确认、否决或撤回「是不是同一家」（对本组织所有项目生效）。" && IMPORT_LEADS_TEXT.revokeConflict === "这一对现在没有可撤回的裁决，页面已更新。" && IMPORT_LEADS_TEXT.pairNotInProject === "这一对不在本项目里。" && IMPORT_LEADS_TEXT.revoked === "已撤回，这一对回到待确认。" && IMPORT_LEADS_TEXT.revokedRejection === "之前因否决没有导入的记录需要重新导入。" && IMPORT_LEADS_TEXT.formerMember === "不是本组织现有成员", "撤回与权限的固定说法");
+  const panel = readFileSync(path.join(process.cwd(), "src/components/tender-intel/import-leads-panel.tsx"), "utf8");
+  ok(["只有组织管理员能确认或否决；对本组织所有项目生效。", "已裁决的（对本组织所有项目生效）", "已确认是同一家", "已标为不是同一家", "撤回后这一对回到「要确认是不是同一家」，本组织所有项目都会随之改变。确定撤回吗？", "确定是同一家吗？确认后本组织所有项目都会把这两个名称当成同一家；组织管理员可以撤回。", "确定不是同一家吗？否决后本组织所有项目都不再把这两个名称当成同一家，也不再提示；组织管理员可以撤回。", "你只有查看权限；导入和加入供应商库需要能修改本项目。"].every((t) => panel.includes(t)) && !panel.includes("不能撤回"), "面板：撤回与权限的固定说法；不再写「不能撤回」");
+  ok(/canDecide=\{view\.canDecideAliases\}/.test(panel) && /\{view\.canDecideAliases \? null : <p className="mt-1 text-muted">\{IMPORT_LEADS_UI\.notAdminNote\}<\/p>\}/.test(panel) && /\{view\.canDecideAliases \? \(\s*<button/.test(panel) && /window\.confirm\(IMPORT_LEADS_UI\.confirmRevoke\)\) revoke\(d\.pairKey, d\.decisionId\)/.test(panel), "面板：裁决按钮与撤回按钮只给组织管理员；撤回先确认、带裁决标识");
+  ok(/「\{d\.importerName\}」和「\{d\.winnerName\}」：\{d\.decision === "CONFIRMED" \? IMPORT_LEADS_UI\.decidedConfirmed : IMPORT_LEADS_UI\.decidedRejected\}（\{d\.deciderName\}，\{d\.decidedOn\}），涉及 \{d\.recordCount\} 条记录/.test(panel) && /wasRejected \? `\$\{IMPORT_LEADS_TEXT\.revoked\}\$\{IMPORT_LEADS_TEXT\.revokedRejection\}` : IMPORT_LEADS_TEXT\.revoked/.test(panel), "面板：已裁决的每一对那一句；撤回否决时多一句");
 }
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`);

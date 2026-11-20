@@ -129,13 +129,20 @@ export const IMPORT_LEADS_TEXT = {
   empty: "还没有导入进口记录。",
   unreadable: "进口线索暂时读不出来，请稍后刷新。",
   aliasConflict: "同事已经处理过这一对，页面已更新。",
+  /** CHAIN-3c：裁决与撤回只限组织管理员 */
+  notOrgAdmin: "只有组织管理员能确认、否决或撤回「是不是同一家」（对本组织所有项目生效）。",
+  revokeConflict: "这一对现在没有可撤回的裁决，页面已更新。",
+  pairNotInProject: "这一对不在本项目里。",
+  revoked: "已撤回，这一对回到待确认。",
+  revokedRejection: "之前因否决没有导入的记录需要重新导入。",
+  formerMember: "不是本组织现有成员",
   aliasNotPending: "这一对已不需要确认。",
   exporterNotInSummary: "这家出口商不在本项目的进口线索汇总里。",
   aliasConfirmed: "已确认是同一家，相关记录已加入出口商汇总。",
   aliasRejected: "已标为不是同一家，这些记录不再显示。",
   leadCap: (n: number, cap: number) => `这个项目已有 ${n} 条进口记录（含在供应链页标为不采用的），最多 ${cap} 条，这一批放不下了。`,
   storedButHidden: (n: number) => `已导入 ${n} 条进口记录；历史中标者现在读不出来，先不显示。`,
-  storedPending: (n: number) => `已导入 ${n} 条进口记录，都在等你确认是不是同一家（打开进口线索去确认）。`,
+  storedPending: (n: number) => `已导入 ${n} 条进口记录，都在等确认是不是同一家（打开进口线索查看）。`,
   storedUnmatched: (n: number) => `已导入 ${n} 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。`,
   cannotImport: (reason: string) => `暂时不能导入：${reason}`,
   supplierCreated: "已加入供应商库。进口记录通常没有邮箱，请先补上联系邮箱才能发询价；补上后在项目里点「问供应商要价」就能勾选它。",
@@ -165,6 +172,20 @@ export function winnersStateMessage(status: "not_connected" | "no_buyer" | "none
 
 export type PendingSuggestionView = { pairKey: string; importerName: string; winnerName: string; basisZh: string; recordCount: number };
 
+/** CHAIN-3c：本项目现有记录涉及、当前有裁决的一对（名称用本项目的写法；裁决人只显示本组织现有成员的名字） */
+export type DecidedPairView = {
+  pairKey: string;
+  /** 那条裁决审计行的 id；撤回请求带上它，裁决已被同事换掉时 409 */
+  decisionId: string;
+  importerName: string;
+  winnerName: string;
+  decision: "CONFIRMED" | "REJECTED";
+  deciderName: string;
+  /** YYYY-MM-DD（UTC） */
+  decidedOn: string;
+  recordCount: number;
+};
+
 export type ImportLeadsView = {
   caveatZh: string;
   leadStatusZh: string;
@@ -177,6 +198,10 @@ export type ImportLeadsView = {
   /** 本项目存着的线索条数（不含在供应链页标为不采用的） */
   storedLeadCount: number;
   canEdit: boolean;
+  /** CHAIN-3c：调用人能不能确认、否决、撤回「是不是同一家」（组织管理员） */
+  canDecideAliases: boolean;
+  /** CHAIN-3c：已裁决的一节 */
+  decidedPairs: DecidedPairView[];
 };
 
 /**
@@ -209,7 +234,7 @@ export type ImportResultCounts = {
  * e 条的进口商不是这个采购方的中标者，没有保存（甲、乙）；f 条有问题没有导入，见下。」——为 0 的那半句不写。
  */
 export function importResultZh(r: ImportResultCounts): string {
-  const detail = [r.matched ? `${r.matched} 条已对应中标者` : "", r.suggested ? `${r.suggested} 条要你确认是不是同一家` : ""].filter(Boolean).join("，");
+  const detail = [r.matched ? `${r.matched} 条已对应中标者` : "", r.suggested ? `${r.suggested} 条要确认是不是同一家` : ""].filter(Boolean).join("，");
   const parts = [r.imported ? `导入 ${r.imported} 条${detail ? `（${detail}）` : ""}` : "没有新导入"];
   if (r.duplicates) parts.push(`重复跳过 ${r.duplicates} 条`);
   if (r.unrelated) parts.push(`${r.unrelated} 条的进口商不是这个采购方的中标者，没有保存${r.unrelatedImporters.length ? `（${r.unrelatedImporters.join("、")}）` : ""}`);
