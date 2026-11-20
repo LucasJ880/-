@@ -22,6 +22,9 @@ import { projectMemberAddedEventKey } from "@/lib/project-ledger/event-keys";
 import { isLedgerProducerActive } from "@/lib/project-ledger/flags";
 import { syncProjectMilestoneCalendars } from "@/lib/projects/sync-milestone-calendar";
 import { ensureProjectJoinBrief } from "@/lib/bid-workflow/join-brief";
+import { guardOwnerChange, OwnerChangeConflict, ownerConflictResponse, resolveOwnerChangeActor, writeOwnerIfUnchanged } from "@/lib/projects/owner-change-access";
+import { ownerChangeFlags } from "@/lib/projects/owner-change";
+import { hasOrgRole, hasProjectRole, isSuperAdmin } from "@/lib/rbac/roles";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -31,6 +34,13 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const access = await requireProjectReadAccess(request, projectId);
   if (access instanceof NextResponse) return access;
   const { project } = access;
+  // CHAIN-2c：调用人能不能把负责人换成别人 / 换成自己（已含「能修改本项目」，与写权限同一口径）
+  const canEditProject =
+    isSuperAdmin(access.user.role) ||
+    project.ownerId === access.user.id ||
+    (!!project.orgId && !!access.orgRole && hasOrgRole(access.orgRole, "org_admin")) ||
+    (!!access.projectRole && hasProjectRole(access.projectRole, "project_admin"));
+  const ownerChange = ownerChangeFlags(await resolveOwnerChangeActor(access.user, project.orgId ?? null), project.ownerId, canEditProject);
 
   const members = await db.projectMember.findMany({
     where: { projectId },
@@ -64,6 +74,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   return NextResponse.json({
     ownerId: project.ownerId,
     purchaserId: project.purchaserId ?? null,
+    ownerChange,
     members: members.map((m) => ({
       id: m.id,
       userId: m.userId,
@@ -108,6 +119,14 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   if (!isValidProjectMemberRole(role)) {
     return NextResponse.json({ error: "无效的项目角色" }, { status: 400 });
+  }
+
+  // CHAIN-2c：加成员并设为主负责人 = 换负责人，先判权限（目标是否在用、是否本组织成员沿用下面原来的检查与说法）
+  let ownerChanged = false;
+  if (duty === "owner") {
+    const guard = await guardOwnerChange({ user, orgId: project.orgId ?? null, currentOwnerId: project.ownerId, targetUserId: userId, skipTargetCheck: true });
+    if (guard instanceof NextResponse) return guard;
+    ownerChanged = guard.changed;
   }
 
   const target = await db.user.findUnique({ where: { id: userId } });
@@ -170,10 +189,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     }
 
     if (duty === "owner") {
-      await tx.project.update({
-        where: { id: projectId },
-        data: { ownerId: userId },
-      });
+      if (ownerChanged) await writeOwnerIfUnchanged(tx, projectId, project.ownerId, userId);
     } else if (duty === "purchaser") {
       await tx.project.update({
         where: { id: projectId },
@@ -220,9 +236,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     return m;
   }).catch((err: Error) => {
     if (err.message === "ALREADY_MEMBER") return null;
+    if (err instanceof OwnerChangeConflict) return "OWNER_CONFLICT" as const;
     throw err;
   });
 
+  if (member === "OWNER_CONFLICT") return ownerConflictResponse();
   if (!member) {
     return NextResponse.json({ error: "该用户已是项目成员" }, { status: 409 });
   }
