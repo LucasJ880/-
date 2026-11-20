@@ -16,6 +16,6 @@
 
 ## 4. 门禁与报告
 
-- [ ] 4.1 既有不改期望（verify：`pricing-helper.test.ts`、`pricing-helper-save-db.isolated.test.ts`、`pricing-helper-lock-db.isolated.test.ts`、`compare-cost-source-db.isolated.test.ts` 原样通过；`compare-cost-source.test.tsx` 只有 2.3 列出的接线断言改动）
-- [ ] 4.2 全量门禁（verify：`npm test` 只有 main 上同样的既有失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate pricing-helper-finance-gate --strict`；`git diff origin/main -- prisma/ vercel.json` 为空）
-- [ ] 4.3 写 `docs/QINGYAN_CHAIN-2b_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、口径不同的三处（比价矩阵、报价引擎卡、投标策略备忘及其显示路径）与「投标同事看不到成本」的 GATE 问题；TASKFLOW 新增 CHAIN-2b 一行为 `[~]`）
+- [x] 4.1 既有不改期望（verify：`pricing-helper.test.ts`、`pricing-helper-save-db.isolated.test.ts`、`pricing-helper-lock-db.isolated.test.ts`、`compare-cost-source-db.isolated.test.ts` 原样通过；`compare-cost-source.test.tsx` 只有 2.3 列出的接线断言改动）
+- [x] 4.2 全量门禁（verify：`npm test` 只有 main 上同样的既有失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate pricing-helper-finance-gate --strict`；`git diff origin/main -- prisma/ vercel.json` 为空）
+- [x] 4.3 写 `docs/QINGYAN_CHAIN-2b_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、口径不同的三处（比价矩阵、报价引擎卡、投标策略备忘及其显示路径）与「投标同事看不到成本」的 GATE 问题；TASKFLOW 新增 CHAIN-2b 一行为 `[~]`）
