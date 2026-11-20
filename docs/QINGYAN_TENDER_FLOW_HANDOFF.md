@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-20 第四十四次（情报串联 CHAIN：CHAIN-4a #526 / #527、CHAIN-2 #528 / #529、CHAIN-3 #530 已合并、归档 PR 即本次更新所在的 PR，CHAIN-1 前置核查不通过已停；新增规则「多维审查」；新会话从 §0.5h 进。上一次：2026-11-19 第四十三次，CHAIN-4b / CHAIN-0c） |
+| 最后更新 | 2026-11-20 第四十四次（情报串联 CHAIN：CHAIN-4a #526 / #527、CHAIN-2 #528 / #529、CHAIN-3 #530 / #531 已合并并归档，CHAIN-1 前置核查不通过已停；新增规则「多维审查」；新会话从 §0.5h 进。上一次：2026-11-19 第四十三次，CHAIN-4b / CHAIN-0c） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
@@ -309,7 +309,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 | CHAIN-4a `rfq-supplier-attachment`（询价邮件带一份重排的询价单 PDF；判断点 5 按 A） | #526（合并）、#527（归档） | `[x]`；开关 `TENDER_RFQ_ATTACHMENT_ENABLED` 默认关；载荷存的是附件 HTML 的 SHA-256（PDF 字节每次不同，报告 §1）；**staging 用测试邮箱收信核对未做** |
 | CHAIN-1 `tender-award-source-apc`（Alberta APC 授标） | 没有 PR | `[ ]`，**前置核查不通过，已停**：APC 对匿名程序化访问返回 Cloudflare 人机验证（连 robots.txt）；Alberta 开放数据没有竞争性货物授标。见 `docs/QINGYAN_CHAIN-1_PRECHECK.md`，要人决定走书面许可还是人工录入 |
 | CHAIN-2 `tender-auto-supplier-run`（批准分析后自动建候选池 + 寻源建议卡；情报推荐并入自动起草；判断点 1 按 A、4 按 B） | #528（合并，含规则「多维审查」）、#529（归档） | `[x]`；开关 `TENDER_AUTO_SUPPLIER_RUN_ENABLED`、`TENDER_RFQ_INTEL_RECIPIENTS_ENABLED` 默认关，另要 `SUPPLIER_INTEL_ENABLED` |
-| CHAIN-3 `tender-import-leads-connector`（进口记录人工导入 → 比对历史中标者 → 按出口商汇总 → 加入供应商库；判断点 3 按 A、7 按 A） | #530（合并）、归档 + 本节（同一个 PR） | `[x]`；开关 `TENDER_IMPORT_LEADS_ENABLED` 默认关；系统不访问任何第三方网站、不调模型；进口线索的供应商**不**自动进自动起草（design D4b，任务书验收项只做到一半，报告 §1） |
+| CHAIN-3 `tender-import-leads-connector`（进口记录人工导入 → 比对历史中标者 → 按出口商汇总 → 加入供应商库；判断点 3 按 A、7 按 A） | #530（合并）、#531（归档 + 本节） | `[x]`；开关 `TENDER_IMPORT_LEADS_ENABLED` 默认关；系统不访问任何第三方网站、不调模型；进口线索的供应商**不**自动进自动起草（design D4b，任务书验收项只做到一半，报告 §1） |
 
 **等人做的（需要生产权限）**
 
