@@ -112,7 +112,8 @@ export type BidDraftInputs = {
   submissionChecklist: unknown;
   memo: {
     summaryZh: string | null;
-    riskGates: Array<{ gateZh: string; statusZh: string; basisZh: string }>;
+    /** CHAIN-2d：旧版备忘被隐藏的依据为 null */
+    riskGates: Array<{ gateZh: string; statusZh: string; basisZh: string | null }>;
     teamingAdviceZh: string | null;
   } | null;
   rfiCount: number;
