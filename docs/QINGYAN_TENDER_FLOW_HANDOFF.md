@@ -341,7 +341,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 |---|---|---|---|
 | #539 三条 GATE（谁能换负责人等） | 规则不用变 | 代码不变 | PR #539 正文的 GATE 一节写上回答 |
 | #532 ④ 比价矩阵、同页「报价与成本」卡口径更宽 | 统一（都按财务查看权） | 新开 **CHAIN-2e `finance-view-compare-quote-gate`**：四件套 `f18e1ccf`（分支 `claude/inspiring-johnson-o54xbt-chain-2e`，`openspec validate --strict` 通过）。**只有规划文档，没有实现代码、没有 PR、TASKFLOW 行还没加** | 见下面「CHAIN-2e」；PR #532 正文 GATE ④ 写「已答：统一，另开 CHAIN-2e」 |
-| #534 ③ 否决了几对要不要单独计数 | 要 | `520acdce`：槽里另写 `已标为不是同一家 N 对（涉及 M 条进口记录）`（M 由服务去重算好放进视图 `rejectedPairRecordCount`，`countRecordsTouchingRejected`；不说「不显示」），「已裁决的」一节标题后 `本项目涉及：已确认是同一家 a 对，已标为不是同一家 b 对`。第一版 `e68d61ef` 经四维度审查（每个子 agent 一个维度）发现「因此不显示」不成立、同一条记录重复计，已修；报告 §1 / §2 / §3 / §5 / §6、规格、design D8、tasks、proposal 已同步。单测 131、隔离库 69 过；typecheck、`lint:baseline`、`test:ci`（不带库）、`validate --strict` 过 | **全量 `npm test` 没跑完**（本容器里起了、额度用完前没出结果）——新会话重跑，结果补进报告 §4（「单独计数之后的重跑」，现在 §4 最后一次重跑停在 `8804f7fd`）；PR #534 正文更新（「做了什么」加单独计数一行、多维审查加这一轮、GATE ③ 已答） |
+| #534 ③ 否决了几对要不要单独计数 | 要 | `520acdce`：槽里另写 `已标为不是同一家 N 对（涉及 M 条进口记录）`（M 由服务去重算好放进视图 `rejectedPairRecordCount`，`countRecordsTouchingRejected`；不说「不显示」），「已裁决的」一节标题后 `本项目涉及：已确认是同一家 a 对，已标为不是同一家 b 对`。第一版 `e68d61ef` 经四维度审查（每个子 agent 一个维度）发现「因此不显示」不成立、同一条记录重复计，已修；报告 §1 / §2 / §3 / §5 / §6、规格、design D8、tasks、proposal 已同步。单测 131、隔离库 69 过；typecheck、`lint:baseline`、`test:ci`（不带库）、`validate --strict` 过 | 全量 `npm test` 已跑：`702/712`，10 项都是既有失败，已写进报告 §4（`f5a4c4be`）；PR #534 正文更新（「做了什么」加单独计数一行、多维审查加这一轮、GATE ③ 已答） |
 | #536 ③ 组织管理员自录自确认 | 不要限制 | 代码不变 | PR #536 正文 GATE 一节写上；**#536 ④ 的「不挂时新记录标为疑似重复」仍等 Lucas 确认**（这一轮没答） |
 
 **CHAIN-2e `finance-view-compare-quote-gate`（规划，fork 起草，本账号还没审）**——没有财务查看权（`resolveFinancePrivilege(...).canReadAll`）时：
@@ -355,12 +355,12 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 - 留给 Lucas 的三个问题（第四十七次总结里已问，**答复前不要实施第 1 条涉及的部分**）：① 不是项目负责人的投标同事（项目角色 `operator`，`bids` 岗位只有本人参与范围的财务读权限）改完后不能新建、编辑、批准报价，接不接受？② 单个报价页的完整成本视图也只给有财务查看权的人、其他人只看客户视图？③ 没权的人仍能看到排序和「最便宜」标记（知道谁便宜、看不到差多少）？
 - 合并顺序：排在 #532 之后（同一口径）；与 #532 / #538 / 其他分支的冲突**未核对**。
 
-**第四十七次时各分支的头**（都已推送）：#533 `chain-4c` `f50ab494`；#532 `chain-2b` `ae7415f3`；#535 `chain-3b` `f9d52315`；#534 `chain-3c` `520acdce`；#536 `chain-1b` `8f47b190`；#538 `chain-2d` `5f7d5c46`；#539 `chain-2c` `d10e2c52`；CHAIN-2e `chain-2e` `f18e1ccf`（分支名前缀都是 `claude/inspiring-johnson-o54xbt-`）。本文件在 `claude/inspiring-johnson-o54xbt`（Draft PR #537）。
+**第四十七次时各分支的头**（都已推送）：#533 `chain-4c` `f50ab494`；#532 `chain-2b` `ae7415f3`；#535 `chain-3b` `f9d52315`；#534 `chain-3c` `f5a4c4be`；#536 `chain-1b` `8f47b190`；#538 `chain-2d` `5f7d5c46`；#539 `chain-2c` `d10e2c52`；CHAIN-2e `chain-2e` `f18e1ccf`（分支名前缀都是 `claude/inspiring-johnson-o54xbt-`）。本文件在 `claude/inspiring-johnson-o54xbt`（Draft PR #537）。
 
 **下一个账号按这个顺序做**：
 
 1. 搭环境（下面「本会话的环境做法」；新容器里没有本会话的隔离库与 worktree，要重建）。
-2. #534：在 `chain-3c` 上跑全量 `npm test`（先删 `WeChatGateway` 残留那一行），预期只有 main 上同样的 10 项既有失败（名单见 `docs/QINGYAN_CHAIN-3c_REPORT.md` §4），结果补进报告 §4；更新 PR #534 正文。
+2. #534：全量已跑过（`702/712`，10 项既有失败，报告 §4）；只剩更新 PR #534 正文。
 3. 更新 PR #539、#536、#532 正文的 GATE 一节（按上表）。
 4. CHAIN-2e：先按 `openspec/config.yaml` 审四件套（核对上面三条意外发现），等 Lucas 答上面三个问题，再 `/opsx:apply` → `npm test` → `/opsx:verify` → 四维度审查（每个子 agent 一个维度）→ 报告 `docs/QINGYAN_CHAIN-2e_REPORT.md` + TASKFLOW 情报串联表 CHAIN-2 行后加一行 `[~]` → 推送 → **Draft PR**（不合并）。
 5. 更新本文件（第四十八次），用一个子 agent 核对。
