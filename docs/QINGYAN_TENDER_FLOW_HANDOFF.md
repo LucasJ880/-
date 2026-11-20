@@ -363,8 +363,11 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 1. **FIX-12 的根因（已核对代码）**：窗口超时按剩余预算裁到 35.3 秒是对的，但被中止后 `createTenderCompletion`（`src/lib/ai/model-policy/tender.ts`）的换备用（terra → sol）和 `callStructured`（`src/lib/tender-understanding/llm.ts`）的「瞬时错误再试一次」都沿用同一个超时——一次窗口调用最多四段。**t+260s 那轮 terra / retryCount 0 来自 `callStructured` 的重试**（钉住的模型只在备用成功后才换，`retryCount` 缺省 0），不是窗口层。修法：每个阶段算一个绝对截止时间（切片截止 − 15 秒）带到每一次请求；剩余 < 5 秒不再重试 / 换模型（错误码 `CALL_DEADLINE_EXCEEDED`），以 `call_deadline` 让出。回归测试 `src/lib/tender-auto-analysis/__tests__/v2-slice-deadline.test.ts` 用虚拟时钟复现了生产时间线（改前 330 秒，改后 190 秒让出）。
 2. **FIX-13 的根因（Lucas 本地证实）**：英文版 Appendix B 用 unpdf 1.4.0 `extractText(mergePages:false)` 读出 4 页，第 2 页利益冲突一节的勾选框被抽成 1 个 U+0000（`"...check the box.\n\u0000 The Bidder declare..."`），其余页为 0，落单代理字符 0；`pdffonts` 显示有 SymbolMT（CID TrueType、Identity-H）。PostgreSQL 文本列不收 U+0000（22021），整份写库失败、被标成「failed」。去掉权限加密后的版本同样含该字符——**加密已排除**。法文版没测，按同一来源推断相同。生产库查询改为可选（有权限的人复核用）：`SELECT d.title, d."parseStatus", d."parseError" FROM "ProjectDocument" d JOIN "Project" p ON p.id = d."projectId" WHERE p.name = '12-3 Indoor Canadian Flag';`。排查时已排除：文件名里的「(PDF)」（上传时括号换成下划线，Blob 路径来回一致）。
 3. **记录（不改）**：生产 `ai.call` 日志 `flagDecision = kill_switch`（`ENABLE_GPT6_ASTRA` 没开，`src/lib/ai/model-policy/flags.ts` 约 75 行），实际模型 `gpt-5.6-terra`（招标角色的基线是推理模型），备用 `gpt-5.6-sol`；**GPT-6 Astra 当前未启用**。后果：`tender.ts` 里的同模型重试（`retry_same`）只对 Astra 生效，生产上第一次失败就直接换 sol；`tender.ts` 头注释「GPT-6 Astra 是招标推理主模型」写的是开关打开之后的状态。要不要开由 Lucas 定。
-4. **上线后**：FIX-12 合并部署后，「12-01」「12-3」两个项目在项目页点「重新分析」；Vercel 上 `/api/cron/agent-runs` 不应再有 300 秒 504。FIX-13 合并部署后，打开「12-3」的项目文件页（会自动重试失败的文件）或点重试，确认两份附录 B 变为已解析，再重新发起分析。
-5. 本会话的环境做法同 §0.5h「本会话的环境做法」（Node 24、本机 Postgres + pgvector、隔离库变量）；两个 change 各在自己的 git worktree 里做，避免一个跑全量测试时另一个切分支。
+4. **上线后**：FIX-12 合并部署后，「12-01」「12-3」两个项目在项目页分析卡片上点「重新分析当前投标文件包」；Vercel 上 `/api/cron/agent-runs` 不应再有 300 秒 504。FIX-13 合并部署后，打开「12-3」的项目文件页（会自动重试失败的文件）或点重试，确认两份附录 B 变为已解析，再重新发起分析。
+5. **FIX-12 多维审查留下的两个后续 change（还没开，会话里生成建议任务的工具超时，以这里为准；细节见 `docs/QINGYAN_FIX-12_REPORT.md` §7）**：
+   - 切片之外仍可能越过 300 秒的路径（最高优先）：`processQueuedWorkforceJobs(2)`（`src/lib/workforce-runtime/processor.ts` 约 785–791 行）两个任务共用 240 秒预算，但循环与轮次都不看 `executionBudget.deadlineAt`，第二个任务可能在 226 秒之后再跑一轮不受预算约束的步骤；另有 PERSIST 只留 5 秒余量、旧 cron 的 FINALIZE 无时限、kick 的预算起点、SDK 重试等待不看 signal。
+   - 降级结果用白话说清楚：局限说明里的英文错误码、Analyst 两次没完成时没有说明、复核没跑完却显示「未通过 AI 质检」、被截止的澄清检查永久记为未解决。
+6. 本会话的环境做法同 §0.5h「本会话的环境做法」（Node 24、本机 Postgres + pgvector、隔离库变量）；两个 change 各在自己的 git worktree 里做，避免一个跑全量测试时另一个切分支。
 
 ### 0.6 实施中沿用的约定
 
