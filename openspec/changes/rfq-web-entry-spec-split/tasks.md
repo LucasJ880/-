@@ -2,16 +2,16 @@
 
 ## 1. 规格增量
 
-- [ ] 1.1 写 `specs/tender/rfq-web-entry/spec.md`：REMOVED「原地审批与待批轮次保护」（Reason / Migration），ADDED「询价卡的原地审批与待批轮次保护」与「询价单 PDF 对不上时只给驳回」，正文与场景从主规格逐字搬（verify：`npx openspec validate rfq-web-entry-spec-split --strict` valid）
+- [x] 1.1 写 `specs/tender/rfq-web-entry/spec.md`：REMOVED「原地审批与待批轮次保护」（Reason / Migration），ADDED「询价卡的原地审批与待批轮次保护」与「询价单 PDF 对不上时只给驳回」，正文与场景从主规格逐字搬（verify：`npx openspec validate rfq-web-entry-spec-split --strict` valid）
 
 ## 2. 等价核对
 
-- [ ] 2.1 用脚本比对：主规格原条的正文按句切分、场景逐个取出，与两条新增要求合起来逐字相同（差别只有新条开头补的那两处与原条末尾加的那句指引），场景数 5 = 4 + 1，两条新正文都 ≤ 500 字（verify：一次性 python 脚本（放 scratchpad，不入库）输出贴进报告，差异 0）
-- [ ] 2.2 新条场景引用的测试照旧通过（verify：`npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/attachment-db.isolated.test.ts`）
+- [x] 2.1 用脚本比对：主规格原条的正文按句切分、场景逐个取出，与两条新增要求合起来逐字相同（差别只有新条开头补的那两处与原条末尾加的那句指引），场景数 5 = 4 + 1，两条新正文都 ≤ 500 字（verify：一次性 python 脚本（放 scratchpad，不入库）输出贴进报告，差异 0）
+- [x] 2.2 新条场景引用的测试照旧通过（verify：`npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/attachment-db.isolated.test.ts`）
 
 ## 3. 归档演练
 
-- [ ] 3.1 在临时 worktree 里跑 `openspec archive rfq-web-entry-spec-split --yes`，确认合并后主规格 14 条要求、场景总数不变（verify：`npx openspec validate tender/rfq-web-entry --type spec --strict` valid；`npx openspec validate --specs --strict` 全过）
+- [x] 3.1 在临时 worktree 里跑 `openspec archive rfq-web-entry-spec-split --yes`，确认合并后主规格 14 条要求、场景总数不变（verify：`npx openspec validate tender/rfq-web-entry --type spec --strict` valid；`npx openspec validate --specs --strict` 全过）
 
 ## 4. 门禁与报告
 
