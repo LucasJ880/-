@@ -6,7 +6,7 @@
 
 ## 2. 等价核对
 
-- [ ] 2.1 用脚本比对：主规格原条的正文按句切分、场景逐个取出，与两条新增要求合起来逐字相同（唯一差别是新条开头补的主语那半句），场景数 5 = 4 + 1，两条新正文都 ≤ 500 字（verify：一次性 python 脚本（放 scratchpad，不入库）输出贴进报告，差异 0）
+- [ ] 2.1 用脚本比对：主规格原条的正文按句切分、场景逐个取出，与两条新增要求合起来逐字相同（差别只有新条开头补的那两处与原条末尾加的那句指引），场景数 5 = 4 + 1，两条新正文都 ≤ 500 字（verify：一次性 python 脚本（放 scratchpad，不入库）输出贴进报告，差异 0）
 - [ ] 2.2 新条场景引用的测试照旧通过（verify：`npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/attachment-db.isolated.test.ts`）
 
 ## 3. 归档演练
@@ -16,4 +16,4 @@
 ## 4. 门禁与报告
 
 - [ ] 4.1 全量门禁（本 change 不改代码，结果应与 main 相同）（verify：`npm test` 与 main 上同样的 11 项既有失败、其余通过；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`git diff origin/main --stat` 只有 `openspec/changes/rfq-web-entry-spec-split/**`、报告与 TASKFLOW）
-- [ ] 4.2 写 `docs/QINGYAN_CHAIN-4c_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含等价核对输出、归档演练输出、门禁结果；TASKFLOW 新增 CHAIN-4c 一行为 `[~]`）
+- [ ] 4.2 写 `docs/QINGYAN_CHAIN-4c_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含等价核对输出、归档演练输出、门禁结果，并写明归档 PR 要改交接文档 §0.5h「之后还有什么」第 4 条那句（旧名与「超过 500 字」都会过时）；TASKFLOW 新增 CHAIN-4c 一行为 `[~]`）
