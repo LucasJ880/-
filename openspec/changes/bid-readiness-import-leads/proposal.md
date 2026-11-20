@@ -1,16 +1,16 @@
 # Proposal：投标准备度的「进口线索」阶段读取 CHAIN-3 导入的记录（CHAIN-3b）
 
-TASKFLOW：CHAIN-3b（Phase F（续）— 情报串联的后续；CHAIN-3 的 Out of scope、交接文档第四十四次 §0.5h「之后还有什么」第 4 条；Lucas 2026-11-20「投标准备度的「进口线索」阶段读取 CHAIN-3 导入的记录」）。不触碰 muse-bridge，无受影响的 Muse 意图。
+TASKFLOW：CHAIN-3b（新增一行；Phase F（续）— 情报串联的后续；CHAIN-3 的 Out of scope、交接文档第四十四次 §0.5h「之后还有什么」第 4 条；Lucas 2026-11-20「投标准备度的「进口线索」阶段读取 CHAIN-3 导入的记录」）。不触碰 muse-bridge，无受影响的 Muse 意图。
 
 ## Why
 
-投标工作区的阶段决定靠服务端从实际数据推导「手头材料」，但「进口线索」这份材料从来没人提供：CHAIN-3 已能把进口记录导入项目，阶段表照旧说「授权贸易数据未接通；这不表示没有记录，而是没有查」。
+投标工作区的阶段决定靠服务端从实际数据推导「手头材料」，但「进口线索」这份材料从来没人提供：CHAIN-3 已能把进口记录导入项目，阶段表照旧说「授权贸易 / 提单数据未接通；这不表示没有记录，而是没有查」。
 
 ## What Changes
 
-- 投标工作区读取时，项目所属组织开了进口线索导入（`TENDER_IMPORT_LEADS_ENABLED` + 白名单）且该项目有 CHAIN-3 导入的进口记录（未被标为不采用的）时，「手头材料」多一项「进口线索」；「进口线索」阶段的决定因此从「未接通」变为「执行」，说明照旧是「只处理人工提供的进口线索」，并从「未接通 / 仅人工」清单里消失。
-- 进口线索导入开关关闭、或项目没有导入记录时，读取结果与现在逐字节相同。
-- 阶段策略表（十三个阶段的分类与决定规则）不改；授权贸易数据照旧「未接通」。
+- 修改投标工作区读取的「手头材料」推导：项目所属组织开了进口线索导入（`TENDER_IMPORT_LEADS_ENABLED` + 白名单）且该项目至少有一条 CHAIN-3 导入的进口记录（未被标为不采用，与 CHAIN-3 槽里「已导入 N 条」同一口径）时，多一项「进口线索」。
+- 让「进口线索」阶段如实变为「执行」：说明照旧是「只处理人工提供的进口线索」，并从「未接通 / 仅人工」清单里消失。
+- 保持开关关闭、或项目没有导入记录时，读取结果与现在逐字节相同；阶段策略表（十三个阶段的分类与决定规则）不改。
 
 ## Out of scope
 
@@ -31,6 +31,7 @@ TASKFLOW：CHAIN-3b（Phase F（续）— 情报串联的后续；CHAIN-3 的 Ou
 
 ## Impact
 
-- 修改：`src/lib/tender-bid-workspace/store.ts`（`loadWorkspaceContext` 多数一个数）、`src/lib/tender-bid-workspace/workspace-view.ts`（`deriveMaterials` 多一条、上下文多一个可选字段）；新增 `src/lib/tender-import-leads/` 下一个只读计数函数（不改该目录既有文件之外的行为）。
+- 修改：`src/lib/tender-bid-workspace/store.ts`（`loadWorkspaceContext` 多查一次「有没有」）、`src/lib/tender-bid-workspace/workspace-view.ts`（`deriveMaterials` 多一条、上下文多一个可选字段）；新增 `src/lib/tender-import-leads/readiness-count.ts`（只读，只依赖 `@/lib/db` 与 `./flags`；不改该目录既有文件）。
+- `loadWorkspaceContext` 的其它调用方也会多这一次查询：成本核算接口（不用材料，输出不变）、项目页「下一步」卡（`src/lib/tender-next-step/service.ts`，只用价格表与可投标判定的阻断项，输出不变）、投标工作区保存（`PUT` 的返回里同样带 `view`，材料与阶段随之变化）。
 - 测试：`workspace-view.test.ts` 加用例；新增隔离库用例（注册进 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`）。
 - 零 schema、零依赖、零新增模型调用。

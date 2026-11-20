@@ -16,5 +16,5 @@
 - **THEN** 手头材料有进口线索，「进口线索」阶段的决定为执行、说明「只处理人工提供的进口线索」，未接通清单里没有它（`NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/readiness-count-db.isolated.test.ts`；`npx tsx src/lib/tender-bid-workspace/__tests__/workspace-view.test.ts`）
 
 #### Scenario: 进口线索导入开关关闭或没有记录
-- **WHEN** 组织没开进口线索导入（即使库里有这个项目的导入记录）；或开了但项目没有导入记录；或唯一一条已被标为不采用
+- **WHEN** 组织没开进口线索导入（即使库里有这个项目的导入记录）；或开了但项目没有导入记录（只有别的项目、别的组织的记录）；或唯一一条已被标为不采用
 - **THEN** 手头材料里没有进口线索，「进口线索」阶段仍为未接通，读取结果与没有本功能时相同（`readiness-count-db.isolated.test.ts`）
