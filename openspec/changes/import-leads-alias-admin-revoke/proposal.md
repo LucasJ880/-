@@ -14,7 +14,7 @@ CHAIN-3 让任何能修改本项目的人做「是不是同一家」的裁决，
 - 修改界面：不是组织管理员的人看得到待确认的一对，但没有裁决按钮，写明只有组织管理员能确认或否决、在那之前这些记录不进汇总、请组织管理员来处理（逐字见 design D5）；裁决前的两句确认把「不能撤回」改为「组织管理员可以撤回」。
 - 返回真实的裁决权限：读视图与导入、加入供应商库接口返回的视图都带调用人的 `canDecideAliases`；导入与加入供应商库的权限不变（仍是能修改本项目的人）。
 - 保留已有的裁决：CHAIN-3 的开关在生产默认关，若已有裁决照旧有效，组织管理员可以撤回。
-- 改说法：槽里与导入结果里的「等你确认」「要你确认」改为「等组织管理员确认」「要等组织管理员确认」，只读说明去掉「确认」。
+- 改说法：槽里与导入结果里的「等你确认」「要你确认」改为「等组织管理员确认」「要等组织管理员确认」，槽里「另有 N 对要确认是不是同一家」改为「另有 N 对等组织管理员确认是不是同一家」，只读说明去掉「确认」。
 
 ## Out of scope
 
@@ -31,11 +31,11 @@ CHAIN-3 让任何能修改本项目的人做「是不是同一家」的裁决，
 
 ### Modified Capabilities
 
-- `tender/import-leads`：修改「疑似同一家由人裁决」「裁决前先让人确认范围」「接口与权限」「审计」；新增「撤回裁决」「已裁决的一节」「已裁决的一节不带出的内容」。
+- `tender/import-leads`：修改 6 条——「疑似同一家由人裁决」「裁决前先让人确认范围」「接口与权限」「审计」「情报页签的供应链槽」「导入框与导入结果」（后两条只改说法）；新增 3 条——「撤回裁决」「已裁决的一节」「已裁决的一节不带出的内容」。
 
 ## Impact
 
 - 新增：`src/lib/tender-import-leads/alias-decisions.ts`（从审计行算有效裁决，纯函数）。
 - 修改：`src/lib/tender-import-leads/match-pure.ts`（列出候选的对）、`src/lib/tender-import-leads/service.ts`（裁决读取认撤回、撤回服务、视图带已裁决的对与真实的裁决权限）、`src/lib/tender-import-leads/api-access.ts`（组织管理员判定）、`src/lib/tender-import-leads/aggregate-pure.ts`（视图类型与文字）、`src/app/api/projects/[id]/tender-intel/import-leads/{route.ts,aliases/route.ts,suppliers/route.ts}`；新增 `…/aliases/revoke/route.ts`；`src/components/tender-intel/import-leads-panel.tsx`。
-- 测试：`import-leads.test.ts`、`import-leads-db.isolated.test.ts` 补用例；既有裁决用例本来就是组织管理员做的，不换人；既有断言只有槽里与导入结果里那两句的期望字符串随文字改动更新。
+- 测试：`import-leads.test.ts`、`import-leads-db.isolated.test.ts` 补用例；既有裁决用例本来就是组织管理员做的，不换人；既有断言只有槽里与导入结果里那几句的期望字符串随文字改动更新，另有路由源码断言的正则从 `(Read|Write)` 放宽为 `(Read|Write|AliasDecide)`（新的权限判定函数）。
 - 零 schema（撤回也写 `AuditLog`）、零依赖、零新增模型调用。

@@ -303,6 +303,16 @@ async function main() {
     ok(dv.decidedPairs.length === 3 && dG?.decision === "CONFIRMED" && dG.importerName === "Glacier Linen Supply" && dG.winnerName === "Glacier Linen Supply Inc." && dG.deciderName === `Fixture ${OWNER}` && dG.recordCount === 1 && /^\d{4}-\d{2}-\d{2}$/.test(dG.decidedOn) && dH?.decision === "REJECTED" && dH.deciderName === "所有者 Fixture" && dC?.deciderName === "本组织以外的人", "已裁决的一节：三对、结论、裁决人（平台超级管理员不是本组织成员）、条数、日期", dv.decidedPairs);
     const edAfter = (await get(pR, editor)).json.decidedPairs;
     ok(JSON.stringify(edAfter) === JSON.stringify(dv.decidedPairs), "编辑者看到的已裁决的对与组织管理员相同", edAfter);
+    // 排序：按裁决日期从新到旧（把两条裁决的日期改早，三条分在三天）
+    const setDecidedAt = async (auditId: string, iso: string) => {
+      const row = await db.auditLog.findUnique({ where: { id: auditId } });
+      const a = JSON.parse(row!.afterData ?? "{}") as Record<string, unknown>;
+      await db.auditLog.update({ where: { id: auditId }, data: { afterData: JSON.stringify({ ...a, decidedAt: iso }) } });
+    };
+    await setDecidedAt(dH!.decisionId, "2025-01-05T00:00:00.000Z");
+    await setDecidedAt(dC!.decisionId, "2025-03-01T00:00:00.000Z");
+    const sorted = (await get(pR)).json.decidedPairs;
+    ok(sorted.map((d) => d.pairKey).join() === [pG, pC, pH].join() && sorted[1].decidedOn === "2025-03-01" && sorted[2].decidedOn === "2025-01-05", "已裁决的一节按裁决日期从新到旧", sorted.map((d) => [d.importerName, d.decidedOn]));
     const edRev = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId }, editor);
     ok(edRev.status === 403 && (await aliasRows()) === rows0 + 3, "编辑者撤回：403，没有新审计行", edRev);
     const wrong = await revoke(pR, { pairKey: pG, decisionId: dH!.decisionId });
@@ -339,10 +349,35 @@ async function main() {
     const rv4 = await revoke(pR, { pairKey: pC, decisionId: dCnow.decisionId }, superCookie);
     const linkedAfter = (await leadSignals(pR)).filter((x) => x.linkedSupplierId === supId).length;
     ok(rv4.status === 200 && linkedBefore === 1 && linkedAfter === 1, "平台超级管理员可以撤回；撤回不解除已建立的供应商关联", [rv4.status, linkedBefore, linkedAfter]);
+    // 中标者读不出时撤回：422，不写库
+    const rowsBefore422 = await aliasRows();
+    process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY = "0";
+    const r422 = await revoke(pR, { pairKey: pH, decisionId: dH!.decisionId });
+    process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY = "1";
+    ok(r422.status === 422 && typeof r422.json.error === "string" && r422.json.error.length > 0 && (await aliasRows()) === rowsBefore422, "中标者读不出时撤回：422，没有新审计行", r422);
+    // 没填姓名的组织管理员裁决：显示「本组织成员（未填姓名）」
+    const ADMIN2 = `iladmin2_${stamp}`;
+    USERS.push(ADMIN2);
+    await db.user.create({ data: { id: ADMIN2, email: email(ADMIN2), name: "", role: "user" } });
+    await db.organizationMember.create({ data: { orgId: ORG, userId: ADMIN2, role: "org_admin", status: "active" } });
+    const byAdmin2 = await decide(pR, { pairKey: pG, decision: "CONFIRMED" }, await cookieOf(ADMIN2));
+    const dGn = byAdmin2.json.view?.decidedPairs.find((d) => d.pairKey === pG);
+    ok(byAdmin2.status === 200 && dGn?.deciderName === "本组织成员（未填姓名）", "没填姓名的组织管理员：裁决人写「本组织成员（未填姓名）」", dGn);
+    // 不含在供应链页标为不采用的：条数不算它们；只剩不采用的记录时，这一对不在已裁决里、撤回 404
+    const pRj = await mkProject(RBUYER);
+    const rji = await doImport(pRj, { text: "Importer,Exporter,URL\nGlacier Linen Supply,Dalian Linen Co,https://example.test/rj/1\nGlacier Linen Supply,Jinan Linen Co,https://example.test/rj/2\n" });
+    const rjSignals = await leadSignals(pRj);
+    await db.supplierDiscoverySignal.update({ where: { id: rjSignals[0].id }, data: { status: "REJECTED" } });
+    const rjOne = (await get(pRj)).json.decidedPairs.find((d) => d.pairKey === pG);
+    await db.supplierDiscoverySignal.update({ where: { id: rjSignals[1].id }, data: { status: "REJECTED" } });
+    const rjNone = await get(pRj);
+    const rjRev = await revoke(pRj, { pairKey: pG, decisionId: dGn!.decisionId });
+    ok(rji.json.result?.matched === 2 && rjOne?.recordCount === 1 && !rjNone.json.decidedPairs.some((d) => d.pairKey === pG) && rjRev.status === 404, "不采用的记录不算条数；只剩不采用的记录时这一对不在已裁决里、撤回 404", { matched: rji.json.result?.matched, one: rjOne?.recordCount, rev: rjRev.status });
     const vals: string[] = [];
     const walkV = (x: unknown) => { if (Array.isArray(x)) x.forEach(walkV); else if (x && typeof x === "object") Object.values(x).forEach(walkV); else if (typeof x === "string") vals.push(x); };
     walkV((await get(pR)).json);
     ok(!vals.some((v) => /@/.test(v) || USERS.includes(v)), "视图里没有邮箱，也没有用户 id");
+    ok(vals.includes("本组织成员（未填姓名）") && !vals.some((v) => [EDITOR, ORGOWNER, SUPER, ADMIN2].some((uid) => v.includes(uid))), "视图里任何字符串都不含这几位用户的 id（名字里本来不带 id 的几位）");
     ok(!vals.some((v) => v.includes("Xiamen Linen Co") || v.includes("example.test/r2/1")), "视图里没有另一个项目的出口商与来源网址");
     process.env.TENDER_IMPORT_LEADS_ENABLED = "0";
     ok((await decide(pR, { pairKey: pG, decision: "CONFIRMED" })).status === 404 && (await revoke(pR, { pairKey: pG, decisionId: "x" })).status === 404, "开关关：裁决与撤回都是 404");
