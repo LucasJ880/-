@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-20 第四十四次（情报串联 CHAIN：CHAIN-4a #526 / #527、CHAIN-2 #528 / #529、CHAIN-3 #530 / #531 已合并并归档，CHAIN-1 前置核查不通过已停；新增规则「多维审查」；新会话从 §0.5h 进。上一次：2026-11-19 第四十三次，CHAIN-4b / CHAIN-0c） |
+| 最后更新 | 2026-11-20 第四十五次（情报串联后续：五个 change 各开一个 Draft PR，**都没有合并**，等 Lucas / Evan 审——CHAIN-4c #533、CHAIN-2b #532、CHAIN-3b #535、CHAIN-3c #534、CHAIN-1b #536；新会话从 §0.5h「第四十五次」进。上一次：同日第四十四次，CHAIN-4a / 2 / 3 合并并归档） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
-| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]`；Phase F（续）情报串联：CHAIN-0c、CHAIN-4b、CHAIN-4a、CHAIN-2、CHAIN-3 为 `[x]`，CHAIN-0 `[~]`（第 2–7 项待生产权限），CHAIN-1 `[ ]`（前置核查不通过，已停） |
+| 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]`；Phase F（续）情报串联：CHAIN-0c、CHAIN-4b、CHAIN-4a、CHAIN-2、CHAIN-3 为 `[x]`，CHAIN-0 `[~]`（第 2–7 项待生产权限），CHAIN-1 `[ ]`（前置核查不通过，已停）；CHAIN-4c / 2b / 3b / 3c / 1b 五行在各自的 Draft PR 里（`[~]`，main 上的 TASKFLOW 还没有这五行，合并后才有） |
 | 工作分支 | 没有进行中的链。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用。情报串联：CHAIN-0c、CHAIN-4b 不加开关，合并即生效；CHAIN-4a、CHAIN-2、CHAIN-3 都在默认关的开关之后，生产未启用（§0.5h） |
-| 进行中的 change | 没有。情报串联能在容器里做的都已做完，剩下的见 §0.5h「之后还有什么」。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
+| 进行中的 change | 五个，各在自己的分支上、Draft PR 待审（main 上 `openspec list` 仍为空）：`rfq-web-entry-spec-split`（#533）、`pricing-helper-finance-gate`（#532）、`bid-readiness-import-leads`（#535）、`import-leads-alias-admin-revoke`（#534）、`award-manual-entry-alberta`（#536），见 §0.5h「第四十五次」。合并后各自 `/opsx:archive <change> --yes`（独立小 PR）。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
 
 ---
 
@@ -298,6 +298,26 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 
 **授权续（Lucas 2026-11-19 / 11-20）**：「接着做 CHAIN-4a……之后是 CHAIN-1、2、3。判断点 2 要改 T4 冻结服务的白名单这个授权也给你，你全权负责」；「开始按照这个开始实现 Chain-3 还是按照流程。你全权负责合并，分多个子 agent 多维度审核提意见修复，做好 hand off」。据此 CHAIN-4a / 2 / 3 的实现与归档都自己合并；判断点 2 的授权**没有用上**（CHAIN-1 没有数据源，白名单没改）。
 
+**第四十五次（Lucas 2026-11-20）**：「按 §0.5h 继续，做三件事，各自一个 change、一个 Draft PR，流程照旧（四件套先审、多维审查、全量门禁）：1. 报价助手里的落地成本与节省成本，改成只对有财务查看权的人显示，口径与其它页面一致。2. 拆短 tender/rfq-web-entry 里 522 字的那条要求，让 openspec validate --strict 对这份规格通过，不改行为。3. 投标准备度的「进口线索」阶段读取 CHAIN-3 导入的记录。另外两项决定：GATE：别名裁决只允许组织管理员做，并做撤回（同样只限组织管理员，撤回写审计记录）。单独开一个 change。CHAIN-1：做 Alberta 授标的人工录入表单。来源标成人工录入、带 APC 公告链接、信任级为待复核，不进 SYSTEM_VERIFIED，不碰 APC 网站。单独开一个 change。」——五个 change 都按原话**只开 Draft PR、没有合并**（上一轮「全权负责合并」说的是 CHAIN-3）。
+
+**第四十五次：五个 Draft PR（待审，未合并）**
+
+| change | PR | 要点 | 留给 GATE / 要人决定 |
+|---|---|---|---|
+| CHAIN-4c `rfq-web-entry-spec-split`（只改规格） | #533 | 「原地审批与待批轮次保护」（522 字）拆成「询价卡的原地审批与待批轮次保护」（390）与「询价单 PDF 对不上时只给驳回」（198），逐字等价（脚本在报告里）；归档后 `--specs --strict` 144 / 144 | 归档 PR 要改本节第四十四次「之后还有什么」第 4 条第 2 小项（旧名、「第 6 条」、「超过 500 字」、「143 过 1」都会过时）；CI 加跑 `openspec validate --specs --strict` 列为后续 |
+| CHAIN-2b `pricing-helper-finance-gate` | #532 | 报价表助手的我方成本、比价矩阵落地价只给有财务查看权的人（`resolveFinancePrivilege(...).canReadAll`），无权的人改不了成本（403）；项目列表与调查室两个接口的房间 JSON 对所有人去掉我方成本、成本来源与投标策略备忘。**没有开关，合并即生效** | ① 投标同事（`bids` 岗位，finance.read 只在 ASSIGNED）看不到成本了；② 能编辑项目的人可以把负责人改成自己；③ 投标策略备忘可能转述成本 / 毛利（根本修法：送进模型前去掉）；④ 比价矩阵、同页「报价与成本」卡口径更宽 |
+| CHAIN-3b `bid-readiness-import-leads` | #535 | 项目有 CHAIN-3 导入的进口记录（未被标为不采用）时，「进口线索」阶段如实变「执行」；主规格 `tender/stage-policy` 一条正文与场景、代码对齐；面板两处文字 | 「历史授标与采购」的 `AWARD_RECORDS` 也不从授标记录推导（后续）；导入记录全被否决 / 读不出中标者时阶段仍「执行」 |
+| CHAIN-3c `import-leads-alias-admin-revoke` | #534 | 「是不是同一家」只由组织管理员裁决；新增撤回（审计指向被撤回的裁决行）；面板「已裁决的」一节；写接口返回真实裁决权限 | ① 平台超级管理员能不能裁决 / 撤回（现在能，与授标复核同口径）；② 撤回要不要填原因；③ 否决了几对要不要单独计数 |
+| CHAIN-1b `award-manual-entry-alberta` | #536 | 「历史中标」页的 Alberta 授标人工录入：来源人工录入（`USER_ENTRY`）、带 APC 公告链接（只存不开）、`NEEDS_REVIEW`，不会落为 `SYSTEM_VERIFIED`；组织管理员用既有确认 / 撤回复核；系统不访问 APC。跟随 `T4_AWARD_INTELLIGENCE_SCHEMA_READY` | ① `awards.ts` 按「中标方 + 日期 + 金额」挂到既有时不看编号与采购方（既有规则，要不要收紧由 Evan 定）；② 请 Lucas 给一个真实的 APC 公告链接样例（决定要不要收紧路径、提示里编号填哪一个） |
+
+**合并时要知道的**：五个分支都从 main（`91d928e4`）开；`git merge-tree` 两两试合，只有 #535 与 #534 冲突两处，都是两边各加一段——TASKFLOW 情报串联表 CHAIN-3 行后各加一行（保留两行，3b 在前）、`src/lib/tender-import-leads/__tests__/import-leads.test.ts` 末尾 `console.log` 前各加一个 `{ … }` 块（保留两个）。建议顺序：#533 → #532 → #535 → #534 → #536。每个合并后各开一个归档小 PR（至少一个子 agent 核对主规格与增量、TASKFLOW 改 `[x]`）。
+
+**第四十五次之后还有什么**（第四十四次的「之后还有什么」第 1、3、4 条已在本次开成上面的 Draft PR）：
+
+1. 审、合并、归档上面五个 PR（Lucas / Evan）。
+2. 后续小 change（容器里能做，未开）：CI 加跑 `npx openspec validate --specs --strict`（#533 报告 §5）；「历史授标与采购」从授标记录推导 `AWARD_RECORDS`（#535）；投标策略备忘送进模型前去掉成本（#532 GATE ③）；限制谁能改项目负责人（#532 GATE ②）；组织级的「全部别名裁决」管理页（#534 已知限制）。
+3. 仍要人先拍板或要生产权限：CHAIN-0b（第四十四次第 2 条）；下面「等人做的」第 1–6 项；CHAIN-1b 合并后要 `T4_AWARD_INTELLIGENCE_SCHEMA_READY` 开着才看得到录入表单。
+
 **新规则「多维审查」（Lucas 2026-11-19 定，#528 写进 `openspec/config.yaml` 工作约定与 `CLAUDE.md`）**：每次开 PR 前并行派子 agent 各审一个维度（实现 PR 至少四个：正确性与回归、安全 / 隐私 / 硬纪律、规格—代码—测试一致性、使用流畅与文案），（惯例，规则原文只写「各自独立审查本次 diff」：）只给代码与规格、不给结论；逐条核实后修，重跑测试；PR 正文要有「多维审查」一节（维度 / 发现 / 处理）。归档 PR 至少一个子 agent 核对主规格与增量、TASKFLOW 状态。
 
 **已完成**
@@ -320,7 +340,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 5. 开 CHAIN-2：先对 Sunny 开 `SUPPLIER_INTEL_ENABLED`（CHAIN-0 第 6 项），再开 `TENDER_AUTO_SUPPLIER_RUN_ENABLED`（同时把 `TENDER_AUTO_SUPPLIER_RUN_ORG_ALLOWLIST` 设成 Sunny 的组织 id——**本节提到的 `*_ORG_ALLOWLIST` 留空都等于全组织生效**）；`TENDER_RFQ_INTEL_RECIPIENTS_ENABLED` 等评估做起来、推荐稳定后再开。
 6. 开 CHAIN-3：`T4_AWARD_INTELLIGENCE_SCHEMA_READY` 已开（才有中标者可比）后对 Sunny 开 `TENDER_IMPORT_LEADS_ENABLED`（`TENDER_IMPORT_LEADS_ORG_ALLOWLIST` 设成 Sunny 的组织 id），用 2–3 个真实标验证线索有没有用，再决定买不买授权贸易数据（判断点 3 B）。
 
-**之后还有什么（2026-11-20，第四十四次）**——任务书的 CHAIN-0c / 2 / 3 / 4a / 4b 都已合并并归档，CHAIN-1 前置核查不通过已停（`[ ]`，没写代码）；剩下的都要人先拍板或要生产权限：
+**之后还有什么（2026-11-20，第四十四次；第 1、3、4 条已在第四十五次开成 Draft PR，见上）**——任务书的 CHAIN-0c / 2 / 3 / 4a / 4b 都已合并并归档，CHAIN-1 前置核查不通过已停（`[ ]`，没写代码）；剩下的都要人先拍板或要生产权限：
 
 1. **CHAIN-1 走哪条路**（Lucas / Evan 定）：向 Service Alberta / 1GX 要书面许可或授标导出（拿到前不碰 APC）；或在授标记录里人工补录 Alberta 历史中标——**但现有入口做不到**（第四十四次核对）：`PROVINCIAL_MANUAL` 是采购监控的来源键，不是授标来源类型（`src/lib/procurement-records/watch-config.ts:57`；授标来源类型见 `src/lib/tender-intel/awards.ts` `AWARD_SOURCE_TYPES`）；授标历史面板只能确认 CanadaBuys 检索结果或 Web 线索里的对手名，带编号确认时一律记为 `CANADABUYS_OPEN_DATA`（`src/app/api/projects/[id]/external-intel/award-history/route.ts` 约 166–175 行），Alberta 编号会被标错来源。要走这条路，大概需要一个小的人工录入入口（另立 change，动手前先核对）。
 2. **CHAIN-0b 自动分析也接续跑**（任务书后续队列）：先有人看 Vercel Request Logs 确认 `/api/cron/tender-auto-analysis` 是否还在用（上传后连续多条、每条接近 240 秒），确认在用再写任务书、`/opsx:propose`。
@@ -346,6 +366,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 - Node 24：从 nodejs.org 下到 `/tmp/claude-0/node24/` 再加进 PATH（系统自带 22）；`npm ci` 后 `npx prisma generate`。
 - 隔离库：本机 Postgres 16（`pg_ctlcluster 16 main start`），先 `apt-get install -y postgresql-16-pgvector` 才能 `prisma migrate deploy`；环境变量 `DATABASE_URL` / `DIRECT_URL` 指 localhost、`NODE_ENV=test DATABASE_ENVIRONMENT=isolated`，另要 `JWT_SECRET`（测试值即可）。Postgres 可能中途停掉，跑隔离库前先 `pg_lsclusters`。
 - 全量 `npm test` 带隔离库约 1.5 小时；**不要同时在同一个库上并行跑别的隔离库测试**（本会话因此让 Mention Gateway M2-A 撞了唯一约束）。在本机 main 上也失败的 9 项名单见 `docs/QINGYAN_CHAIN-4b_REPORT.md` §5，比对时用。（第四十四次：现在是 11 项，CHAIN-3 时 701/712，名单见 `docs/QINGYAN_CHAIN-3_REPORT.md` §4。）
+- （第四十五次）几个 change 并行时每个用一个 `git worktree`（`node_modules` 符号链接过去）；两个隔离库（`qingyan_iso`、`qingyan_iso_gate`）可以各跑一个全量，同一个库上不要并行。`npm run test:ci` 要在 `env -u DATABASE_URL -u DIRECT_URL` 下跑（与 CI 一样不带库；带着库会跑 DB 测试，撞上 main 上既有失败的「招标询价自动起草 DB 75 / 76」）。Mention Gateway M2-A 时过时不过（这一轮 5 次全量里过了 1 次），比对时按既有失败处理。
 - 判重 / 查找类逻辑别靠「读最早 N 条」：CHAIN-3 第一轮审查就抓到查重只读 2000 条；按键用 `$queryRaw` 在 JSON 字段上查（`"rawMetadataJson"->>'dedupeKey' = ANY(...)`）。
 
 ### 0.6 实施中沿用的约定
