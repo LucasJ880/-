@@ -14,4 +14,4 @@
 
 - [x] 3.1 既有不改期望（verify：`stage-policy.test.ts`、`workspace-view.test.ts`、`bid-workspace-db.isolated.test.ts`、`readiness-submission-db.isolated.test.ts`、`import-leads.test.ts`、`import-leads-db.isolated.test.ts` 原样通过）
 - [ ] 3.2 全量门禁（verify：`npm test` 只有 main 上同样的既有失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate bid-readiness-import-leads --strict`；`git diff origin/main -- prisma/ vercel.json` 为空）
-- [ ] 3.3 写 `docs/QINGYAN_CHAIN-3b_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、stage-policy 主规格措辞的后续；TASKFLOW 新增 CHAIN-3b 一行为 `[~]`）
+- [x] 3.3 写 `docs/QINGYAN_CHAIN-3b_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、stage-policy 主规格措辞的后续；TASKFLOW 新增 CHAIN-3b 一行为 `[~]`）
