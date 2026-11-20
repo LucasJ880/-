@@ -9,11 +9,11 @@
 ## 2. 落库与服务
 
 - [ ] 2.1 `src/lib/supplier-intel/constants.ts` `SIGNAL_PLATFORMS` 加 `TRADE_DATA`，`workspace-labels.ts` 加平台名；verify：`supplier-intel/__tests__/discovery-priority.test.ts`、`submission-parser.test.ts` 不改期望通过
-- [ ] 2.2 新增 `src/lib/tender-import-leads/service.ts`：读视图（中标者、裁决、信号、汇总、来源说明）、导入（解析 → 匹配 → 去重 → 写信号 → 审计）、裁决（审计 + 信号状态）、加入供应商库（锁 + 同名关联 / 新建 + 信号关联 + 审计）；verify：`npm run typecheck` 通过
+- [ ] 2.2 新增 `src/lib/tender-intel/buyer-awards.ts`（从寻源建议抽出「本采购方他人授标」，寻源建议改用）与 `src/lib/tender-import-leads/service.ts`：读视图（中标者、裁决、信号读时分类、汇总、来源说明）、导入（锁 → 解析 → 匹配 → 去重 → 写信号 → 审计）、裁决（锁 → 409 → 审计）、加入供应商库（锁 → 同名关联 / 新建 → 逐条既有关联流程 → 审计）；其它页面显示（来源名称表、找厂优先级跳过）；verify：`npm run typecheck` 通过，`sourcing-suggestions.test.ts` 与隔离库 `sourcing-suggestions-db` 不改期望通过
 
 ## 3. 接口与界面
 
-- [ ] 3.1 新增 `src/app/api/projects/[id]/tender-intel/import-leads/route.ts`（GET / POST）、`.../import-leads/aliases/route.ts`、`.../import-leads/suppliers/route.ts`（读：项目读 + 组织有效成员；写：项目写 + 组织有效成员；开关关 404）；verify：`npm run typecheck` 通过
+- [ ] 3.1 新增 `src/app/api/projects/[id]/tender-intel/import-leads/route.ts`（GET / POST）、`.../import-leads/aliases/route.ts`、`.../import-leads/suppliers/route.ts`（读：项目读 + 组织有效成员；写：项目写 + 组织有效成员；开关关 404；判定顺序 401 → 404 → 开关 404 → 403）；verify：`npm run typecheck` 通过，`import-leads.test.ts` 的路由源码断言（判定顺序、组织有效成员、无网络调用）通过
 - [ ] 3.2 新增 `src/components/tender-intel/import-leads-panel.tsx`（槽内摘要 + 完整面板），接进 `src/components/tender-intel/org-award-intel-slots.tsx` 的供应链槽（接口 404 时保留原占位句）；verify：`npm run typecheck` 与 `npm run lint:baseline` 通过，`import-leads.test.ts` 的界面源码断言通过
 
 ## 4. 端到端与收尾

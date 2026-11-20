@@ -28,34 +28,48 @@
 
 - 否决：现在就接一家授权 API（判断点 3 B，需付费授权与合同审查）。
 
-### D3 解析：认表头、不猜日期
+### D3 解析：整格认表头、日期写法由人选
 
-逗号分隔复用 `procurement-records/sources-pure.ts` 的 `parseCsv`（RFC 4180）；表头一行含制表符时按制表符拆（从表格直接复制出来的样子）。列按表头别名认（中英，不分大小写；`findColumn` 同文件）。日期只认年在前的三种写法；`03/04/2025` 这类月日不明的直接报错，不猜。来源网址或批次「来源说明」至少一个——`createImportLead` 要证据引用，证据引用 = 来源网址，没有则 = 「来源说明 · 第 N 行」。
+逗号分隔复用 `procurement-records/sources-pure.ts` 的 `parseCsv`（RFC 4180；它丢空行、允许引号里换行）；表头一行含制表符时按制表符逐行拆（从表格直接复制出来的样子）。「第 N 条记录」= 表头下面第 N 条（空行不算），不说「第 N 行」——引号里换行时行号对不上。表头只按别名整格匹配（不用 `findColumn` 的前缀兜底：`shipper` 前缀会误中 `Shipper Address`），同一种列匹配到两列 → 整批报错。日期：缺省只认年在前的三种写法；这一批选了「月/日/年」或「日/月/年」才按所选读斜杠 / 点分隔的写法；统一补零成 `YYYY-MM-DD` 再交给 `createImportLead`（它只认补零写法）。来源网址或批次「来源说明」至少一个——证据引用 = 来源网址，没有则 = 「{来源说明} · 第 N 条记录」。长度：名称 ≤ 300、品名 ≤ 1000、数量 ≤ 100、网址 ≤ 2048。
 
-- 否决：按 `MM/DD/YYYY` 猜——美国提单网站常用这个格式，但加拿大用户也会贴 `DD/MM/YYYY`，猜错就是错的日期进了 12 个月窗口。
+- 否决：按 `MM/DD/YYYY` 猜——美国提单网站常用这个格式，但加拿大用户也会贴 `DD/MM/YYYY`，猜错就是错的日期进了 12 个月窗口；由人每批选一次仍是确定性的。
+- 否决：前缀匹配表头（见上）。
 
 ### D4 匹配：中标者来自授标记录，剔除我方结果，三档照 TI-3a
 
-中标者 = `listAwardsForBuyer(项目采购方)` 中 `ACTIVE`、核实状态有依据（`HUMAN_CONFIRMED` / `SYSTEM_VERIFIED`）的中标方，按 CHAIN-2 同一规则剔除我方结果，按规整后名称去重。每行：`isSameEntity`（同名或已确认别名）→ 挂上；`compareCompanyNames` 为建议且这一对没被否决 → 待确认；其余不导入，只报行数（不把无关记录塞进库里）。T4 没接通、项目没有采购方、没有他人中标记录 → 整批不导入，照实说。
+中标者 = 把 CHAIN-2 寻源建议里「本采购方的他人授标」抽成共用函数 `listOthersAwardsForBuyer`（`src/lib/tender-intel/buyer-awards.ts`：先看 `isT4AwardSchemaReady`，`listAwardsForBuyer` 按规整采购方在库里筛（上限 200 条，最新的），按最早来源键与本组织名剔除我方结果），再取其中 `ACTIVE`、核实状态有依据（`HUMAN_CONFIRMED` / `SYSTEM_VERIFIED`）的中标方，按规整后名称去重。寻源建议改用它，行为不变（既有测试不改期望）。每条记录对每个中标者：`isSameEntity`（同名或已确认别名）→ 挂上；`compareCompanyNames` 为建议且这一对没裁决过 → 待确认；一条记录既与一个中标者同名、又与另一个是建议时，以同名为准、不再列建议。全都无关 → 不导入，结果列出这些进口商名称（最多 10 个）与条数。T4 没接通、项目没有采购方、没有他人中标记录 → 整批不导入，照实说。
 
-- 否决：无关的行也存下来——会把用户整张表都存进来，汇总里出现与本标无关的出口商。
+- 否决：无关的记录也存下来——会把用户整张表都存进来，汇总里出现与本标无关的出口商。
 
-### D5 落库：一行一条信号，线索状态进 JSON 位
+### D4b 不把进口线索的供应商自动加进自动起草（与任务书验收项的出入）
 
-`SupplierDiscoverySignal`：`platform = TRADE_DATA`（加进目录，平台名「进口记录（人工导入）」）、`contentType = USER_SUBMITTED`、`sourceOrigin = USER_SUBMITTED`（接 API 时为 `PROVIDER`）、`projectId`、`accountName = 出口商`、`title = 出口商 → 进口商`、`contentUrl = 来源网址`、`status = NEW`；`rawMetadataJson = { kind: "import_lead_v1", lead（createImportLead 的结果）, quantityRaw, importerRaw, winnerName, match: MATCHED | SUGGESTED, basis?, pairKey?, dedupeKey, batchId, sourceLabel }`。去重键 = 规整后「进口商 | 出口商 | 日期 | 品名」；同项目已有同键 → 跳过。被否决那一对的信号 → `REJECTED`；加入供应商库 → `LINKED` + `linkedSupplierId`。
+任务书验收写「加入供应商库并补邮箱后，下一次起草询价的卡上它出现在收件人里，来源写『进口线索』」。判断点 4 B 给自动起草加推荐的条件是「首选 / 备选、强制闸通过」——进口线索只是线索（TI-3a：不代表当前供货），没评估过就进自动起草的收件人，等于把未证实的线索直接变成询价对象。本次做到：加入后它出现在询价入口的供应商列表里，来源显示「进口线索」，人勾选后进卡；评估成首选 / 备选后经 CHAIN-2 进自动起草。
+
+- 否决：自动起草时把有邮箱的进口线索供应商也并进来——绕过评估与强制闸，与判断点 4 B 的条件冲突。
+
+### D5 落库：一条记录一条信号，存后不改；挂上与否在读的时候算
+
+`SupplierDiscoverySignal`：`platform = TRADE_DATA`（加进目录，平台名「进口记录（人工导入）」）、`contentType = USER_SUBMITTED`、`sourceOrigin = MANUAL_ENTRY`（显示「人工录入」；不用 `USER_SUBMITTED`，那个的说明是「仅解析了分享链接与文字，未读取完整视频或帖子」，对不上；接 API 时为 `PROVIDER`）、`projectId`、`accountName = 出口商`、`title = 出口商 → 进口商`、`contentUrl` = 来源网址（只有 `http(s)` 且 ≤ 2048 字时，否则为空、原文留在明细里——信号列表把它渲染成链接）、`status = NEW`；`rawMetadataJson = { kind: "import_lead_v1", lead（createImportLead 的结果）, importerRaw, quantityRaw, sourceUrlRaw, dedupeKey, batchId, sourceLabel }`（表结构注释称这里是快照，存后不改）。去重键 = 规整后「进口商 | 出口商 | 日期 | 品名 | 数量 | 来源网址」（只到「日期 | 品名」会把同一天同品名的两票并成一票，票数偏少）；同项目已有同键 → 跳过。
+
+读的时候：对每条信号，按当前的中标者与最新裁决重新算「挂上 / 待确认 / 否决」——确认或否决不改信号。信号在供应链页被人驳回（`REJECTED`）→ 不计入；被关联（`LINKED`）→ 汇总显示它关联的供应商。加入供应商库走既有 `linkSignalToSupplier`（状态机、行锁、`resolutionJson: HUMAN_LINKED`、审计都按既有规则），只处理还是 `NEW / REVIEWED` 的。
 
 - 否决：信号状态直接写 `LEAD_UNVERIFIED`——信号状态机只认四个值，其它模块按它筛；线索状态是另一层含义。
+- 否决：裁决时改写 `rawMetadataJson` 或把信号标 `REJECTED`——绕过信号状态机（`LINKED` / `REJECTED` 是终态），供应链页那边的人也可能同时在改。
 - 否决：新建表——硬纪律第 1 条。
 
-### D6 别名裁决记在审计里（只追加）
+### D6 别名裁决记在审计里，每一对一条
 
-裁决写一条审计 `tender.import_lead_alias_decided`，`afterData = AliasDecision`（两个名称、`pairKey`、裁决、裁决人、时间，即 `decideAlias` 的结果）。读裁决 = 本组织该动作的审计按时间取每个 `pairKey` 最新的一条（上限 2000 条）。同供应商分组（RFQ-AUTO-5）的做法：只追加，有人有时有据，不需要并发合并 `settingsJson`。裁决按组织生效（是不是同一家公司与项目无关）。
+裁决写一条审计 `tender.import_lead_alias_decided`，`targetType = import_lead_alias`、`targetId = "alias:" + sha256(pairKey) 前 32 位`，`afterData` = `decideAlias` 的结果（两个名称、`pairKey`、裁决、裁决人、时间；审计的 `afterData` 是字符串，读时解析）。读：先算出本项目所有候选对的 `targetId`，按 `[targetType, targetId]` 索引一次查回（没有条数上限，不会让很久以前否决的一对重新冒出来）。写：事务内 `pg_advisory_xact_lock(org + targetId)`，已有裁决 → 409；只接受本项目当前待裁决的一对。裁决按组织生效（是不是同一家公司与项目无关），写权限按本项目（能修改本项目的人），规格写明。
 
 - 否决：存 `Organization.settingsJson`——多人并发裁决要锁与合并，还会和其它写 settingsJson 的模块抢同一行。
+- 否决：按动作取最近 N 条——有上限就会丢掉旧的否决。
 
 ### D7 加入供应商库：同名关联、否则新建，没邮箱就停
 
-规整后同名的供应商（本组织、任何状态）已存在 → 关联它；否则 `db.supplier.create({ name: 出口商原文, source: "trade_data", sourceDetail: "进口线索：{中标者} 的出口商（{来源说明}）", status: "active", contactEmail: null, createdById })`。该出口商在本项目的所有挂上的信号 → `LINKED`。不调既有 `createSupplier`（它不去重）；不查邮箱。在一个事务里做，并用 `pg_advisory_xact_lock(org + 规整名)` 防并发点两次建出两家。
+只接受本项目汇总里（挂上的）的出口商。规整后同名的供应商（本组织、任何状态；库里没有唯一约束，可能有几家）已存在 → 按固定顺序取一家关联：在用且有邮箱 → 在用 → 最近更新；取到的已停用时照实说。否则新建 `{ name: 出口商原文, source: "trade_data", sourceDetail: "进口线索：{中标者} 的出口商（{来源说明}）", status: "active", contactEmail: null, createdById }`。查与建在一个事务里，`pg_advisory_xact_lock(org + 规整名)` 防并发点两次建出两家；之后逐条 `linkSignalToSupplier`（只处理 `NEW / REVIEWED`）。不调既有 `createSupplier`（它不去重）；不查邮箱。关联了线索的供应商按既有删除守卫不能删（规格写明）。
+
+- 否决：每次都新建——同一家出口商在几个项目里各建一家，询价入口出现重复。
+- 否决：已有同名就报错让人去找——多一步，且「同名」规则是确定的，可以照实关联并说明。
 
 ### D8 汇总：确定性计数，关键词只比英文词
 
@@ -65,11 +79,22 @@
 
 ### D9 界面：槽里放摘要，完整面板在槽位网格下面
 
-槽在三列网格里，放不下导入框与表格：槽里只放摘要 + 「导入 / 查看进口线索」；点开后在网格下方整行显示 `ImportLeadsPanel`。接口 404（开关关）→ 槽里仍是原来的规划占位句，槽的状态徽标不变；开关开时不显示徽标（「AI 推断」「暂无数据」都不适用于人工导入的线索），状态写在面板里。
+槽在三列网格里，放不下导入框与表格：槽里只放摘要 + 「导入 / 查看进口线索」；点开后在网格下方整行显示 `ImportLeadsPanel`。接口 404（开关关）→ 槽里仍是原来的规划占位句，槽的状态徽标不变；开关开时不显示徽标（「AI 推断」「暂无数据」都不适用于人工导入的线索），状态写在面板里。不能修改的人（`canEdit` 为假）看不到导入框与按钮。错误按原因归并（「日期认不出：第 2、3、5 条记录」）。
+
+- 否决：在槽里直接放完整面板——三列网格里的一格放不下表格。
+- 否决：另开一个页面——用户要在看投标情报的同时对照中标者。
+
+### D10 其它页面的显示
+
+`trade_data` 加进 `SUPPLIER_SOURCE_LABELS`（`inquiry/types.ts`）与供应商页、列表、筛选里各自的来源名称表（四处，值「进口线索」）。`discovery-priority-service.ts` 的 `prioritizeSignal` 对 `TRADE_DATA` 返回空（找厂优先级是给公开网页 / 平台线索排调研顺序的，不适用于运单记录）。既有主规格 `procurement/watch-scan` 写「需登录或付费的商业提单库不接入」——本功能同样不接入，只收人贴进来的文字，面板写明。
+
+### D11 并发
+
+导入：事务内 `pg_advisory_xact_lock(org + 项目 + "import-leads")` 包住「查已导入的去重键 → 写信号」，连点两次不会写出重复。加入供应商库、裁决见 D6、D7。
 
 ## 与八条硬纪律的关系
 
-1. 零 schema：遵守。用既有 `SupplierDiscoverySignal`、`Supplier`、`AuditLog`；明细进 JSON 位。
+1. 零 schema：遵守。用既有 `SupplierDiscoverySignal`、`Supplier`、`AuditLog`；明细进 JSON 位；裁决查询用既有 `AuditLog [targetType, targetId]` 索引。
 2. 出站先审批：遵守。没有任何对外发送；加入供应商库不发信，之后询价照旧走待批卡。
 3. 不新增队列 / cron：遵守。全由人点触发，请求内同步完成。
 4. 脱敏：不涉及我方价格；不输出对手投标价、成本、毛利推断（规格 SHALL NOT）；不涉及 Muse。
@@ -90,7 +115,8 @@
 - 数据靠用户自己去别处查：美国提单只在中标者（或其美国关联公司）海运进口美国且没申请保密时才有；加拿大不公开提单（任务书外部事实）。面板写明来源与线索说明。
 - 名称比对只认同名与两条确定性依据：中标者在提单上用了完全不同的法人名时对不上，只能靠人看「对不上 N 行」再处理。
 - `SIGNAL_PLATFORMS` 加了 `TRADE_DATA`：供应链页的信号列表会显示这些信号（平台名「进口记录（人工导入）」）；找厂优先级的可操作性表不加这一项（冻结表，按缺省 0 分），这些信号本来也不进找厂排序。
-- 别名裁决读审计：组织裁决很多时只取最近 2000 条（每对取最新）。
+- 历史中标者取本采购方最新的 200 条授标（`listAwardsForBuyer` 的上限）：同一采购方授标极多时更早的中标者比不到。
+- 关联了线索的供应商不能删（既有删除守卫）：点错了「加入供应商库」要在供应链页处理那几条线索。
 
 ## Migration Plan
 
@@ -99,4 +125,5 @@
 ## 审核关注点与拍板结果（Lucas 2026-11-19「之后是 CHAIN-1、2、3……你全权负责」，按推荐）
 
 - 判断点 3 取 A、判断点 7 取 A。
-- 与任务书的出入：新文件不放 `tender-competition/`（D1）；无关的行不导入（D4）；别名裁决存审计（D6）。
+- 与任务书的出入：新文件不放 `tender-competition/`（D1）；无关的记录不导入（D4）；进口线索的供应商不自动进自动起草的收件人（D4b，验收项改为「出现在询价入口、来源显示进口线索」）；别名裁决存审计（D6）。
+- 开工前计划审查（一个子 agent，只给四件套与代码）11 条已并入：信号走既有关联流程、挂上与否读时算（D5）；裁决按对查、加锁、409（D6）；去重键加数量与网址；抽出剔除我方结果的共用函数（D4）；其它页面的显示（D10）；表头整格匹配、日期写法由人选、记录编号口径、长度上限（D3）；多中标者与同名多家的规则（D4、D7）；判定顺序与并发（D11）；D7、D9 补否决的备选。
