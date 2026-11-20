@@ -4,6 +4,7 @@ import { requireProjectReadAccess } from "@/lib/projects/access";
 import { getExecutiveBrief } from "@/lib/tender-auto-analysis/executive-brief";
 import { isTenderPackageAiExperienceEnabledWithEnv } from "@/lib/tender-auto-analysis/auto-flags";
 import { EXTERNAL_INTEL_STATUS_KEY } from "@/lib/tender-intel/orchestrate";
+import { redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
 /**
  * GET /api/projects/[id]/workbench-summary
@@ -98,7 +99,8 @@ export async function GET(
   } | null;
   // 批次一：优先用文档接地的策略备忘录 v2（映射成 deck 兼容形状），
   // 老草案仅作存量兜底
-  const memo = (sj.bidStrategyMemo ?? null) as {
+  // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪
+  const memo = redactLegacyMemo(sj.bidStrategyMemo ?? null) as {
     summaryZh?: string;
     riskGates?: Array<{ gateZh: string; statusZh: string }>;
     dataGapsZh?: string;

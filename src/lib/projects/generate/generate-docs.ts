@@ -10,6 +10,7 @@ import { computePriceGap } from "@/lib/projects/price-gap";
 import { buildChinaSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
 import { loadProjectIdentity, type LoadedProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
 import { scanIdentity, SupplierIdentityLeakError } from "@/lib/bid-workflow/project-identity-deny";
+import { redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
 export type GenerateDocType =
   | "supplier_rfq"
@@ -392,7 +393,8 @@ ${escd}`;
     const syn = (rsj.analystSynthesis ?? null) as {
       clarifications?: Array<{ questionZh?: unknown; reasonZh?: unknown; priority?: unknown }>;
     } | null;
-    const memo = ((roomForRfi?.summaryJson as Record<string, unknown>) ?? {}).bidStrategyMemo as {
+    // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪：碰到成本类字眼的 RFI 不进澄清问题文件
+    const memo = redactLegacyMemo(((roomForRfi?.summaryJson as Record<string, unknown>) ?? {}).bidStrategyMemo ?? null) as {
       strategicRfis?: Array<{ questionZh?: unknown; whyZh?: unknown }>;
     } | null;
     const items = buildRfiItems({

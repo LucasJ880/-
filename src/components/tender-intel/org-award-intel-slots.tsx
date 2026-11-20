@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { Radar } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { ImportLeadsPanel, ImportLeadsSlotSummary, useImportLeads } from "@/components/tender-intel/import-leads-panel";
+import { LEGACY_MEMO_PRICING_NOTE_ZH } from "@/lib/tender-intel/memo-pricing";
 
 type DomainStatus = "CONFIRMED" | "SUPPORTED" | "INFERRED" | "UNKNOWN";
 
@@ -147,6 +148,8 @@ type BidStrategyMemo = {
   teamingAdviceZh: string;
   dataGapsZh: string;
   label: string;
+  /** CHAIN-2d：旧版备忘（输入里有我方成本）已被接口裁剪 */
+  legacyCostRedacted?: boolean;
 };
 
 /** 与 corporate-memory/normalize 同源的轻量归一（客户端相关性分层用） */
@@ -401,7 +404,7 @@ export function OrgAwardIntelSlots({
                   </span>
                 </p>
               ))}
-              <p className="text-muted/80">报价策略：{memo.pricingStrategyZh.slice(0, 160)}</p>
+              <p className="text-muted/80">{memo.legacyCostRedacted ? LEGACY_MEMO_PRICING_NOTE_ZH : `报价策略：${memo.pricingStrategyZh.slice(0, 160)}`}</p>
               {memo.dataGapsZh ? (
                 <p className="text-muted/80">数据缺口：{memo.dataGapsZh.slice(0, 120)}</p>
               ) : null}

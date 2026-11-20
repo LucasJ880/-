@@ -14,6 +14,7 @@ import {
   type LlmInvoker,
 } from "@/lib/tender-understanding/llm";
 import type { deriveAwardIntelligence } from "./award-intelligence";
+import { BID_STRATEGY_MEMO_NO_COST_VERSION } from "./memo-pricing";
 
 export const BID_STRATEGY_AUTO_VERSION = "tender-bid-strategy-auto/v1" as const;
 export const BID_STRATEGY_PROMPT = { name: "tender-bid-strategy-auto", version: "1" } as const;
@@ -127,8 +128,9 @@ export async function synthesizeBidStrategyAuto(input: {
  * 纪律不变：AI_INFERRED 人审语义；绝不输出整体 GO/NO-GO 裁决；
  * 不发明事实；数据缺口显式列出。 */
 
-export const BID_STRATEGY_MEMO_VERSION = "tender-bid-strategy-memo/v2" as const;
-export const BID_STRATEGY_MEMO_PROMPT = { name: "tender-bid-strategy-memo", version: "3" } as const;
+/** CHAIN-2d：v3 = 输入里没有我方成本（读取端用 memo-pricing.ts 的 BID_STRATEGY_MEMO_NO_COST_VERSIONS 认旧版） */
+export const BID_STRATEGY_MEMO_VERSION = BID_STRATEGY_MEMO_NO_COST_VERSION;
+export const BID_STRATEGY_MEMO_PROMPT = { name: "tender-bid-strategy-memo", version: "4" } as const;
 
 const gateStatus = z.preprocess((v) => {
   const raw = String(v ?? "").trim();
@@ -174,7 +176,7 @@ export const bidStrategyMemoSchema = z.object({
 });
 export type BidStrategyMemoLlm = z.infer<typeof bidStrategyMemoSchema>;
 
-export type BidStrategyMemoV2 = BidStrategyMemoLlm & {
+export type BidStrategyMemoV3 = BidStrategyMemoLlm & {
   version: typeof BID_STRATEGY_MEMO_VERSION;
   label: "AI_INFERRED";
   generatedAt: string;
@@ -187,12 +189,13 @@ TASK: produce a Simplified Chinese bid strategy memo a bid manager can act on.
 
 HARD RULES:
 1. Ground every claim ONLY in the provided inputs. Never invent weights, incumbents, prices or history. If evaluation weights/incumbent/price data are absent, say so in dataGapsZh instead of guessing.
-2. scoringAnalysisZh: if SCORING MODEL & DETERMINISTIC PRICE SCENARIOS is provided, quote its numbers verbatim (price weight, formula, break-even price, each scenario's price/total-score delta/margin, other-criteria points) and interpret them — do NOT recompute with different assumptions; list its assumptionsZh as caveats. If it is null but weights appear elsewhere, do the real math yourself. If absent, state what to extract and how it would change strategy.
+2. scoringAnalysisZh: if SCORING MODEL & DETERMINISTIC PRICE SCENARIOS is provided, quote its numbers verbatim (price weight, formula, break-even price, each scenario's price and total-score delta, other-criteria points) and interpret them — do NOT recompute with different assumptions; list its assumptionsZh as caveats. If it is null but weights appear elsewhere, do the real math yourself. If absent, state what to extract and how it would change strategy.
 3. competitiveLandscapeZh: use the incumbent lead and its confidence level verbatim-honestly (e.g. 疑似, 未100%确认); cite the evidence briefly.
 4. riskGates: qualification/compliance gates (references, insurance, WCB, data residency, IP, delivery SLA...) each with statusZh ∈ 已满足/需解决/高风险 and basis. These are assessments, NOT a final verdict.
 5. NEVER output an overall GO/NO-GO decision — the human decides.
 6. strategicRfis: sharp, submission-worthy clarification questions not already covered by the provided clarifications.
-7. Output ONE valid JSON object with EXACTLY these keys: summaryZh, scoringAnalysisZh, competitiveLandscapeZh, riskGates (array of {gateZh, statusZh, basisZh}), pricingStrategyZh, strategicRfis (array of {questionZh, whyZh}), teamingAdviceZh, dataGapsZh. riskGates and strategicRfis MUST be non-empty. All *Zh fields in Simplified Chinese (proper nouns stay original).`;
+7. Output ONE valid JSON object with EXACTLY these keys: summaryZh, scoringAnalysisZh, competitiveLandscapeZh, riskGates (array of {gateZh, statusZh, basisZh}), pricingStrategyZh, strategicRfis (array of {questionZh, whyZh}), teamingAdviceZh, dataGapsZh. riskGates and strategicRfis MUST be non-empty. All *Zh fields in Simplified Chinese (proper nouns stay original).
+8. The pricing analysis deliberately excludes our cost, our target margin and cost-floor scenarios (finance-restricted). Never state, estimate or infer our cost, our margin or a cost floor anywhere in the memo, and do NOT list our missing cost or margin as a data gap. pricingStrategyZh discusses price positioning against competitor / benchmark prices and total-score deltas only.`;
 
 export async function synthesizeBidStrategyMemo(input: {
   project: {
@@ -212,11 +215,12 @@ export async function synthesizeBidStrategyMemo(input: {
   /**
    * Lane 3：报价表助手的确定性演算（评分模型 + 情景表 + 打平价 + 假设清单，可空）。
    * 备忘录必须引用这些数字而不是自己重算——算术在纯函数里，LLM 只负责解读。
+   * CHAIN-2d：由 memo-pricing.ts 的 buildMemoPricingAnalysis 生成，不含我方成本、目标毛利与成本底价。
    */
   pricingAnalysis?: unknown | null;
   existingClarifications: string[];
   invoker?: LlmInvoker;
-}): Promise<{ memo: BidStrategyMemoV2 | null; errorCode: string | null }> {
+}): Promise<{ memo: BidStrategyMemoV3 | null; errorCode: string | null }> {
   const invoker = input.invoker ?? createUnifiedRuntimeInvoker();
   const userPrompt = [
     `PROJECT: ${JSON.stringify(input.project)}`,

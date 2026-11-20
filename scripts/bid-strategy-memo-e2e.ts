@@ -1,4 +1,4 @@
-/** 批次一 E2E（隔离快照 + 真实模型）：Halifax 真实数据 → 备忘录 v2 落库。 */
+/** 批次一 E2E（隔离快照 + 真实模型）：Halifax 真实数据 → 备忘录 v3 落库（CHAIN-2d：输入里没有我方成本）。 */
 import { db } from "@/lib/db";
 import { runExternalIntelForProject } from "@/lib/tender-intel/orchestrate";
 let pass = 0; let fail = 0;
@@ -15,7 +15,7 @@ async function main() {
   const room = await db.bidIntelligenceRoom.findUniqueOrThrow({ where: { projectId }, select: { summaryJson: true } });
   const sj = (room.summaryJson ?? {}) as Record<string, unknown>;
   const memo = sj.bidStrategyMemo as Record<string, unknown> | undefined;
-  ok(!!memo && memo.label === "AI_INFERRED" && String(memo.version).includes("v2"), "E2E-02: 备忘录 v2 落库（AI_INFERRED）");
+  ok(!!memo && memo.label === "AI_INFERRED" && String(memo.version) === "tender-bid-strategy-memo/v3", "E2E-02: 备忘录 v3（输入里没有我方成本）落库（AI_INFERRED）");
   const gates = (memo?.riskGates as unknown[]) ?? [];
   const rfis = (memo?.strategicRfis as unknown[]) ?? [];
   ok(gates.length >= 2 && rfis.length >= 1, `E2E-03: 风险门 ${gates.length} 条 + 策略级 RFI ${rfis.length} 条`);

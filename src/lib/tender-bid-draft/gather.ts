@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { formatTenderProfileContext, isTenderProfileUsable } from "@/lib/tender-profile/contract";
 import { getTenderProfile } from "@/lib/tender-profile/store";
 import { complianceStatusFromFit, type BidDraftInputs, type BidDraftRequirement } from "./contract";
+import { redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
 /**
  * B4（安全修复）：企业记忆已验证事实只能经 canonical 访问门读取。
@@ -131,7 +132,8 @@ async function gatherInto(
     select: { summaryJson: true },
   });
   const rsj = ((room?.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  const memoRaw = (rsj.bidStrategyMemo ?? null) as {
+  // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪，再交给投标文件草稿的模型
+  const memoRaw = redactLegacyMemo(rsj.bidStrategyMemo ?? null) as {
     summaryZh?: string;
     riskGates?: Array<{ gateZh: string; statusZh: string; basisZh: string }>;
     teamingAdviceZh?: string;
