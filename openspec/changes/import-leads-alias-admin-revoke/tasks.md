@@ -17,5 +17,5 @@
 
 - [x] 4.1 `import-leads-db.isolated.test.ts`：加 EDITOR、ORG_OWNER、SUPER 三个身份与上述用例（含开关关时两个接口 404、视图里没有邮箱与用户 id）（verify：`NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts` 通过）
 - [x] 4.2 既有期望只改槽里与导入结果里那两句文字（verify：`import-leads.test.ts`、`import-leads-db.isolated.test.ts` 的其余既有断言原样通过；`sourcing-suggestions.test.ts`、`readiness` 相关不受影响）
-- [ ] 4.3 全量门禁（verify：`npm test` 只有 main 上同样的既有失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate import-leads-alias-admin-revoke --strict`；`git diff origin/main -- prisma/ vercel.json` 为空）
+- [x] 4.3 全量门禁（verify：`npm test` 只有 main 上同样的既有失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate import-leads-alias-admin-revoke --strict`；`git diff origin/main -- prisma/ vercel.json` 为空）
 - [x] 4.4 写 `docs/QINGYAN_CHAIN-3c_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、两个留给 GATE 的问题（撤回要不要填原因、「已标为不是同一家」要不要单独计数）；TASKFLOW 新增 CHAIN-3c 一行为 `[~]`）

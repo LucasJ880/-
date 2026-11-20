@@ -56,7 +56,7 @@
 | 项 | 结果 |
 |---|---|
 | `npm test`（本机，带隔离库） | `701/712 通过, 11 失败`，11 项全是 main 上同样失败的既有项（与 `docs/QINGYAN_CHAIN-3_REPORT.md` §4 同一批）；全量里 `import-leads-db` 62 全过 |
-| `npm run test:ci` | 待跑 |
+| `npm run test:ci`（不带数据库，与 CI 相同） | PASS（注册校验：已注册 679 个，历史欠账 66 条） |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（无新增指纹） |
 | `openspec validate import-leads-alias-admin-revoke --strict` | valid（每条要求不超过 500 字，最长 495） |
