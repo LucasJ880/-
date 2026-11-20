@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireProjectReadAccess } from "@/lib/projects/access";
 import { db } from "@/lib/db";
+import { redactRoomSummaryCost } from "@/lib/tender-pricing/finance-view";
 
 /**
  * GET /api/projects/[id]/bid-intelligence
@@ -28,7 +29,8 @@ export async function GET(
     if (!room) {
       return NextResponse.json({ room: null }, { status: 200 });
     }
-    return NextResponse.json({ room });
+    // CHAIN-2b：房间 JSON 里的我方成本与成本来源不给项目读者（界面不读它们；成本走报价表助手、按财务查看权）
+    return NextResponse.json({ room: { ...room, summaryJson: redactRoomSummaryCost(room.summaryJson) } });
   } catch (err) {
     // 表未迁移时仍允许项目页打开
     console.error("[bid-intelligence GET]", err);
