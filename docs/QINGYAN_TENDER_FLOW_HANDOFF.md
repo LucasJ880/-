@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-19 第四十三次（情报串联 CHAIN：CHAIN-4b #522 / #523、CHAIN-0c #524 已合并并归档；新会话从 §0.5h 进。上一次：2026-11-17 第四十二次，FIX-6 余项 #518） |
+| 最后更新 | 2026-11-20 第四十四次（情报串联 CHAIN：CHAIN-4a #526 / #527、CHAIN-2 #528 / #529、CHAIN-3 #530 已合并并归档，CHAIN-1 前置核查不通过已停；新增规则「多维审查」；新会话从 §0.5h 进。上一次：2026-11-19 第四十三次，CHAIN-4b / CHAIN-0c） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]` |
 | 工作分支 | 没有进行中的链。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用 |
-| 进行中的 change | 没有。下一个是 CHAIN-4a `rfq-supplier-attachment`（见 §0.5h）。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
+| 进行中的 change | 没有。情报串联能在容器里做的都已做完，剩下的见 §0.5h「之后还有什么」。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 里剩下的 `vis-1c-notify-settings-search`、`next16-proxy-rename` 与本任务无关 |
 
 ---
 
@@ -296,32 +296,58 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 
 **授权（Lucas 2026-11-19）**：「这个更新你全权负责，开 PR 和合并你自己定，按照你推荐的去做，做好 HAND OFF，交叉验证」。本会话据此：CHAIN-4b、CHAIN-0c 的四件套按推荐定、自己实施、经独立审查后**自己合并**，归档也自己合并。仍不做：生产环境变量、部署、对外邮件、付费数据；判断点 2（改 T4 冻结服务白名单）任务书写明「需要你明确批准」，不算在这次授权里。
 
+**授权续（Lucas 2026-11-19 / 11-20）**：「接着做 CHAIN-4a……之后是 CHAIN-1、2、3。判断点 2 要改 T4 冻结服务的白名单这个授权也给你，你全权负责」；「开始按照这个开始实现 Chain-3 还是按照流程。你全权负责合并，分多个子 agent 多维度审核提意见修复，做好 hand off」。据此 CHAIN-4a / 2 / 3 的实现与归档都自己合并；判断点 2 的授权**没有用上**（CHAIN-1 没有数据源，白名单没改）。
+
+**新规则「多维审查」（Lucas 2026-11-19 定，#528 写进 `openspec/config.yaml` 工作约定与 `CLAUDE.md`）**：每次开 PR 前并行派子 agent 各审一个维度（实现 PR 至少四个：正确性与回归、安全 / 隐私 / 硬纪律、规格—代码—测试一致性、使用流畅与文案），只给代码与规格、不给结论；逐条核实后修，重跑测试；PR 正文要有「多维审查」一节（维度 / 发现 / 处理）。归档 PR 至少一个子 agent 核对主规格与增量、TASKFLOW 状态。
+
 **已完成**
 
 | change | PR | 状态 |
 |---|---|---|
 | CHAIN-4b `rfq-supplier-identity-guard`（询价与供应商侧文件不带出招标身份；顺带堵住旧路径把预估金额 / 我方报价 / 中标价印给供应商） | #522（合并）、#523（归档 + 任务书修订版） | `[x]`；**staging 真实标包实测未做**（报告 §6），做完前不开 CHAIN-0 第 7 项 |
 | CHAIN-0c `tender-job-failure-surfacing`（分析 Job 失败 / 卡住立刻收尾为「AI 分析未完成」并通知） | #524（合并）、#525 归档 + 本节 | `[x]`；生产事件实际走的路径待生产记录（报告 §2） |
+| CHAIN-4a `rfq-supplier-attachment`（询价邮件带一份重排的询价单 PDF；判断点 5 按 A） | #526（合并）、#527（归档） | `[x]`；开关 `TENDER_RFQ_ATTACHMENT_ENABLED` 默认关；载荷存的是附件 HTML 的 SHA-256（PDF 字节每次不同，报告 §1）；**staging 用测试邮箱收信核对未做** |
+| CHAIN-1 `tender-award-source-apc`（Alberta APC 授标） | 没有 PR | `[ ]`，**前置核查不通过，已停**：APC 对匿名程序化访问返回 Cloudflare 人机验证（连 robots.txt）；Alberta 开放数据没有竞争性货物授标。见 `docs/QINGYAN_CHAIN-1_PRECHECK.md`，要人决定走书面许可还是人工录入 |
+| CHAIN-2 `tender-auto-supplier-run`（批准分析后自动建候选池 + 寻源建议卡；情报推荐并入自动起草；判断点 1 按 A、4 按 B） | #528（合并，含规则「多维审查」）、#529（归档） | `[x]`；开关 `TENDER_AUTO_SUPPLIER_RUN_ENABLED`、`TENDER_RFQ_INTEL_RECIPIENTS_ENABLED` 默认关，另要 `SUPPLIER_INTEL_ENABLED` |
+| CHAIN-3 `tender-import-leads-connector`（进口记录人工导入 → 比对历史中标者 → 按出口商汇总 → 加入供应商库；判断点 3 按 A、7 按 A） | #530（合并）、归档 + 本节（同一个 PR） | `[x]`；开关 `TENDER_IMPORT_LEADS_ENABLED` 默认关；系统不访问任何第三方网站、不调模型；进口线索的供应商**不**自动进自动起草（design D4b，任务书验收项只做到一半，报告 §1） |
 
 **等人做的（需要生产权限）**
 
 1. CHAIN-0 核查表 `docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 第 2–7 项（第 1 项已验证）。注意 `TENDER_EXTERNAL_INTEL_ENABLED` 只认 `1`；`SUPPLIER_INTEL_ORG_ALLOWLIST` 留空 = 全组织生效。
 2. CHAIN-4b staging 实测：TBS 24062-27-057 与一个 Alberta 标各起草一次询价、生成一次「供应商询价与符合性确认表」，结果补进 `docs/QINGYAN_CHAIN-4b_REPORT.md` §6（决定要不要做「本轮不带这几条要求」）。
 3. 「12-01 21C31-254242」那个 Job 的 AgentRun `errorCode` 与事件（Vercel 2026-11-19 10:15–10:45 Warning / Error 日志），补进 `docs/QINGYAN_CHAIN-0c_REPORT.md` §2；第 3 步失败本身的原因若在模型侧，另立 change。
+4. CHAIN-4a staging：开 `TENDER_RFQ_ATTACHMENT_ENABLED` 后用测试邮箱收一封带附件的询价，在邮件客户端里打开核对中文与版式（`docs/QINGYAN_CHAIN-4a_REPORT.md`「上线顺序」）。
+5. 开 CHAIN-2：先对 Sunny 开 `SUPPLIER_INTEL_ENABLED`（CHAIN-0 第 6 项），再开 `TENDER_AUTO_SUPPLIER_RUN_ENABLED`；`TENDER_RFQ_INTEL_RECIPIENTS_ENABLED` 等评估做起来、推荐稳定后再开。
+6. 开 CHAIN-3：`T4_AWARD_INTELLIGENCE_SCHEMA_READY` 已开（才有中标者可比）后对 Sunny 开 `TENDER_IMPORT_LEADS_ENABLED`，用 2–3 个真实标验证线索有没有用，再决定买不买授权贸易数据（判断点 3 B）。
 
-**下一个 change：CHAIN-4a `rfq-supplier-attachment`**（询价邮件带一份重排的 PDF 附件）。判断点 5 推荐 A（只放重排的询价单 PDF）。可直接 `/opsx:propose rfq-supplier-attachment`。要点：
+**之后还有什么（2026-11-20，第四十四次）**——任务书的 CHAIN-0c / 1 / 2 / 3 / 4a / 4b 都已走完；剩下的都要人先拍板或要生产权限：
+
+1. **CHAIN-1 走哪条路**（Lucas / Evan 定）：向 Service Alberta / 1GX 要书面许可或授标导出（拿到前不碰 APC）；或在既有授标人工录入里补 Alberta 历史中标（`PROVINCIAL_MANUAL`，不需要新代码）。
+2. **CHAIN-0b 自动分析也接续跑**（任务书后续队列）：先有人看 Vercel Request Logs 确认 `/api/cron/tender-auto-analysis` 是否还在用（上传后连续多条、每条接近 240 秒），确认在用再写任务书、`/opsx:propose`。
+3. **GATE：别名裁决的权限**（CHAIN-3）：现在能修改本项目的人就能做对全组织生效、不能撤回的「疑似同一家」裁决（确认框写明了范围）；要不要提高到组织管理员、要不要做撤回，等 GATE 定。
+4. **小 change（容器里能做，未开）**：
+   - 报价表助手的落地价按财务权限收口：`GET /api/projects/[id]/pricing-helper` 在 `TENDER_PRICING_COMPARE_SOURCE_ENABLED` 开着时把比价矩阵的落地价给所有项目读者，而成本表接口与 CHAIN-2 寻源卡都按 `resolveFinancePrivilege(...).canReadAll` 收口（CHAIN-2 审查时发现，已在会话里排成独立任务，未做）。
+   - 主规格 `tender/rfq-web-entry` 第 6 条要求超过 500 字，`openspec validate --specs --strict` 142 过 1 不过（只有这一条警告）；拆成两条要求即可，走一个只改规格的小 change。
+   - 投标准备度「进口线索」阶段（`src/lib/tender-bid-readiness/stage-policy.ts`）还不读 CHAIN-3 导入的记录（CHAIN-3 Out of scope）。
+5. **生产**：上面「等人做的」第 1–6 项。
+
+以下是第四十三次写的 CHAIN-4a 要点，留作记录（已按此实现，见报告）：
+
+**（已完成）CHAIN-4a `rfq-supplier-attachment`**（询价邮件带一份重排的 PDF 附件）。判断点 5 推荐 A（只放重排的询价单 PDF）。要点：
 - 附件只来自 `buildRfqDocument` 已筛好的 `lineItems`；出 PDF 前过 CHAIN-4b 的 `scanIdentity`（`src/lib/bid-workflow/project-identity-deny.ts`）+ 既有敏感词表；对供应商的称呼用 `identity.reference`。
 - `SendEmailParams` 加 `attachments`、`buildRawEmail` 支持 multipart；不传附件时原始邮件逐字节不变（快照测试）。
 - 附件字节 SHA-256 进载荷与 `rfqDocHash`；执行器发送前重新生成比对（执行器里已有 CHAIN-4b 的复核，附件比对加在它旁边）。
 - 新开关 `TENDER_RFQ_ATTACHMENT_ENABLED`（默认关）。
 
-之后按任务书顺序：CHAIN-1（先做 APC 匿名可读与使用条款的前置核查，要登录 / 人机验证即停）→ CHAIN-2（依赖 `SUPPLIER_INTEL_ENABLED` 已开）→ CHAIN-3。判断点 1、3、4、5、7 都有推荐项；判断点 2 取 A 需 Evan 明确批准。
+之后按任务书顺序：CHAIN-1（先做 APC 匿名可读与使用条款的前置核查，要登录 / 人机验证即停）→ CHAIN-2（依赖 `SUPPLIER_INTEL_ENABLED` 已开）→ CHAIN-3。判断点 1、3、4、5、7 都有推荐项；判断点 2 取 A 需 Evan 明确批准。（第四十四次：以上都已走完，见上表。）
 
 **本会话的环境做法（容器里可复用）**
 
 - Node 24：从 nodejs.org 下到 `/tmp/claude-0/node24/` 再加进 PATH（系统自带 22）；`npm ci` 后 `npx prisma generate`。
 - 隔离库：本机 Postgres 16（`pg_ctlcluster 16 main start`），先 `apt-get install -y postgresql-16-pgvector` 才能 `prisma migrate deploy`；环境变量 `DATABASE_URL` / `DIRECT_URL` 指 localhost、`NODE_ENV=test DATABASE_ENVIRONMENT=isolated`，另要 `JWT_SECRET`（测试值即可）。Postgres 可能中途停掉，跑隔离库前先 `pg_lsclusters`。
-- 全量 `npm test` 带隔离库约 1.5 小时；**不要同时在同一个库上并行跑别的隔离库测试**（本会话因此让 Mention Gateway M2-A 撞了唯一约束）。在本机 main 上也失败的 9 项名单见 `docs/QINGYAN_CHAIN-4b_REPORT.md` §5，比对时用。
+- 全量 `npm test` 带隔离库约 1.5 小时；**不要同时在同一个库上并行跑别的隔离库测试**（本会话因此让 Mention Gateway M2-A 撞了唯一约束）。在本机 main 上也失败的 9 项名单见 `docs/QINGYAN_CHAIN-4b_REPORT.md` §5，比对时用。（第四十四次：现在是 11 项，CHAIN-3 时 701/712，名单见 `docs/QINGYAN_CHAIN-3_REPORT.md` §4。）
+- 跑隔离库前确认 Postgres 在：worker 重启后会停，`pg_lsclusters` 看，停了就 `pg_ctlcluster 16 main start`。
+- 判重 / 查找类逻辑别靠「读最早 N 条」：CHAIN-3 第一轮审查就抓到查重只读 2000 条；按键用 `$queryRaw` 在 JSON 字段上查（`"rawMetadataJson"->>'dedupeKey' = ANY(...)`）。
 
 ### 0.6 实施中沿用的约定
 
