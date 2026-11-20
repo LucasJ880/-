@@ -15,6 +15,12 @@ import { listAwardsForOrg, toAmountNumber } from "@/lib/tender-intel/awards";
 import { deriveAwardIntelligence } from "@/lib/tender-intel/award-intelligence";
 import { isT4AwardSchemaReady } from "@/lib/tender-intel/award-flags";
 import { MANUAL_APC_SOURCE_PREFIX, listableApcUrl } from "@/lib/tender-intel/award-manual-entry";
+import { buildProjectVisibilityWhere } from "@/lib/projects/visibility";
+import { normalizeBuyerName } from "@/lib/corporate-memory/normalize";
+
+/** 采购方候选最多几个；每个来源最多读几行（不用 distinct：Prisma 没开 nativeDistinct 时会把全部行读进内存再去重） */
+const BUYER_SUGGESTION_CAP = 200;
+const BUYER_SUGGESTION_SCAN = 1000;
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
@@ -79,14 +85,34 @@ export const GET = withAuth(async (request, _ctx, user) => {
     const url = listableApcUrl(src);
     if (url) apcByRecord.set(src.awardRecordId, url);
   }
-  // 采购方候选：本组织项目的采购方写法 + 已有授标的采购方写法（去重，最多 200 个），只给能录入的人
+  // 采购方候选：调用人看得到的本组织招标项目的采购方写法（项目写法优先）+ 已有授标（未撤回）的采购方写法；
+  // 按规整名去重（「The City of Calgary」与「City of Calgary」只留一个），最近的在前，最多 200 个；只给能录入的人
   let buyerSuggestions: string[] = [];
   if (canEnterManual) {
+    const visibility = await buildProjectVisibilityWhere(user);
     const [projectBuyers, awardBuyers] = await Promise.all([
-      db.project.findMany({ where: { orgId, clientOrganization: { not: null } }, select: { clientOrganization: true }, distinct: ["clientOrganization"], take: 200 }),
-      db.awardRecord.findMany({ where: { orgId, buyerNameRaw: { not: null }, status: { not: "RETRACTED" } }, select: { buyerNameRaw: true }, distinct: ["buyerNameRaw"], take: 200 }),
+      db.project.findMany({
+        where: { AND: [...(visibility ? [visibility] : []), { orgId, workDomain: "tender", clientOrganization: { not: null } }] },
+        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+        select: { clientOrganization: true },
+        take: BUYER_SUGGESTION_SCAN,
+      }),
+      db.awardRecord.findMany({
+        where: { orgId, buyerNameRaw: { not: null }, status: { not: "RETRACTED" } },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        select: { buyerNameRaw: true },
+        take: BUYER_SUGGESTION_SCAN,
+      }),
     ]);
-    buyerSuggestions = [...new Set([...projectBuyers.map((p) => p.clientOrganization), ...awardBuyers.map((a) => a.buyerNameRaw)].map((b) => (b ?? "").trim()).filter(Boolean))].slice(0, 200);
+    const seen = new Set<string>();
+    for (const raw of [...projectBuyers.map((p) => p.clientOrganization), ...awardBuyers.map((a) => a.buyerNameRaw)]) {
+      const name = (raw ?? "").trim();
+      const key = name ? normalizeBuyerName(name) : "";
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      buyerSuggestions.push(name);
+      if (buyerSuggestions.length >= BUYER_SUGGESTION_CAP) break;
+    }
   }
 
   return NextResponse.json({

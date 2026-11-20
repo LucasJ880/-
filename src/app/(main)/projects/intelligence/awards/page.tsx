@@ -7,7 +7,7 @@
  * CHAIN-1b：能录入的成员可在这里人工录入 Alberta 授标（APC 公告链接、待人工复核）；系统不打开那个链接。
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Landmark, Loader2 } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { IntelHubShell } from "@/components/bid-workflow/intel-hub-shell";
@@ -104,6 +104,8 @@ export default function IntelAwardsPage() {
   const [canReview, setCanReview] = useState(false);
   const [canEnterManual, setCanEnterManual] = useState(false);
   const [buyerSuggestions, setBuyerSuggestions] = useState<string[]>([]);
+  // CHAIN-1b：刚录入的那一条（高亮并滚到它；被筛选条件挡住时照实说）
+  const [enteredId, setEnteredId] = useState<string | null>(null);
   const [retracting, setRetracting] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [acting, setActing] = useState<string | null>(null);
@@ -179,6 +181,26 @@ export default function IntelAwardsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
+  // 范围摘要的候选：本页列表里已有的写法（去重，最多 100 个）
+  const scopeSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const r of rows) {
+      const s = (r.scopeSummary ?? "").trim();
+      const key = s.toLowerCase();
+      if (!s || seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+      if (out.length >= 100) break;
+    }
+    return out;
+  }, [rows]);
+
+  useEffect(() => {
+    if (!enteredId || busy) return;
+    document.getElementById(`award-row-${enteredId}`)?.scrollIntoView({ block: "nearest" });
+  }, [enteredId, busy, rows]);
+
   if (notEnabled) {
     return (
       <IntelHubShell title="历史中标">
@@ -201,7 +223,7 @@ export default function IntelAwardsPage() {
             </span>
             <span>已确认/权威 {intel.basis.authoritative}</span>
             <span>{MANUAL_ENTRY_TEXT.pendingStat} {intel.basis.aiOnly}</span>
-            {intel.basis.needsReview > 0 && <span>待复核（不计入统计）{intel.basis.needsReview}</span>}
+            {intel.basis.needsReview > 0 && <span>{MANUAL_ENTRY_TEXT.duplicateStat} {intel.basis.needsReview}</span>}
             {intel.historicalValues.byCurrency.map((g) => (
               <span key={g.currency}>
                 {g.currency} 历史合同金额中位 {g.median.toLocaleString()}（{g.sampleSize} 条原始记录·不可直接对标）
@@ -248,16 +270,30 @@ export default function IntelAwardsPage() {
         </div>
 
         {err && <p className="text-sm text-red-500">{err}</p>}
-        {canEnterManual && orgId ? <AwardManualEntryForm orgId={orgId} buyerSuggestions={buyerSuggestions} onSaved={() => void load()} /> : null}
+        {canEnterManual && orgId ? (
+          <AwardManualEntryForm
+            key={orgId}
+            orgId={orgId}
+            buyerSuggestions={buyerSuggestions}
+            scopeSuggestions={scopeSuggestions}
+            onSaved={(id) => {
+              setEnteredId(id);
+              void load();
+            }}
+          />
+        ) : null}
+        {enteredId && !busy && !rows.some((r) => r.id === enteredId) ? (
+          <p className="text-xs text-[var(--muted)]" data-testid="award-manual-hidden">
+            {MANUAL_ENTRY_TEXT.hiddenByFilter}
+          </p>
+        ) : null}
         {actionMsg && (
           <p className="text-sm text-[var(--muted)]" data-testid="award-review-msg">
             {actionMsg}
           </p>
         )}
         {canReview && rows.some(needsConfirm) && (
-          <p className="text-xs text-[var(--muted)]">
-            你是组织管理员：「线索」和「疑似重复」可以确认或撤回；填错的记录可以撤回后在项目里重新标记结果。
-          </p>
+          <p className="text-xs text-[var(--muted)]">{MANUAL_ENTRY_TEXT.adminHint}</p>
         )}
         {ambiguous && (
           <p className="text-sm text-[var(--muted)]">您属于多个组织，请先在组织切换器中选择当前组织。</p>
@@ -270,6 +306,7 @@ export default function IntelAwardsPage() {
               在招标项目的「历史授标检索」里<b>人工确认</b>外部检索到的中标事实后，会自动沉淀到这里，
               供未来投标复用（买家规律 / 竞争对手 / 历史价格）。
             </p>
+            {canEnterManual ? <p>{MANUAL_ENTRY_TEXT.emptyManual}</p> : null}
           </div>
         )}
 
@@ -294,16 +331,31 @@ export default function IntelAwardsPage() {
                     cls: "bg-zinc-500/10 text-zinc-500",
                   };
                   return (
-                    <tr key={r.id} className="border-b border-[var(--border)] last:border-b-0">
+                    <tr
+                      key={r.id}
+                      id={`award-row-${r.id}`}
+                      className={`border-b border-[var(--border)] last:border-b-0 ${r.id === enteredId ? "bg-[var(--accent)]/10" : ""}`}
+                    >
                       <td className="px-3 py-2">{r.buyerName ?? "—"}</td>
                       <td className="px-3 py-2 text-xs text-[var(--muted)]">
                         {r.solicitationNumber ?? "—"}
+                        {r.scopeSummary ? (
+                          <span className="mt-0.5 block max-w-[16rem] truncate" title={r.scopeSummary}>
+                            {r.scopeSummary}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2 font-medium">
                         {r.winnerName}
                         {r.manualApcUrl ? (
-                          <a href={r.manualApcUrl} target="_blank" rel="noopener noreferrer" className="block text-xs font-normal text-[var(--muted)] underline">
-                            {MANUAL_ENTRY_TEXT.listSource}
+                          <a
+                            href={r.manualApcUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label={MANUAL_ENTRY_TEXT.listSourceAria}
+                            className="block text-xs font-normal text-[var(--muted)] underline"
+                          >
+                            {MANUAL_ENTRY_TEXT.listSource} ↗
                           </a>
                         ) : null}
                       </td>

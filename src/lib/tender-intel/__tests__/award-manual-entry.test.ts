@@ -15,6 +15,7 @@ import {
   parseManualEntry,
 } from "../award-manual-entry";
 import { manualApcSourceKey } from "../award-manual-entry-key";
+import { normalizeBuyerName } from "../../corporate-memory/normalize";
 
 let passed = 0;
 let failed = 0;
@@ -39,13 +40,14 @@ console.log("链接规整（只解析字符串）");
   ];
   const leaked = bad.filter((u) => normalizeApcUrl(u) !== null);
   ok("拒：http、首页、带端口、别的主机、用户名密码、@ 把戏、javascript:、末尾带点、不是链接", leaked.length === 0, leaked);
+  ok("只复制了主机名开头的替人补上 https://", normalizeApcUrl("purchasing.alberta.ca/posting/AB-1") === "https://purchasing.alberta.ca/posting/AB-1" && normalizeApcUrl("PURCHASING.alberta.ca/posting/AB-1/") === "https://purchasing.alberta.ca/posting/AB-1" && normalizeApcUrl("purchasing.alberta.ca.evil.example/x") === null);
   ok("反斜杠与 :443 由解析器收敛", normalizeApcUrl("https://purchasing.alberta.ca\\posting\\AB-1") === "https://purchasing.alberta.ca/posting/AB-1" && normalizeApcUrl("https://purchasing.alberta.ca:443/posting/AB-1") === "https://purchasing.alberta.ca/posting/AB-1");
 }
 
 console.log("授标日期");
 {
   ok("真实日期、今天、明天（时区容差）通过", parseAwardDate("2026-11-20", NOW) instanceof Date && parseAwardDate("2026-11-21", NOW) instanceof Date && parseAwardDate("2024-02-29", NOW) instanceof Date);
-  ok("后天、2023-02-29、2024-02-30、不是年-月-日 拒绝", ["2026-11-22", "2023-02-29", "2024-02-30", "2026/11/20", "20-11-2026"].every((d) => parseAwardDate(d, NOW) === "INVALID"));
+  ok("后天、2023-02-29、2024-02-30、不是年-月-日、1900 年以前 拒绝", ["2026-11-22", "2023-02-29", "2024-02-30", "2026/11/20", "20-11-2026", "1899-12-31", "0000-01-01"].every((d) => parseAwardDate(d, NOW) === "INVALID") && parseAwardDate("1900-01-01", NOW) instanceof Date);
   ok("不填是 null", parseAwardDate("  ", NOW) === null);
 }
 
@@ -53,8 +55,21 @@ console.log("逐项校验（第一处错误的那句话）");
 {
   ok("漏填三项", err({ ...base, buyerName: " " }) === "请填写采购方。" && err({ ...base, winnerName: "" }) === "请填写中标方。" && err({ ...base, apcUrl: "" }) === "请填写 APC 公告链接。");
   ok("四种坏链接", ["http://purchasing.alberta.ca/x", "https://purchasing.alberta.ca//", "https://purchasing.alberta.ca:8443/x", "https://evil.example/purchasing.alberta.ca"].every((u) => err({ ...base, apcUrl: u }) === "APC 公告链接要以 https://purchasing.alberta.ca/ 开头，并指向具体的公告。"));
-  ok("日期：后天与 2023-02-29", err({ ...base, awardDate: "2026-11-22" }) === "授标日期要写成 年-月-日，且不能晚于今天。" && err({ ...base, awardDate: "2023-02-29" }) === "授标日期要写成 年-月-日，且不能晚于今天。");
-  ok("金额：-1 与 1.234", err({ ...base, contractAmount: -1 }) === "合同金额要是不小于 0 的数字，最多两位小数。" && err({ ...base, contractAmount: "1.234" }) === "合同金额要是不小于 0 的数字，最多两位小数。" && err({ ...base, contractAmount: 1e13 }) !== null);
+  ok("日期：后天与 2023-02-29", err({ ...base, awardDate: "2026-11-22" }) === "授标日期要写成 年-月-日，且在 1900 年到今天之间。" && err({ ...base, awardDate: "2023-02-29" }) === "授标日期要写成 年-月-日，且在 1900 年到今天之间。");
+  const BAD_AMOUNT = "合同金额只填数字（可以带千分位逗号和 $），不能为负，最多两位小数。";
+  ok("金额：-1 与 1.234", err({ ...base, contractAmount: -1 }) === BAD_AMOUNT && err({ ...base, contractAmount: "1.234" }) === BAD_AMOUNT && err({ ...base, contractAmount: 1e13 }) !== null);
+  const amt = (v: unknown) => {
+    const r = parseManualEntry({ ...base, contractAmount: v }, NOW);
+    return r.ok ? r.value.contractAmount : "BAD";
+  };
+  ok("金额：逗号只认千分位（当小数点用的逗号不认，免得差 100 倍）", amt("1,234,567.89") === 1234567.89 && amt("48,000") === 48000 && amt("1234,56") === "BAD" && amt("1,2,3") === "BAD" && amt(",5") === "BAD" && amt("12,34") === "BAD", [amt("1234,56"), amt("1,2,3")]);
+  ok("金额：开头的 $、全角数字与全角逗号可以", amt("$1,250,000.00") === 1250000 && amt("$ 900") === 900 && amt("１，２３４") === 1234 && amt("CAD 1,000") === "BAD");
+  const fieldOf = (body: Record<string, unknown>) => {
+    const r = parseManualEntry(body, NOW);
+    return r.ok ? null : `${r.code}:${r.field}`;
+  };
+  ok("出错时带字段（表单据此标出那一格）", fieldOf({ ...base, buyerName: "" }) === "MISSING_BUYER:buyerName" && fieldOf({ ...base, apcUrl: "x" }) === "BAD_URL:apcUrl" && fieldOf({ ...base, awardDate: "x" }) === "BAD_DATE:awardDate" && fieldOf({ ...base, contractAmount: "x" }) === "BAD_AMOUNT:contractAmount" && fieldOf({ ...base, contractAmount: 1, currency: "EUR" }) === "BAD_CURRENCY:currency" && fieldOf({ ...base, scopeSummary: "x".repeat(2001) }) === "TOO_LONG:scopeSummary" && fieldOf({ ...base, winnerName: "x".repeat(201) }) === "TOO_LONG:winnerName");
+  ok("接口传数字：编号按字符串收、日期写成数字报错（不静默丢掉）", (() => { const r = parseManualEntry({ ...base, solicitationNumber: 123 }, NOW); return r.ok && r.value.solicitationNumber === "123"; })() && fieldOf({ ...base, awardDate: 20261120 }) === "BAD_DATE:awardDate");
   ok("币种 EUR；没填金额时忽略币种", err({ ...base, contractAmount: 100, currency: "EUR" }) === "币种只能是 CAD 或 USD。" && err({ ...base, currency: "EUR" }) === null);
   ok("太长的字段", err({ ...base, scopeSummary: "x".repeat(2001) }) === "范围摘要太长了（最多 2000 字）。" && err({ ...base, buyerName: "x".repeat(201) }) === "采购方太长了（最多 200 字）。" && err({ ...base, solicitationNumber: "x".repeat(101) }) === "招标编号太长了（最多 100 字）。" && err({ ...base, apcUrl: `https://purchasing.alberta.ca/${"a".repeat(2100)}` }) === "APC 公告链接太长了（最多 2048 字）。");
   ok("顺序：采购方先于链接、链接先于日期", err({ buyerName: "", winnerName: "", apcUrl: "x", awardDate: "x" }) === "请填写采购方。" && err({ ...base, apcUrl: "x", awardDate: "x" }) === MANUAL_ENTRY_TEXT.badUrl);
@@ -69,10 +84,12 @@ console.log("来源键与结果");
 {
   const k = manualApcSourceKey(base.apcUrl, "glacier linen supply");
   ok("来源键：manual:apc: + 32 位十六进制，确定性；中标方不同则不同", /^manual:apc:[0-9a-f]{32}$/.test(k) && k === manualApcSourceKey(base.apcUrl, "glacier linen supply") && k !== manualApcSourceKey(base.apcUrl, "other winner"));
-  ok("五种结果的那句话", manualEntryMessageZh("CREATED") === "已录入，等组织管理员复核。" && manualEntryMessageZh("NEEDS_REVIEW") === "已录入；和已有的一条记录可能重复，等组织管理员裁决。" && manualEntryMessageZh("ATTACHED_BY_SOLICITATION") === "已有同一条授标（招标编号与中标方相同），这条公告链接已挂到那条记录上。" && manualEntryMessageZh("ATTACHED_BY_DATE_AMOUNT") === "已有同一条授标（中标方、授标日期、金额都相同），这条公告链接已挂到那条记录上。" && manualEntryMessageZh("ALREADY_ENTERED") === "这条公告的这个中标方已经录过了。");
+  ok("五种结果的那句话", manualEntryMessageZh("CREATED") === "已录入，等组织管理员复核。" && manualEntryMessageZh("NEEDS_REVIEW") === "已录入；和已有的一条记录可能重复，等组织管理员裁决。" && manualEntryMessageZh("ATTACHED_BY_SOLICITATION") === "已有同一条授标（招标编号与中标方相同），这条公告链接已挂到那条记录上。那条记录原有的内容和可信度不变（你这次填的没有写进去）；有出入请告诉组织管理员。" && manualEntryMessageZh("ATTACHED_BY_DATE_AMOUNT") === "已有同一条授标（中标方、授标日期、金额都相同），这条公告链接已挂到那条记录上。那条记录原有的内容（含招标编号与采购方）和可信度不变（你这次填的没有写进去）；有出入请告诉组织管理员。" && manualEntryMessageZh("ALREADY_ENTERED") === "这条公告的这个中标方已经录过了（同一公告同一中标方只录一条；中了几个标段的请合成一条，金额合计或留空）。");
   ok("挂到既有的原因", attachCause("AB-1", "AB-1") === "ATTACHED_BY_SOLICITATION" && attachCause(null, "AB-1") === "ATTACHED_BY_DATE_AMOUNT" && attachCause("AB-1", null) === "ATTACHED_BY_DATE_AMOUNT");
   ok("列表链接：只认 USER_ENTRY + manual:apc:，再校验主机", listableApcUrl({ sourceType: "USER_ENTRY", sourceKey: k, sourceUrl: base.apcUrl }) === base.apcUrl && listableApcUrl({ sourceType: "USER_ENTRY", sourceKey: "own-result:p1", sourceUrl: base.apcUrl }) === null && listableApcUrl({ sourceType: "WEB_SEARCH", sourceKey: k, sourceUrl: base.apcUrl }) === null && listableApcUrl({ sourceType: "USER_ENTRY", sourceKey: k, sourceUrl: "https://evil.example/x" }) === null);
-  ok("固定文字", MANUAL_ENTRY_TEXT.formTitle === "录入 Alberta 授标（APC）" && MANUAL_ENTRY_TEXT.formNote === "只录入你在 Alberta Purchasing Connection（APC）上自己看到的授标公告。系统不会打开这个链接。录入后标为「待人工复核」，组织管理员确认属实后才进入统计、可比价格和历史中标者。" && MANUAL_ENTRY_TEXT.buyerHint === "照公告原文填写；与项目里的采购方写法一致，系统才能把它们对上。" && MANUAL_ENTRY_TEXT.scopeHint === "同类采购照公告标题写同一句，可比价格才算得上。" && MANUAL_ENTRY_TEXT.listSource === "人工录入 · APC 公告" && MANUAL_ENTRY_TEXT.pendingStat === "待确认（AI 提取 / 人工录入）" && MANUAL_ENTRY_TEXT.flagOff === "组织授标情报尚未启用");
+  const T = MANUAL_ENTRY_TEXT;
+  ok("固定文字", T.formTitle === "录入 Alberta 授标（APC）" && T.formNote === "只录入你在 Alberta Purchasing Connection（APC）上亲眼看到的授标公告。系统只保存这个链接，不会自动访问它；复核的人会点开核对。录入后先列在下表、标为「待人工复核」，不计入金额、周期、可比价格和已确认的竞争对手；经人工确认属实后才计入（一般由组织管理员在下表确认）。" && T.collapsedNote === "把在 APC 上看到的中标结果录进来，经人工确认后计入统计。" && T.buyerHint === "先从候选里选（本组织招标项目和已有授标里用过的写法）；候选里没有，再照公告上的采购机构原文填。大小写、标点、开头的 The 不影响匹配，其余要和项目里的采购方一字不差，系统才能对上。" && T.solicitationHint === "建议填写。同一采购方、同一中标方的不同招标靠编号区分，不填容易被当成疑似重复。" && T.amountHint === "一条公告有几个中标方就录几条；金额填这个中标方自己的合同金额。公告只给总额或预估值时留空。" && T.scopeHint === "写一句能反复用的采购内容，不带年份、编号、地点（例如 Snow removal services）。大小写和标点不影响；同一采购方、同一句、同一币种的已确认记录满 3 条，才会算出可比价格。" && T.listSource === "人工录入 · APC 公告" && T.pendingStat === "待确认（AI 提取 / 人工录入，不计入统计）" && T.duplicateStat === "疑似重复待裁决（不计入统计）" && T.flagOff === "组织授标情报尚未启用" && T.hiddenByFilter === "已录入，但被当前筛选条件挡住了，清空筛选可以看到。" && T.forbidden === "你在本组织没有录入权限（需要成员及以上角色），请联系组织管理员。" && T.tooManyRetracted === "这条公告的这个中标方撤回过太多次，没有录入；请联系组织管理员。");
+  ok("提示里说的规则与代码一致：大小写、标点、开头的 The 不影响采购方匹配", normalizeBuyerName("The City of Calgary.") === normalizeBuyerName("city of calgary") && normalizeBuyerName("City of Calgary") !== normalizeBuyerName("Calgary"));
 }
 
 console.log("接线（源码断言）");
@@ -89,12 +106,15 @@ console.log("接线（源码断言）");
   ok("接口：撤回过的换后继键；并发撞唯一约束重读", route.includes('res.outcome === "ALREADY_OBSERVED" && res.record.status === "RETRACTED"') && route.includes("key = `${baseKey}:after:${res.record.id}`;") && route.includes('err.code === "P2002"'));
   ok("接口：重录不写审计，其余在同一事务写", route.includes('if (outcome !== "ALREADY_ENTERED") {') && route.includes("await writeAuditLog(tx, {"));
   const page = read("src/app/(main)/projects/intelligence/awards/page.tsx");
-  ok("页面：人工录入的链接是原生 <a>、新窗口、不带来源页信息；统计条改名", /<a href=\{r\.manualApcUrl\} target="_blank" rel="noopener noreferrer"/.test(page) && page.includes("{MANUAL_ENTRY_TEXT.listSource}") && page.includes("{MANUAL_ENTRY_TEXT.pendingStat} {intel.basis.aiOnly}") && !page.includes("AI 待确认 {") && !/next\/link/.test(page) && !/<iframe|<img[^>]*manualApcUrl|prefetch|preconnect/.test(page));
-  ok("页面：表单只对能录入的人显示", page.includes("{canEnterManual && orgId ? <AwardManualEntryForm"));
+  ok("页面：人工录入的链接是原生 <a>、新窗口、不带来源页信息；统计条改名", /<a\s+href=\{r\.manualApcUrl\}\s+target="_blank"\s+rel="noopener noreferrer"/.test(page) && page.includes("{MANUAL_ENTRY_TEXT.listSource} ↗") && page.includes("aria-label={MANUAL_ENTRY_TEXT.listSourceAria}") && page.includes("{MANUAL_ENTRY_TEXT.pendingStat} {intel.basis.aiOnly}") && page.includes("{MANUAL_ENTRY_TEXT.duplicateStat} {intel.basis.needsReview}") && !page.includes("AI 待确认 {") && !page.includes("待复核（不计入统计）") && !/next\/link/.test(page) && !/<iframe|<img[^>]*manualApcUrl|prefetch|preconnect/.test(page));
+  ok("页面：表单只对能录入的人显示，按组织换表单；管理员提示与空状态提到人工录入；刚录的高亮、被筛选挡住照实说", page.includes("{canEnterManual && orgId ? (") && page.includes("key={orgId}") && page.includes("{MANUAL_ENTRY_TEXT.adminHint}") && page.includes("{canEnterManual ? <p>{MANUAL_ENTRY_TEXT.emptyManual}</p> : null}") && page.includes("{MANUAL_ENTRY_TEXT.hiddenByFilter}") && page.includes('r.id === enteredId ? "bg-[var(--accent)]/10"'));
   const form = read("src/components/tender-intel/award-manual-entry-form.tsx");
-  ok("表单：说明、采购方候选与提示、范围提示、提交中禁用", form.includes("{MANUAL_ENTRY_TEXT.formNote}") && form.includes('list="award-manual-buyers"') && form.includes("{MANUAL_ENTRY_TEXT.buyerHint}") && form.includes("{MANUAL_ENTRY_TEXT.scopeHint}") && form.includes("disabled={busy}") && form.includes("if (busy) return;"));
+  ok("表单：说明、采购方与范围候选、各项提示、提交中禁用、按钮文字", form.includes("{MANUAL_ENTRY_TEXT.formNote}") && form.includes('list="award-manual-buyers"') && form.includes('list="award-manual-scopes"') && ["buyerHint", "solicitationHint", "amountHint", "scopeHint", "collapsedNote", "clearNotice"].every((k) => form.includes(`{MANUAL_ENTRY_TEXT.${k}}`)) && form.includes("disabled={busy}") && form.includes("if (busy) return;") && form.includes("MANUAL_ENTRY_TEXT.submitting : MANUAL_ENTRY_TEXT.submit"));
+  ok("表单：录完一条只清空中标方与金额（重录不清）、焦点回中标方；403 换成白话；错误指向字段", form.includes('if (json.outcome !== "ALREADY_ENTERED") {') && form.includes('setForm((f) => ({ ...f, winnerName: "", contractAmount: "" }));') && form.includes("winnerRef.current?.focus();") && form.includes("res.status === 403 ? MANUAL_ENTRY_TEXT.forbidden") && form.includes("aria-invalid={invalid(") && form.includes('role="alert"') && form.includes('role="status" aria-live="polite"') && form.includes("encodeURIComponent(orgId)"));
   const list = read("src/app/api/org/tender-awards/route.ts");
   ok("列表接口：只取人工录入的 APC 来源、再校验；返回 canEnterManual 与采购方候选", list.includes('sourceType: "USER_ENTRY", sourceKey: { startsWith: MANUAL_APC_SOURCE_PREFIX }') && list.includes("listableApcUrl(src)") && list.includes("canEnterManual,") && list.includes("buyerSuggestions,") && list.includes("manualApcUrl: apcByRecord.get(r.id) ?? null,"));
+  ok("列表接口：采购方候选经项目可见性、只取招标项目、按规整名去重、不用 distinct", list.includes("buildProjectVisibilityWhere(user)") && list.includes('{ orgId, workDomain: "tender", clientOrganization: { not: null } }') && list.includes("normalizeBuyerName(name)") && !/distinct:/.test(list));
+  ok("接口：撤回太多次 409 不是 500；请求体边读边数；400 带字段", route.includes('code: "RETRACTED_TOO_MANY" }, { status: 409 }') && route.includes("request.body?.getReader()") && route.includes("field: parsed.field"));
 }
 
 console.log(`\naward-manual-entry: ${passed} passed, ${failed} failed`);

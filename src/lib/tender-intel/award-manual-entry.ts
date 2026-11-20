@@ -16,25 +16,44 @@ export type ManualEntryCurrency = (typeof MANUAL_ENTRY_CURRENCIES)[number];
 
 export const MANUAL_ENTRY_TEXT = {
   formTitle: "录入 Alberta 授标（APC）",
-  formNote: "只录入你在 Alberta Purchasing Connection（APC）上自己看到的授标公告。系统不会打开这个链接。录入后标为「待人工复核」，组织管理员确认属实后才进入统计、可比价格和历史中标者。",
-  buyerHint: "照公告原文填写；与项目里的采购方写法一致，系统才能把它们对上。",
-  scopeHint: "同类采购照公告标题写同一句，可比价格才算得上。",
+  formNote: "只录入你在 Alberta Purchasing Connection（APC）上亲眼看到的授标公告。系统只保存这个链接，不会自动访问它；复核的人会点开核对。录入后先列在下表、标为「待人工复核」，不计入金额、周期、可比价格和已确认的竞争对手；经人工确认属实后才计入（一般由组织管理员在下表确认）。",
+  collapsedNote: "把在 APC 上看到的中标结果录进来，经人工确认后计入统计。",
+  noticeGroup: "公告信息",
+  winnerGroup: "这个中标方",
+  buyerHint: "先从候选里选（本组织招标项目和已有授标里用过的写法）；候选里没有，再照公告上的采购机构原文填。大小写、标点、开头的 The 不影响匹配，其余要和项目里的采购方一字不差，系统才能对上。",
+  solicitationHint: "建议填写。同一采购方、同一中标方的不同招标靠编号区分，不填容易被当成疑似重复。",
+  amountHint: "一条公告有几个中标方就录几条；金额填这个中标方自己的合同金额。公告只给总额或预估值时留空。",
+  scopeHint: "写一句能反复用的采购内容，不带年份、编号、地点（例如 Snow removal services）。大小写和标点不影响；同一采购方、同一句、同一币种的已确认记录满 3 条，才会算出可比价格。",
+  clearNotice: "换一条公告（清空）",
   listSource: "人工录入 · APC 公告",
-  pendingStat: "待确认（AI 提取 / 人工录入）",
+  listSourceAria: "在新窗口打开 APC 公告",
+  pendingStat: "待确认（AI 提取 / 人工录入，不计入统计）",
+  duplicateStat: "疑似重复待裁决（不计入统计）",
+  adminHint: "你是组织管理员：「AI 提取·待确认」「待人工复核」（含人工录入）和「疑似重复」可以确认或撤回。人工录入的记录，确认前先点「人工录入 · APC 公告」打开原公告核对。填错的撤回后重录：项目结果回项目里重新标记，人工录入在上方表单重新录入。",
+  emptyManual: "在 APC 上看到的 Alberta 授标，也可以用上方「录入 Alberta 授标（APC）」直接录入，经人工确认后计入。",
+  hiddenByFilter: "已录入，但被当前筛选条件挡住了，清空筛选可以看到。",
+  forbidden: "你在本组织没有录入权限（需要成员及以上角色），请联系组织管理员。",
+  failed: "没有录入成功，请稍后再试。",
+  network: "网络出错，请稍后再试。",
+  submit: "录入",
+  submitting: "正在录入…",
+  tooLarge: "请求太大",
+  orgMissing: "组织不存在",
+  tooManyRetracted: "这条公告的这个中标方撤回过太多次，没有录入；请联系组织管理员。",
   flagOff: "组织授标情报尚未启用",
   missingBuyer: "请填写采购方。",
   missingWinner: "请填写中标方。",
   missingUrl: "请填写 APC 公告链接。",
   badUrl: "APC 公告链接要以 https://purchasing.alberta.ca/ 开头，并指向具体的公告。",
-  badDate: "授标日期要写成 年-月-日，且不能晚于今天。",
-  badAmount: "合同金额要是不小于 0 的数字，最多两位小数。",
+  badDate: "授标日期要写成 年-月-日，且在 1900 年到今天之间。",
+  badAmount: "合同金额只填数字（可以带千分位逗号和 $），不能为负，最多两位小数。",
   badCurrency: "币种只能是 CAD 或 USD。",
   tooLong: (field: string, max: number) => `${field}太长了（最多 ${max} 字）。`,
   created: "已录入，等组织管理员复核。",
   needsReview: "已录入；和已有的一条记录可能重复，等组织管理员裁决。",
-  attachedBySolicitation: "已有同一条授标（招标编号与中标方相同），这条公告链接已挂到那条记录上。",
-  attachedByDateAmount: "已有同一条授标（中标方、授标日期、金额都相同），这条公告链接已挂到那条记录上。",
-  alreadyEntered: "这条公告的这个中标方已经录过了。",
+  attachedBySolicitation: "已有同一条授标（招标编号与中标方相同），这条公告链接已挂到那条记录上。那条记录原有的内容和可信度不变（你这次填的没有写进去）；有出入请告诉组织管理员。",
+  attachedByDateAmount: "已有同一条授标（中标方、授标日期、金额都相同），这条公告链接已挂到那条记录上。那条记录原有的内容（含招标编号与采购方）和可信度不变（你这次填的没有写进去）；有出入请告诉组织管理员。",
+  alreadyEntered: "这条公告的这个中标方已经录过了（同一公告同一中标方只录一条；中了几个标段的请合成一条，金额合计或留空）。",
 } as const;
 
 export type ManualEntryInput = {
@@ -49,19 +68,25 @@ export type ManualEntryInput = {
   scopeSummary: string | null;
 };
 
+/** 出错时指向的字段（表单据此标出那一格） */
+export type ManualEntryField = "buyerName" | "winnerName" | "apcUrl" | "solicitationNumber" | "awardDate" | "contractAmount" | "currency" | "scopeSummary";
+
 export type ManualEntryParse =
   | { ok: true; value: ManualEntryInput }
-  | { ok: false; code: string; messageZh: string };
+  | { ok: false; code: string; field: ManualEntryField; messageZh: string };
 
-const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+/** 字符串去空白；数字按原样转成字符串（接口调用方传数字时不静默丢掉）；其余当没填 */
+const str = (v: unknown): string => (typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "");
 
 /**
  * APC 链接：先解析、再规整（去掉 # 之后、主机名小写、去掉路径末尾所有的 /），规整后才判。
  * 返回规整后的序列化结果（origin + pathname + search）；不合格返回 null。
  */
 export function normalizeApcUrl(raw: string): string | null {
-  const text = raw.trim();
+  let text = raw.trim();
   if (!text) return null;
+  // 只复制了主机名开头的（没有 https://）替人补上
+  if (/^purchasing\.alberta\.ca(\/|$)/i.test(text)) text = `https://${text}`;
   let u: URL;
   try {
     u = new URL(text);
@@ -74,21 +99,30 @@ export function normalizeApcUrl(raw: string): string | null {
   return `https://${APC_HOST}${path}${u.search}`;
 }
 
-/** 授标日期：真实存在的 YYYY-MM-DD（往返一致）且不晚于今天（UTC 日期 + 1 天容差） */
+/** 授标日期：真实存在的 YYYY-MM-DD（往返一致），不早于 1900-01-01，不晚于今天（按 UTC 日期，留一天时区余量，即不晚于 UTC 明天） */
 export function parseAwardDate(raw: string, now: Date): Date | null | "INVALID" {
   const text = raw.trim();
   if (!text) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "INVALID";
   const d = new Date(`${text}T00:00:00.000Z`);
   if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== text) return "INVALID";
+  if (d.getTime() < Date.UTC(1900, 0, 1)) return "INVALID";
   const latest = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + 24 * 3600 * 1000;
   if (d.getTime() > latest) return "INVALID";
   return d;
 }
 
+/**
+ * 合同金额：先 NFKC（全角数字与全角逗号变半角）、去掉开头的 $ 与空白；逗号只认千分位（1,234,567.89），
+ * 当小数点用的逗号（1234,56）不认，免得差 100 倍。
+ */
 function parseAmount(raw: unknown): number | null | "INVALID" {
   if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === "")) return null;
-  const text = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim().replace(/,/g, "") : "";
+  let text = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.normalize("NFKC").trim().replace(/^\$\s*/, "") : "";
+  if (/,/.test(text)) {
+    if (!/^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(text)) return "INVALID";
+    text = text.replace(/,/g, "");
+  }
   if (!/^\d+(\.\d{1,2})?$/.test(text)) return "INVALID";
   const n = Number(text);
   if (!Number.isFinite(n) || n < 0 || n > MANUAL_ENTRY_LIMITS.maxAmount) return "INVALID";
@@ -98,32 +132,32 @@ function parseAmount(raw: unknown): number | null | "INVALID" {
 /** 校验与规整表单；第一处错误返回那句话（顺序：采购方、中标方、链接、编号、日期、金额、币种、摘要） */
 export function parseManualEntry(body: unknown, now: Date): ManualEntryParse {
   const b = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
-  const fail = (code: string, messageZh: string): ManualEntryParse => ({ ok: false, code, messageZh });
+  const fail = (code: string, messageZh: string, field: ManualEntryField): ManualEntryParse => ({ ok: false, code, field, messageZh });
   const buyer = str(b.buyerName);
-  if (!buyer) return fail("MISSING_BUYER", MANUAL_ENTRY_TEXT.missingBuyer);
-  if (buyer.length > MANUAL_ENTRY_LIMITS.buyer) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("采购方", MANUAL_ENTRY_LIMITS.buyer));
+  if (!buyer) return fail("MISSING_BUYER", MANUAL_ENTRY_TEXT.missingBuyer, "buyerName");
+  if (buyer.length > MANUAL_ENTRY_LIMITS.buyer) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("采购方", MANUAL_ENTRY_LIMITS.buyer), "buyerName");
   const winner = str(b.winnerName);
-  if (!winner) return fail("MISSING_WINNER", MANUAL_ENTRY_TEXT.missingWinner);
-  if (winner.length > MANUAL_ENTRY_LIMITS.winner) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("中标方", MANUAL_ENTRY_LIMITS.winner));
+  if (!winner) return fail("MISSING_WINNER", MANUAL_ENTRY_TEXT.missingWinner, "winnerName");
+  if (winner.length > MANUAL_ENTRY_LIMITS.winner) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("中标方", MANUAL_ENTRY_LIMITS.winner), "winnerName");
   const rawUrl = str(b.apcUrl);
-  if (!rawUrl) return fail("MISSING_URL", MANUAL_ENTRY_TEXT.missingUrl);
+  if (!rawUrl) return fail("MISSING_URL", MANUAL_ENTRY_TEXT.missingUrl, "apcUrl");
   const url = normalizeApcUrl(rawUrl);
-  if (!url) return fail("BAD_URL", MANUAL_ENTRY_TEXT.badUrl);
-  if (url.length > MANUAL_ENTRY_LIMITS.url) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("APC 公告链接", MANUAL_ENTRY_LIMITS.url));
+  if (!url) return fail("BAD_URL", MANUAL_ENTRY_TEXT.badUrl, "apcUrl");
+  if (url.length > MANUAL_ENTRY_LIMITS.url) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("APC 公告链接", MANUAL_ENTRY_LIMITS.url), "apcUrl");
   const solicitation = str(b.solicitationNumber);
-  if (solicitation.length > MANUAL_ENTRY_LIMITS.solicitation) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("招标编号", MANUAL_ENTRY_LIMITS.solicitation));
+  if (solicitation.length > MANUAL_ENTRY_LIMITS.solicitation) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("招标编号", MANUAL_ENTRY_LIMITS.solicitation), "solicitationNumber");
   const date = parseAwardDate(str(b.awardDate), now);
-  if (date === "INVALID") return fail("BAD_DATE", MANUAL_ENTRY_TEXT.badDate);
+  if (date === "INVALID") return fail("BAD_DATE", MANUAL_ENTRY_TEXT.badDate, "awardDate");
   const amount = parseAmount(b.contractAmount);
-  if (amount === "INVALID") return fail("BAD_AMOUNT", MANUAL_ENTRY_TEXT.badAmount);
+  if (amount === "INVALID") return fail("BAD_AMOUNT", MANUAL_ENTRY_TEXT.badAmount, "contractAmount");
   let currency: ManualEntryCurrency | null = null;
   if (amount !== null) {
     const c = str(b.currency).toUpperCase() || "CAD";
-    if (!(MANUAL_ENTRY_CURRENCIES as readonly string[]).includes(c)) return fail("BAD_CURRENCY", MANUAL_ENTRY_TEXT.badCurrency);
+    if (!(MANUAL_ENTRY_CURRENCIES as readonly string[]).includes(c)) return fail("BAD_CURRENCY", MANUAL_ENTRY_TEXT.badCurrency, "currency");
     currency = c as ManualEntryCurrency;
   }
   const scope = str(b.scopeSummary);
-  if (scope.length > MANUAL_ENTRY_LIMITS.scope) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("范围摘要", MANUAL_ENTRY_LIMITS.scope));
+  if (scope.length > MANUAL_ENTRY_LIMITS.scope) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("范围摘要", MANUAL_ENTRY_LIMITS.scope), "scopeSummary");
   return {
     ok: true,
     value: { buyerName: buyer, winnerName: winner, apcUrl: url, solicitationNumber: solicitation || null, awardDate: date, contractAmount: amount, currency, scopeSummary: scope || null },

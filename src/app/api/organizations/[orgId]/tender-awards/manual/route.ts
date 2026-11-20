@@ -7,7 +7,8 @@
  * 记录与审计在同一事务。系统不打开、不请求这个链接（不访问 APC）。
  *
  * 判定顺序：未登录 401 → 不是本组织 org_member 以上的有效成员 403（平台超级管理员按既有规则，组织不存在 404）
- *   → 授标情报开关关 409（不访问授标表）→ 校验 400。
+ *   → 授标情报开关关 409（不访问授标表）→ 请求体超过 16 KB 400 → 校验 400 `{ error, code, field }`。
+ * 同一条公告的同一个中标方撤回超过 10 次后再录 → 409（不写库）。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -45,13 +46,29 @@ function summary(r: AwardRecordRow) {
   };
 }
 
+class RetractedChainTooLong extends Error {}
+
+/** 读请求体：先看声明的长度；没声明的边读边数，超过 16 KB 就停（不把整个请求读进内存）。不是 JSON 当作空表单 */
 async function readBody(request: NextRequest): Promise<unknown | "TOO_LARGE"> {
   const declared = Number(request.headers.get("content-length") ?? "");
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return "TOO_LARGE";
-  const text = await request.text().catch(() => "");
-  if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) return "TOO_LARGE";
+  const reader = request.body?.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  if (reader) {
+    for (;;) {
+      const { done, value } = await reader.read().catch(() => ({ done: true, value: undefined }));
+      if (done || !value) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return "TOO_LARGE";
+      }
+      chunks.push(Buffer.from(value));
+    }
+  }
   try {
-    return JSON.parse(text);
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
     return null;
   }
@@ -82,14 +99,14 @@ export async function POST(request: NextRequest, { params }: Params) {
   const auth = await requireOrgRole(request, orgId, "org_member");
   if (auth instanceof NextResponse) return auth;
   const org = await db.organization.findUnique({ where: { id: orgId }, select: { id: true } });
-  if (!org) return NextResponse.json({ error: "组织不存在" }, { status: 404 });
+  if (!org) return NextResponse.json({ error: MANUAL_ENTRY_TEXT.orgMissing }, { status: 404 });
   if (!isT4AwardSchemaReady()) return NextResponse.json({ error: MANUAL_ENTRY_TEXT.flagOff }, { status: 409 });
 
   const body = await readBody(request);
-  if (body === "TOO_LARGE") return NextResponse.json({ error: "请求太大", code: "TOO_LARGE" }, { status: 400 });
+  if (body === "TOO_LARGE") return NextResponse.json({ error: MANUAL_ENTRY_TEXT.tooLarge, code: "TOO_LARGE" }, { status: 400 });
   const now = new Date();
   const parsed = parseManualEntry(body, now);
-  if (!parsed.ok) return NextResponse.json({ error: parsed.messageZh, code: parsed.code }, { status: 400 });
+  if (!parsed.ok) return NextResponse.json({ error: parsed.messageZh, code: parsed.code, field: parsed.field }, { status: 400 });
   const v = parsed.value;
   const baseKey = manualApcSourceKey(v.apcUrl, normalizeVendorName(v.winnerName));
   const userId = auth.user.id;
@@ -132,16 +149,21 @@ export async function POST(request: NextRequest, { params }: Params) {
         }
         return { outcome, record: res.record };
       }
-      throw new Error(`retracted_chain_too_long:${baseKey}`);
+      throw new RetractedChainTooLong(baseKey);
     });
 
   let result: { outcome: ManualEntryOutcome; record: AwardRecordRow };
   try {
-    result = await run();
+    try {
+      result = await run();
+    } catch (err) {
+      // 两次同时提交撞上来源唯一约束：另一个已经写好，重读一次就是「已经录过」
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") result = await run();
+      else throw err;
+    }
   } catch (err) {
-    // 两次同时提交撞上来源唯一约束：另一个已经写好，重读一次就是「已经录过」
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") result = await run();
-    else throw err;
+    if (err instanceof RetractedChainTooLong) return NextResponse.json({ error: MANUAL_ENTRY_TEXT.tooManyRetracted, code: "RETRACTED_TOO_MANY" }, { status: 409 });
+    throw err;
   }
   return NextResponse.json({ outcome: result.outcome, record: summary(result.record), messageZh: manualEntryMessageZh(result.outcome) });
 }

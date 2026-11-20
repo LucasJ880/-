@@ -11,11 +11,11 @@
 
 ## 3. 页面
 
-- [x] 3.1 `src/app/(main)/projects/intelligence/awards/page.tsx`：表单（字段、说明、采购方候选与提示、范围提示、提交中禁用、结果一句、错误一句）、列表里的 `人工录入 · APC 公告` 链接、统计条「待确认（AI 提取 / 人工录入）」（verify：`award-manual-entry.test.ts` 源码断言逐字）
+- [x] 3.1 `src/components/tender-intel/award-manual-entry-form.tsx` 与 `src/app/(main)/projects/intelligence/awards/page.tsx`：表单（两组字段、说明、采购方与范围候选、四句提示、提交中禁用、结果一句、错误指向字段、录完保留公告信息）、列表里的 `人工录入 · APC 公告` 链接与范围摘要、统计条两个新名称、管理员提示与空状态、刚录的高亮（verify：`award-manual-entry.test.ts` 源码断言逐字）
 
 ## 4. 测试与门禁
 
 - [x] 4.1 新增 `src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`（含零外部请求计数），两个新测试登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`（verify：`NODE_ENV=test npx tsx …award-manual-entry-db.isolated.test.ts` 通过；`bash scripts/check-test-registry.sh` 通过）
-- [ ] 4.2 既有不改期望（verify：`awards.test.ts`、`awards-db.test.ts`、`award-dedupe-db.isolated.test.ts`、`award-review-db.isolated.test.ts`、`sourcing-suggestions-db.isolated.test.ts`、`import-leads-db.isolated.test.ts` 原样通过）
+- [x] 4.2 既有不改期望（verify：`awards.test.ts`、`awards-db.test.ts`、`award-dedupe-db.isolated.test.ts`、`award-review-db.isolated.test.ts`、`award-semantics.test.ts`、`sourcing-suggestions-db.isolated.test.ts`、`import-leads-db.isolated.test.ts` 原样通过；`awards-db.test.ts` 的 T4-DB-08 / 09 在 main 上同样失败（全量既有失败名单里的「T4 授标情报真实 Postgres 矩阵」），不是本次引入）
 - [ ] 4.3 全量门禁（verify：`npm test` 只有 main 上同样的既有失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate award-manual-entry-alberta --strict`；`git diff origin/main -- prisma/ vercel.json` 为空）
 - [ ] 4.4 写 `docs/QINGYAN_CHAIN-1b_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果；TASKFLOW 新增 CHAIN-1b 一行为 `[~]`）
