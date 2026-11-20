@@ -368,8 +368,9 @@ export function OrgAwardIntelSlots({
               )}
         </Slot>
 
-        <Slot slotKey="supply_chain" title="供应链情报" status={importLeads.state.kind === "hidden" ? (intel?.supplyChain.status ?? null) : null}>
-          {importLeads.state.kind === "hidden" ? (
+        {/* 读取中与开关关（接口 404）时与本功能之前完全相同：原来的规划占位句与状态徽标 */}
+        <Slot slotKey="supply_chain" title="供应链情报" status={importLeads.state.kind === "hidden" || importLeads.state.kind === "loading" ? (intel?.supplyChain.status ?? null) : null}>
+          {importLeads.state.kind === "hidden" || importLeads.state.kind === "loading" ? (
             empty("规划中：M3 海关数据源（Trade 域证据只读引用）接入后启用")
           ) : (
             <ImportLeadsSlotSummary state={importLeads.state} open={importLeadsOpen} onToggle={() => setImportLeadsOpen((v) => !v)} />
@@ -456,7 +457,7 @@ export function OrgAwardIntelSlots({
       </div>
       {importLeadsOpen && projectId && importLeads.state.kind === "ok" ? (
         <div className="mt-3">
-          <ImportLeadsPanel projectId={projectId} view={importLeads.state.view} onView={importLeads.setView} />
+          <ImportLeadsPanel projectId={projectId} view={importLeads.state.view} onView={importLeads.setView} onClose={() => setImportLeadsOpen(false)} />
         </div>
       ) : null}
     </section>

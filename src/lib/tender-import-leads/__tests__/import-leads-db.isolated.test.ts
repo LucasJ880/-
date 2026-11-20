@@ -123,7 +123,13 @@ async function main() {
     ok((await get(p1)).status === 404 && (await doImport(p1, { text: CSV })).status === 404, "开关关闭：读与导入都是 404");
     process.env.TENDER_IMPORT_LEADS_ENABLED = "1";
 
-    // —— 2. 没有可比对的中标者：不导入 ——
+    // —— 2. 没有可比对的中标者：不导入（授标记录没接通 / 项目没有采购方 / 只有我方结果）——
+    delete process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY;
+    const offT4 = await doImport(p1, { text: CSV });
+    process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY = "1";
+    const pNoBuyer = await mkProject(null);
+    const noBuyer = await doImport(pNoBuyer, { text: CSV });
+    ok(offT4.status === 422 && offT4.json.error === "授标记录还没有接通，没法比对历史中标者（请联系管理员开启）。" && noBuyer.status === 422 && noBuyer.json.error === "项目没有采购方名称，没法找历史中标者。" && (await leadSignals(p1)).length === 0, "授标记录没接通、项目没有采购方：422，不导入", [offT4.json, noBuyer.json]);
     await mkAward("Only Own Buyer", "Sunny Fixture Inc.");
     const pNone = await mkProject("only own buyer");
     const none = await doImport(pNone, { text: CSV });
@@ -148,7 +154,12 @@ async function main() {
     ok(v1.winners.status === "ok" && [...v1.winners.names].sort().join("|") === "Boreal Outfitters Ltd.|Northfield Pest Supply Inc.", "历史中标者：两家他人（剔除我方中标与我方结果回灌）", v1.winners);
     ok(v1.exporters.length === 1 && v1.exporters[0].exporterName === "Ningbo Bedding Co., Ltd." && v1.exporters[0].shipments === 2 && v1.exporters[0].last12Months === 2 && v1.exporters[0].latestDate === "2026-10-01" && v1.exporters[0].sharedKeywords.includes("encasement") && v1.leadCount === 2, "汇总：挂上的 Ningbo 两票（规整后同名算一家），品名共有关键词", v1.exporters);
     ok(v1.suggestions.length === 2 && v1.suggestions.some((s) => s.importerName === "Northfield Pest Supply" && s.winnerName === "Northfield Pest Supply Inc." && s.basisZh === "只差公司后缀" && s.recordCount === 1), "待裁决：两对疑似同一家（写明依据与条数）", v1.suggestions);
-    ok(v1.caveatZh === "历史进口关联只是寻源线索：不代表独家、不代表当前供货，也不代表对方的投标价。" && v1.sourceNotesZh[0] === "授权贸易 / 提单数据：未接通。这不表示没有记录，而是没有查。" && v1.canEdit === true, "视图带线索说明、来源情况、canEdit");
+    ok(v1.caveatZh === "历史进口关联只是寻源线索：不代表独家、不代表当前供货，也不代表对方的投标价。" && v1.sourceNotesZh[0] === "授权贸易 / 提单数据：未接通。这不表示没有记录，而是没有查。" && v1.canEdit === true && v1.storedLeadCount === 4, "视图带线索说明、来源情况、canEdit、存着的条数");
+    const keys = new Set<string>();
+    const walk = (x: unknown) => { if (Array.isArray(x)) x.forEach(walk); else if (x && typeof x === "object") for (const [k, y] of Object.entries(x)) { keys.add(k); walk(y); } };
+    walk(r1.json);
+    walk((await get(p1)).json);
+    ok(![...keys].some((k) => /recommend|price|cost|margin|bid|score|rank/i.test(k)), "真实的导入与读取响应：各层的键里没有推荐、价格、成本、毛利、投标价", [...keys]);
 
     // —— 4. 再导入一次：全部跳过重复 ——
     const r2 = await doImport(p1, { text: CSV, sourceLabel: "ImportYeti 查询" });
@@ -164,7 +175,13 @@ async function main() {
     const r3 = await doImport(p1, { text: "Importer,Exporter,URL\nBoreal Outfitters,Fuzhou New Gear,https://example.test/bol/9\n" });
     ok(r3.status === 200 && r3.json.result?.imported === 0 && r3.json.result?.unrelated === 1, "否决过的一对再导入：按无关处理，没有导入", r3.json.result);
     const again = await decide(p1, { pairKey: pairNorth, decision: "REJECTED" });
-    ok(again.status === 409 && again.json.error === "这一对已经有人裁决过了，已刷新。", "已裁决的一对再裁决：409", again);
+    ok(again.status === 409 && again.json.error === "同事已经处理过这一对，页面已更新。", "已裁决的一对再裁决：409", again);
+    const stray = await decide(p1, { pairKey: "nobody ⇄ nothing", decision: "CONFIRMED" });
+    ok(stray.status === 404 && stray.json.error === "这一对已不需要确认。", "不在本项目待裁决列表里的一对：404", stray);
+    // 裁决对本组织所有项目生效：另一个同采购方的项目里同样一对直接算挂上
+    const pOther = await mkProject(BUYER);
+    const otherImp = await doImport(pOther, { text: "Importer,Exporter,URL\nNorthfield Pest Supply,Guangzhou Sheets,https://example.test/o/1\n" });
+    ok(otherImp.json.result?.matched === 1 && otherImp.json.view?.suggestions.length === 0 && otherImp.json.view?.exporters[0]?.exporterName === "Guangzhou Sheets", "在别的项目确认过的一对：这个项目里直接挂上、不再要确认", otherImp.json);
     const aliasAudits = await db.auditLog.findMany({ where: { orgId: ORG, action: "tender.import_lead_alias_decided" } });
     const ad = JSON.parse(aliasAudits[0]?.afterData ?? "{}") as Record<string, unknown>;
     ok(aliasAudits.length === 2 && aliasAudits.every((a) => a.targetType === "import_lead_alias" && a.targetId?.startsWith("alias:") && a.userId === OWNER) && typeof ad.decidedAt === "string" && ad.decidedBy === OWNER, "裁决审计各一条：两个名称、裁决、裁决人、时间", aliasAudits.map((a) => a.afterData));
@@ -188,7 +205,26 @@ async function main() {
     const a3 = await addSupplier(p1, hzKey);
     ok(a3.status === 200 && a3.json.result?.supplier.created === false && a3.json.result.supplier.id === existing.id && a3.json.result.messageZh === "供应商库里已有「HANGZHOU TENT FACTORY」，已关联，没有新建。", "库里已有同名的：关联它，不新建", a3.json.result);
     const notIn = await addSupplier(p1, "not a key");
-    ok(notIn.status === 404, "不在本项目汇总里的出口商：404");
+    ok(notIn.status === 404 && notIn.json.error === "这家出口商不在本项目的进口线索汇总里。", "不在本项目汇总里的出口商：404");
+    // 加入之后又导入了同一家的新记录：还能「关联新导入的」，关联到同一家，不新建
+    const more = await doImport(p1, { text: "Importer,Exporter,Date,URL\nNorthfield Pest Supply Inc.,Ningbo Bedding Co Ltd,2026-11-01,https://example.test/bol/7\n" });
+    const ningboRow = more.json.view?.exporters.find((e) => e.exporterKey === ningboKey);
+    const a4 = await addSupplier(p1, ningboKey);
+    ok(more.json.result?.imported === 1 && ningboRow?.unlinkedLeads === 1 && a4.json.result?.supplier.id === created?.id && a4.json.result?.linkedLeads === 1 && a4.json.view?.exporters.find((e) => e.exporterKey === ningboKey)?.unlinkedLeads === 0, "新导入的同一家：还有 1 条没关联，再点一次关联到同一家", { ningboRow, a4: a4.json.result });
+    // 同名的几种写法与挑选规则：「&」与「and」；只有停用的那家；在用且有邮箱的优先
+    await db.supplier.create({ data: { orgId: ORG, name: "P&G Trading Ltd", status: "active", createdById: OWNER } });
+    const dalianOld = await db.supplier.create({ data: { orgId: ORG, name: "Dalian Cots Co.", status: "inactive", contactEmail: "x@dalian.test", createdById: OWNER } });
+    await db.supplier.create({ data: { orgId: ORG, name: "SHANGHAI LINEN MILL", status: "inactive", contactEmail: "a@sh.test", createdById: OWNER } });
+    const shActive = await db.supplier.create({ data: { orgId: ORG, name: "Shanghai Linen Mill", status: "active", contactEmail: "b@sh.test", createdById: OWNER } });
+    await db.supplier.create({ data: { orgId: ORG, name: "Shanghai  Linen  Mill", status: "active", createdById: OWNER } });
+    const imp4 = await doImport(p1, { text: "Importer,Exporter,URL\nNorthfield Pest Supply Inc.,P and G Trading Ltd,https://example.test/s/1\nNorthfield Pest Supply Inc.,Dalian Cots Co,https://example.test/s/2\nNorthfield Pest Supply Inc.,Shanghai Linen Mill,https://example.test/s/3\n" });
+    const keyOf = (name: string) => imp4.json.view!.exporters.find((e) => e.exporterName === name)!.exporterKey;
+    const pg = await addSupplier(p1, keyOf("P and G Trading Ltd"));
+    const dl = await addSupplier(p1, keyOf("Dalian Cots Co"));
+    const sh = await addSupplier(p1, keyOf("Shanghai Linen Mill"));
+    ok(pg.json.result?.supplier.created === false && dl.json.result?.supplier.id === dalianOld.id && dl.json.result.messageZh === "供应商库里已有「Dalian Cots Co.」，已关联，没有新建。它已停用，要发询价请先在供应商页启用。" && sh.json.result?.supplier.id === shActive.id, "同名：「P&G」与「P and G」算同一家；只有停用的那家照实说；几家同名时取在用且有邮箱的", [pg.json.result, dl.json.result, sh.json.result]);
+    const memberAdd = await addSupplier(p1, keyOf("Shanghai Linen Mill"), await cookieOf(MEMBER));
+    ok(memberAdd.status === 403, "只读成员加入供应商库：403", memberAdd.status);
     const vAfter = await get(p1);
     ok(vAfter.json.exporters.find((e) => e.exporterKey === ningboKey)?.supplier?.hasEmail === false && vAfter.json.exporters.find((e) => e.exporterKey === hzKey)?.supplier?.hasEmail === true, "汇总里写明供应商库状态与有无邮箱", vAfter.json.exporters.map((e) => e.supplier));
 
@@ -204,7 +240,8 @@ async function main() {
     const importAudits = await db.auditLog.findMany({ where: { orgId: ORG, projectId: p1, action: "tender.import_leads_imported" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
     const supAudits = await db.auditLog.findMany({ where: { orgId: ORG, action: "tender.import_lead_supplier_added" } });
     const ia = JSON.parse(importAudits[0]?.afterData ?? "{}") as Record<string, unknown>;
-    ok(importAudits.length === 3 && ia.imported === 4 && ia.sourceLabel === "ImportYeti 查询" && typeof ia.batchId === "string" && supAudits.length >= 3 && !supAudits.some((a) => (a.afterData ?? "").includes("@")) && !importAudits.some((a) => (a.afterData ?? "").includes("example.test")), "导入、加入供应商库各有审计；不记联系方式与运单原文", { ia, sup: supAudits.map((a) => a.afterData) });
+    const sa = supAudits.map((a) => JSON.parse(a.afterData ?? "{}") as Record<string, unknown>).find((x) => x.created === true);
+    ok(importAudits.length === 5 && ia.imported === 4 && ia.sourceLabel === "ImportYeti 查询" && typeof ia.batchId === "string" && supAudits.length >= 6 && !!sa && sa.exporterName === "Ningbo Bedding Co., Ltd." && sa.linkedLeads === 2 && typeof sa.supplierId === "string" && !supAudits.some((a) => (a.afterData ?? "").includes("@")) && !importAudits.some((a) => (a.afterData ?? "").includes("example.test")), "导入、加入供应商库各有审计（供应商、是否新建、出口商、关联条数）；不记联系方式与运单原文", { ia, sa });
 
     // —— 9. 权限 ——
     const outRead = await get(p1, await cookieOf(OUTSIDER));

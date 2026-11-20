@@ -17,6 +17,8 @@ TI-3a 已有进口线索的契约（`LEAD_UNVERIFIED` 只能人工用 12 个月�
 - 新增确定性汇总：按出口商列出票数、近 12 个月票数、最近一票日期、是否超过 12 个月、品名与本标已确认要求的关键词重合、对应哪个中标者；按近 12 个月票数排序；不调模型、不打「推荐」标签。
 - 新增「加入供应商库」：一键为出口商建供应商（来源 `trade_data`；同名已在库里的按固定规则关联一家，已停用的照实说）；线索经既有的「关联供应商」流程关联过去；提单数据通常没有邮箱，缺邮箱就停在这一步、提示去补，系统不去网上找邮箱。建好后出现在询价入口的供应商列表里。
 - 修改其它页面的显示：供应商来源 `trade_data` 显示为「进口线索」（供应商页、列表、筛选）；这类线索在供应链页的信号列表里显示平台「进口记录（人工导入）」，不带「找厂优先级」。
+- 修改供应商页：能直接补上 / 修改联系邮箱、启用已停用的供应商（加入供应商库之后要补邮箱，原来详情页只能改评分）。
+- 限定规模：每个项目最多 5000 条进口记录；每个名称只规整一次，大批量时比对仍在几秒内。
 - 修改情报页签「供应链情报」槽：开关打开时从规划占位改为真实内容（线索摘要 + 展开的导入与汇总面板）。
 
 ## 受影响的 Muse 意图
@@ -30,7 +32,7 @@ TI-3a 已有进口线索的契约（`LEAD_UNVERIFIED` 只能人工用 12 个月�
 - 为出口商画像或调模型（判断点 7 B）。
 - 去网上找出口商的邮箱或联系方式。
 - 把线索升级为「已确认当前供货」的界面（TI-3a 的 `confirmCurrentSupply` 规则不变，本次不做入口）。
-- 自动把进口线索的供应商并进自动起草的收件人（判断点 4 B 的条件是「首选 / 备选、强制闸通过」：他们照旧要先在供应链页评估，才可能经 CHAIN-2 的情报推荐进入）。**与任务书验收项的出入**：任务书写「加入供应商库并补邮箱后，下一次起草询价的卡上它出现在收件人里，来源写『进口线索』」——本次做到的是：它出现在询价入口的供应商列表里、来源显示「进口线索」，人勾选后进卡；自动起草不自动加它（见 design D4b）。
+- 自动把进口线索的供应商并进自动起草的收件人（判断点 4 B 的条件是「首选 / 备选、强制闸通过」：他们照旧要先在供应链页评估，才可能经 CHAIN-2 的情报推荐进入）。**与任务书验收项的出入**：任务书写「加入供应商库并补邮箱后，下一次起草询价的卡上它出现在收件人里，来源写『进口线索』」——本次做到的是：它出现在询价入口的供应商列表里（补上邮箱后可选；询价入口本身不显示来源，供应商页显示「进口线索」），人勾选后进卡；自动起草不自动加它（见 design D4b）。
 - 投标准备度「进口线索」阶段的判定（`tender-bid-readiness/stage-policy.ts`）。
 
 ## Capabilities
@@ -46,5 +48,5 @@ TI-3a 已有进口线索的契约（`LEAD_UNVERIFIED` 只能人工用 12 个月�
 ## Impact
 
 - 新增：`src/lib/tender-import-leads/`（开关、解析、数据源接口、匹配与汇总纯函数、服务）；`src/app/api/projects/[id]/tender-intel/import-leads/`（读 / 导入、别名裁决、加入供应商库三个接口）；`src/components/tender-intel/import-leads-panel.tsx`。
-- 修改：`src/lib/tender-intel/sourcing-suggestions.ts`（把「本采购方的他人授标、剔除我方结果」导出为 `listOthersAwardsForBuyer`，寻源建议与本功能共用，行为不变）、`src/lib/supplier-intel/constants.ts`（`SIGNAL_PLATFORMS` 加 `TRADE_DATA`）、`src/lib/supplier-intel/workspace-labels.ts`（平台名称）、`src/lib/supplier-intel/discovery-priority-service.ts`（这类线索不算找厂优先级）、`src/lib/inquiry/types.ts` 与 `src/app/(main)/suppliers/` 下四处来源名称表（`trade_data`「进口线索」）、`src/components/tender-intel/org-award-intel-slots.tsx`（供应链槽）。
+- 修改：`src/app/(main)/suppliers/[id]/page.tsx`（补邮箱、启用）、`src/lib/tender-intel/sourcing-suggestions.ts`（把「本采购方的他人授标、剔除我方结果」导出为 `listOthersAwardsForBuyer`，寻源建议与本功能共用，行为不变）、`src/lib/supplier-intel/constants.ts`（`SIGNAL_PLATFORMS` 加 `TRADE_DATA`）、`src/lib/supplier-intel/workspace-labels.ts`（平台名称）、`src/lib/supplier-intel/discovery-priority-service.ts`（这类线索不算找厂优先级）、`src/lib/inquiry/types.ts` 与 `src/app/(main)/suppliers/` 下四处来源名称表（`trade_data`「进口线索」）、`src/components/tender-intel/org-award-intel-slots.tsx`（供应链槽）。
 - 不新增依赖；零 schema（信号与供应商用既有表，线索明细进 `SupplierDiscoverySignal.rawMetadataJson`，别名裁决进 `AuditLog`）。

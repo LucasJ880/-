@@ -1,13 +1,13 @@
 /**
  * CHAIN-3 进口记录的解析与逐条校验（纯函数，零 DB / 零网络 / 零模型）
  *
- * - 逗号分隔复用 procurement-records 的 RFC 4180 解析；表头一行含制表符时按制表符逐行拆（从表格直接复制出来的样子）。
+ * - RFC 4180（引号、转义引号、引号里换行、CRLF、BOM）；表头一行含制表符时按制表符拆（从表格直接复制出来的样子，
+ *   表格软件对含换行的单元格同样加引号），否则按逗号拆。整行都是空白的不算记录。
  * - 表头按别名整格匹配（不按前缀猜：`shipper` 不该误中 `Shipper Address`）；同一种列认出两列 → 整批不导入。
  * - 日期缺省只认年在前的写法；这一批选了「月/日/年」「日/月/年」才按所选读——不猜。
  * - 「第 N 条记录」= 表头下面第 N 条（空行不算；引号里换行时行号对不上，所以不说「第 N 行」）。
  */
 
-import { parseCsv } from "@/lib/procurement-records/sources-pure";
 import { normalizeCompanyName } from "@/lib/tender-competition/company-identity";
 
 export const IMPORT_MAX_RECORDS = 500;
@@ -20,13 +20,13 @@ export const SOURCE_LABEL_MAX_CHARS = 200;
 
 export const DATE_ORDERS = ["YMD", "MDY", "DMY"] as const;
 export type DateOrder = (typeof DATE_ORDERS)[number];
-export const DATE_ORDER_ZH: Record<DateOrder, string> = { YMD: "年在前（缺省）", MDY: "月/日/年（美国网站常用）", DMY: "日/月/年" };
+export const DATE_ORDER_ZH: Record<DateOrder, string> = { YMD: "年在前（默认）", MDY: "月/日/年（美国网站常用）", DMY: "日/月/年" };
 
 export const IMPORT_COLUMNS = {
-  importer: { zh: "进口商", aliases: ["进口商", "importer", "consignee"] },
-  exporter: { zh: "出口商", aliases: ["出口商", "exporter", "shipper", "supplier"] },
-  date: { zh: "日期", aliases: ["日期", "date", "arrival date", "shipment date"] },
-  goods: { zh: "品名", aliases: ["品名", "goods", "product", "description"] },
+  importer: { zh: "进口商", aliases: ["进口商", "importer", "importer name", "consignee", "consignee name"] },
+  exporter: { zh: "出口商", aliases: ["出口商", "exporter", "exporter name", "shipper", "shipper name", "supplier", "supplier name"] },
+  date: { zh: "日期", aliases: ["日期", "date", "arrival date", "shipment date", "bill of lading date"] },
+  goods: { zh: "品名", aliases: ["品名", "goods", "goods description", "product", "product description", "description"] },
   quantity: { zh: "数量", aliases: ["数量", "quantity", "qty"] },
   sourceUrl: { zh: "来源网址", aliases: ["来源网址", "source url", "url", "link"] },
 } as const;
@@ -35,6 +35,9 @@ const COLUMN_ORDER: ImportColumn[] = ["importer", "exporter", "date", "goods", "
 
 export const IMPORT_COLUMNS_HINT_ZH =
   "把表格里的记录连同表头一起粘贴进来（逗号或制表符分隔）。需要的列：进口商、出口商；可选：日期、品名、数量、来源网址。";
+/** 表头能写成哪些名字（导入框下方与缺列时说明） */
+export const IMPORT_HEADER_NAMES_ZH =
+  "表头可写：进口商（Importer / Consignee）、出口商（Exporter / Shipper / Supplier）、日期（Date / Arrival Date）、品名（Goods / Product / Description）、数量（Quantity / Qty）、来源网址（URL / Link）。";
 
 export type BatchFailure =
   | { code: "EMPTY"; messageZh: string }
@@ -45,7 +48,8 @@ export type BatchFailure =
 
 export const BATCH_TEXT = {
   empty: "没有可导入的内容。",
-  missing: (cols: string[]) => `缺少必需的列：${cols.join("、")}。请连同表头一起粘贴。`,
+  missing: (cols: string[], pasted: readonly string[]) =>
+    `缺少必需的列：${cols.join("、")}。${IMPORT_HEADER_NAMES_ZH}你贴的表头是：${pasted.filter((h) => h.trim()).slice(0, 12).join("、") || "（空）"}。`,
   duplicate: (col: string, a: string, b: string) => `表头里有两列都是「${col}」：${a}、${b}。请删掉一列再贴。`,
   tooMany: (n: number) => `一次最多导入 ${IMPORT_MAX_RECORDS} 条记录，这次有 ${n} 条。`,
   tooLarge: "内容太长（超过 200 KB），请分批导入。",
@@ -65,7 +69,7 @@ export type ParsedRecord = {
   quantityRaw: string | null;
   /** 原文（最多 2048 字）；不打开它 */
   sourceUrlRaw: string | null;
-  /** 只有 http(s) 网址才给链接，否则 null（原文仍留在 sourceUrlRaw） */
+  /** 只有 http(s) 且不超过 2048 字的网址才给链接，否则 null（原文前 2048 字仍留在 sourceUrlRaw） */
   sourceUrlLink: string | null;
   evidenceRef: string;
   dedupeKey: string;
@@ -90,7 +94,8 @@ function realDay(y: number, m: number, d: number): string | null {
 
 /** 年在前的三种写法恒认；斜杠 / 点 / 连字符分隔的「x/x/年」只在这一批选了月日顺序时才认 */
 export function parseShipmentDate(raw: string, order: DateOrder): string | null {
-  const s = raw.trim();
+  // 表格导出常带的「 0:00」时间去掉；两位年份不认（分不清世纪）
+  const s = raw.trim().replace(/[ T]\d{1,2}:\d{2}(:\d{2})?(\s?[ap]m)?$/i, "");
   const ymd = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (ymd) return realDay(Number(ymd[1]), Number(ymd[2]), Number(ymd[3]));
   const xxy = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
@@ -114,20 +119,54 @@ export function importDedupeKey(r: { importer: string; exporter: string; shipmen
   return [normalizeCompanyName(r.importer), normalizeCompanyName(r.exporter), r.shipmentDate ?? "", normText(r.goods), normText(r.quantityRaw), normText(r.sourceUrlRaw)].join("|");
 }
 
-function splitRows(text: string): string[][] {
-  const body = text.replace(/^﻿/, "");
-  const firstLine = body.split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";
-  if (firstLine.includes("\t")) {
-    return body
-      .split(/\r?\n/)
-      .filter((l) => l.trim().length > 0)
-      .map((l) => l.split("\t"));
+/** RFC 4180：引号、转义引号、引号里的换行、CRLF；分隔符可选（逗号或制表符）。整行都是空白的行丢掉。 */
+export function parseDelimited(text: string, delimiter: "," | "\t"): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  const push = () => {
+    row.push(field);
+    field = "";
+  };
+  const endRow = () => {
+    push();
+    if (row.some((v) => v.trim().length > 0)) rows.push(row);
+    row = [];
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else inQuotes = false;
+      } else field += c;
+      continue;
+    }
+    if (c === '"' && field.trim() === "") {
+      field = "";
+      inQuotes = true;
+    } else if (c === delimiter) push();
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      endRow();
+    } else field += c;
   }
-  return parseCsv(body);
+  if (field.length > 0 || row.length > 0) endRow();
+  return rows;
 }
 
-function todayUtc(now: Date): string {
-  return now.toISOString().slice(0, 10);
+function splitRows(text: string): string[][] {
+  const body = text.replace(/^\uFEFF/, "");
+  const firstLine = body.split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";
+  return parseDelimited(body, firstLine.includes("\t") ? "\t" : ",");
+}
+
+/** 「在未来」的界线：UTC 今天再加一天（中国、加拿大的「今天」都不会被误判成未来） */
+function latestAllowedDay(now: Date): string {
+  return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 export function parseImportText(text: string, opts: { sourceLabel?: string | null; dateOrder?: DateOrder | null; now: Date }): ParseResult {
@@ -147,14 +186,14 @@ export function parseImportText(text: string, opts: { sourceLabel?: string | nul
     if (hits.length === 1) index[col] = hits[0];
   }
   const missing = (["importer", "exporter"] as const).filter((c) => index[c] === undefined).map((c) => IMPORT_COLUMNS[c].zh);
-  if (missing.length) return { ok: false, code: "MISSING_COLUMNS", messageZh: BATCH_TEXT.missing(missing), columns: missing };
+  if (missing.length) return { ok: false, code: "MISSING_COLUMNS", messageZh: BATCH_TEXT.missing(missing, header), columns: missing };
 
   const data = rows.slice(1);
   if (data.length > IMPORT_MAX_RECORDS) return { ok: false, code: "TOO_MANY", messageZh: BATCH_TEXT.tooMany(data.length) };
 
   const order: DateOrder = opts.dateOrder && (DATE_ORDERS as readonly string[]).includes(opts.dateOrder) ? opts.dateOrder : "YMD";
   const label = opts.sourceLabel?.trim().slice(0, SOURCE_LABEL_MAX_CHARS) || null;
-  const today = todayUtc(opts.now);
+  const latestDay = latestAllowedDay(opts.now);
   const cell = (row: string[], col: ImportColumn) => {
     const i = index[col];
     return i === undefined ? "" : (row[i] ?? "").trim();
@@ -183,7 +222,7 @@ export function parseImportText(text: string, opts: { sourceLabel?: string | nul
     if (dateRaw) {
       shipmentDate = parseShipmentDate(dateRaw, order);
       if (!shipmentDate) return problem("DATE_INVALID", dateRaw.slice(0, 40));
-      if (shipmentDate > today) return problem("DATE_FUTURE", dateRaw.slice(0, 40));
+      if (shipmentDate > latestDay) return problem("DATE_FUTURE", dateRaw.slice(0, 40));
     }
     const sourceUrlRaw = urlRaw ? urlRaw.slice(0, URL_MAX_CHARS) : null;
     const evidenceRef = sourceUrlRaw ?? (label ? `${label} · 第 ${recordNo} 条记录` : null);
@@ -197,7 +236,8 @@ export function parseImportText(text: string, opts: { sourceLabel?: string | nul
       goods: goodsRaw || null,
       quantityRaw: qtyRaw ? qtyRaw.slice(0, QUANTITY_MAX_CHARS) : null,
       sourceUrlRaw,
-      sourceUrlLink: isHttpUrl(sourceUrlRaw) ? sourceUrlRaw : null,
+      // 用没截断的原文判断：超过 2048 字的不当链接（截断后的网址是坏的）
+      sourceUrlLink: isHttpUrl(urlRaw || null) ? urlRaw : null,
       evidenceRef,
     };
     const dedupeKey = importDedupeKey(rec);
@@ -218,7 +258,7 @@ const PROBLEM_ZH: Record<RecordProblemCode, (example?: string, many?: boolean) =
   IMPORTER_MISSING: () => "缺少进口商",
   EXPORTER_MISSING: () => "缺少出口商",
   DATE_INVALID: (ex, many) => `日期「${ex ?? ""}」${many ? "等" : ""}认不出（请写成年在前，或为这一批选日期写法）`,
-  DATE_FUTURE: () => "日期在未来",
+  DATE_FUTURE: () => "日期在未来（可能选错了日期写法）",
   EVIDENCE_MISSING: () => "缺少来源网址，也没有填来源说明",
   NAME_TOO_LONG: () => `名称超过 ${NAME_MAX_CHARS} 字`,
   GOODS_TOO_LONG: () => `品名超过 ${GOODS_MAX_CHARS} 字`,

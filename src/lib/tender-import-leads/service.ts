@@ -21,7 +21,7 @@ import { createImportLead, type ImportLead } from "@/lib/tender-competition/impo
 import { decideAlias, normalizeCompanyName, type AliasDecision } from "@/lib/tender-competition/company-identity";
 import { groupProblems, type DateOrder, type GroupedProblem } from "./parse";
 import { importLeadSourceNotesZh, manualPasteProvider } from "./provider";
-import { candidatePairKeys, matchImporter, uniqueWinnerNames } from "./match-pure";
+import { candidatePairKeys, createImporterMatcher, uniqueWinnerNames } from "./match-pure";
 import {
   IMPORT_LEADS_TEXT,
   aggregateByExporter,
@@ -41,8 +41,8 @@ export const IMPORT_LEAD_ALIAS_AUDIT_ACTION = "tender.import_lead_alias_decided"
 export const IMPORT_LEAD_SUPPLIER_AUDIT_ACTION = "tender.import_lead_supplier_added";
 export const IMPORT_LEAD_ALIAS_TARGET = "import_lead_alias";
 export const TRADE_DATA_SUPPLIER_SOURCE = "trade_data";
-/** 一个项目最多读回这么多条进口线索（够 4 批满额导入） */
-const MAX_PROJECT_LEADS = 2000;
+/** 一个项目最多存这么多条进口记录（10 批满额导入）；到了上限拒绝再导入，读视图也只到这么多 */
+export const MAX_PROJECT_LEADS = 5000;
 const EVIDENCE_BACKED = new Set(["HUMAN_CONFIRMED", "SYSTEM_VERIFIED"]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -166,13 +166,14 @@ type Classified = {
   suggestions: PendingSuggestionView[];
 };
 
-/** 按当前中标者与最新裁决给每条线索归类（在供应链页被驳回的不算） */
+/** 按当前中标者与最新裁决给每条线索归类（在供应链页被驳回的不算）；同一个进口商只比一次 */
 function classify(signals: readonly LeadSignal[], winners: readonly string[], decisions: readonly AliasDecision[]): Classified {
   const matched: Classified["matched"] = [];
   const pending = new Map<string, PendingSuggestionView>();
+  const match = createImporterMatcher(winners, decisions);
   for (const s of signals) {
     if (s.status === "REJECTED") continue;
-    const m = matchImporter(s.meta.importerRaw, winners, decisions);
+    const m = match(s.meta.importerRaw);
     if (m.status === "MATCHED") matched.push({ ...s, winners: m.winners });
     else if (m.status === "SUGGESTED") {
       for (const sg of m.suggestions) {
@@ -210,6 +211,7 @@ async function loadProjectState(orgId: string, projectId: string, now: Date): Pr
     goods: s.meta.lead.goodsDescription,
     winners: s.winners,
     linkedSupplier: s.linkedSupplier,
+    linkable: !s.linkedSupplier && (s.status === "NEW" || s.status === "REVIEWED"),
   }));
   return { project: { clientOrganization: project?.clientOrganization ?? null }, winners, signals, decisions, classified, exporters: aggregateByExporter(leads, { now, requirementTexts }) };
 }
@@ -223,6 +225,7 @@ function toView(state: ProjectState, canEdit: boolean): ImportLeadsView {
     suggestions: state.classified.suggestions,
     exporters: state.exporters,
     leadCount: state.classified.matched.length,
+    storedLeadCount: state.signals.filter((s) => s.status !== "REJECTED").length,
     canEdit,
   };
 }
@@ -234,6 +237,8 @@ export async function loadImportLeadsView(input: { orgId: string; projectId: str
 /* ---------------------------------- 导入 ---------------------------------- */
 
 export type ImportResult = {
+  totalRecords: number;
+  problemRecords: number;
   imported: number;
   matched: number;
   suggested: number;
@@ -267,33 +272,41 @@ export async function importLeads(input: {
   const counts = { imported: 0, matched: 0, suggested: 0, existing: 0, unrelated: 0 };
   const unrelatedNames: string[] = [];
 
-  await db.$transaction(
+  // 比对在事务外做（只吃这一批的进口商与这几对的裁决；事务里只查重与写入）
+  const decisions = await loadDecisions(db, input.orgId, candidatePairKeys(parsed.records.map((r) => r.importer), winners.names));
+  const match = createImporterMatcher(winners.names, decisions);
+  const candidates: Array<{ record: (typeof parsed.records)[number]; status: "MATCHED" | "SUGGESTED" }> = [];
+  for (const r of parsed.records) {
+    const m = match(r.importer);
+    if (m.status === "UNRELATED") {
+      counts.unrelated += 1;
+      if (unrelatedNames.length < 10 && !unrelatedNames.some((n) => normalizeCompanyName(n) === normalizeCompanyName(r.importer))) unrelatedNames.push(r.importer);
+      continue;
+    }
+    candidates.push({ record: r, status: m.status });
+  }
+
+  const capHit = await db.$transaction(
     async (tx) => {
       // 连点两次导入：第二次等第一次写完再查重，不会写出重复
       await advisoryLock(tx, `import-leads:${input.orgId}:${input.projectId}`);
-      const existing = new Set((await loadLeadSignals(tx, input.orgId, input.projectId)).map((s) => s.meta.dedupeKey));
-      const decisions = await loadDecisions(tx, input.orgId, candidatePairKeys(parsed.records.map((r) => r.importer), winners.names));
+      const keys = candidates.map((c) => c.record.dedupeKey);
+      const existingRows = keys.length
+        ? await tx.$queryRaw<Array<{ k: string | null }>>`SELECT "rawMetadataJson"->>'dedupeKey' AS k FROM "SupplierDiscoverySignal" WHERE "orgId" = ${input.orgId} AND "projectId" = ${input.projectId} AND "platform" = ${IMPORT_LEAD_PLATFORM} AND "rawMetadataJson"->>'dedupeKey' = ANY(${keys}::text[])`
+        : [];
+      const existing = new Set(existingRows.map((r) => r.k).filter((k): k is string => !!k));
+      const fresh = candidates.filter((c) => !existing.has(c.record.dedupeKey));
+      counts.existing = candidates.length - fresh.length;
+      const stored = await tx.supplierDiscoverySignal.count({ where: { orgId: input.orgId, projectId: input.projectId, platform: IMPORT_LEAD_PLATFORM } });
+      if (stored + fresh.length > MAX_PROJECT_LEADS) return stored;
       const rows: Prisma.SupplierDiscoverySignalCreateManyInput[] = [];
-      for (const r of parsed.records) {
-        if (existing.has(r.dedupeKey)) {
-          counts.existing += 1;
-          continue;
-        }
-        const m = matchImporter(r.importer, winners.names, decisions);
-        if (m.status === "UNRELATED") {
-          counts.unrelated += 1;
-          if (unrelatedNames.length < 10 && !unrelatedNames.some((n) => normalizeCompanyName(n) === normalizeCompanyName(r.importer))) unrelatedNames.push(r.importer);
-          continue;
-        }
+      for (const { record: r, status } of fresh) {
         const made = createImportLead(
           { importerName: r.importer, exporterName: r.exporter, sourceKind: manualPasteProvider.sourceKind, providerLabel: sourceLabel, capturedAt: now.toISOString(), shipmentDate: r.shipmentDate, goodsDescription: r.goods, evidenceRef: r.evidenceRef },
           now,
         );
-        if (!made.ok) {
-          // 解析已校验过这些字段；万一不过，按无关处理，不写半条
-          counts.unrelated += 1;
-          continue;
-        }
+        // 解析已校验过这些字段；万一不过，不写半条
+        if (!made.ok) continue;
         const meta: LeadMeta = { kind: IMPORT_LEAD_KIND, lead: made.lead, importerRaw: r.importer, quantityRaw: r.quantityRaw, sourceUrlRaw: r.sourceUrlRaw, dedupeKey: r.dedupeKey, batchId, sourceLabel };
         rows.push({
           orgId: input.orgId,
@@ -308,17 +321,20 @@ export async function importLeads(input: {
           rawMetadataJson: meta as unknown as Prisma.InputJsonValue,
           status: "NEW",
         });
-        existing.add(r.dedupeKey);
         counts.imported += 1;
-        if (m.status === "MATCHED") counts.matched += 1;
+        if (status === "MATCHED") counts.matched += 1;
         else counts.suggested += 1;
       }
       if (rows.length) await tx.supplierDiscoverySignal.createMany({ data: rows });
+      return null;
     },
     { timeout: 30_000 },
   );
+  if (capHit !== null) return { ok: false, status: 422, code: "LEAD_CAP", messageZh: IMPORT_LEADS_TEXT.leadCap(capHit, MAX_PROJECT_LEADS) };
 
   const result: ImportResult = {
+    totalRecords: parsed.totalRecords,
+    problemRecords: parsed.problems.length,
     imported: counts.imported,
     matched: counts.matched,
     suggested: counts.suggested,
@@ -356,7 +372,7 @@ export async function decideImportLeadAlias(input: {
     const decided = (await loadDecisions(db, input.orgId, [input.pairKey])).length > 0;
     return decided
       ? { ok: false, status: 409, code: "ALREADY_DECIDED", messageZh: IMPORT_LEADS_TEXT.aliasConflict }
-      : { ok: false, status: 404, code: "NOT_PENDING", messageZh: "这一对不在本项目的待裁决列表里。" };
+      : { ok: false, status: 404, code: "NOT_PENDING", messageZh: IMPORT_LEADS_TEXT.aliasNotPending };
   }
   const decided = decideAlias({ pairKey: pending.pairKey, nameA: pending.importerName, nameB: pending.winnerName }, { decision: input.decision, decidedBy: input.userId, decidedAt: now.toISOString() });
   if (!decided.ok) return { ok: false, status: 400, code: decided.code, messageZh: decided.messageZh };
@@ -400,20 +416,21 @@ export async function addImportLeadSupplier(input: {
   const now = input.now ?? new Date();
   const state = await loadProjectState(input.orgId, input.projectId, now);
   const exporter = state.exporters.find((e) => e.exporterKey === input.exporterKey);
-  if (!exporter) return { ok: false, status: 404, code: "NOT_IN_SUMMARY", messageZh: "这家出口商不在本项目的进口线索汇总里。" };
+  if (!exporter) return { ok: false, status: 404, code: "NOT_IN_SUMMARY", messageZh: IMPORT_LEADS_TEXT.exporterNotInSummary };
   const mine = state.classified.matched.filter((s) => normalizeCompanyName(s.meta.lead.exporterName) === exporter.exporterKey);
   const sourceLabel = mine.find((s) => s.meta.sourceLabel)?.meta.sourceLabel ?? null;
 
   const picked = await db.$transaction(async (tx) => {
     // 同一组织同一出口商连点两次：第二次等第一次建完，再按同名关联，不会建出两家
     await advisoryLock(tx, `import-lead-supplier:${input.orgId}:${exporter.exporterKey}`);
-    const firstToken = exporter.exporterKey.split(" ").find((t) => t.length >= 2) ?? exporter.exporterKey;
-    const rows = await tx.supplier.findMany({
-      where: { orgId: input.orgId, name: { contains: firstToken, mode: "insensitive" } },
-      orderBy: { updatedAt: "desc" },
-      take: 200,
-      select: { id: true, name: true, contactEmail: true, status: true },
-    });
+    // 这家出口商已有线索关联过供应商 → 就用那一家（「关联新导入的」走这里）
+    const alreadyLinked = mine.find((m) => m.linkedSupplier)?.linkedSupplier;
+    if (alreadyLinked) {
+      const row = await tx.supplier.findFirst({ where: { id: alreadyLinked.id, orgId: input.orgId }, select: { id: true, name: true, contactEmail: true, status: true } });
+      if (row) return { ...row, created: false };
+    }
+    // 规整后同名：按名称在本组织里全量比（库里没有规整名的列，也没有唯一约束；前缀筛会漏掉「&」、全角字、单字母等写法）
+    const rows = await tx.supplier.findMany({ where: { orgId: input.orgId }, orderBy: { updatedAt: "desc" }, select: { id: true, name: true, contactEmail: true, status: true } });
     const same = rows.filter((r) => normalizeCompanyName(r.name) === exporter.exporterKey);
     const hasEmail = (r: { contactEmail: string | null }) => !!r.contactEmail && EMAIL_RE.test(r.contactEmail);
     const existing = same.find((r) => r.status === "active" && hasEmail(r)) ?? same.find((r) => r.status === "active") ?? same[0];

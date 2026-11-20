@@ -5,11 +5,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { isImportLeadsEnabledForOrgWithEnv } from "../flags";
-import { BATCH_TEXT, IMPORT_COLUMNS_HINT_ZH, groupProblems, importDedupeKey, isHttpUrl, parseImportText, parseShipmentDate } from "../parse";
+import { BATCH_TEXT, IMPORT_COLUMNS_HINT_ZH, IMPORT_HEADER_NAMES_ZH, groupProblems, importDedupeKey, isHttpUrl, parseDelimited, parseImportText, parseShipmentDate } from "../parse";
 import { MANUAL_SOURCE_NOTE_ZH, importLeadSourceNotesZh, manualPasteProvider } from "../provider";
-import { candidatePairKeys, matchImporter, uniqueWinnerNames } from "../match-pure";
-import { IMPORT_LEADS_TEXT, aggregateByExporter, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
-import { aliasPairKey, decideAlias } from "@/lib/tender-competition/company-identity";
+import { candidatePairKeys, createImporterMatcher, matchImporter, preparedPairKey, prepareName, relatePrepared, uniqueWinnerNames } from "../match-pure";
+import { IMPORT_LEADS_TEXT, aggregateByExporter, importResultZh, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
+import { aliasPairKey, compareCompanyNames, decideAlias } from "@/lib/tender-competition/company-identity";
 import { createImportLead } from "@/lib/tender-competition/import-leads";
 import { platformDisplay, sourceOriginDisplay } from "@/lib/supplier-intel/workspace-labels";
 import { prioritizeSignal } from "@/lib/supplier-intel/discovery-priority-service";
@@ -50,14 +50,21 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   const dup = parse("Shipper,Exporter,Importer\nA,B,C\n");
   ok(!dup.ok && dup.code === "DUPLICATE_COLUMN" && dup.messageZh === "表头里有两列都是「出口商」：Shipper、Exporter。请删掉一列再贴。", "同一种列认出两列：整批不导入", dup);
   const prefix = parse("Importer,Shipper Address,URL\nA,B,https://x.test\n");
-  ok(!prefix.ok && prefix.code === "MISSING_COLUMNS" && prefix.messageZh === "缺少必需的列：出口商。请连同表头一起粘贴。", "表头整格匹配：Shipper Address 不算出口商列", prefix);
+  ok(!prefix.ok && prefix.code === "MISSING_COLUMNS" && prefix.messageZh === `缺少必需的列：出口商。${IMPORT_HEADER_NAMES_ZH}你贴的表头是：Importer、Shipper Address、URL。`, "表头整格匹配：Shipper Address 不算出口商列；说明表头能写成什么、你贴的是什么", prefix);
+  const named = parse("Consignee Name,Shipper Name,Arrival Date,Product Description,Qty,Link\nA Co,B Co,2026-01-02,Tents,5,https://x.test\n");
+  ok(named.ok && named.records[0].importer === "A Co" && named.records[0].exporter === "B Co" && named.records[0].goods === "Tents", "常见导出表头：Consignee Name / Shipper Name / Product Description", named);
+  const tsvQuoted = parse('Importer\tExporter\tGoods\tURL\nA Co\tB Co\t"Widget\nBlue"\thttps://x.test/1\nC Co\tD Co\tTents\thttps://x.test/2\n');
+  ok(tsvQuoted.ok && tsvQuoted.totalRecords === 2 && tsvQuoted.records[0].goods === "Widget\nBlue" && tsvQuoted.records[1].recordNo === 2 && tsvQuoted.problems.length === 0, "从表格粘贴：单元格里有换行（带引号）也按一条记录", tsvQuoted);
+  const blanks = parse("Importer,Exporter,URL\n  ,  ,\nA Co,B Co,https://x.test\n");
+  ok(blanks.ok && blanks.totalRecords === 1 && blanks.records[0].recordNo === 1, "整行都是空白的不算记录（逗号分隔也一样）", blanks);
+  ok(parseDelimited('a,"b ""q"" c",d\r\ne,f,g', ",").map((r) => r.join("|")).join("/") === 'a|b "q" c|d/e|f|g', "RFC 4180：转义引号、CRLF");
 }
 
 // ── 整批不导入 ──
 {
   const m = (t: string) => { const r = parse(t); return r.ok ? "" : r.messageZh; };
   ok(m("") === "没有可导入的内容。" && m("Importer,Exporter\n") === "没有可导入的内容。", "空内容 / 只有表头");
-  ok(m("Importer,Goods\nA,B\n") === "缺少必需的列：出口商。请连同表头一起粘贴。" && m("Goods\nB\n") === "缺少必需的列：进口商、出口商。请连同表头一起粘贴。", "缺列");
+  ok(m("Importer,Goods\nA,B\n").startsWith("缺少必需的列：出口商。表头可写：") && m("Goods\nB\n").startsWith("缺少必需的列：进口商、出口商。") && m("Goods\nB\n").endsWith("你贴的表头是：Goods。"), "缺列");
   ok(m("Importer,Exporter,URL\n" + Array.from({ length: 501 }, (_, i) => `A${i},B,https://x.test/${i}`).join("\n")) === "一次最多导入 500 条记录，这次有 501 条。", "超过 500 条");
   ok(m("Importer,Exporter\n" + "x".repeat(210 * 1024)) === "内容太长（超过 200 KB），请分批导入。" && BATCH_TEXT.tooLarge === "内容太长（超过 200 KB），请分批导入。", "超过 200 KB");
 }
@@ -76,7 +83,10 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   const r = parse(text);
   const groups = r.ok ? groupProblems(r.problems) : [];
   ok(r.ok && r.records.length === 1 && r.records[0].exporter === "Exp E" && r.records[0].recordNo === 5 && r.records[0].shipmentDate === "2026-01-02", "只导入完整的那条；空行不算记录（完整那条是第 5 条）", r);
-  ok(groups.map((g) => g.messageZh).join(" | ") === "缺少出口商：第 1 条记录 | 日期「03/04/2025」认不出（请写成年在前，或为这一批选日期写法）：第 2 条记录 | 日期在未来：第 3 条记录 | 缺少来源网址，也没有填来源说明：第 4 条记录", "问题按原因归并，写明第几条记录", groups);
+  ok(groups.map((g) => g.messageZh).join(" | ") === "缺少出口商：第 1 条记录 | 日期「03/04/2025」认不出（请写成年在前，或为这一批选日期写法）：第 2 条记录 | 日期在未来（可能选错了日期写法）：第 3 条记录 | 缺少来源网址，也没有填来源说明：第 4 条记录", "问题按原因归并，写明第几条记录", groups);
+  const near = parse("Importer,Exporter,Date,URL\nA,B,2026-11-21,https://x.test/1\nA,C,2026-11-22,https://x.test/2\n");
+  ok(near.ok && near.records.length === 1 && near.records[0].exporter === "B" && near.problems[0]?.code === "DATE_FUTURE", "「在未来」按 UTC 今天再加一天：明天的不算（时差），后天的算", near);
+  ok(parseShipmentDate("11/5/2026 0:00", "MDY") === "2026-11-05" && parseShipmentDate("2026-11-05 13:45:00", "YMD") === "2026-11-05" && parseShipmentDate("11/5/26", "MDY") === null, "表格导出带的时间去掉；两位年份不认");
   const mdy = parse(text, { dateOrder: "MDY" });
   const dmy = parse(text, { dateOrder: "DMY" });
   ok(mdy.ok && dmy.ok && parseShipmentDate("03/04/2025", "MDY") === "2025-03-04" && parseShipmentDate("03/04/2025", "DMY") === "2025-04-03" && parseShipmentDate("03/04/2025", "YMD") === null && parseShipmentDate("2025-02-30", "YMD") === null, "选了「月/日/年」「日/月/年」才按所选读；不存在的日期认不出");
@@ -90,6 +100,9 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(isHttpUrl("https://a.test/x") && !isHttpUrl("javascript:alert(1)") && !isHttpUrl("ftp://a.test") && !isHttpUrl(`https://a.test/${"x".repeat(2050)}`), "只有 http(s) 网址才当链接");
   const js = parse("Importer,Exporter,URL\nA,B,javascript:alert(1)\n");
   ok(js.ok && js.records[0].sourceUrlLink === null && js.records[0].sourceUrlRaw === "javascript:alert(1)", "不是 http(s) 的来源网址只留原文、不给链接", js);
+  const longUrl = `https://a.test/${"x".repeat(3000)}`;
+  const lu = parse(`Importer,Exporter,URL\nA,B,${longUrl}\n`);
+  ok(lu.ok && lu.records[0].sourceUrlLink === null && lu.records[0].sourceUrlRaw?.length === 2048, "超过 2048 字的来源网址：只存前 2048 字，不当链接", lu.ok ? lu.records[0].sourceUrlRaw?.length : lu);
 }
 
 // ── 重复 ──
@@ -119,7 +132,24 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   const mixed = matchImporter("Boreal Outfitters Ltd.", ["Boreal Outfitters Ltd.", "Boreal Outfitters"], []);
   ok(mixed.status === "MATCHED" && mixed.winners.join() === "Boreal Outfitters Ltd.", "既同名又疑似：以同名为准", mixed);
   ok(candidatePairKeys(["Northfield Pest Supply", "Other"], winners).join() === pk, "候选对只含疑似同一家的那几对");
-  ok(winnersStateMessage("not_connected") === "授标记录还没有接通（需管理员开启），没法比对历史中标者。" && winnersStateMessage("no_buyer") === "项目没有采购方名称，没法找历史中标者。" && winnersStateMessage("none") === "本项目采购方还没有他人中标的记录（不含我方结果），没法比对。", "没有可比对的中标者：三种原因");
+  // 比对器与 TI-3a 的 compareCompanyNames / aliasPairKey 逐对一致
+  const names = ["Northfield Pest Supply Inc.", "NORTHFIELD PEST SUPPLY, INC", "Northfield Pest Supply", "Northfield Pet Supply", "P&G Trading Ltd", "P and G Trading", "A.B.C.", "ＡＢＣ Trading", "ABC Trading Co", "Boreal Outfitters", "Boreal Outfitters Ltd.", "Boreal", "The Boreal Outfitters Co. Ltd.", "", "宁波 床品 有限公司", "宁波 床品"];
+  let same = true;
+  for (const a of names) for (const b of names) {
+    const want = compareCompanyNames(a, b);
+    const got = relatePrepared(prepareName(a), prepareName(b));
+    if (want.relation !== got.relation || ("basis" in want ? want.basis : "") !== ("basis" in got ? got.basis : "") || (want.relation !== "UNRELATED" && aliasPairKey(a, b) !== preparedPairKey(prepareName(a), prepareName(b)))) { same = false; console.error("diff", a, b, want, got); }
+  }
+  ok(same, "比对器与 TI-3a 的名称比对规则逐对一致（同名、只差后缀、整词包含、无关；配对键）");
+  const bigWinners = Array.from({ length: 200 }, (_, i) => `Winner Company Number ${i} ${"x".repeat(200)} Inc.`);
+  const bigImporters = Array.from({ length: 2000 }, (_, i) => `Winner Company Number ${i % 200} ${"x".repeat(200)} Branch ${i}`);
+  const t0 = Date.now();
+  candidatePairKeys(bigImporters, bigWinners);
+  const matcher = createImporterMatcher(bigWinners, []);
+  for (const imp of bigImporters) matcher(imp);
+  const ms = Date.now() - t0;
+  ok(ms < 5000, `2000 条长名称 × 200 个中标者：比对在 5 秒内（实测 ${ms} ms）`, ms);
+  ok(winnersStateMessage("not_connected") === "授标记录还没有接通，没法比对历史中标者（请联系管理员开启）。" && winnersStateMessage("no_buyer") === "项目没有采购方名称，没法找历史中标者。" && winnersStateMessage("none") === "本项目采购方还没有他人中标的记录（不含我方结果），没法比对。", "没有可比对的中标者：三种原因");
 }
 
 // ── 线索只是线索 ──
@@ -133,7 +163,7 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
     caveatZh: IMPORT_LEADS_TEXT.caveat, leadStatusZh: IMPORT_LEADS_TEXT.leadStatus, sourceNotesZh: notes, winners: { status: "ok", names: ["W"] },
     suggestions: [{ pairKey: "k", importerName: "I", winnerName: "W", basisZh: "只差公司后缀", recordCount: 1 }],
     exporters: aggregateByExporter([{ exporterName: "E", shipmentDate: "2026-01-01", goods: "tent", winners: ["W"], linkedSupplier: { id: "s", name: "E", hasEmail: false, active: true } }], { now: NOW, requirementTexts: ["Tents"] }),
-    leadCount: 1, canEdit: true,
+    leadCount: 1, storedLeadCount: 2, canEdit: true,
   };
   const keys = new Set<string>();
   const walk = (v: unknown) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { keys.add(k); walk(x); } };
@@ -158,7 +188,16 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(unknown[0].historical === null && unknown[0].latestDate === null && IMPORT_LEADS_TEXT.dateUnknown === "日期未知", "都没有日期：日期未知");
   ok([...keywordsOf("Sleeping bags, rated -20C; the bags shall include compression sacks")].sort().join() === "bag,compression,rated,sack,sleeping", "关键词：英文词、去虚词、去词尾 s");
   ok(sharedKeywords(["Sleeping Bags 3-season", "Tent poles"], ["Sleeping bag rated to -20C", "Tents shall be 4-person"]).join() === "bag,sleeping,tent", "品名与要求共有的关键词，按字母序");
-  ok(slotSummaryZh({ exporters: s, leadCount: 11 }) === "3 家出口商（11 条线索）" && slotSummaryZh({ exporters: [], leadCount: 0 }) === "还没有导入进口记录。", "槽里的摘要");
+  const okW = { status: "ok" as const, names: ["W1"] };
+  ok(slotSummaryZh({ exporters: s, leadCount: 11, storedLeadCount: 11, winners: okW }) === "3 家出口商（11 条线索）" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 0, winners: okW }) === "还没有导入进口记录。", "槽里的摘要：有线索 / 一条都没有");
+  ok(slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW }) === "已导入 3 条进口记录，等确认上面「是不是同一家」后会出现在出口商汇总里。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: { status: "unavailable", messageZh: "x" } }) === "已导入 3 条进口记录；历史中标者现在读不出来，先不显示。", "存着线索但都在等确认 / 中标者读不出来：照实说，不说成没导入");
+  const linkable = aggregateByExporter([
+    { exporterName: "E", shipmentDate: null, goods: null, winners: ["W"], linkedSupplier: { id: "s", name: "E", hasEmail: true, active: true } },
+    { exporterName: "E", shipmentDate: null, goods: null, winners: ["W"], linkedSupplier: null, linkable: true },
+  ], { now: NOW, requirementTexts: [] });
+  ok(linkable[0].supplier?.id === "s" && linkable[0].unlinkedLeads === 1, "已在供应商库、又新导入了一条：还有 1 条没关联", linkable);
+  ok(importResultZh({ totalRecords: 20, imported: 5, matched: 3, suggested: 2, duplicates: 1, unrelated: 4, unrelatedImporters: ["甲", "乙"], problemRecords: 10 }) === "共 20 条：导入 5 条（3 条已对应中标者，2 条要你确认是不是同一家）；重复跳过 1 条；4 条的进口商不是这个采购方的中标者，没有保存（甲、乙）；10 条有问题没有导入，见下。", "导入结果那一句");
+  ok(importResultZh({ totalRecords: 4, imported: 0, matched: 0, suggested: 0, duplicates: 4, unrelated: 0, unrelatedImporters: [], problemRecords: 0 }) === "共 4 条：没有新导入；重复跳过 4 条。" && importResultZh({ totalRecords: 2, imported: 2, matched: 2, suggested: 0, duplicates: 0, unrelated: 0, unrelatedImporters: [], problemRecords: 0 }) === "共 2 条：导入 2 条（2 条已对应中标者）。", "为 0 的那半句不写");
 }
 
 // ── 在其它页面上的显示 ──
@@ -191,10 +230,17 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   for (const r of routes) ok(/requireImportLeads(Read|Write)\(request, projectId\)/.test(read(r)), `${r}：走统一的权限判定`);
   const svc = read("src/lib/tender-import-leads/service.ts");
   ok(/linkSignalToSupplier\(/.test(svc) && /sourceOrigin: "MANUAL_ENTRY"/.test(svc) && /pg_advisory_xact_lock/.test(svc) && !/supplierDiscoverySignal\.update(Many)?\(/.test(svc), "服务：线索走既有关联流程、不直接改信号；来源人工录入；写操作加锁");
+  ok(/export const MAX_PROJECT_LEADS = 5000;/.test(svc) && /stored \+ fresh\.length > MAX_PROJECT_LEADS/.test(svc) && /= ANY\(\$\{keys\}::text\[\]\)/.test(svc), "每个项目最多 5000 条，到了上限拒绝；查重在库里按这一批的去重键查（不受读视图条数限制）");
+  ok(/tx\.supplier\.findMany\(\{ where: \{ orgId: input\.orgId \}, orderBy: \{ updatedAt: "desc" \}/.test(svc) && !/take: 200/.test(svc), "同名供应商在本组织里全量比（不按前缀筛、不截 200 条）");
+  ok(/content-length/.test(access) && access.indexOf("content-length") < access.indexOf("request.text()"), "请求体先看声明的长度，超了不读");
   const slots = read("src/components/tender-intel/org-award-intel-slots.tsx");
-  ok(/importLeads\.state\.kind === "hidden" \? \(\s*empty\("规划中：M3 海关数据源（Trade 域证据只读引用）接入后启用"\)/.test(slots) && /<ImportLeadsPanel /.test(slots), "供应链槽：接口 404 时仍是原来的规划占位句；开着时是摘要，面板在网格下方");
+  ok(/importLeads\.state\.kind === "hidden" \|\| importLeads\.state\.kind === "loading" \? \(\s*empty\("规划中：M3 海关数据源（Trade 域证据只读引用）接入后启用"\)/.test(slots) && /<ImportLeadsPanel /.test(slots), "供应链槽：读取中与接口 404 时仍是原来的规划占位句与徽标；开着时是摘要，面板在网格下方");
+  const supplierPage = read("src/app/(main)/suppliers/[id]/page.tsx");
+  ok(/补上邮箱/.test(supplierPage) && /saveContact\(\{ status: "active" \}\)/.test(supplierPage) && /method: "PATCH"/.test(supplierPage), "供应商页：能直接补上联系邮箱、启用");
   const panel = read("src/components/tender-intel/import-leads-panel.tsx");
-  ok(/view\.caveatZh/.test(panel) && /view\.sourceNotesZh/.test(panel) && /需要的列：进口商、出口商；可选：日期、品名、数量、来源网址。/.test(panel) && /window\.confirm\(IMPORT_LEADS_UI\.confirmReject\)/.test(panel) && /view\.canEdit \?/.test(panel) && /进口线索暂时读不出来，请稍后刷新。/.test(panel) && /导入 \/ 查看进口线索/.test(panel), "面板：线索说明、来源情况、需要的列；「不是」先确认；不能修改的人没有导入框与按钮；出错一句话");
+  ok(IMPORT_LEADS_TEXT.aliasConfirmed === "已确认是同一家，相关记录已加入出口商汇总。" && IMPORT_LEADS_TEXT.aliasRejected === "已标为不是同一家，这些记录不再显示。" && /IMPORT_LEADS_TEXT\.aliasConfirmed : IMPORT_LEADS_TEXT\.aliasRejected/.test(panel), "裁决后写明结果");
+  ok(/供货给哪家中标者：/.test(panel) && /共 \{e\.shipments\} 票，近 12 个月 \{e\.last12Months\} 票/.test(panel) && /最近一票 /.test(panel) && /和本标要求重合的词：/.test(panel) && /IMPORT_LEADS_UI\.linkNew\(e\.unlinkedLeads\)/.test(panel), "出口商汇总的说法与「关联新导入的 N 条」");
+  ok(/view\.caveatZh/.test(panel) && /view\.sourceNotesZh/.test(panel) && /需要的列：进口商、出口商；可选：日期、品名、数量、来源网址。/.test(panel) && /window\.confirm\(IMPORT_LEADS_UI\.confirmReject\)/.test(panel) && /window\.confirm\(IMPORT_LEADS_UI\.confirmSame\)/.test(panel) && /本组织所有项目/.test(panel) && /view\.canEdit \?/.test(panel) && /IMPORT_LEADS_UI\.readOnly/.test(panel) && /进口线索暂时读不出来，请稍后刷新。/.test(panel) && /导入 \/ 查看进口线索/.test(panel) && /aria-live="polite"/.test(panel) && /if \(r\.problems\.length === 0 && r\.unrelated === 0\) setText\(""\)/.test(panel), "面板：线索说明、来源情况、需要的列；两种裁决都先确认并说明对全组织生效；只读的人有说明；出错一句话；有没导入的记录时保留原文");
   ok(IMPORT_COLUMNS_HINT_ZH === "把表格里的记录连同表头一起粘贴进来（逗号或制表符分隔）。需要的列：进口商、出口商；可选：日期、品名、数量、来源网址。", "导入框说明需要的列");
 }
 

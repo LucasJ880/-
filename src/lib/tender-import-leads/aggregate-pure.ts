@@ -49,6 +49,8 @@ export type MatchedLeadInput = {
   goods: string | null;
   winners: readonly string[];
   linkedSupplier: LinkedSupplierRef | null;
+  /** 还能关联（状态 NEW / REVIEWED 且没关联供应商）——「加入供应商库」之后新导入或新确认的会是这种 */
+  linkable?: boolean;
 };
 
 export type ExporterSummary = {
@@ -62,17 +64,20 @@ export type ExporterSummary = {
   historical: boolean | null;
   sharedKeywords: string[];
   supplier: LinkedSupplierRef | null;
+  /** 这家出口商里还没关联到供应商的线索条数（>0 时仍给「加入供应商库」/「关联新导入的」） */
+  unlinkedLeads: number;
 };
 
 const day = (s: string) => new Date(`${s}T00:00:00Z`);
 
 export function aggregateByExporter(leads: readonly MatchedLeadInput[], opts: { now: Date; requirementTexts: readonly string[] }): ExporterSummary[] {
-  const groups = new Map<string, { name: string; winners: string[]; dates: string[]; goods: Array<string | null>; shipments: number; supplier: LinkedSupplierRef | null }>();
+  const groups = new Map<string, { name: string; winners: string[]; dates: string[]; goods: Array<string | null>; shipments: number; supplier: LinkedSupplierRef | null; unlinked: number }>();
   for (const l of leads) {
     const key = normalizeCompanyName(l.exporterName);
     if (!key) continue;
-    const g = groups.get(key) ?? { name: l.exporterName.trim(), winners: [], dates: [], goods: [], shipments: 0, supplier: null };
+    const g = groups.get(key) ?? { name: l.exporterName.trim(), winners: [], dates: [], goods: [], shipments: 0, supplier: null, unlinked: 0 };
     g.shipments += 1;
+    if (l.linkable) g.unlinked += 1;
     if (l.shipmentDate) g.dates.push(l.shipmentDate);
     g.goods.push(l.goods);
     for (const w of l.winners) if (!g.winners.some((x) => normalizeCompanyName(x) === normalizeCompanyName(w))) g.winners.push(w);
@@ -91,6 +96,7 @@ export function aggregateByExporter(leads: readonly MatchedLeadInput[], opts: { 
       historical: latestDate ? isOlderThanCurrentWindow(day(latestDate), opts.now) : null,
       sharedKeywords: sharedKeywords(g.goods, opts.requirementTexts),
       supplier: g.supplier,
+      unlinkedLeads: g.unlinked,
     };
   });
   return out.sort(
@@ -107,13 +113,20 @@ export function aggregateByExporter(leads: readonly MatchedLeadInput[], opts: { 
 export const IMPORT_LEADS_TEXT = {
   caveat: IMPORT_LEAD_CAVEAT_ZH,
   leadStatus: IMPORT_LEAD_STATUS_ZH.LEAD_UNVERIFIED,
-  winnersNotConnected: "授标记录还没有接通（需管理员开启），没法比对历史中标者。",
+  winnersNotConnected: "授标记录还没有接通，没法比对历史中标者（请联系管理员开启）。",
   winnersNoBuyer: "项目没有采购方名称，没法找历史中标者。",
   winnersNone: "本项目采购方还没有他人中标的记录（不含我方结果），没法比对。",
   winnersUnavailable: "历史中标者暂时读不出来，请稍后刷新。",
   empty: "还没有导入进口记录。",
   unreadable: "进口线索暂时读不出来，请稍后刷新。",
-  aliasConflict: "这一对已经有人裁决过了，已刷新。",
+  aliasConflict: "同事已经处理过这一对，页面已更新。",
+  aliasNotPending: "这一对已不需要确认。",
+  exporterNotInSummary: "这家出口商不在本项目的进口线索汇总里。",
+  aliasConfirmed: "已确认是同一家，相关记录已加入出口商汇总。",
+  aliasRejected: "已标为不是同一家，这些记录不再显示。",
+  leadCap: (n: number, cap: number) => `这个项目已有 ${n} 条进口记录，最多 ${cap} 条，这一批放不下了。`,
+  storedButHidden: (n: number) => `已导入 ${n} 条进口记录；历史中标者现在读不出来，先不显示。`,
+  storedPending: (n: number) => `已导入 ${n} 条进口记录，等确认上面「是不是同一家」后会出现在出口商汇总里。`,
   supplierCreated: "已加入供应商库。提单记录通常没有邮箱，请先补上联系邮箱，才能发询价。",
   supplierLinked: (name: string) => `供应商库里已有「${name}」，已关联，没有新建。`,
   supplierInactive: "它已停用，要发询价请先在供应商页启用。",
@@ -146,11 +159,43 @@ export type ImportLeadsView = {
   winners: WinnersState;
   suggestions: PendingSuggestionView[];
   exporters: ExporterSummary[];
+  /** 挂上的线索条数 */
   leadCount: number;
+  /** 本项目存着的线索条数（不含在供应链页标为不采用的） */
+  storedLeadCount: number;
   canEdit: boolean;
 };
 
-/** 槽里那一行摘要：有线索时「{N} 家出口商（{M} 条线索）」，没有时「还没有导入进口记录。」 */
-export function slotSummaryZh(view: Pick<ImportLeadsView, "exporters" | "leadCount">): string {
-  return view.exporters.length ? `${view.exporters.length} 家出口商（${view.leadCount} 条线索）` : IMPORT_LEADS_TEXT.empty;
+/**
+ * 槽里那一行摘要：有挂上的线索时「{N} 家出口商（{M} 条线索）」；存着线索但中标者读不出来 / 都在等确认时照实说；
+ * 一条都没有时「还没有导入进口记录。」
+ */
+export function slotSummaryZh(view: Pick<ImportLeadsView, "exporters" | "leadCount" | "storedLeadCount" | "winners">): string {
+  if (view.exporters.length) return `${view.exporters.length} 家出口商（${view.leadCount} 条线索）`;
+  if (view.storedLeadCount > 0) return view.winners.status === "ok" ? IMPORT_LEADS_TEXT.storedPending(view.storedLeadCount) : IMPORT_LEADS_TEXT.storedButHidden(view.storedLeadCount);
+  return IMPORT_LEADS_TEXT.empty;
+}
+
+export type ImportResultCounts = {
+  totalRecords: number;
+  imported: number;
+  matched: number;
+  suggested: number;
+  duplicates: number;
+  unrelated: number;
+  unrelatedImporters: string[];
+  problemRecords: number;
+};
+
+/**
+ * 导入结果那一句：「共 N 条：导入 a 条（b 条已对应中标者，c 条要你确认是不是同一家）；重复跳过 d 条；
+ * e 条的进口商不是这个采购方的中标者，没有保存（甲、乙）；f 条有问题没有导入，见下。」——为 0 的那半句不写。
+ */
+export function importResultZh(r: ImportResultCounts): string {
+  const detail = [r.matched ? `${r.matched} 条已对应中标者` : "", r.suggested ? `${r.suggested} 条要你确认是不是同一家` : ""].filter(Boolean).join("，");
+  const parts = [r.imported ? `导入 ${r.imported} 条${detail ? `（${detail}）` : ""}` : "没有新导入"];
+  if (r.duplicates) parts.push(`重复跳过 ${r.duplicates} 条`);
+  if (r.unrelated) parts.push(`${r.unrelated} 条的进口商不是这个采购方的中标者，没有保存${r.unrelatedImporters.length ? `（${r.unrelatedImporters.join("、")}）` : ""}`);
+  if (r.problemRecords) parts.push(`${r.problemRecords} 条有问题没有导入，见下`);
+  return `共 ${r.totalRecords} 条：${parts.join("；")}。`;
 }

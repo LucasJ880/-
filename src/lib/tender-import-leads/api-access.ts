@@ -32,6 +32,9 @@ export async function requireImportLeadsWrite(request: NextRequest, projectId: s
 
 /** 读请求体（文字上限略高于导入上限，超出的照导入上限的说法回） */
 export async function readJsonBody(request: NextRequest, maxBytes: number): Promise<Record<string, unknown> | "TOO_LARGE" | null> {
+  // 先看声明的长度，超了不读（避免把几百 MB 读进内存）；没声明的照读，读完再按字节数判
+  const declared = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes) return "TOO_LARGE";
   const raw = await request.text().catch(() => "");
   if (new TextEncoder().encode(raw).length > maxBytes) return "TOO_LARGE";
   try {
