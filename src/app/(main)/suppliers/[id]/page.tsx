@@ -68,6 +68,7 @@ const SOURCE_LABELS: Record<string, string> = {
   xiaohongshu: "小红书",
   "1688": "1688",
   cold_call: "陌生拜访",
+  trade_data: "进口线索",
   other: "其他",
 };
 
@@ -102,6 +103,9 @@ export default function SupplierDetailPage() {
   const [loading, setLoading] = useState(true);
   const [classifying, setClassifying] = useState(false);
   const [ratingEdit, setRatingEdit] = useState(false);
+  // CHAIN-3：从进口线索加入的供应商通常没有邮箱——在这里直接补上（询价入口的「补邮箱」也链到这里）
+  const [emailDraft, setEmailDraft] = useState<string | null>(null);
+  const [contactMsg, setContactMsg] = useState<string | null>(null);
   const [ratingValues, setRatingValues] = useState({
     quality: 0, response: 0, price: 0, delivery: 0,
   });
@@ -144,6 +148,27 @@ export default function SupplierDetailPage() {
     } finally {
       setClassifying(false);
     }
+  };
+
+  const saveContact = async (patch: { contactEmail?: string | null; status?: string }) => {
+    setContactMsg(null);
+    const email = patch.contactEmail?.trim();
+    if (patch.contactEmail !== undefined && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setContactMsg("邮箱格式不对，请检查。");
+      return;
+    }
+    const res = await apiFetch(`/api/suppliers/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch.contactEmail !== undefined ? { ...patch, contactEmail: email || null } : patch),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      setContactMsg("没有保存成功，请稍后再试。");
+      return;
+    }
+    setEmailDraft(null);
+    setContactMsg(patch.status === "active" ? "已启用。" : email ? "已保存。在项目里点「问供应商要价」就能勾选这家。" : "已清空邮箱。");
+    loadSupplier();
   };
 
   const handleSaveRating = async () => {
@@ -219,14 +244,43 @@ export default function SupplierDetailPage() {
                 </a>
               </div>
             )}
-            {supplier.contactEmail && (
+            {emailDraft !== null ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Mail className="h-4 w-4 shrink-0 text-muted" />
+                <label className="sr-only" htmlFor="supplier-email-input">联系邮箱</label>
+                <input
+                  id="supplier-email-input"
+                  type="email"
+                  value={emailDraft}
+                  onChange={(e) => setEmailDraft(e.target.value)}
+                  placeholder="name@example.com"
+                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
+                />
+                <button type="button" onClick={() => saveContact({ contactEmail: emailDraft })} className="rounded-md bg-accent px-2.5 py-1 text-xs text-white">保存</button>
+                <button type="button" onClick={() => setEmailDraft(null)} className="text-xs text-muted hover:text-foreground">取消</button>
+              </div>
+            ) : supplier.contactEmail ? (
               <div className="flex items-center gap-2 text-muted">
                 <Mail className="h-4 w-4 shrink-0" />
                 <a href={`mailto:${supplier.contactEmail}`} className="hover:text-foreground">
                   {supplier.contactEmail}
                 </a>
+                <button type="button" onClick={() => setEmailDraft(supplier.contactEmail ?? "")} className="text-xs text-accent hover:underline">修改</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-muted">
+                <Mail className="h-4 w-4 shrink-0" />
+                <span>还没有联系邮箱（没有邮箱不能发询价）</span>
+                <button type="button" onClick={() => setEmailDraft("")} className="text-xs text-accent hover:underline">补邮箱</button>
               </div>
             )}
+            {supplier.status !== "active" ? (
+              <div className="flex items-center gap-2 text-amber-700">
+                <span>这家供应商已停用，不能发询价。</span>
+                <button type="button" onClick={() => saveContact({ status: "active" })} className="text-xs text-accent hover:underline">启用</button>
+              </div>
+            ) : null}
+            {contactMsg ? <p role="status" className="text-xs text-muted">{contactMsg}</p> : null}
             {supplier.website && (
               <div className="flex items-center gap-2 text-muted">
                 <Globe className="h-4 w-4 shrink-0" />

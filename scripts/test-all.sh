@@ -678,6 +678,8 @@ run_test "招标询价 PDF 附件 DB 端到端（起草 / 执行核对 / 预览�
 run_test "招标询价 情报推荐并入自动起草收件人：合并规则与开关（CHAIN-2）" "npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts"
 run_test "寻源建议：开关 / 推荐型号 / 价格三栏 / 不合并（CHAIN-2）" "npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts"
 run_test "寻源建议 DB 端到端（自动建候选池 / 推荐 / 财务权限 / 并入收件人，隔离库执行，否则跳过，CHAIN-2）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts"
+run_test "进口线索：开关 / 解析与逐条校验 / 比对三档 / 汇总 / 接线（CHAIN-3）" "npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts"
+run_test "进口线索 DB 端到端（导入 / 裁决 / 汇总 / 加入供应商库 / 权限，隔离库执行，否则跳过，CHAIN-3）" "NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts"
 run_test "招标询价 发出之后分析更新过的提示（FLOW-H3）" "npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx"
 run_test "招标询价 发出之后分析更新过的提示 DB（隔离库执行，否则跳过，FLOW-H3）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts"
 run_test "报价表助手 比价矩阵成本来源（FLOW-H2）" "npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx"

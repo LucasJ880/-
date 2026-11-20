@@ -13,6 +13,7 @@ import type { AuthUser } from "@/lib/auth";
 import { isSupplierIntelEnabledForOrg } from "@/lib/supplier-intel/flags";
 import { isPricingCompareSourceEnabledForOrg } from "@/lib/tender-pricing/compare-cost-source";
 import { isT4AwardSchemaReady } from "./award-flags";
+import type { AwardRecordRow } from "./awards";
 import { SUPPLIER_AUTO_RUN_AUDIT_ACTION } from "./auto-supplier-run";
 import {
   assembleSourcingSuggestions,
@@ -95,27 +96,33 @@ async function loadAnalysisAndPool(orgId: string, projectId: string): Promise<{ 
 const OWN_RESULT_SOURCE_KEY = /^(own-result|tender-result-winner):/;
 
 /**
- * 本项目采购方的授标 → 可比价格分组。剔除我方结果：由我方项目结果回灌创建的记录（金额取自我方项目的报价 / 中标价字段）、
+ * 本项目采购方的他人授标：剔除我方结果——由我方项目结果回灌创建的记录（金额取自我方项目的报价 / 中标价字段）、
  * 中标方是本组织的记录。按记录**最早的那条来源**判定是谁创建的——人工确认的公开授标也带项目 id，不能按项目 id 剔除。
- * null = 取数出错。
+ * 寻源建议（可比授标）与进口线索（CHAIN-3，历史中标者）共用。调用方先看 isT4AwardSchemaReady；出错向上抛。
  */
+export async function listOthersAwardsForBuyer(orgId: string, buyer: string): Promise<{ rows: AwardRecordRow[]; orgName: string | null }> {
+  const { listAwardsForBuyer, normalizeVendorName } = await import("./awards");
+  const [rows, org] = await Promise.all([listAwardsForBuyer({ orgId, buyerName: buyer }), db.organization.findUnique({ where: { id: orgId }, select: { name: true } })]);
+  const ownName = org?.name?.trim() ? normalizeVendorName(org.name) : null;
+  const sources = rows.length
+    ? await db.awardRecordSource.findMany({
+        where: { orgId, awardRecordId: { in: rows.map((r) => r.id) } },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { awardRecordId: true, sourceKey: true },
+      })
+    : [];
+  const firstSourceKey = new Map<string, string>();
+  for (const src of sources) if (!firstSourceKey.has(src.awardRecordId)) firstSourceKey.set(src.awardRecordId, src.sourceKey);
+  const others = rows.filter((r) => !OWN_RESULT_SOURCE_KEY.test(firstSourceKey.get(r.id) ?? "") && (!ownName || r.winnerNameNormalized !== ownName));
+  return { rows: others, orgName: org?.name ?? null };
+}
+
+/** 本项目采购方的他人授标 → 可比价格分组。null = 取数出错。 */
 async function loadAwardGroups(orgId: string, buyer: string | null): Promise<AwardGroupInput[] | null> {
   if (!buyer?.trim()) return [];
   try {
-    const [{ listAwardsForBuyer, normalizeVendorName }, { deriveAwardIntelligence }] = await Promise.all([import("./awards"), import("./award-intelligence")]);
-    const [rows, org] = await Promise.all([listAwardsForBuyer({ orgId, buyerName: buyer }), db.organization.findUnique({ where: { id: orgId }, select: { name: true } })]);
-    const ownName = org?.name?.trim() ? normalizeVendorName(org.name) : null;
-    const sources = rows.length
-      ? await db.awardRecordSource.findMany({
-          where: { orgId, awardRecordId: { in: rows.map((r) => r.id) } },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          select: { awardRecordId: true, sourceKey: true },
-        })
-      : [];
-    const firstSourceKey = new Map<string, string>();
-    for (const src of sources) if (!firstSourceKey.has(src.awardRecordId)) firstSourceKey.set(src.awardRecordId, src.sourceKey);
-    const others = rows.filter((r) => !OWN_RESULT_SOURCE_KEY.test(firstSourceKey.get(r.id) ?? "") && (!ownName || r.winnerNameNormalized !== ownName));
-    return deriveAwardIntelligence(others, { ownWinnerNames: [org?.name] }).comparablePricing.groups;
+    const [{ rows, orgName }, { deriveAwardIntelligence }] = await Promise.all([listOthersAwardsForBuyer(orgId, buyer), import("./award-intelligence")]);
+    return deriveAwardIntelligence(rows, { ownWinnerNames: [orgName] }).comparablePricing.groups;
   } catch (err) {
     warn("awards", err);
     return null;

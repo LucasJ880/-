@@ -15,6 +15,8 @@ export const SIGNAL_PLATFORMS = [
   "WEBSITE",
   "OPEN_WEB",
   "MANUAL",
+  // CHAIN-3：用户人工导入的进口记录（谁从谁那里进口）；只是寻源线索，不进找厂优先级
+  "TRADE_DATA",
 ] as const;
 export type SignalPlatform = (typeof SIGNAL_PLATFORMS)[number];
 
