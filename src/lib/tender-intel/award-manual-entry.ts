@@ -21,7 +21,7 @@ export const MANUAL_ENTRY_TEXT = {
   noticeGroup: "公告信息",
   winnerGroup: "这个中标方",
   buyerHint: "先从候选里选（本组织招标项目和已有授标里用过的写法）；候选里没有，再照公告上的采购机构原文填。大小写、标点、开头的 The 不影响匹配，其余要和项目里的采购方一字不差，系统才能对上。",
-  solicitationHint: "建议填写。同一采购方、同一中标方的不同招标靠编号区分，不填容易被当成疑似重复。",
+  solicitationHint: "建议填写。同一采购方、同一中标方的不同招标靠编号区分，不填容易被当成疑似重复。公告上没有单独的招标编号时，填链接里的 APC 编号（例如 AB-2026-07664）。",
   amountHint: "一条公告有几个中标方就录几条；金额填这个中标方自己的合同金额。公告只给总额或预估值时留空。",
   scopeHint: "写一句能反复用的采购内容，不带年份、编号、地点（例如 Snow removal services）。大小写和标点不影响；同一采购方、同一句、同一币种的已确认记录满 3 条，才会算出可比价格。",
   clearNotice: "换一条公告（清空）",
@@ -44,7 +44,7 @@ export const MANUAL_ENTRY_TEXT = {
   missingBuyer: "请填写采购方。",
   missingWinner: "请填写中标方。",
   missingUrl: "请填写 APC 公告链接。",
-  badUrl: "APC 公告链接要以 https://purchasing.alberta.ca/ 开头，并指向具体的公告。",
+  badUrl: "APC 公告链接要像 https://purchasing.alberta.ca/posting/AB-2026-07664 这样，指向具体的一条公告。",
   badDate: "授标日期要写成 年-月-日，且在 1900 年到今天之间。",
   badAmount: "合同金额只填数字（可以带千分位逗号和 $），不能为负，最多两位小数。",
   badCurrency: "币种只能是 CAD 或 USD。",
@@ -78,9 +78,13 @@ export type ManualEntryParse =
 /** 字符串去空白；数字按原样转成字符串（接口调用方传数字时不静默丢掉）；其余当没填 */
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "");
 
+/** APC 公告的路径：/posting/AB-年份-编号（Lucas 2026-11-20 给的样例 https://purchasing.alberta.ca/posting/AB-2026-07664；编号 4–6 位） */
+const APC_POSTING_PATH = /^\/posting\/(AB-\d{4}-\d{4,6})\/*$/i;
+
 /**
- * APC 链接：先解析、再规整（去掉 # 之后、主机名小写、去掉路径末尾所有的 /），规整后才判。
- * 返回规整后的序列化结果（origin + pathname + search）；不合格返回 null。
+ * APC 链接：先解析、再规整，规整后才判：协议 https、主机恰为 purchasing.alberta.ca、没有端口与用户名密码、
+ * 路径恰为 /posting/AB-年份-编号（末尾的 / 不算）。
+ * 返回统一的写法 https://purchasing.alberta.ca/posting/AB-…（编号大写；# 与 ? 之后都去掉——同一条公告只有一种写法）；不合格返回 null。
  */
 export function normalizeApcUrl(raw: string): string | null {
   let text = raw.trim();
@@ -94,9 +98,9 @@ export function normalizeApcUrl(raw: string): string | null {
     return null;
   }
   if (u.protocol !== "https:" || u.hostname.toLowerCase() !== APC_HOST || u.port !== "" || u.username !== "" || u.password !== "") return null;
-  const path = u.pathname.replace(/\/+$/, "");
-  if (!path) return null;
-  return `https://${APC_HOST}${path}${u.search}`;
+  const m = APC_POSTING_PATH.exec(u.pathname);
+  if (!m) return null;
+  return `https://${APC_HOST}/posting/${m[1].toUpperCase()}`;
 }
 
 /** 授标日期：真实存在的 YYYY-MM-DD（往返一致），不早于 1900-01-01，不晚于今天（按 UTC 日期，留一天时区余量，即不晚于 UTC 明天） */
@@ -141,9 +145,10 @@ export function parseManualEntry(body: unknown, now: Date): ManualEntryParse {
   if (winner.length > MANUAL_ENTRY_LIMITS.winner) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("中标方", MANUAL_ENTRY_LIMITS.winner), "winnerName");
   const rawUrl = str(b.apcUrl);
   if (!rawUrl) return fail("MISSING_URL", MANUAL_ENTRY_TEXT.missingUrl, "apcUrl");
+  // 原文先查长度（规整后的统一写法总是很短）
+  if (rawUrl.length > MANUAL_ENTRY_LIMITS.url) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("APC 公告链接", MANUAL_ENTRY_LIMITS.url), "apcUrl");
   const url = normalizeApcUrl(rawUrl);
   if (!url) return fail("BAD_URL", MANUAL_ENTRY_TEXT.badUrl, "apcUrl");
-  if (url.length > MANUAL_ENTRY_LIMITS.url) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("APC 公告链接", MANUAL_ENTRY_LIMITS.url), "apcUrl");
   const solicitation = str(b.solicitationNumber);
   if (solicitation.length > MANUAL_ENTRY_LIMITS.solicitation) return fail("TOO_LONG", MANUAL_ENTRY_TEXT.tooLong("招标编号", MANUAL_ENTRY_LIMITS.solicitation), "solicitationNumber");
   const date = parseAwardDate(str(b.awardDate), now);

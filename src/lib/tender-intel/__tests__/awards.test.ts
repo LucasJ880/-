@@ -272,6 +272,30 @@ console.log("tender-intel awards（T4 canonical service + read model）");
     ok(r.outcome === "NEEDS_REVIEW", "T4-01f 一方没编号 → NEEDS_REVIEW（保持原规则）");
   }
 
+  /* T4-01h（CHAIN-1b，Lucas 2026-11-20 收紧）中标方、授标日期、金额都相同时：两条都有编号且规范化后不同 → 不挂上；编号缺一方或只差写法 → 照旧挂上 */
+  {
+    const attachTry = async (solicitationNumber: string | null, key: string) => {
+      const { client, records } = makeFakeDb();
+      await createOrObserveAwardRecord(canadabuysInput("orgA"), { client });
+      const input = canadabuysInput("orgA", { solicitationNumber, buyerNameRaw: "Other Buyer Office" });
+      input.source.sourceType = "USER_ENTRY";
+      input.source.sourceKey = key;
+      input.verificationStatus = "NEEDS_REVIEW";
+      const r = await createOrObserveAwardRecord(input, { client });
+      return { r, first: records[0], count: records.length };
+    };
+    const a = await attachTry("PW-2024-002", "manual:distinct");
+    const b = await attachTry(null, "manual:no-number");
+    const c = await attachTry("pw 2024 001", "manual:spelled");
+    ok(
+      a.r.outcome === "CREATED" && a.count === 2 && a.r.record.solicitationNumber === "PW-2024-002" && a.r.record.status === "ACTIVE" &&
+        b.r.outcome === "ATTACHED_EXISTING" && b.r.record.id === b.first.id && b.count === 1 &&
+        c.r.outcome === "ATTACHED_EXISTING" && c.r.record.id === c.first.id && c.count === 1,
+      "T4-01h 同中标方同日期同金额：编号不同 → 新建（ACTIVE）；没编号或只差写法 → 挂到既有",
+      [a.r.outcome, b.r.outcome, c.r.outcome],
+    );
+  }
+
   /* T4-01g 招标编号规范化 */
   ok(
     normalizeSolicitationKey(" pw-2024/001 ") === "PW2024001" &&

@@ -299,6 +299,8 @@ export async function createOrObserveAwardRecord(
       },
     });
   }
+  // 按编号没找到时退到「中标方 + 授标日期 + 金额」；两条都有招标编号且规范化后不同 → 是另一次招标，不挂上
+  // （与下面 P2-0c 疑似重复的例外同一口径；CHAIN-1b，Lucas 2026-11-20 定「收紧」）
   if (!target && input.award.awardDate && input.award.contractAmount != null) {
     const sameKey = await c.awardRecord.findMany({
       where: {
@@ -311,7 +313,9 @@ export async function createOrObserveAwardRecord(
     });
     target =
       sameKey.find(
-        (r) => toAmountNumber(r.contractAmount) === toAmountNumber(input.award.contractAmount),
+        (r) =>
+          toAmountNumber(r.contractAmount) === toAmountNumber(input.award.contractAmount) &&
+          !isDistinctSolicitation(solicitation, r.solicitationNumber),
       ) ?? null;
   }
 

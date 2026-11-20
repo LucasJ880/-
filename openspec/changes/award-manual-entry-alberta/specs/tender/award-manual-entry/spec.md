@@ -23,15 +23,22 @@
 - **THEN** 两句逐字如上，表单在收起时显示前一句、展开后显示后一句（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 固定文字与源码断言）
 
 ### Requirement: 录入的校验
-采购方、中标方、APC 公告链接 SHALL 必填（去空白后非空，采购方与中标方各 ≤ 200 字）。APC 公告链接 SHALL 先规整（只写了 `purchasing.alberta.ca/…` 的补上 `https://`；去掉 `#` 之后、主机名小写、去掉路径末尾的 `/`）再判：只接受 `https:`、主机名恰为 `purchasing.alberta.ca`、没有端口（`:443` 视同没写）与用户名密码、路径不为空、规整后 ≤ 2048 字。招标编号选填 ≤ 100 字；授标日期选填，SHALL 是真实存在的 `年-月-日`，不早于 1900-01-01，不晚于今天（按 UTC 日期，留一天时区余量）；合同金额选填，SHALL 是 0 到 1,000,000,000,000 之间、最多两位小数的数字，可以带开头的 `$`、全角数字与千分位逗号，逗号不在千分位上 SHALL 拒绝；币种只认 `CAD`、`USD`（不分大小写，缺省 `CAD`，没填金额时忽略）；范围摘要选填 ≤ 2000 字。
+采购方、中标方、APC 公告链接 SHALL 必填（去空白后非空，采购方与中标方各 ≤ 200 字）。APC 公告链接 SHALL 符合「APC 公告链接」。招标编号选填 ≤ 100 字；授标日期选填，SHALL 是真实存在的 `年-月-日`，不早于 1900-01-01，不晚于今天（按 UTC 日期，留一天时区余量）；合同金额选填，SHALL 是 0 到 1,000,000,000,000 之间、最多两位小数的数字，可以带开头的 `$`、全角数字与千分位逗号，逗号不在千分位上 SHALL 拒绝；币种只认 `CAD`、`USD`（不分大小写，缺省 `CAD`，没填金额时忽略）；范围摘要选填 ≤ 2000 字。
 
 #### Scenario: 逐项校验
-- **WHEN** 分别漏填采购方、中标方、链接；链接是 `http://purchasing.alberta.ca/x`、`https://purchasing.alberta.ca//`、`https://purchasing.alberta.ca:8443/x`、`https://evil.example/purchasing.alberta.ca`；日期是后天、`2023-02-29`、`1899-12-31`；金额是 -1、1.234、`1234,56`；币种是 EUR；摘要 2001 字
-- **THEN** 每次 400，依次是 `请填写采购方。`、`请填写中标方。`、`请填写 APC 公告链接。`、四次 `APC 公告链接要以 https://purchasing.alberta.ca/ 开头，并指向具体的公告。`、三次 `授标日期要写成 年-月-日，且在 1900 年到今天之间。`、三次 `合同金额只填数字（可以带千分位逗号和 $），不能为负，最多两位小数。`、`币种只能是 CAD 或 USD。`、`范围摘要太长了（最多 2000 字）。`；库里没有新记录（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+- **WHEN** 分别漏填采购方、中标方、链接；链接是 `http://purchasing.alberta.ca/posting/AB-2026-07664`、`https://purchasing.alberta.ca/posting/AB-1`、`https://purchasing.alberta.ca:8443/posting/AB-2026-07664`、`https://evil.example/purchasing.alberta.ca`；日期是后天、`2023-02-29`、`1899-12-31`；金额是 -1、1.234、`1234,56`；币种是 EUR；摘要 2001 字
+- **THEN** 每次 400，依次是 `请填写采购方。`、`请填写中标方。`、`请填写 APC 公告链接。`、四次 `APC 公告链接要像 https://purchasing.alberta.ca/posting/AB-2026-07664 这样，指向具体的一条公告。`、三次 `授标日期要写成 年-月-日，且在 1900 年到今天之间。`、三次 `合同金额只填数字（可以带千分位逗号和 $），不能为负，最多两位小数。`、`币种只能是 CAD 或 USD。`、`范围摘要太长了（最多 2000 字）。`；库里没有新记录（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 #### Scenario: 能接受的写法
-- **WHEN** 链接是 `purchasing.alberta.ca/posting/AB-1`、`https://purchasing.alberta.ca:443/posting/AB-1`；金额是 `$1,250,000.00`、`１，２３４`、`48,000`；币种是 `usd`；授标日期是 UTC 明天
-- **THEN** 都通过；链接规整为 `https://purchasing.alberta.ca/posting/AB-1`，金额分别为 1250000、1234、48000，币种 `USD`（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`）
+- **WHEN** 金额是 `$1,250,000.00`、`１，２３４`、`48,000`；币种是 `usd`；授标日期是 UTC 明天
+- **THEN** 都通过；金额分别为 1250000、1234、48000，币种 `USD`（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`）
+
+### Requirement: APC 公告链接
+APC 公告链接原文 SHALL ≤ 2048 字，SHALL 只接受 `https:`（只写了 `purchasing.alberta.ca/…` 的补上）、主机名恰为 `purchasing.alberta.ca`、没有端口（`:443` 视同没写）与用户名密码、路径恰为 `/posting/AB-年份-编号`（编号 4–6 位，末尾的 `/` 不算；样例 `https://purchasing.alberta.ca/posting/AB-2026-07664`），并 SHALL 统一存成 `https://purchasing.alberta.ca/posting/AB-…`（编号大写，去掉 `?` 与 `#` 之后），同一条公告只有一种写法。不合格 SHALL 返回 400 `APC 公告链接要像 https://purchasing.alberta.ca/posting/AB-2026-07664 这样，指向具体的一条公告。`
+
+#### Scenario: 链接的写法
+- **WHEN** 链接是 `purchasing.alberta.ca/posting/ab-2026-07664/?x=1#top`、`https://purchasing.alberta.ca:443/posting/AB-2026-07664`；另有 `https://purchasing.alberta.ca/posting/AB-1`、`https://purchasing.alberta.ca/x/AB-2026-07664`、`https://purchasing.alberta.ca/posting/AB-2026-07664/extra`
+- **THEN** 前两个都存成 `https://purchasing.alberta.ca/posting/AB-2026-07664`；后三个 400 那句话（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`）
 
 ### Requirement: 请求有误时的回答
 不合格时 SHALL 返回 400 `{ error, code, field }`，`error` 是按采购方、中标方、链接、编号、日期、金额、币种、摘要的顺序第一处错误的那句话，`code` 为 `MISSING_BUYER`、`MISSING_WINNER`、`MISSING_URL`、`BAD_URL`、`BAD_DATE`、`BAD_AMOUNT`、`BAD_CURRENCY`、`TOO_LONG` 之一，`field` 是那一项；超长的写 `{项}太长了（最多 N 字）。`（项为 `采购方`、`中标方`、`APC 公告链接`、`招标编号`、`范围摘要`）。请求体超过 16 KB SHALL 返回 400 `请求太大`（`code` 为 `TOO_LARGE`），没声明长度的边读边数、超了就停；请求体不是 JSON SHALL 按空表单处理。数字形式的字段 SHALL 按字符串校验，SHALL NOT 静默丢掉。以上都 SHALL NOT 写库。
@@ -41,7 +48,7 @@
 - **THEN** 依次 400 `code` `BAD_URL` 与 `field` `apcUrl`；`BAD_DATE` 与 `awardDate`；`TOO_LARGE` 与 `请求太大`；`请填写采购方。`；都没有新记录（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 落库口径
-录入 SHALL 经既有授标写入服务落一条授标记录：来源类型为人工录入（`USER_ENTRY`），来源链接为规整后的 APC 公告链接，信任级为待人工复核（`NEEDS_REVIEW`），可信度为中，不挂项目。录入 SHALL NOT 落为 `SYSTEM_VERIFIED` 或 `HUMAN_CONFIRMED`。按既有写入规则先判挂到既有、再判疑似重复：与已有记录招标编号和中标方都相同时；或招标编号没对上（没填、或与已有的不同）而中标方、授标日期、金额都相同时（不看编号、不看采购方），SHALL 把这条来源挂到那条记录上，那条记录的内容与信任级 SHALL NOT 改变；疑似重复 SHALL 照既有规则标为疑似重复。组织管理员 SHALL 能用既有的「确认属实 / 撤回」处理这些记录，确认后为人工确认；项目里人工确认同编号同中标方的授标时，既有规则也会把它提升为人工确认。
+录入 SHALL 经既有授标写入服务落一条授标记录：来源类型为人工录入（`USER_ENTRY`），来源链接为规整后的 APC 公告链接，信任级为待人工复核（`NEEDS_REVIEW`），可信度为中，不挂项目。录入 SHALL NOT 落为 `SYSTEM_VERIFIED` 或 `HUMAN_CONFIRMED`。按既有写入规则先判挂到既有、再判疑似重复：与已有记录招标编号和中标方都相同时；或招标编号没对上、而中标方、授标日期、金额都相同且不是两边都有编号而编号不同时（见 `tender/award-records`），SHALL 把这条来源挂到那条记录上，那条记录的内容与信任级 SHALL NOT 改变；疑似重复 SHALL 照既有规则标为疑似重复。组织管理员 SHALL 能用既有的「确认属实 / 撤回」处理这些记录，确认后为人工确认；项目里人工确认同编号同中标方的授标时，既有规则也会把它提升为人工确认。
 
 #### Scenario: 新录入与复核
 - **WHEN** 成员录入一条，组织管理员随后确认属实
@@ -49,7 +56,7 @@
 
 #### Scenario: 挂到既有与疑似重复
 - **WHEN** 另录一条与一条 CanadaBuys 的权威记录招标编号和中标方相同的；另录一条没有编号、中标方授标日期金额都与一条 AI 提取的记录相同的；另录一条编号与采购方都与那条 CanadaBuys 记录不同、中标方授标日期金额相同的；另录一条同采购方同中标方但日期不同的
-- **THEN** 前三种来源挂到那条记录上，那条的信任级不变（CanadaBuys 那条仍是 `SYSTEM_VERIFIED`、AI 提取的仍是 `AI_EXTRACTED`），编号与采购方不变，来源多一个；第四种新记录状态为疑似重复（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+- **THEN** 前两种来源挂到那条记录上，那条的信任级不变（CanadaBuys 那条仍是 `SYSTEM_VERIFIED`、AI 提取的仍是 `AI_EXTRACTED`），来源多一个；第三种不挂上、新建一条待人工复核（那条 CanadaBuys 记录不变）；第四种新记录状态为疑似重复（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 重录与撤回后重录
 同一条公告链接的同一个中标方再录 SHALL 不新建、不写审计；两次同时提交 SHALL 只有一条记录且两次都成功返回。这条公告与中标方对应的记录被组织管理员撤回后再录，SHALL 新建一条（撤回的那条保持撤回），再重放 SHALL 仍不重复。同一条公告的同一个中标方撤回满 10 次后再录 SHALL 返回 409 `这条公告的这个中标方撤回过太多次，没有录入；请联系组织管理员。`（`code` 为 `RETRACTED_TOO_MANY`），SHALL NOT 写库。

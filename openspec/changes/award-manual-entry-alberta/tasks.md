@@ -2,11 +2,11 @@
 
 ## 1. 纯函数
 
-- [x] 1.1 新增 `src/lib/tender-intel/award-manual-entry.ts`：表单校验与规整（链接只做字符串解析）、来源键、结果说法与固定文字（verify：`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 每条校验与那句话、来源键确定、源码没有网络调用）
+- [x] 1.1 新增 `src/lib/tender-intel/award-manual-entry.ts`：表单校验与规整（链接只做字符串解析）、来源键、结果说法与固定文字；APC 链接只认 `/posting/AB-年份-编号`、统一一种写法（verify：`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 每条校验与那句话、来源键确定、源码没有网络调用）
 
 ## 2. 接口
 
-- [x] 2.1 新增 `src/app/api/organizations/[orgId]/tender-awards/manual/route.ts`：`requireOrgRole(…, "org_member")`（超级管理员 + 组织不存在 404）→ 开关 409 → 校验 400 → 事务里写入服务（撤回过的换后继键）+ 审计；P2002 重读按已经录过返回（verify：隔离库用例「谁能录入」「开关关闭」「新录入与复核」「挂到既有与疑似重复」「重录、并发、撤回后重录」「审计」）
+- [x] 2.1 新增 `src/app/api/organizations/[orgId]/tender-awards/manual/route.ts`：`requireOrgRole(…, "org_member")`（超级管理员 + 组织不存在 404）→ 开关 409 → 校验 400 → 事务里写入服务（撤回过的换后继键）+ 审计；P2002 重读按已经录过返回；`awards.ts` 强匹配第二条路径不跨不同的招标编号（GATE 收紧）（verify：隔离库用例「谁能录入」「开关关闭」「新录入与复核」「挂到既有与疑似重复」「重录、并发、撤回后重录」「审计」；`npx tsx src/lib/tender-intel/__tests__/awards.test.ts` T4-01h）
 - [x] 2.2 `src/app/api/org/tender-awards/route.ts`：返回 `canEnterManual`、每条记录的人工录入 APC 链接（只认 `manual:apc:` 来源、再校验主机）、采购方候选（verify：隔离库用例「列表显示」）
 
 ## 3. 页面
