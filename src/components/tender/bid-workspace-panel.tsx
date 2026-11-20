@@ -148,7 +148,7 @@ function StageCard({ view }: { view: WorkspaceView }) {
       <p className="mt-1 text-xs text-muted">只读的阶段材料齐备就直接做；只有对外发送、付费、提交和需要 Owner 决定的才停下。</p>
       <div className="mt-3 grid gap-3 text-xs sm:grid-cols-3">
         <ListBlock title="缺的材料" empty="不缺" items={lists.missingMaterials.map((m) => `${m.stageZh}：${m.materials.join("、")}`)} />
-        <ListBlock title="未接通的来源" empty="没有" items={lists.notConnected.map((n) => `${n.stageZh}：${n.sourceZh}（${n.stateZh}）`)} />
+        <ListBlock title="未接通、也没有人工材料的来源" empty="没有" items={lists.notConnected.map((n) => `${n.stageZh}：${n.sourceZh}（${n.stateZh}）`)} />
         <ListBlock title="等批准的动作" empty="没有" items={lists.awaitingApproval.map((a) => a.stageZh)} />
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -158,6 +158,12 @@ function StageCard({ view }: { view: WorkspaceView }) {
           </span>
         ))}
       </div>
+      {/* CHAIN-3b：取决于来源的阶段把说明写出来（例如「只处理人工提供的进口线索」），不只放在悬停提示里 */}
+      <ul className="mt-2 space-y-0.5 text-[11px] text-muted" data-testid="bw-source-stage-notes">
+        {stages.filter((s) => s.stageClass === "SOURCE_DEPENDENT").map((s) => (
+          <li key={s.key}>{`${s.labelZh}：${s.detailZh}`}</li>
+        ))}
+      </ul>
     </div>
   );
 }
