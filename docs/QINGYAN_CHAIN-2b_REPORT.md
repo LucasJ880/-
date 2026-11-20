@@ -82,12 +82,12 @@
 | | 同一页「报价与成本」卡对几乎所有项目角色显示估算成本与毛利率 | 不改：列入 §6 第 4 条 |
 | | 版式、`大幅让价——核对毛利` 等 | 小处已调；文案沿用既有 |
 
-## 6. 留给 GATE 的问题
+## 6. 留给 GATE 的问题（Lucas 2026-11-20 已答三条）
 
-1. **投标同事看不到成本了**：`bids` 岗位的 `project.finance.read` 只在 ASSIGNED 范围，不算财务查看权。不是项目负责人的投标同事要看、要改成本，需要组织给他组织范围的 `project.finance.read` / `manage`（这会让他看到全组织的财务数据）。与成本核算接口、寻源卡一致，但对现有用法是收紧。
-2. **项目负责人可以被改成自己**：能编辑项目的人 `PATCH /api/projects/{项目}` 改 `ownerId` 即按负责人拿到财务查看权（成本核算、寻源卡同样）。要不要限制谁能改负责人，另立 change。
-3. **投标策略备忘**：`orchestrate.ts` 把含我方成本、成本底价情景与毛利的 `pricingAnalysis` 交给 `strategy.ts` 写进模型输入，备忘经情报页签（`external-intel/award-history` 的定价策略）、工作台摘要、`generate-docs.ts`、投标文件草稿给项目读者，可能转述成本或毛利。根本修法：送进模型前去掉成本相关部分。
-4. **口径不同的页面**：比价矩阵（`…/compare/matrix`、`…/compare/analysis`）对项目读者显示每家的落地价；同一工作台页的「报价与成本」卡（报价引擎）按 `canViewInternal`（任何带 `project:cost:read` 的项目角色）显示估算成本与毛利率。要不要统一到财务查看权，另议。
+1. **投标同事看不到成本了**（`bids` 岗位的 `project.finance.read` 只在 ASSIGNED 范围）——**不用**改：照本 change 的口径，不给组织范围财务权。
+2. **项目负责人可以被改成自己**——**另立 change**：已开 CHAIN-2c `project-owner-change-guard`（#539）。
+3. **投标策略备忘可能转述成本或毛利**——**另立 change**：已开 CHAIN-2d `strategy-memo-cost-strip`（#538；它须在本 PR 之后合并）。
+4. **口径不同的页面**：比价矩阵（`…/compare/matrix`、`…/compare/analysis`）对项目读者显示每家的落地价；同一工作台页的「报价与成本」卡（报价引擎）按 `canViewInternal` 显示估算成本与毛利率。要不要统一到财务查看权——还没答。
 
 ## 7. 已知限制
 
