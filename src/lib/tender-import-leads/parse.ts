@@ -37,14 +37,16 @@ export const IMPORT_COLUMNS_HINT_ZH =
   "把表格里的记录连同表头一起粘贴进来（逗号或制表符分隔）。需要的列：进口商、出口商；可选：日期、品名、数量、来源网址。";
 /** 表头能写成哪些名字（导入框下方与缺列时说明） */
 export const IMPORT_HEADER_NAMES_ZH =
-  "表头可写：进口商（Importer / Consignee）、出口商（Exporter / Shipper / Supplier）、日期（Date / Arrival Date）、品名（Goods / Product / Description）、数量（Quantity / Qty）、来源网址（URL / Link）。";
+  "表头可写（不分大小写）：进口商 Importer / Importer Name / Consignee / Consignee Name；出口商 Exporter / Exporter Name / Shipper / Shipper Name / Supplier / Supplier Name；日期 Date / Arrival Date / Shipment Date / Bill of Lading Date；品名 Goods / Goods Description / Product / Product Description / Description；数量 Quantity / Qty；来源网址 Source URL / URL / Link。";
 
 export type BatchFailure =
   | { code: "EMPTY"; messageZh: string }
   | { code: "MISSING_COLUMNS"; messageZh: string; columns: string[] }
   | { code: "DUPLICATE_COLUMN"; messageZh: string }
   | { code: "TOO_MANY"; messageZh: string }
-  | { code: "TOO_LARGE"; messageZh: string };
+  | { code: "TOO_LARGE"; messageZh: string }
+  | { code: "UNCLOSED_QUOTE"; messageZh: string }
+  | { code: "DATE_ORDER_MISMATCH"; messageZh: string };
 
 export const BATCH_TEXT = {
   empty: "没有可导入的内容。",
@@ -53,6 +55,12 @@ export const BATCH_TEXT = {
   duplicate: (col: string, a: string, b: string) => `表头里有两列都是「${col}」：${a}、${b}。请删掉一列再贴。`,
   tooMany: (n: number) => `一次最多导入 ${IMPORT_MAX_RECORDS} 条记录，这次有 ${n} 条。`,
   tooLarge: "内容太长（超过 200 KB），请分批导入。",
+  dateOrderMismatch: (n: number, order: "MDY" | "DMY", example: string) =>
+    `有 ${n} 条日期按「${order === "MDY" ? "月/日/年" : "日/月/年"}」读不通（如「${example}」），可能选错了日期写法；这一批一条都没有导入，请改选后重新导入。`,
+  unclosedQuote: (recordNo: number) =>
+    recordNo === 0
+      ? "表头里有引号没有配对（以 \" 开头的格子没有结束的 \"）。请检查后再贴。"
+      : `第 ${recordNo} 条记录里有引号没有配对（以 " 开头的格子没有结束的 "），后面的记录会被当成这一格的内容，所以这一批没有导入。请检查后再贴。`,
 } as const;
 
 export const RECORD_PROBLEMS = ["IMPORTER_MISSING", "EXPORTER_MISSING", "DATE_INVALID", "DATE_FUTURE", "EVIDENCE_MISSING", "NAME_TOO_LONG", "GOODS_TOO_LONG"] as const;
@@ -95,7 +103,7 @@ function realDay(y: number, m: number, d: number): string | null {
 /** 年在前的三种写法恒认；斜杠 / 点 / 连字符分隔的「x/x/年」只在这一批选了月日顺序时才认 */
 export function parseShipmentDate(raw: string, order: DateOrder): string | null {
   // 表格导出常带的「 0:00」时间去掉；两位年份不认（分不清世纪）
-  const s = raw.trim().replace(/[ T]\d{1,2}:\d{2}(:\d{2})?(\s?[ap]m)?$/i, "");
+  const s = raw.trim().replace(/[ T]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?(\s?[ap]m)?$/i, "");
   const ymd = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (ymd) return realDay(Number(ymd[1]), Number(ymd[2]), Number(ymd[3]));
   const xxy = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
@@ -119,12 +127,16 @@ export function importDedupeKey(r: { importer: string; exporter: string; shipmen
   return [normalizeCompanyName(r.importer), normalizeCompanyName(r.exporter), r.shipmentDate ?? "", normText(r.goods), normText(r.quantityRaw), normText(r.sourceUrlRaw)].join("|");
 }
 
-/** RFC 4180：引号、转义引号、引号里的换行、CRLF；分隔符可选（逗号或制表符）。整行都是空白的行丢掉。 */
-export function parseDelimited(text: string, delimiter: "," | "\t"): string[][] {
+/**
+ * RFC 4180：引号、转义引号、引号里的换行、CRLF / 单独的 CR；分隔符可选（逗号或制表符）。整行都是空白的行丢掉。
+ * 以引号开头的格子到结尾都没有配对时，unclosedAtRow 给出它所在的行（0 = 表头）——调用方整批拒绝，不猜。
+ */
+export function parseDelimitedWithState(text: string, delimiter: "," | "\t"): { rows: string[][]; unclosedAtRow: number | null } {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
   let inQuotes = false;
+  let quoteRow = -1;
   const push = () => {
     row.push(field);
     field = "";
@@ -148,20 +160,26 @@ export function parseDelimited(text: string, delimiter: "," | "\t"): string[][] 
     if (c === '"' && field.trim() === "") {
       field = "";
       inQuotes = true;
+      quoteRow = rows.length;
     } else if (c === delimiter) push();
     else if (c === "\n" || c === "\r") {
       if (c === "\r" && text[i + 1] === "\n") i++;
       endRow();
     } else field += c;
   }
+  const unclosedAtRow = inQuotes ? quoteRow : null;
   if (field.length > 0 || row.length > 0) endRow();
-  return rows;
+  return { rows, unclosedAtRow };
 }
 
-function splitRows(text: string): string[][] {
+export function parseDelimited(text: string, delimiter: "," | "\t"): string[][] {
+  return parseDelimitedWithState(text, delimiter).rows;
+}
+
+function splitRows(text: string): { rows: string[][]; unclosedAtRow: number | null } {
   const body = text.replace(/^\uFEFF/, "");
-  const firstLine = body.split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";
-  return parseDelimited(body, firstLine.includes("\t") ? "\t" : ",");
+  const firstLine = body.split(/\r\n|\r|\n/).find((l) => l.trim().length > 0) ?? "";
+  return parseDelimitedWithState(body, firstLine.includes("\t") ? "\t" : ",");
 }
 
 /** 「在未来」的界线：UTC 今天再加一天（中国、加拿大的「今天」都不会被误判成未来） */
@@ -172,7 +190,8 @@ function latestAllowedDay(now: Date): string {
 export function parseImportText(text: string, opts: { sourceLabel?: string | null; dateOrder?: DateOrder | null; now: Date }): ParseResult {
   if (byteLength(text ?? "") > IMPORT_MAX_BYTES) return { ok: false, code: "TOO_LARGE", messageZh: BATCH_TEXT.tooLarge };
   if (!text || !text.trim()) return { ok: false, code: "EMPTY", messageZh: BATCH_TEXT.empty };
-  const rows = splitRows(text);
+  const { rows, unclosedAtRow } = splitRows(text);
+  if (unclosedAtRow !== null) return { ok: false, code: "UNCLOSED_QUOTE", messageZh: BATCH_TEXT.unclosedQuote(unclosedAtRow) };
   if (rows.length < 2) return { ok: false, code: "EMPTY", messageZh: BATCH_TEXT.empty };
 
   const header = rows[0].map((h) => h.trim());
@@ -198,6 +217,14 @@ export function parseImportText(text: string, opts: { sourceLabel?: string | nul
     const i = index[col];
     return i === undefined ? "" : (row[i] ?? "").trim();
   };
+
+  // 选了「月/日/年」或「日/月/年」：只要有一条按所选读不通、按另一种读得通，就说明多半选反了——整批不导入，
+  // 免得日不超过 12 的那些按错的月日进库（之后改对了再导入，去重键里日期不同，会存成两份）
+  if (order !== "YMD") {
+    const other: DateOrder = order === "MDY" ? "DMY" : "MDY";
+    const bad = data.map((row) => cell(row, "date")).filter((d) => /^\d{1,2}[-/.]\d{1,2}[-/.]\d{4}/.test(d) && !parseShipmentDate(d, order) && !!parseShipmentDate(d, other));
+    if (bad.length) return { ok: false, code: "DATE_ORDER_MISMATCH", messageZh: BATCH_TEXT.dateOrderMismatch(bad.length, order, bad[0].slice(0, 40)) };
+  }
 
   const records: ParsedRecord[] = [];
   const problems: RecordProblem[] = [];

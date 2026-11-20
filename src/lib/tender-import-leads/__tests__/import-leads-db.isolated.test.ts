@@ -191,7 +191,7 @@ async function main() {
     const a1 = await addSupplier(p1, ningboKey);
     const created = a1.json.result?.supplier;
     const sup = created ? await db.supplier.findUnique({ where: { id: created.id } }) : null;
-    ok(a1.status === 200 && !!created && created.created === true && created.hasEmail === false && sup?.source === "trade_data" && sup.contactEmail === null && sup.status === "active" && (sup.sourceDetail ?? "").includes("Northfield Pest Supply Inc.") && a1.json.result?.messageZh === "已加入供应商库。提单记录通常没有邮箱，请先补上联系邮箱，才能发询价。", "新建供应商：来源 trade_data、邮箱留空，说明写明中标者", { a1: a1.json.result, sup });
+    ok(a1.status === 200 && !!created && created.created === true && created.hasEmail === false && sup?.source === "trade_data" && sup.contactEmail === null && sup.status === "active" && (sup.sourceDetail ?? "").includes("Northfield Pest Supply Inc.") && a1.json.result?.messageZh === "已加入供应商库。进口记录通常没有邮箱，请先补上联系邮箱才能发询价；补上后在项目里点「问供应商要价」就能勾选它。", "新建供应商：来源 trade_data、邮箱留空，说明写明中标者", { a1: a1.json.result, sup });
     const linked = (await leadSignals(p1)).filter((s) => s.linkedSupplierId === created?.id);
     const resolution = linked[0]?.resolutionJson as Array<{ decision?: string }> | null;
     ok(linked.length === 2 && linked.every((s) => s.status === "LINKED") && Array.isArray(resolution) && resolution.some((e) => e.decision === "HUMAN_LINKED") && a1.json.result?.linkedLeads === 2, "这家的 2 条线索经既有关联流程关联到它", linked.map((s) => s.status));

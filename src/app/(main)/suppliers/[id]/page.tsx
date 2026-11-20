@@ -161,13 +161,13 @@ export default function SupplierDetailPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch.contactEmail !== undefined ? { ...patch, contactEmail: email || null } : patch),
-    });
-    if (!res.ok) {
+    }).catch(() => null);
+    if (!res || !res.ok) {
       setContactMsg("没有保存成功，请稍后再试。");
       return;
     }
     setEmailDraft(null);
-    setContactMsg(patch.status === "active" ? "已启用。" : "已保存。");
+    setContactMsg(patch.status === "active" ? "已启用。" : email ? "已保存。在项目里点「问供应商要价」就能勾选这家。" : "已清空邮箱。");
     loadSupplier();
   };
 
@@ -271,7 +271,7 @@ export default function SupplierDetailPage() {
               <div className="flex items-center gap-2 text-muted">
                 <Mail className="h-4 w-4 shrink-0" />
                 <span>还没有联系邮箱（没有邮箱不能发询价）</span>
-                <button type="button" onClick={() => setEmailDraft("")} className="text-xs text-accent hover:underline">补上邮箱</button>
+                <button type="button" onClick={() => setEmailDraft("")} className="text-xs text-accent hover:underline">补邮箱</button>
               </div>
             )}
             {supplier.status !== "active" ? (

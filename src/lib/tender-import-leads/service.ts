@@ -467,7 +467,7 @@ export async function addImportLeadSupplier(input: {
   const active = picked.status === "active";
   const messageZh = picked.created
     ? IMPORT_LEADS_TEXT.supplierCreated
-    : `${IMPORT_LEADS_TEXT.supplierLinked(picked.name)}${active ? "" : IMPORT_LEADS_TEXT.supplierInactive}`;
+    : `${IMPORT_LEADS_TEXT.supplierLinked(picked.name)}${active ? "" : IMPORT_LEADS_TEXT.supplierInactive}${hasEmail ? "" : IMPORT_LEADS_TEXT.supplierLinkedNoEmail}`;
   await logAudit({
     userId: input.userId,
     orgId: input.orgId,

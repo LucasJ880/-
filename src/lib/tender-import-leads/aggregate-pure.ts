@@ -31,12 +31,20 @@ export function keywordsOf(text: string | null | undefined): Set<string> {
   return out;
 }
 
+/** 品名与要求共有的词：按去掉词尾 s 的词比，显示品名里的原词（不显示「batterie」这种截出来的样子） */
 export function sharedKeywords(goods: ReadonlyArray<string | null>, requirementTexts: readonly string[], max = MAX_SHARED_KEYWORDS): string[] {
   const req = new Set<string>();
   for (const t of requirementTexts) for (const k of keywordsOf(t)) req.add(k);
-  const hits = new Set<string>();
-  for (const g of goods) for (const k of keywordsOf(g)) if (req.has(k)) hits.add(k);
-  return [...hits].sort().slice(0, max);
+  const shown = new Map<string, string>();
+  for (const g of goods) {
+    for (const raw of (g ?? "").toLowerCase().split(/[^a-z]+/)) {
+      if (raw.length < 3) continue;
+      const k = stem(raw);
+      if (!req.has(k) || STOPWORDS.has(k) || STOPWORDS.has(raw) || shown.has(k)) continue;
+      shown.set(k, raw);
+    }
+  }
+  return [...shown.values()].sort().slice(0, max);
 }
 
 /* ---------------------------------- 汇总 ---------------------------------- */
@@ -91,7 +99,8 @@ export function aggregateByExporter(leads: readonly MatchedLeadInput[], opts: { 
       exporterName: g.name,
       winnerNames: g.winners,
       shipments: g.shipments,
-      last12Months: g.dates.filter((d) => !isOlderThanCurrentWindow(day(d), opts.now) && day(d).getTime() <= opts.now.getTime()).length,
+      // 上界与解析时「在未来」的界线一致：UTC 今天再加一天（时差）
+      last12Months: g.dates.filter((d) => !isOlderThanCurrentWindow(day(d), opts.now) && day(d).getTime() <= opts.now.getTime() + 24 * 60 * 60 * 1000).length,
       latestDate,
       historical: latestDate ? isOlderThanCurrentWindow(day(latestDate), opts.now) : null,
       sharedKeywords: sharedKeywords(g.goods, opts.requirementTexts),
@@ -124,13 +133,17 @@ export const IMPORT_LEADS_TEXT = {
   exporterNotInSummary: "这家出口商不在本项目的进口线索汇总里。",
   aliasConfirmed: "已确认是同一家，相关记录已加入出口商汇总。",
   aliasRejected: "已标为不是同一家，这些记录不再显示。",
-  leadCap: (n: number, cap: number) => `这个项目已有 ${n} 条进口记录，最多 ${cap} 条，这一批放不下了。`,
+  leadCap: (n: number, cap: number) => `这个项目已有 ${n} 条进口记录（含在供应链页标为不采用的），最多 ${cap} 条，这一批放不下了。`,
   storedButHidden: (n: number) => `已导入 ${n} 条进口记录；历史中标者现在读不出来，先不显示。`,
-  storedPending: (n: number) => `已导入 ${n} 条进口记录，等确认上面「是不是同一家」后会出现在出口商汇总里。`,
-  supplierCreated: "已加入供应商库。提单记录通常没有邮箱，请先补上联系邮箱，才能发询价。",
+  storedPending: (n: number) => `已导入 ${n} 条进口记录，都在等你确认是不是同一家（打开进口线索去确认）。`,
+  storedUnmatched: (n: number) => `已导入 ${n} 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。`,
+  cannotImport: (reason: string) => `暂时不能导入：${reason}`,
+  supplierCreated: "已加入供应商库。进口记录通常没有邮箱，请先补上联系邮箱才能发询价；补上后在项目里点「问供应商要价」就能勾选它。",
+  supplierLinkedNoEmail: "它还没有联系邮箱，补上后才能发询价。",
   supplierLinked: (name: string) => `供应商库里已有「${name}」，已关联，没有新建。`,
   supplierInactive: "它已停用，要发询价请先在供应商页启用。",
-  supplierMissingEmail: "已在供应商库，缺联系邮箱（去补上）",
+  supplierMissingEmail: "缺联系邮箱，去补邮箱",
+  supplierNotAdded: "未加入供应商库",
   supplierReady: "已在供应商库",
   dateUnknown: "日期未知",
   historical: "已超过 12 个月",
@@ -170,9 +183,13 @@ export type ImportLeadsView = {
  * 槽里那一行摘要：有挂上的线索时「{N} 家出口商（{M} 条线索）」；存着线索但中标者读不出来 / 都在等确认时照实说；
  * 一条都没有时「还没有导入进口记录。」
  */
-export function slotSummaryZh(view: Pick<ImportLeadsView, "exporters" | "leadCount" | "storedLeadCount" | "winners">): string {
+export function slotSummaryZh(view: Pick<ImportLeadsView, "exporters" | "leadCount" | "storedLeadCount" | "winners" | "suggestions">): string {
   if (view.exporters.length) return `${view.exporters.length} 家出口商（${view.leadCount} 条线索）`;
-  if (view.storedLeadCount > 0) return view.winners.status === "ok" ? IMPORT_LEADS_TEXT.storedPending(view.storedLeadCount) : IMPORT_LEADS_TEXT.storedButHidden(view.storedLeadCount);
+  if (view.storedLeadCount > 0) {
+    if (view.winners.status !== "ok") return IMPORT_LEADS_TEXT.storedButHidden(view.storedLeadCount);
+    return view.suggestions.length ? IMPORT_LEADS_TEXT.storedPending(view.storedLeadCount) : IMPORT_LEADS_TEXT.storedUnmatched(view.storedLeadCount);
+  }
+  if (view.winners.status !== "ok") return IMPORT_LEADS_TEXT.cannotImport(view.winners.messageZh);
   return IMPORT_LEADS_TEXT.empty;
 }
 

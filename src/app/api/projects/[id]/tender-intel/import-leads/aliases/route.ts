@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { readJsonBody, requireImportLeadsWrite } from "@/lib/tender-import-leads/api-access";
+import { NO_STORE, readJsonBody, requireImportLeadsWrite } from "@/lib/tender-import-leads/api-access";
 import { decideImportLeadAlias } from "@/lib/tender-import-leads/service";
 
 type Params = { params: Promise<{ id: string }> };
@@ -18,8 +18,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   const body = await readJsonBody(request, 16 * 1024);
   const pairKey = body && body !== "TOO_LARGE" && typeof body.pairKey === "string" ? body.pairKey : "";
   const decision = body && body !== "TOO_LARGE" ? body.decision : null;
-  if (!pairKey || (decision !== "CONFIRMED" && decision !== "REJECTED")) return NextResponse.json({ error: "请求不完整", code: "INVALID_INPUT" }, { status: 400 });
+  if (!pairKey || (decision !== "CONFIRMED" && decision !== "REJECTED")) return NextResponse.json({ error: "请求不完整", code: "INVALID_INPUT" }, { status: 400, headers: NO_STORE });
   const out = await decideImportLeadAlias({ orgId: gate.orgId, projectId, userId: gate.access.user.id, pairKey, decision });
-  if (!out.ok) return NextResponse.json({ error: out.messageZh, code: out.code }, { status: out.status });
-  return NextResponse.json({ view: out.view }, { headers: { "Cache-Control": "private, no-store" } });
+  if (!out.ok) return NextResponse.json({ error: out.messageZh, code: out.code }, { status: out.status, headers: NO_STORE });
+  return NextResponse.json({ view: out.view }, { headers: NO_STORE });
 }

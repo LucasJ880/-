@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
 import { IMPORT_LEADS_TEXT, importResultZh, slotSummaryZh, type ExporterSummary, type ImportLeadsView, type PendingSuggestionView } from "@/lib/tender-import-leads/aggregate-pure";
+import { IMPORT_HEADER_NAMES_ZH } from "@/lib/tender-import-leads/parse";
 import type { ImportResult } from "@/lib/tender-import-leads/service";
 
 export const IMPORT_LEADS_UI = {
@@ -26,20 +27,23 @@ export const IMPORT_LEADS_UI = {
   importButton: "导入",
   importing: "正在导入…",
   keepTextNote: "有没导入的记录：上面的内容保留着，改好后整张表重新导入即可，已导入的不会重复。",
+  unrelatedOnlyNote: "对不上中标者的记录不用改，重新导入也会跳过。",
   winnersPrefix: "本项目采购方的历史中标者（来自授标记录，不含我方结果）：",
   noImportWithoutWinners: "没有可比对的历史中标者，暂时不能导入。",
   noBuyerNext: "在项目信息里填上采购方名称后再来。",
-  noneNext: "先在上方「历史中标」里确认这个采购方的中标记录（不含我方结果），再来导入。",
+  noneNext: "先在本项目的「历史授标检索」里人工确认这个采购方的中标记录（或请组织管理员在「历史中标」页确认），再来导入。",
   readOnly: "你只有查看权限；导入、确认和加入供应商库需要能修改本项目。",
-  rejectedNote: "在供应链页「供应商线索」里标为不采用的记录不会显示在这里。",
+  rejectedNote: "在「国内采购 / 找供应商」页的「供应商线索」里标为不采用的记录不会显示在这里。",
   confirmSame: "确定是同一家吗？确认后本组织所有项目都会把这两个名称当成同一家，不能撤回。",
   confirmReject: "确定不是同一家吗？否决后本组织所有项目都不再把这两个名称当成同一家，也不再提示，不能撤回。",
   addSupplier: "加入供应商库",
   adding: "正在加入…",
   linkNew: (n: number) => `关联新导入的 ${n} 条`,
   supplierReady: "已在供应商库",
-  supplierMissingEmail: "已在供应商库，缺联系邮箱（去补上）",
-  supplierInactive: "（已停用）",
+  supplierMissingEmail: "缺联系邮箱，去补邮箱",
+  supplierInactive: "已停用",
+  supplierNotAdded: "未加入供应商库",
+  winnersMore: (n: number) => ` 等 ${n} 家`,
   dateUnknown: "日期未知",
   historical: "已超过 12 个月",
   close: "收起",
@@ -123,19 +127,19 @@ async function postJson(url: string, body: unknown): Promise<{ ok: true; json: R
 const btn = "rounded border border-border px-2.5 py-1 text-xs hover:bg-muted/30 disabled:opacity-50";
 
 function SupplierCell({ e, canEdit, busyKey, onAdd }: { e: ExporterSummary; canEdit: boolean; busyKey: string | null; onAdd: () => void }) {
-  const busy = busyKey === e.exporterKey;
+  const busy = busyKey === `row:${e.exporterKey}`;
   const action =
     canEdit && (!e.supplier || e.unlinkedLeads > 0) ? (
       <button type="button" disabled={busyKey !== null} onClick={onAdd} className={btn} aria-label={`把 ${e.exporterName} ${e.supplier ? "新导入的记录关联到供应商库" : "加入供应商库"}`}>
         {busy ? IMPORT_LEADS_UI.adding : e.supplier ? IMPORT_LEADS_UI.linkNew(e.unlinkedLeads) : IMPORT_LEADS_UI.addSupplier}
       </button>
     ) : null;
-  if (!e.supplier) return action ?? <span className="text-muted">—</span>;
+  if (!e.supplier) return action ?? <span className="text-muted">{IMPORT_LEADS_UI.supplierNotAdded}</span>;
+  const status = [IMPORT_LEADS_UI.supplierReady, e.supplier.active ? "" : IMPORT_LEADS_UI.supplierInactive, e.supplier.hasEmail ? "" : IMPORT_LEADS_UI.supplierMissingEmail].filter(Boolean).join(" · ");
   return (
     <span className="flex flex-col items-start gap-1">
       <Link href={`/suppliers/${encodeURIComponent(e.supplier.id)}`} className="text-xs text-accent underline-offset-2 hover:underline">
-        {e.supplier.hasEmail ? IMPORT_LEADS_UI.supplierReady : IMPORT_LEADS_UI.supplierMissingEmail}
-        {e.supplier.active ? "" : IMPORT_LEADS_UI.supplierInactive}
+        {status}
       </Link>
       {action}
     </span>
@@ -237,7 +241,7 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
       setNotice(decision === "CONFIRMED" ? IMPORT_LEADS_TEXT.aliasConfirmed : IMPORT_LEADS_TEXT.aliasRejected);
     });
   const addSupplier = (exporterKey: string) =>
-    run(exporterKey, async () => {
+    run(`row:${exporterKey}`, async () => {
       const out = await postJson(`${base}/suppliers`, { exporterKey });
       if (!out.ok) {
         setError(out.error);
@@ -265,7 +269,9 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
         ))}
       </ul>
       <p className="mt-2 text-foreground/80">
-        {view.winners.status === "ok" ? `${IMPORT_LEADS_UI.winnersPrefix}${view.winners.names.join("、")}` : view.winners.messageZh}
+        {view.winners.status === "ok"
+          ? `${IMPORT_LEADS_UI.winnersPrefix}${view.winners.names.slice(0, 8).join("、")}${view.winners.names.length > 8 ? IMPORT_LEADS_UI.winnersMore(view.winners.names.length) : ""}`
+          : view.winners.messageZh}
         {next ? ` ${next}` : ""}
       </p>
 
@@ -276,6 +282,7 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
               {IMPORT_LEADS_UI.textLabel}
             </label>
             <p className="text-muted">{IMPORT_LEADS_UI.columnsHint}</p>
+            <p className="text-[11px] text-muted">{IMPORT_HEADER_NAMES_ZH}</p>
             <textarea
               id="import-leads-text"
               value={text}
@@ -322,7 +329,7 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
                 {p.messageZh}
               </p>
             ))}
-            {result.problems.length || result.unrelated ? <p className="text-muted">{IMPORT_LEADS_UI.keepTextNote}</p> : null}
+            {result.problems.length ? <p className="text-muted">{IMPORT_LEADS_UI.keepTextNote}</p> : result.unrelated ? <p className="text-muted">{IMPORT_LEADS_UI.unrelatedOnlyNote}</p> : null}
           </>
         ) : null}
       </div>
@@ -346,7 +353,7 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
               <li key={e.exporterKey} className="grid gap-1 py-2 sm:grid-cols-[minmax(10rem,1.4fr)_minmax(8rem,1fr)_minmax(9rem,1fr)_minmax(8rem,1fr)_minmax(9rem,1fr)] sm:items-start sm:gap-3">
                 <span className="font-medium text-foreground">{e.exporterName}</span>
                 <span>
-                  <span className="text-muted">供货给哪家中标者：</span>
+                  <span className="text-muted">供货给：</span>
                   {e.winnerNames.join("、")}
                 </span>
                 <span>
@@ -368,7 +375,10 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
           <p className="mt-1 text-muted">{slotSummaryZh(view)}</p>
         )}
         <p className="mt-2 text-[11px] text-muted">
-          每条记录的状态：{view.leadStatusZh}。{IMPORT_LEADS_UI.rejectedNote}
+          每条记录的状态：{view.leadStatusZh}。
+          <Link href={`/projects/intelligence/supply-chain?projectId=${encodeURIComponent(projectId)}`} className="underline-offset-2 hover:underline">
+            {IMPORT_LEADS_UI.rejectedNote}
+          </Link>
         </p>
       </div>
     </section>

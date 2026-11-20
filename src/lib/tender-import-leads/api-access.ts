@@ -9,7 +9,8 @@ import { requireProjectReadAccess, requireProjectWriteAccess, type ProjectAccess
 import { isSuperAdmin } from "@/lib/rbac/roles";
 import { isImportLeadsEnabledForOrg } from "./flags";
 
-const notFound = () => NextResponse.json({ error: "项目不存在" }, { status: 404 });
+export const NO_STORE = { "Cache-Control": "private, no-store" } as const;
+const notFound = () => NextResponse.json({ error: "项目不存在" }, { status: 404, headers: NO_STORE });
 
 export type ImportLeadsAccess = { access: ProjectAccessContext; orgId: string; canEdit: boolean };
 
@@ -26,7 +27,7 @@ export async function requireImportLeadsRead(request: NextRequest, projectId: st
 export async function requireImportLeadsWrite(request: NextRequest, projectId: string): Promise<ImportLeadsAccess | NextResponse> {
   const read = await requireImportLeadsRead(request, projectId);
   if (read instanceof NextResponse) return read;
-  if (!read.canEdit) return NextResponse.json({ error: "无权修改该项目" }, { status: 403 });
+  if (!read.canEdit) return NextResponse.json({ error: "无权修改该项目" }, { status: 403, headers: NO_STORE });
   return read;
 }
 
@@ -35,8 +36,24 @@ export async function readJsonBody(request: NextRequest, maxBytes: number): Prom
   // 先看声明的长度，超了不读（避免把几百 MB 读进内存）；没声明的照读，读完再按字节数判
   const declared = Number(request.headers.get("content-length") ?? "");
   if (Number.isFinite(declared) && declared > maxBytes) return "TOO_LARGE";
-  const raw = await request.text().catch(() => "");
-  if (new TextEncoder().encode(raw).length > maxBytes) return "TOO_LARGE";
+  // 没声明长度（分块上传）的边读边数，超了就停
+  let raw = "";
+  const reader = request.body?.getReader();
+  if (reader) {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read().catch(() => ({ done: true, value: undefined }));
+      if (done || !value) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return "TOO_LARGE";
+      }
+      chunks.push(value);
+    }
+    raw = new TextDecoder().decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+  }
   try {
     const v = JSON.parse(raw || "{}");
     return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
