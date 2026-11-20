@@ -47,8 +47,8 @@
 
 | 项 | 结果 |
 |---|---|
-| `npm test`（本机，带隔离库） | 待跑（见下次更新） |
-| `npm run test:ci` | 待跑 |
+| `npm test`（本机，带隔离库） | `702/713 通过, 11 失败`，11 项全是 main 上同样失败的既有项（与 `docs/QINGYAN_CHAIN-3_REPORT.md` §4 同一批）；全量里 `readiness-count-db` 16、`bid-workspace-db` 49 全过 |
+| `npm run test:ci`（不带数据库，与 CI 相同） | PASS（注册校验：已注册 680 个，历史欠账 66 条） |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（无新增指纹） |
 | `openspec validate bid-readiness-import-leads --strict` | valid |
