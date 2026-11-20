@@ -20,7 +20,6 @@ import { asJsonRec, patchRoomSummary, patchRoomSummaryTx } from "@/lib/tender-ro
 import { EXTERNAL_INTEL_STATUS_KEY } from "@/lib/tender-intel/orchestrate";
 import { redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
-
 /**
  * M1/T4 — 历史授标外部检索 + 人工确认落 canonical
  * GET  ?q=keyword → findings（待确认，绝不自动写入结论）
@@ -81,7 +80,7 @@ export async function GET(
       externalIntelStatus: intelStatus,
       // 情报自动流（包6）：AI 策略草案（AI_INFERRED，人审语义）
       bidStrategyAuto: sj.bidStrategyAuto ?? null,
-      // 批次一：投标策略备忘录 v2（文档接地深读；优先于旧草案渲染）
+      // 批次一：投标策略备忘录（文档接地深读；优先于旧草案渲染）
       // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪再给出
       bidStrategyMemo: redactLegacyMemo(sj.bidStrategyMemo ?? null),
       findings: [],

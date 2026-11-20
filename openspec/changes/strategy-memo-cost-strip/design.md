@@ -22,15 +22,17 @@
 
 ### D1：给备忘算报价情景时就不传成本与目标毛利
 
-新增纯函数 `buildMemoPricingAnalysis({ model, roomSummary, vendorPriceBenchmark })`：把原来在编排里读 `pricingInputs` 的代码搬进来，只取对手价（人工输入 > 联邦对标中位 > 现任价格带中位，与改动前同一顺序），不读 `ourCostCad`、`ourCostSource`、`targetMarginPct`、`ourPriceCad`；内部调用 `buildScenarios(model, { competitorPriceCad, ourCostCad: null, targetMarginPct: null })`，返回 `{ model（权重、公式、其它项、来源）, inputs: { competitorPriceCad }, breakEvenPriceCad, breakEvenNoteZh, ourOtherPts, competitorOtherPts, scenarios（key、labelZh、priceCad、ourTotal、competitorTotal、deltaPts，没有 marginPct）, assumptionsZh, costExcludedZh }`。再做一道兜底：情景里 `key` 为 `floor` / `cost` 的去掉，假设里「未填我方成本」那句去掉（成本不是没填，是不给），加一句 `costExcludedZh`：`我方成本、目标毛利与成本底价只给有财务查看权的人看，这里不提供；不要推测。`。编排改为调用它（评分模型的取得与首次推导落库仍在编排里）。测试的输入是带着成本、目标毛利、成本来源（少见的落地价）与我方报价的调查室 `summaryJson`——函数拿得到这些值，测试才有意义。
+新增纯函数 `buildMemoPricingAnalysis({ model, roomSummary, vendorPriceBenchmark })`：把原来在编排里读 `pricingInputs` 的代码搬进来，只取对手价（调查室里人工填的对手价 > 本次运行取得的联邦对标中位 `vendorPriceBenchmark.median` > 调查室里现任价格带中位，与改动前同一顺序），不读 `ourCostCad`、`ourCostSource`、`targetMarginPct`、`ourPriceCad`；内部调用 `buildScenarios(model, { competitorPriceCad, ourCostCad: null, targetMarginPct: null })`，返回 `{ model（权重、公式、其它项、来源）, inputs: { competitorPriceCad }, breakEvenPriceCad, breakEvenNoteZh, ourOtherPts, competitorOtherPts, scenarios（key、labelZh、priceCad、ourTotal、competitorTotal、deltaPts，没有 marginPct）, assumptionsZh, costExcludedZh }`。再做一道兜底：情景里 `key` 为 `floor` / `cost` 的去掉，假设里「未填我方成本」那句去掉（成本不是没填，是不给），加一句 `costExcludedZh`：`我方成本、成本底价与毛利不在这里提供；不要推测。`（不说「只给有财务查看权的人」：目标毛利按 CHAIN-2b 对所有项目读者可见；提示词也要求不提成本被隐去）。编排改为调用它（评分模型的取得与首次推导落库仍在编排里）。测试的输入是带着成本、目标毛利、成本来源（少见的落地价）与我方报价的调查室 `summaryJson`——函数拿得到这些值，测试才有意义。
 
 - 备选 A：照旧用含成本的演算，只在送进模型前删字段。否决：成本先进了演算再删，漏一个派生字段（如情景标签里的「目标毛利 m%」、成本底价的价格本身）就会带出去；不传成本，演算里根本没有。
 - 备选 B：只改提示词让模型别写成本。否决：输入里有成本，模型仍可能写出来；提示词是软约束，规格要的是输入里就没有。
 - 备选 C：有财务查看权的人看到含成本的备忘、其他人看到不含的（生成两份）。否决：多一次模型调用（违背第 7 条）；备忘还进投标文件草稿等非按人区分的产物。
 
+每次运行只合成一次备忘；`callStructured` 在输出不合格时最多再请求一次（既有行为，不改），每一次请求的输入都由同一个不含成本的演算拼成——测试覆盖「第一次不合格、第二次合格」两次请求都干净。
+
 ### D2：提示词改第 2 条、加第 8 条，版本号各加一；读取端用导出的版本集合认旧版
 
-第 2 条把「each scenario's price/total-score delta/margin」改为「each scenario's price and total-score delta」，其余（逐字引用、不重算、列出假设）不变；新增第 8 条：`The pricing analysis deliberately excludes our cost, our target margin and cost-floor scenarios (finance-restricted). Never state, estimate or infer our cost, our margin or a cost floor anywhere in the memo, and do NOT list our missing cost or margin as a data gap. pricingStrategyZh discusses price positioning against competitor / benchmark prices and total-score deltas only.`。`BID_STRATEGY_MEMO_PROMPT.version` 3 → 4；`BID_STRATEGY_MEMO_VERSION` 改为 `tender-bid-strategy-memo/v3`（类型名随之 `BidStrategyMemoV3`）。`memo-pricing.ts` 导出常量 `BID_STRATEGY_MEMO_NO_COST_VERSION` 与集合 `BID_STRATEGY_MEMO_NO_COST_VERSIONS`，`strategy.ts` 的版本号取自它；读取端只用这个集合判断旧版，不写死 `v3`。
+第 2 条把「each scenario's price/total-score delta/margin」改为「each scenario's price and total-score delta」，其余（逐字引用、不重算、列出假设）不变；新增第 8 条：`The pricing analysis deliberately excludes our cost, our target margin and cost-floor scenarios (finance-restricted). Never state, estimate or infer our cost, our margin or a cost floor anywhere in the memo, and do NOT list our missing cost or margin as a data gap. pricingStrategyZh discusses price positioning against competitor / benchmark prices and total-score deltas only. Do not mention that cost data was withheld or who may see it.`。`BID_STRATEGY_MEMO_PROMPT.version` 3 → 4；`BID_STRATEGY_MEMO_VERSION` 改为 `tender-bid-strategy-memo/v3`（类型名随之 `BidStrategyMemoV3`）。`memo-pricing.ts` 导出常量 `BID_STRATEGY_MEMO_NO_COST_VERSION` 与集合 `BID_STRATEGY_MEMO_NO_COST_VERSIONS`，`strategy.ts` 的版本号取自它；读取端只用这个集合判断旧版，不写死 `v3`。
 
 先例：Lane 3（把报价演算接进备忘）时只把提示词版本从 2 加到 3、备忘版本没动——那次备忘的形状和输入口径都没变。这次输入口径变了（成本不再进来），读取端要靠一个判别字段区分旧版，所以备忘版本也要换。
 
@@ -38,12 +40,23 @@
 
 ### D3：旧版备忘在每一个读取的地方先过同一个裁剪
 
-纯函数 `redactLegacyMemo(memo)`：不是对象、或版本在 `BID_STRATEGY_MEMO_NO_COST_VERSIONS` 里 → 原样（同一个对象）；否则返回副本：`scoringAnalysisZh`、`pricingStrategyZh` 置空串、加 `legacyCostRedacted: true`；`summaryZh`、`competitiveLandscapeZh`、`teamingAdviceZh`、`dataGapsZh` 与每条风险门的 `gateZh`、`basisZh`，碰到「成本 / 毛利 / 底价 / 利润 / 我方报价 / margin / cost」（不分大小写）的整段换成 `（旧版备忘的这一段可能提到我方成本或毛利，已隐藏。）`；碰到这些字眼的 RFI 整条去掉（RFI 会原样进对外提交的澄清问题文件，不能放占位句）。四个读取处（情报页签、工作台摘要、投标文件草稿的输入、澄清问题文件）都先过它（对所有人，不按财务权限分）。卡片在 `legacyCostRedacted` 时把「报价策略：…」一行换成 `报价策略：这份策略备忘是旧版生成的，可能含我方成本或毛利，已隐藏；请有编辑权限的同事重新检索外部情报，会生成新的。`（只读的人自己不能重跑）。
+纯函数 `redactLegacyMemo(memo)`：不是对象、或版本在 `BID_STRATEGY_MEMO_NO_COST_VERSIONS` 里 → 原样（同一个对象）；否则返回副本：
+- `scoringAnalysisZh`、`pricingStrategyZh` 置空串，加 `legacyCostRedacted: true`；
+- `summaryZh` 与每条风险门的 `basisZh` 整段换成 `（内容涉及成本，已隐藏）`，不看字眼——旧版提示词要求它们结合评分与报价演算写，最可能复述成本；
+- `competitiveLandscapeZh`、`teamingAdviceZh`、`dataGapsZh` 与风险门的 `gateZh`，碰到成本类字眼（简繁：成本、毛利、底价 / 底價、底线 / 底線、利润 / 利潤、保本、盈亏 / 盈虧、会亏 / 會虧、落地价 / 落地價、进价 / 進價、加价 / 加價、加成、我方报价、我们的报价、我司报；英文不分大小写：margin、cost、profit、markup、floor、landed）或像金额 / 百分比的数字（带币种前缀、带千分位逗号、4 位以上数字、数字后跟 % / ％）时整段换掉；
+- 碰到同样字眼或数字的 RFI 整条去掉（对象或字符串元素都算），去掉几条记在 `legacyRfisRemoved`。
+
+四个读取处都先过它（对所有人，不按财务权限分），各自再做：
+- 情报页签卡片：第一行写 `旧版备忘可能写了我方成本或毛利，部分内容已隐藏。有编辑权限的成员可在本页上方「历史授标检索」点「立即检索外部情报」生成新版，完成后刷新页面。`；被换掉的摘要不显示；报价策略一行写 `报价策略：已隐藏（旧版）`。新版（v3）备忘在报价策略一行之后对所有人写 `成本与毛利情景见工作台「报价表助手」（需要财务查看权）。`。
+- 工作台摘要：策略写 `旧版策略备忘可能写了我方成本或毛利，摘要已隐藏；到情报页点「立即检索外部情报」生成新版。`，名称被换掉的风险门不列，带 `legacyCostRedacted`。
+- 投标文件草稿的输入（`gather.ts`）：被换掉的段落送 `null`（`placeholderToNull`），不把占位句交给起草模型；`BidDraftInputs.memo.riskGates[].basisZh` 类型放宽为 `string | null`。
+- 澄清问题文件：去掉的条数交给 `renderRfiHtml`，在提交表之外写一行内部说明 `旧版策略备忘里有 N 条问题可能涉及我方成本，未列入；重新检索外部情报后再导出可补齐。`；这时表里没有问题写 `暂无可提交的问题。`，不写「备忘录与分析均未产出 RFI」。
 
 - 备选 A：不管旧版，等下次运行自然覆盖。否决：没重跑的项目会一直给所有读者看、交给起草模型含成本的段落。
-- 备选 B：只隐藏「评分演算」「报价策略」两段。否决：旧版摘要与风险门依据也会复述成本，而且被交给投标文件草稿的模型（`gather.ts`）、显示在卡片上。
-- 备选 C：旧版按财务查看权分人隐藏。否决：四个读取处里有两处是交给模型或写进文件，不是按人显示；一律裁剪最简单、确定。
-- 备选 D：旧版整份不用。否决：竞争格局、teaming、不碰成本的风险门与 RFI 照旧有用。
+- 备选 B：只隐藏「评分演算」「报价策略」两段。否决：旧版摘要与风险门依据也会复述成本，而且被交给投标文件草稿的模型、显示在卡片上。
+- 备选 C：全部字段都只按字眼匹配。否决：探针显示「底线」「保本」「落地价」「不低于 CAD 114,881」之类写法挡不住；摘要与依据整段换掉最稳。
+- 备选 D：旧版按财务查看权分人隐藏。否决：四个读取处里有两处是交给模型或写进文件，不是按人显示。
+- 备选 E：旧版整份不用。否决：竞争格局、teaming、不碰成本的风险门名称与 RFI 照旧有用。
 
 ## 与八条硬纪律的关系
 
@@ -65,8 +78,12 @@
 
 ## Risks / Trade-offs
 
+- **必须在 CHAIN-2b（#532）之后合并**：main 上项目列表（`src/app/api/projects/route.ts`）与调查室读取（`src/app/api/projects/[id]/bid-intelligence/route.ts`）原样返回房间 JSON（含旧版备忘与 `pricingInputs`），由 #532 去掉；本 change 不改这两个接口（避免冲突）。单测遍历 src 时放行 #532 的 `src/lib/tender-pricing/finance-view.ts`。
 - 有财务查看权的人也失去了「改我方成本 → 重跑外部情报 → 备忘随之更新」（Lane 3 的行为）：备忘不再引用成本底价与毛利；他们在报价表助手里看底价情景。
-- 旧版备忘的裁剪按字眼匹配，宁可多换：不提成本但碰到「cost」等词的段落（如「cost scoring formula」）也会被换掉或去掉；下一次外部情报运行后备忘换成 v3 即恢复完整。没提这些字眼却在讲成本的写法（如只写一个数字）挡不住——对应段落（评分演算、报价策略）已整段置空。
+- 旧版裁剪宁可多换：碰到「cost」「floor」等词或 4 位以上数字（包括年份、编号）的段落与 RFI 也会被换掉 / 去掉；买方本身合理的问题（如「成本评分公式」「Cost Proposal」）在旧版备忘重跑之前不进澄清问题文件（文件里写明去掉了几条）。
+- 只有备忘合成成功时才换成 v3：编排在合成失败时保留旧备忘，旧版裁剪一直生效直到某次合成成功。
+- 已存的投标文件草稿（`summaryJson.bidDraft`）若由旧版备忘生成，可能已经写进成本；草稿读取接口照旧返回它——本 change 不处理，列为后续。
+- 投标文件草稿的输入里照旧有 `pricing.ourPriceCad`（我方报价，不是成本）与对手价，起草模型照旧看得到我方报价。
+- 评分模型里人工填的各项依据（`otherCriteria[].basisZh`，自由文字）照旧进备忘输入，不过滤；正常用法里不写成本。
 - 新备忘不再给出「成本 + 目标毛利」底价，报价策略只讲相对对手价的位置。
-- 对手价来自人工输入、联邦对标或现任价格带；它们不是我方成本，照旧进演算。
-- 与 CHAIN-2b（#532）：业务代码没有重叠（#532 改项目列表与调查室读取两个接口、报价表助手；本 change 改编排、提示词与四个读备忘处），但都改了 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`（不同位置）与 TASKFLOW（都在 CHAIN-2 行后加一行，后合并的保留两行，2b 在前）。
+- 与 CHAIN-2b（#532）：业务代码没有重叠，但都改了 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`（不同位置）与 TASKFLOW（都在 CHAIN-2 行后加一行，后合并的保留两行，2b 在前）。

@@ -343,7 +343,7 @@ export async function runExternalIntelForProject(input: {
 
     // 情报自动流（包6）：AI 投标策略草案（第 7 槽位）——基于组织级七域投影
     // + 本项目分析摘要合成，AI_INFERRED 标签人审语义。失败不影响其余结果。
-    // 批次一：投标策略备忘录 v2（文档接地深读，替换浅层组织投影草案）。
+    // 批次一：投标策略备忘录（文档接地深读，替换浅层组织投影草案；CHAIN-2d 起为 v3，输入里没有我方成本）。
     // 输入 = 本单 canonical 事实/强制要求 + 综合层 + 组织投影 + 现任供应商
     // 线索（incumbentLead，人工记录）。AI_INFERRED 人审语义，禁整体 GO/NO-GO。
     let strategyGenerated = false;

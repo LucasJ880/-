@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { formatTenderProfileContext, isTenderProfileUsable } from "@/lib/tender-profile/contract";
 import { getTenderProfile } from "@/lib/tender-profile/store";
 import { complianceStatusFromFit, type BidDraftInputs, type BidDraftRequirement } from "./contract";
-import { redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
+import { placeholderToNull, redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
 /**
  * B4（安全修复）：企业记忆已验证事实只能经 canonical 访问门读取。
@@ -200,11 +200,12 @@ async function gatherInto(
     criticalFacts,
     analystBrief: sj.analystSynthesis ?? null,
     submissionChecklist: sj.submissionChecklist ?? null,
+    // CHAIN-2d：旧版备忘被隐藏的段落不送占位句，送 null
     memo: memoRaw
       ? {
-          summaryZh: memoRaw.summaryZh ?? null,
-          riskGates: (memoRaw.riskGates ?? []).slice(0, 8),
-          teamingAdviceZh: memoRaw.teamingAdviceZh ?? null,
+          summaryZh: placeholderToNull(memoRaw.summaryZh),
+          riskGates: (memoRaw.riskGates ?? []).slice(0, 8).map((g) => ({ ...g, gateZh: placeholderToNull(g.gateZh) ?? "", basisZh: placeholderToNull(g.basisZh) })),
+          teamingAdviceZh: placeholderToNull(memoRaw.teamingAdviceZh),
         }
       : null,
     rfiCount: Array.isArray(memoRaw?.strategicRfis) ? memoRaw!.strategicRfis!.length : 0,

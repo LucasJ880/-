@@ -396,6 +396,7 @@ ${escd}`;
     // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪：碰到成本类字眼的 RFI 不进澄清问题文件
     const memo = redactLegacyMemo(((roomForRfi?.summaryJson as Record<string, unknown>) ?? {}).bidStrategyMemo ?? null) as {
       strategicRfis?: Array<{ questionZh?: unknown; whyZh?: unknown }>;
+      legacyRfisRemoved?: number;
     } | null;
     const items = buildRfiItems({
       memoRfis: memo?.strategicRfis ?? null,
@@ -413,6 +414,7 @@ ${escd}`;
       submitChannel: known("submission_method"),
       items,
       generatedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+      withheldMemoRfis: memo?.legacyRfisRemoved ?? 0,
     });
     textBody = "";
   }

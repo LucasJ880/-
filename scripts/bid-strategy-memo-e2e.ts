@@ -24,6 +24,11 @@ async function main() {
   console.log("  竞争格局（实录）:", landscape.slice(0, 180));
   console.log("  评分演算（实录）:", String(memo?.scoringAnalysisZh ?? "").slice(0, 180));
   ok(landscape.length > 20, "E2E-05: 竞争格局非空（incumbentLead 已入输入面）");
+  // CHAIN-2d：备忘的文字里不出现调查室里存的我方成本 / 目标毛利 / 我方报价（输入里本来就没有）
+  const pi = (sj.pricingInputs ?? {}) as { ourCostCad?: unknown; targetMarginPct?: unknown; ourPriceCad?: unknown };
+  const roomNumbers = [pi.ourCostCad, pi.ourPriceCad].filter((v): v is number => typeof v === "number" && v > 0).map(String);
+  const memoText = JSON.stringify(memo ?? {});
+  ok(roomNumbers.every((n) => !memoText.includes(n)), `E2E-06: 备忘文字里没有调查室的我方成本与我方报价（${roomNumbers.join(", ") || "调查室未存"}）`);
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
   await db.$disconnect();
   if (fail > 0) process.exit(1);

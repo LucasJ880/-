@@ -11,7 +11,7 @@
 
 ## 3. 旧版备忘
 
-- [x] 3.1 情报页签、工作台摘要、投标文件草稿的输入（`gather.ts`）、澄清问题文件（`generate-docs.ts`）读备忘先过 `redactLegacyMemo`；卡片在 `legacyCostRedacted` 时写那句话；新增隔离库 `memo-legacy-db.isolated.test.ts` 并登记（verify：`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts` 通过；`memo-pricing.test.ts` 遍历 src 核对读备忘的文件就这五个）
+- [x] 3.1 情报页签、工作台摘要、投标文件草稿的输入（`gather.ts`，被隐藏的段落送空值，`contract.ts` 放宽 `basisZh`）、澄清问题文件（`generate-docs.ts` + `rfi-export.ts` 提交表外的内部说明）读备忘先过 `redactLegacyMemo`；卡片第一行说明、报价策略一行、新版的成本指引；工作台摘要的固定说明；新增隔离库 `memo-legacy-db.isolated.test.ts` 并登记（verify：`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts` 通过；`memo-pricing.test.ts` 的探针、澄清问题文件渲染、源码断言与遍历 src 核对读备忘的文件）
 
 ## 4. 门禁与报告
 

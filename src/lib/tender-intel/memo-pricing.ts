@@ -14,12 +14,29 @@ import { buildScenarios, type ScoringModel } from "@/lib/tender-pricing/calc";
 export const BID_STRATEGY_MEMO_NO_COST_VERSION = "tender-bid-strategy-memo/v3" as const;
 export const BID_STRATEGY_MEMO_NO_COST_VERSIONS: ReadonlySet<string> = new Set([BID_STRATEGY_MEMO_NO_COST_VERSION]);
 
-export const MEMO_COST_EXCLUDED_ZH = "我方成本、目标毛利与成本底价只给有财务查看权的人看，这里不提供；不要推测。";
-export const LEGACY_MEMO_REDACTED_ZH = "（旧版备忘的这一段可能提到我方成本或毛利，已隐藏。）";
-export const LEGACY_MEMO_PRICING_NOTE_ZH = "报价策略：这份策略备忘是旧版生成的，可能含我方成本或毛利，已隐藏；请有编辑权限的同事重新检索外部情报，会生成新的。";
+export const MEMO_COST_EXCLUDED_ZH = "我方成本、成本底价与毛利不在这里提供；不要推测。";
+/** 旧版备忘里被换掉的段落（短句，卡片上风险门依据也用它） */
+export const LEGACY_MEMO_REDACTED_ZH = "（内容涉及成本，已隐藏）";
+/** 卡片第一行：旧版备忘 */
+export const LEGACY_MEMO_CARD_NOTE_ZH = "旧版备忘可能写了我方成本或毛利，部分内容已隐藏。有编辑权限的成员可在本页上方「历史授标检索」点「立即检索外部情报」生成新版，完成后刷新页面。";
+/** 卡片报价策略一行：旧版备忘 */
+export const LEGACY_MEMO_PRICING_LINE_ZH = "报价策略：已隐藏（旧版）";
+/** 卡片报价策略一行之后：新版备忘（对所有人） */
+export const MEMO_COST_POINTER_ZH = "成本与毛利情景见工作台「报价表助手」（需要财务查看权）。";
+/** 工作台摘要：旧版备忘的摘要 */
+export const LEGACY_MEMO_WORKBENCH_ZH = "旧版策略备忘可能写了我方成本或毛利，摘要已隐藏；到情报页点「立即检索外部情报」生成新版。";
+/** 澄清问题文件：旧版备忘里被去掉的问题（写在提交表之外） */
+export const legacyRfiWithheldNoteZh = (n: number) => `旧版策略备忘里有 ${n} 条问题可能涉及我方成本，未列入；重新检索外部情报后再导出可补齐。`;
 
-/** 旧版备忘里碰到这些字眼的文字段整段换掉（宁可多换） */
-const COST_WORDS = /成本|毛利|底价|利润|我方报价|margin|cost/i;
+/**
+ * 旧版备忘里碰到这些字眼（简繁、英文不分大小写）或像金额 / 百分比的数字的文字段整段换掉、RFI 整条去掉（宁可多换）。
+ * 金额：带币种前缀、带千分位逗号、或 4 位以上的数字；百分比：数字后跟 % 或 ％。
+ */
+const COST_WORDS = /成本|毛利|底价|底價|底线|底線|利润|利潤|保本|盈亏|盈虧|会亏|會虧|落地价|落地價|进价|進價|加价|加價|加成|我方报价|我方報價|我们的报价|我們的報價|我司报|我司報|margin|cost|profit|markup|floor|landed/i;
+const AMOUNT_LIKE = /(?:CAD|USD|C\$|US\$|\$|¥|￥)\s?\d|\d{1,3}(?:,\d{3})+|\d{4,}|\d+(?:\.\d+)?\s?[%％]/i;
+export function looksCostRelated(text: string): boolean {
+  return COST_WORDS.test(text) || AMOUNT_LIKE.test(text);
+}
 /** 没有成本时演算会加的那句假设——这里成本不是没填，是不给，换成 MEMO_COST_EXCLUDED_ZH */
 const NO_COST_ASSUMPTION = /未填我方成本/;
 const COST_SCENARIO_KEYS = new Set(["floor", "cost"]);
@@ -77,21 +94,34 @@ export function isNoCostMemo(memo: unknown): boolean {
   return typeof v === "string" && BID_STRATEGY_MEMO_NO_COST_VERSIONS.has(v);
 }
 
-const cleanText = (v: unknown): unknown => (typeof v === "string" && COST_WORDS.test(v) ? LEGACY_MEMO_REDACTED_ZH : v);
+const cleanText = (v: unknown): unknown => (typeof v === "string" && looksCostRelated(v) ? LEGACY_MEMO_REDACTED_ZH : v);
+const rfiHits = (q: unknown): boolean =>
+  typeof q === "string" ? looksCostRelated(q) : !!q && typeof q === "object" && (looksCostRelated(String((q as Rec).questionZh ?? "")) || looksCostRelated(String((q as Rec).whyZh ?? "")));
 
 /**
- * 旧版备忘的裁剪：不是对象 → 原样；输入里没有成本的版本 → 原样；
- * 其余 → 「评分演算」「报价策略」置空，摘要、竞争格局、teaming、数据缺口、风险门里碰到成本类字眼的整段换掉，
- * 碰到成本类字眼的 RFI 整条去掉，带 legacyCostRedacted。
+ * 旧版备忘的裁剪：不是对象 → 原样；输入里没有成本的版本 → 原样（同一个对象）；其余返回副本：
+ * - 「评分演算」「报价策略」置空；摘要与每条风险门的依据整段换成固定短句（不看字眼）；
+ * - 竞争格局、teaming、数据缺口与风险门名称碰到成本类字眼或像金额 / 百分比的数字整段换掉；
+ * - 碰到的 RFI 整条去掉（对象或字符串都算），去掉几条记在 legacyRfisRemoved；带 legacyCostRedacted。
  */
 export function redactLegacyMemo<T>(memo: T): T {
   if (!memo || typeof memo !== "object" || Array.isArray(memo)) return memo;
   if (isNoCostMemo(memo)) return memo;
   const m = memo as Rec;
   const out: Rec = { ...m, scoringAnalysisZh: "", pricingStrategyZh: "", legacyCostRedacted: true };
-  for (const k of ["summaryZh", "competitiveLandscapeZh", "teamingAdviceZh", "dataGapsZh"]) if (k in m) out[k] = cleanText(m[k]);
-  if (Array.isArray(m.riskGates)) out.riskGates = m.riskGates.map((g) => (g && typeof g === "object" ? { ...(g as Rec), gateZh: cleanText((g as Rec).gateZh), basisZh: cleanText((g as Rec).basisZh) } : g));
-  // RFI 会原样进澄清问题文件（对外提交），碰到成本类字眼的整条去掉，不放占位句
-  if (Array.isArray(m.strategicRfis)) out.strategicRfis = m.strategicRfis.filter((q) => !(q && typeof q === "object" && (COST_WORDS.test(String((q as Rec).questionZh ?? "")) || COST_WORDS.test(String((q as Rec).whyZh ?? "")))));
+  if ("summaryZh" in m) out.summaryZh = LEGACY_MEMO_REDACTED_ZH;
+  for (const k of ["competitiveLandscapeZh", "teamingAdviceZh", "dataGapsZh"]) if (k in m) out[k] = cleanText(m[k]);
+  if (Array.isArray(m.riskGates)) out.riskGates = m.riskGates.map((g) => (g && typeof g === "object" ? { ...(g as Rec), gateZh: cleanText((g as Rec).gateZh), basisZh: LEGACY_MEMO_REDACTED_ZH } : g));
+  if (Array.isArray(m.strategicRfis)) {
+    // RFI 会原样进澄清问题文件（对外提交），碰到的整条去掉，不放占位句
+    const kept = m.strategicRfis.filter((q) => !rfiHits(q));
+    out.strategicRfis = kept;
+    out.legacyRfisRemoved = m.strategicRfis.length - kept.length;
+  } else out.legacyRfisRemoved = 0;
   return out as T;
+}
+
+/** 给模型用的地方：被换掉的段落不送占位句，送 null */
+export function placeholderToNull(v: unknown): string | null {
+  return typeof v === "string" && v !== LEGACY_MEMO_REDACTED_ZH ? v : null;
 }

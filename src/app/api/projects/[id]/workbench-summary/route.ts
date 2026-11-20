@@ -4,7 +4,7 @@ import { requireProjectReadAccess } from "@/lib/projects/access";
 import { getExecutiveBrief } from "@/lib/tender-auto-analysis/executive-brief";
 import { isTenderPackageAiExperienceEnabledWithEnv } from "@/lib/tender-auto-analysis/auto-flags";
 import { EXTERNAL_INTEL_STATUS_KEY } from "@/lib/tender-intel/orchestrate";
-import { redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
+import { LEGACY_MEMO_REDACTED_ZH, LEGACY_MEMO_WORKBENCH_ZH, redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
 /**
  * GET /api/projects/[id]/workbench-summary
@@ -97,14 +97,14 @@ export async function GET(
   const candidates = (sj.externalCandidates ?? null) as {
     candidates?: unknown[];
   } | null;
-  // 批次一：优先用文档接地的策略备忘录 v2（映射成 deck 兼容形状），
-  // 老草案仅作存量兜底
-  // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪
+  // 批次一：优先用文档接地的策略备忘录（映射成 deck 兼容形状），老草案仅作存量兜底
+  // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪；摘要换成固定说明，内容被隐藏的风险门不列
   const memo = redactLegacyMemo(sj.bidStrategyMemo ?? null) as {
     summaryZh?: string;
     riskGates?: Array<{ gateZh: string; statusZh: string }>;
     dataGapsZh?: string;
     generatedAt?: string;
+    legacyCostRedacted?: boolean;
   } | null;
   const legacyDraft = (sj.bidStrategyAuto ?? null) as {
     strategyZh?: string;
@@ -114,12 +114,14 @@ export async function GET(
   } | null;
   const strategy = memo
     ? {
-        strategyZh: memo.summaryZh ?? "",
+        strategyZh: memo.legacyCostRedacted ? LEGACY_MEMO_WORKBENCH_ZH : memo.summaryZh ?? "",
         keyPoints: (memo.riskGates ?? [])
+          .filter((g) => g.gateZh !== LEGACY_MEMO_REDACTED_ZH)
           .slice(0, 3)
           .map((g) => ({ pointZh: `${g.gateZh}（${g.statusZh}）`, basedOn: "风险门" })),
-        dataGapsZh: memo.dataGapsZh,
+        dataGapsZh: memo.dataGapsZh === LEGACY_MEMO_REDACTED_ZH ? undefined : memo.dataGapsZh,
         generatedAt: memo.generatedAt,
+        ...(memo.legacyCostRedacted ? { legacyCostRedacted: true } : {}),
       }
     : legacyDraft;
 
@@ -151,6 +153,7 @@ export async function GET(
             strategyZh: (strategy.strategyZh ?? "").slice(0, 400),
             keyPoints: (strategy.keyPoints ?? []).slice(0, 2),
             generatedAt: strategy.generatedAt ?? null,
+            ...((strategy as { legacyCostRedacted?: boolean }).legacyCostRedacted ? { legacyCostRedacted: true } : {}),
           }
         : null,
     },

@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 import { Radar } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { ImportLeadsPanel, ImportLeadsSlotSummary, useImportLeads } from "@/components/tender-intel/import-leads-panel";
-import { LEGACY_MEMO_PRICING_NOTE_ZH } from "@/lib/tender-intel/memo-pricing";
+import { LEGACY_MEMO_CARD_NOTE_ZH, LEGACY_MEMO_PRICING_LINE_ZH, LEGACY_MEMO_REDACTED_ZH, MEMO_COST_POINTER_ZH } from "@/lib/tender-intel/memo-pricing";
 
 type DomainStatus = "CONFIRMED" | "SUPPORTED" | "INFERRED" | "UNKNOWN";
 
@@ -387,7 +387,8 @@ export function OrgAwardIntelSlots({
         >
           {memo ? (
             <>
-              <p className="text-foreground/70">{memo.summaryZh}</p>
+              {memo.legacyCostRedacted ? <p className="text-amber-700" data-testid="memo-legacy-note">{LEGACY_MEMO_CARD_NOTE_ZH}</p> : null}
+              {memo.summaryZh && memo.summaryZh !== LEGACY_MEMO_REDACTED_ZH ? <p className="text-foreground/70">{memo.summaryZh}</p> : null}
               {memo.riskGates.slice(0, 4).map((g, i) => (
                 <p key={i} className="truncate">
                   · {g.gateZh}
@@ -404,7 +405,8 @@ export function OrgAwardIntelSlots({
                   </span>
                 </p>
               ))}
-              <p className="text-muted/80">{memo.legacyCostRedacted ? LEGACY_MEMO_PRICING_NOTE_ZH : `报价策略：${memo.pricingStrategyZh.slice(0, 160)}`}</p>
+              <p className="text-muted/80">{memo.legacyCostRedacted ? LEGACY_MEMO_PRICING_LINE_ZH : `报价策略：${memo.pricingStrategyZh.slice(0, 160)}`}</p>
+              {memo.legacyCostRedacted ? null : <p className="text-[11px] text-muted/70">{MEMO_COST_POINTER_ZH}</p>}
               {memo.dataGapsZh ? (
                 <p className="text-muted/80">数据缺口：{memo.dataGapsZh.slice(0, 120)}</p>
               ) : null}

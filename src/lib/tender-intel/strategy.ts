@@ -195,7 +195,7 @@ HARD RULES:
 5. NEVER output an overall GO/NO-GO decision — the human decides.
 6. strategicRfis: sharp, submission-worthy clarification questions not already covered by the provided clarifications.
 7. Output ONE valid JSON object with EXACTLY these keys: summaryZh, scoringAnalysisZh, competitiveLandscapeZh, riskGates (array of {gateZh, statusZh, basisZh}), pricingStrategyZh, strategicRfis (array of {questionZh, whyZh}), teamingAdviceZh, dataGapsZh. riskGates and strategicRfis MUST be non-empty. All *Zh fields in Simplified Chinese (proper nouns stay original).
-8. The pricing analysis deliberately excludes our cost, our target margin and cost-floor scenarios (finance-restricted). Never state, estimate or infer our cost, our margin or a cost floor anywhere in the memo, and do NOT list our missing cost or margin as a data gap. pricingStrategyZh discusses price positioning against competitor / benchmark prices and total-score deltas only.`;
+8. The pricing analysis deliberately excludes our cost, our target margin and cost-floor scenarios (finance-restricted). Never state, estimate or infer our cost, our margin or a cost floor anywhere in the memo, and do NOT list our missing cost or margin as a data gap. pricingStrategyZh discusses price positioning against competitor / benchmark prices and total-score deltas only. Do not mention that cost data was withheld or who may see it.`;
 
 export async function synthesizeBidStrategyMemo(input: {
   project: {

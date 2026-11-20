@@ -47,7 +47,7 @@ async function main() {
   const awardHistory = await import("@/app/api/projects/[id]/external-intel/award-history/route");
   const workbench = await import("@/app/api/projects/[id]/workbench-summary/route");
   const { gatherBidDraftInputs } = await import("@/lib/tender-bid-draft/gather");
-  const { LEGACY_MEMO_REDACTED_ZH } = await import("@/lib/tender-intel/memo-pricing");
+  const { LEGACY_MEMO_REDACTED_ZH, LEGACY_MEMO_WORKBENCH_ZH } = await import("@/lib/tender-intel/memo-pricing");
 
   console.log("CHAIN-2d legacy memo redaction — isolated DB");
   const stamp = Date.now().toString(36);
@@ -111,12 +111,16 @@ async function main() {
     // —— 工作台摘要 ——
     const wbOld = await getJson(workbench, `/api/projects/${pOld}/workbench-summary`, pOld, VIEWER);
     const strategy = rec(rec(wbOld.json.intel).strategy);
-    ok(wbOld.status === 200 && strategy.strategyZh === LEGACY_MEMO_REDACTED_ZH && costHits(wbOld.text).length === 0, "工作台摘要：旧版备忘的摘要换掉，整个响应里搜不到成本数字", { status: wbOld.status, strategy, hits: costHits(wbOld.text) });
+    const points = (strategy.keyPoints as Array<{ pointZh: string }>) ?? [];
+    ok(wbOld.status === 200 && strategy.strategyZh === LEGACY_MEMO_WORKBENCH_ZH && strategy.legacyCostRedacted === true && points.length === 2 && points.every((p) => !p.pointZh.includes(LEGACY_MEMO_REDACTED_ZH)) && costHits(wbOld.text).length === 0, "工作台摘要：旧版写固定说明、带标记、风险门照列（名称没被隐藏），整个响应里搜不到成本数字", { status: wbOld.status, strategy, hits: costHits(wbOld.text) });
+    const wbNew = await getJson(workbench, `/api/projects/${pNew}/workbench-summary`, pNew, VIEWER);
+    const sNew = rec(rec(wbNew.json.intel).strategy);
+    ok(wbNew.status === 200 && String(sNew.strategyZh).includes(OUR_COST) && sNew.legacyCostRedacted === undefined, "工作台摘要：v3 备忘原样", sNew);
 
     // —— 投标文件草稿的输入（交给起草模型的那一份）——
     const inputs = await gatherBidDraftInputs({ projectId: pOld, orgId: ORG, userId: OWNER });
     const inText = JSON.stringify(inputs?.memo ?? null);
-    ok(!!inputs?.memo && costHits(inText).length === 0 && inputs.memo.summaryZh === LEGACY_MEMO_REDACTED_ZH && inputs.memo.riskGates[0].basisZh === "要 500 万保险" && inputs.memo.riskGates[1].basisZh === LEGACY_MEMO_REDACTED_ZH && inputs.memo.teamingAdviceZh === "与本地分包商合作" && inputs.rfiCount === 1, "投标文件草稿的输入：旧版备忘裁剪后再交给起草模型（碰到成本的 RFI 不计）", inputs?.memo);
+    ok(!!inputs?.memo && costHits(inText).length === 0 && !inText.includes(LEGACY_MEMO_REDACTED_ZH) && inputs.memo.summaryZh === null && inputs.memo.riskGates.every((g) => g.basisZh === null) && inputs.memo.riskGates[0].gateZh === "保险" && inputs.memo.teamingAdviceZh === "与本地分包商合作" && inputs.rfiCount === 1, "投标文件草稿的输入：旧版备忘裁剪后再交给起草模型——被隐藏的段落是 null、不送占位句，碰到成本的 RFI 不计", inputs?.memo);
     const inputsNew = await gatherBidDraftInputs({ projectId: pNew, orgId: ORG, userId: OWNER });
     ok(inputsNew?.rfiCount === 2 && String(inputsNew?.memo?.summaryZh).includes(OUR_COST), "投标文件草稿的输入：v3 备忘原样");
 
