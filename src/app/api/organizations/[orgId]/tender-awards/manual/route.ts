@@ -8,7 +8,7 @@
  *
  * 判定顺序：未登录 401 → 不是本组织 org_member 以上的有效成员 403（平台超级管理员按既有规则，组织不存在 404）
  *   → 授标情报开关关 409（不访问授标表）→ 请求体超过 16 KB 400 → 校验 400 `{ error, code, field }`。
- * 同一条公告的同一个中标方撤回超过 10 次后再录 → 409（不写库）。
+ * 同一条公告的同一个中标方撤回满 10 次后再录 → 409（不写库）。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -31,7 +31,7 @@ import { manualApcSourceKey } from "@/lib/tender-intel/award-manual-entry-key";
 
 type Params = { params: Promise<{ orgId: string }> };
 
-/** 同一来源键最多跟随几次「已撤回 → 后继键」（与项目结果回灌同一做法） */
+/** 同一来源键最多跟随几次「已撤回 → 后继键」（与项目结果回灌同一做法）：同一公告同一中标方撤回满 10 次后再录 → 409 */
 const MAX_RETRACTED_HOPS = 10;
 const MAX_BODY_BYTES = 16 * 1024;
 

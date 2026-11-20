@@ -34,7 +34,7 @@
 - **THEN** 都通过；链接规整为 `https://purchasing.alberta.ca/posting/AB-1`，金额分别为 1250000、1234、48000，币种 `USD`（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`）
 
 ### Requirement: 请求有误时的回答
-不合格时 SHALL 返回 400 `{ error, code, field }`，`error` 是按采购方、中标方、链接、编号、日期、金额、币种、摘要的顺序第一处错误的那句话，`field` 是那一项；超长的写 `{项}太长了（最多 N 字）。`（项为 `采购方`、`中标方`、`APC 公告链接`、`招标编号`、`范围摘要`）。请求体超过 16 KB SHALL 返回 400 `请求太大`（`code` 为 `TOO_LARGE`），没声明长度的边读边数、超了就停；请求体不是 JSON SHALL 按空表单处理。数字形式的字段 SHALL 按字符串校验，SHALL NOT 静默丢掉。以上都 SHALL NOT 写库。
+不合格时 SHALL 返回 400 `{ error, code, field }`，`error` 是按采购方、中标方、链接、编号、日期、金额、币种、摘要的顺序第一处错误的那句话，`code` 为 `MISSING_BUYER`、`MISSING_WINNER`、`MISSING_URL`、`BAD_URL`、`BAD_DATE`、`BAD_AMOUNT`、`BAD_CURRENCY`、`TOO_LONG` 之一，`field` 是那一项；超长的写 `{项}太长了（最多 N 字）。`（项为 `采购方`、`中标方`、`APC 公告链接`、`招标编号`、`范围摘要`）。请求体超过 16 KB SHALL 返回 400 `请求太大`（`code` 为 `TOO_LARGE`），没声明长度的边读边数、超了就停；请求体不是 JSON SHALL 按空表单处理。数字形式的字段 SHALL 按字符串校验，SHALL NOT 静默丢掉。以上都 SHALL NOT 写库。
 
 #### Scenario: 400 的形状
 - **WHEN** 链接带端口；日期写成数字 20261120；请求体 17 KB；请求体是 `not json`
@@ -52,7 +52,7 @@
 - **THEN** 前三种来源挂到那条记录上，那条的信任级不变（CanadaBuys 那条仍是 `SYSTEM_VERIFIED`、AI 提取的仍是 `AI_EXTRACTED`），编号与采购方不变，来源多一个；第四种新记录状态为疑似重复（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 重录与撤回后重录
-同一条公告链接的同一个中标方再录 SHALL 不新建、不写审计；两次同时提交 SHALL 只有一条记录且两次都成功返回。这条公告与中标方对应的记录被组织管理员撤回后再录，SHALL 新建一条（撤回的那条保持撤回），再重放 SHALL 仍不重复。同一条公告的同一个中标方撤回超过 10 次后再录 SHALL 返回 409 `这条公告的这个中标方撤回过太多次，没有录入；请联系组织管理员。`，SHALL NOT 写库。
+同一条公告链接的同一个中标方再录 SHALL 不新建、不写审计；两次同时提交 SHALL 只有一条记录且两次都成功返回。这条公告与中标方对应的记录被组织管理员撤回后再录，SHALL 新建一条（撤回的那条保持撤回），再重放 SHALL 仍不重复。同一条公告的同一个中标方撤回满 10 次后再录 SHALL 返回 409 `这条公告的这个中标方撤回过太多次，没有录入；请联系组织管理员。`（`code` 为 `RETRACTED_TOO_MANY`），SHALL NOT 写库。
 
 #### Scenario: 重录、并发、撤回后重录
 - **WHEN** 同一链接同一中标方再录；两次同时提交另一条；组织管理员撤回一条后同样的内容再录两次
@@ -66,28 +66,28 @@
 - **THEN** 外部请求次数为 0；录入模块与接口源码里没有网络调用，页面用原生链接、不预取（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`；`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 源码断言）
 
 ### Requirement: 录入的结果
-录入成功 SHALL 返回 `{ outcome, record, messageZh }`（`record` 为编号、信任级、状态、采购方、招标编号、授标日期），`messageZh`：新建 `已录入，等组织管理员复核。`；疑似重复 `已录入；和已有的一条记录可能重复，等组织管理员裁决。`；按编号挂到既有 `已有同一条授标（招标编号与中标方相同），这条公告链接已挂到那条记录上。那条记录原有的内容和可信度不变（你这次填的没有写进去）；有出入请告诉组织管理员。`；按日期金额挂到既有 `已有同一条授标（中标方、授标日期、金额都相同），这条公告链接已挂到那条记录上。那条记录原有的内容（含招标编号与采购方）和可信度不变（你这次填的没有写进去）；有出入请告诉组织管理员。`；重录 `这条公告的这个中标方已经录过了（同一公告同一中标方只录一条；中了几个标段的请合成一条，金额合计或留空）。`。
+录入成功 SHALL 返回 200 `{ outcome, record, messageZh }`（五种 `outcome` 见场景；`record` 为编号、信任级、状态、采购方、招标编号、授标日期），`messageZh`：新建 `已录入，等组织管理员复核。`；疑似重复 `已录入；和已有的一条记录可能重复，等组织管理员裁决。`；按编号挂到既有 `已有同一条授标（招标编号与中标方相同），这条公告链接已挂到那条记录上。那条记录原有的内容和可信度不变（你这次填的没有写进去）；有出入请告诉组织管理员。`；按日期金额挂到既有 `已有同一条授标（中标方、授标日期、金额都相同），这条公告链接已挂到那条记录上。那条记录原有的内容（含招标编号与采购方）和可信度不变（你这次填的没有写进去）；有出入请告诉组织管理员。`；重录 `这条公告的这个中标方已经录过了（同一公告同一中标方只录一条；中了几个标段的请合成一条，金额合计或留空）。`。
 
 #### Scenario: 五种结果
 - **WHEN** 依次触发新建、疑似重复、按编号挂到既有、按日期金额挂到既有、重录
-- **THEN** 返回上面对应的一句（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+- **THEN** `outcome` 依次为 `CREATED`、`NEEDS_REVIEW`、`ATTACHED_BY_SOLICITATION`、`ATTACHED_BY_DATE_AMOUNT`、`ALREADY_ENTERED`，`messageZh` 为上面对应的一句；新建时 `record` 的信任级 `NEEDS_REVIEW`、状态 `ACTIVE`，采购方、招标编号、授标日期是规整后的值（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 录入表单
-表单 SHALL 分「公告信息」（链接、采购方、招标编号、授标日期、范围摘要）与「这个中标方」（中标方、金额、币种）两组；采购方给出候选，范围摘要给出本页已有的写法作候选；采购方、招标编号、金额、范围摘要旁各写一句提示（逐字见 design D6）。录入成功后 SHALL 写 `「{中标方}」：{那一句}`，保留公告信息、只清空中标方与金额并把焦点放回中标方（重录时不清空），另有 `换一条公告（清空）`。出错时 SHALL 标出那一项；403 SHALL 写 `你在本组织没有录入权限（需要成员及以上角色），请联系组织管理员。`，其余失败 `没有录入成功，请稍后再试。`、断网 `网络出错，请稍后再试。`。按钮写 `录入`，提交期间写 `正在录入…` 且不可再点；没填金额时币种不可选。
+表单 SHALL 分「公告信息」（链接、采购方、招标编号、授标日期、范围摘要）与「这个中标方」（中标方、金额、币种）两组；采购方给出候选，范围摘要给出本页已有的写法作候选；采购方、招标编号、金额、范围摘要旁各写一句提示（逐字见 design D6）。录入成功后 SHALL 写 `「{中标方}」：{那一句}`，保留公告信息、只清空中标方与金额并把焦点放回中标方（重录时不清空），另有 `换一条公告（清空）`。出错时 SHALL 标出那一项并显示接口返回的那句话，403 换成 `你在本组织没有录入权限（需要成员及以上角色），请联系组织管理员。`，接口没有说明时写 `没有录入成功，请稍后再试。`，断网 `网络出错，请稍后再试。`。按钮写 `录入`，提交期间写 `正在录入…` 且不可再点；没填金额时币种不可选。
 
 #### Scenario: 表单
 - **WHEN** 读取表单与页面源码
 - **THEN** 两组、两个候选、四句提示、成功后只清空中标方与金额、重录不清、403 那句、错误指向字段、按钮文字都在（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 源码断言与固定文字）
 
 ### Requirement: 采购方候选
-列表接口 SHALL 只给 `canEnterManual` 为 true 的人返回 `buyerSuggestions`（其他人为空），取调用人按项目可见性看得到的本组织招标项目的采购方写法（项目写法在前、最近更新的在前），再加本组织未撤回授标的采购方写法；按采购方规整名去重（大小写、标点、开头的 The 不同算同一个），最多 200 个。SHALL NOT 带出待分派、不是招标、或调用人看不到的项目的客户名。
+列表接口 SHALL 只给 `canEnterManual` 为 true 的人返回 `buyerSuggestions`（其他人为空），取调用人按项目可见性看得到的本组织招标项目的采购方写法（项目写法在前、最近更新的在前），再加本组织未撤回授标的采购方写法；按采购方规整名去重（大小写、标点、开头的 The 不同算同一个），最多 200 个。对任何调用人（含平台超级管理员）SHALL NOT 带出待分派、不是招标、或调用人看不到的项目的客户名。
 
 #### Scenario: 候选
 - **WHEN** 本组织有一个已分派的招标项目、一个待分派的招标项目、一个不是招标的项目，另有一条采购方写成 `ALBERTA HEALTH SERVICES.` 的授标；成员与查看者读取列表
-- **THEN** 成员的候选含 `Alberta Health Services` 一次（不含大写那种写法）、不含待分派与不是招标的项目的客户名；查看者的候选为空（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+- **THEN** 成员与平台超级管理员的候选含 `Alberta Health Services` 一次（不含大写那种写法）、不含待分派与不是招标的项目的客户名；查看者的候选为空（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 列表里的来源与统计
-「历史中标」列表 SHALL 对有人工录入 APC 来源的记录在中标方下写 `人工录入 · APC 公告 ↗`（无障碍名称 `在新窗口打开 APC 公告`），链接到最早那条人工录入 APC 来源（新窗口打开，不带来源页信息），并在招标编号下显示范围摘要。列表接口 SHALL 只返回人工录入的 APC 链接（再校验一次主机），SHALL NOT 返回别的来源的链接或原文片段。统计条里未经人工确认或权威来源的记录数 SHALL 标为 `待确认（AI 提取 / 人工录入，不计入统计）`，疑似重复的标为 `疑似重复待裁决（不计入统计）`。刚录入的那一行 SHALL 高亮并滚到它，被筛选条件挡住时写 `已录入，但被当前筛选条件挡住了，清空筛选可以看到。`；组织管理员提示与空状态 SHALL 提到人工录入（逐字见 design D6）。
+「历史中标」列表 SHALL 对有人工录入 APC 来源的记录（列表字段 `manualApcUrl`）在中标方下写 `人工录入 · APC 公告 ↗`（无障碍名称 `在新窗口打开 APC 公告`），链接到最早那条人工录入 APC 来源（新窗口打开，不带来源页信息），并在招标编号下显示范围摘要。列表接口 SHALL 只返回人工录入的 APC 链接（再校验一次主机），SHALL NOT 返回别的来源的链接或原文片段。统计条里未经人工确认或权威来源的记录数 SHALL 标为 `待确认（AI 提取 / 人工录入，不计入统计）`，疑似重复的标为 `疑似重复待裁决（不计入统计）`。刚录入的那一行 SHALL 高亮并滚到它，被筛选条件挡住时写 `已录入，但被当前筛选条件挡住了，清空筛选可以看到。`；组织管理员提示与空状态 SHALL 提到人工录入（逐字见 design D6）。
 
 #### Scenario: 列表显示
 - **WHEN** 录入一条后读取列表；另有一条只有项目结果回灌来源的记录
@@ -97,5 +97,5 @@
 新建、疑似重复、挂到既有 SHALL 在同一事务里写一条审计 `tender.award_manual_entry`（结果、提交的全部字段、APC 链接、信任级，挂到既有时另记那条记录的信任级）；重录与被拒的 SHALL NOT 写审计。审计 SHALL NOT 记联系方式。
 
 #### Scenario: 审计
-- **WHEN** 新建、重录、被拒、按编号挂到既有、按日期金额挂到既有两次、疑似重复、再新建
+- **WHEN** 成员新建、重录、被拒、平台超级管理员新建、按编号挂到既有、按日期金额挂到既有两次、疑似重复、再新建
 - **THEN** 审计依次是新建、新建、按编号挂到既有、按日期金额挂到既有两条、疑似重复、新建；挂到既有那几条记着结果与那条记录的信任级（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）

@@ -93,6 +93,7 @@ async function main() {
     const r1 = rec(c1.body.record);
     const rec1 = await db.awardRecord.findUnique({ where: { id: String(r1.id) }, include: { sources: true } });
     ok(c1.status === 200 && c1.body.outcome === "CREATED" && c1.body.messageZh === "已录入，等组织管理员复核。" && rec1?.verificationStatus === "NEEDS_REVIEW" && rec1.status === "ACTIVE" && rec1.confidence === "MEDIUM" && rec1.projectId === null && rec1.sources.length === 1 && rec1.sources[0].sourceType === "USER_ENTRY" && rec1.sources[0].sourceUrl === URL1 && rec1.sources[0].sourceKey.startsWith("manual:apc:") && rec1.sources[0].evidenceSnippet === null, "成员录入：USER_ENTRY、规整后的 APC 链接、NEEDS_REVIEW、ACTIVE、可信度中、不挂项目", { body: c1.body, rec1 });
+    ok(r1.verificationStatus === "NEEDS_REVIEW" && r1.status === "ACTIVE" && r1.buyerName === "Alberta Health Services" && r1.solicitationNumber === null && r1.awardDate === "2026-03-01" && Object.keys(r1).sort().join() === "awardDate,buyerName,id,solicitationNumber,status,verificationStatus", "成功响应的 record：编号、信任级、状态、采购方、招标编号、授标日期", r1);
     const a1 = await auditRows();
     const ad = JSON.parse(a1[0]?.afterData ?? "{}") as Rec;
     ok(a1.length === 1 && a1[0].userId === MEMBER && a1[0].targetId === r1.id && ad.outcome === "CREATED" && ad.buyerName === base.buyerName && ad.winnerName === base.winnerName && ad.awardDate === "2026-03-01" && ad.contractAmount === 48000 && ad.currency === "CAD" && ad.scopeSummary === "Linen service" && ad.apcUrl === URL1 && ad.verificationStatus === "NEEDS_REVIEW", "审计：提交的全部字段、链接、信任级", ad);
@@ -107,7 +108,7 @@ async function main() {
     const o = await enter({ ...base, winnerName: "Other Try Ltd." }, OTHER);
     const s = await enter({ ...base, winnerName: "Super Entry Ltd." }, SUPER);
     const sNo = await enter({ ...base, winnerName: "Nowhere Ltd." }, SUPER, `nope_${stamp}`);
-    ok(v.status === 403 && o.status === 403 && s.status === 200 && s.body.outcome === "CREATED" && sNo.status === 404 && (await recordCount()) === before + 1, "查看者、别的组织的管理员 403；平台超级管理员可以录入；不存在的组织 404", [v.status, o.status, s.status, sNo.status]);
+    ok(v.status === 403 && o.status === 403 && s.status === 200 && s.body.outcome === "CREATED" && sNo.status === 404 && sNo.body.error === "组织不存在" && (await recordCount()) === before + 1, "查看者、别的组织的管理员 403；平台超级管理员可以录入；不存在的组织 404", [v.status, o.status, s.status, sNo.status]);
 
     /* ---------- 4. 校验 ---------- */
     const bad = await enter({ ...base, winnerName: "Bad Url Ltd.", apcUrl: "https://purchasing.alberta.ca:8443/x" });
@@ -115,6 +116,9 @@ async function main() {
     const badAmt = await enter({ ...base, winnerName: "Bad Amount Ltd.", apcUrl: URL1, contractAmount: "1234,56" });
     const big = await enterRaw(JSON.stringify({ ...base, winnerName: "Too Large Ltd.", scopeSummary: "x".repeat(17 * 1024) }));
     const notJson = await enterRaw("not json");
+    const declaredBig = await manualRoute.POST(new NextRequest(`http://localhost/api/organizations/${ORG}/tender-awards/manual`, { method: "POST", headers: { cookie: await cookieOf(MEMBER), "content-type": "application/json", "content-length": String(64 * 1024) }, body: JSON.stringify({ ...base, winnerName: "Declared Large Ltd." }) }), { params: Promise.resolve({ orgId: ORG }) }).catch((e: unknown) => e);
+    const declaredBody = declaredBig instanceof Response ? ((await declaredBig.json()) as Rec) : null;
+    ok(declaredBig instanceof Response && declaredBig.status === 400 && declaredBody?.code === "TOO_LARGE", "声明的长度超过 16 KB：不读请求体，400 TOO_LARGE", declaredBig instanceof Response ? declaredBody : String(declaredBig));
     ok(bad.status === 400 && bad.body.error === "APC 公告链接要以 https://purchasing.alberta.ca/ 开头，并指向具体的公告。" && bad.body.code === "BAD_URL" && bad.body.field === "apcUrl" && badDate.status === 400 && badDate.body.error === "授标日期要写成 年-月-日，且在 1900 年到今天之间。" && badDate.body.field === "awardDate" && badAmt.status === 400 && badAmt.body.code === "BAD_AMOUNT" && big.status === 400 && big.body.code === "TOO_LARGE" && big.body.error === "请求太大" && notJson.status === 400 && notJson.body.error === "请填写采购方。" && (await recordCount()) === before + 1, "坏链接、坏日期、当小数点用的逗号、超过 16 KB、不是 JSON：400 那句话与字段、不写库", [bad.body, badDate.body, badAmt.body, big.body, notJson.body]);
 
     /* ---------- 5. 挂到既有：按编号（CanadaBuys 权威记录）、按日期金额；疑似重复 ---------- */
@@ -132,7 +136,7 @@ async function main() {
     // 既有写入规则：按编号没对上时，中标方、日期、金额都相同就挂上（不看编号、不看采购方）——规格照实写
     const c6b = await enter({ buyerName: "City X", winnerName: "Prairie Hospitality Goods", apcUrl: "https://purchasing.alberta.ca/posting/AB-2025-778", solicitationNumber: "AB-2025-778", awardDate: "2025-06-01", contractAmount: 9000 });
     const cbAfter2 = await db.awardRecord.findUnique({ where: { id: cb.record.id }, include: { sources: true } });
-    ok(c6b.status === 200 && c6b.body.outcome === "ATTACHED_BY_DATE_AMOUNT" && rec(c6b.body.record).id === cb.record.id && cbAfter2?.solicitationNumber === "AB-2025-777" && cbAfter2.buyerNameRaw === "Government of Alberta" && cbAfter2.sources.length === 3, "编号不同、采购方不同，但中标方、日期、金额相同：也挂到既有，那条的编号与采购方不变", { body: c6b.body, sol: cbAfter2?.solicitationNumber, n: cbAfter2?.sources.length });
+    ok(c6b.status === 200 && c6b.body.outcome === "ATTACHED_BY_DATE_AMOUNT" && rec(c6b.body.record).id === cb.record.id && cbAfter2?.solicitationNumber === "AB-2025-777" && cbAfter2.buyerNameRaw === "Government of Alberta" && cbAfter2.sources.length === 3 && cbAfter2.verificationStatus === "SYSTEM_VERIFIED" && (await auditRows()).filter((r) => r.targetId === cb.record.id).map((r) => (JSON.parse(r.afterData ?? "{}") as Rec)).some((a) => a.outcome === "ATTACHED_BY_DATE_AMOUNT" && a.targetVerificationStatus === "SYSTEM_VERIFIED" && a.solicitationNumber === "AB-2025-778"), "编号不同、采购方不同，但中标方、日期、金额相同：也挂到既有，那条的编号、采购方与信任级不变；审计记那条的信任级与提交的编号", { body: c6b.body, sol: cbAfter2?.solicitationNumber, n: cbAfter2?.sources.length });
     const c7 = await enter({ buyerName: "City of Calgary", winnerName: "Harbour Bedding Wholesale", apcUrl: "https://purchasing.alberta.ca/posting/AB-2026-999", awardDate: "2026-02-01", contractAmount: 15000 });
     const r7 = await db.awardRecord.findUnique({ where: { id: String(rec(c7.body.record).id) } });
     ok(c7.status === 200 && c7.body.outcome === "NEEDS_REVIEW" && c7.body.messageZh === "已录入；和已有的一条记录可能重复，等组织管理员裁决。" && r7?.status === "NEEDS_REVIEW" && !!r7.possibleDuplicateOfId, "同采购方同中标方、日期不同：疑似重复", c7.body);
@@ -163,6 +167,7 @@ async function main() {
     await createOrObserveAwardRecord({ orgId: ORG, actor: { actorType: "user", userId: ADMIN }, award: { winnerName: "Backfilled Winner Ltd.", buyerNameRaw: "Alberta Health Services" }, source: { sourceType: "USER_ENTRY", sourceKey: `own-result:${PROJECT}`, sourceUrl: "https://purchasing.alberta.ca/posting/should-not-show", capturedAt: new Date() }, confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED" });
     await createOrObserveAwardRecord({ orgId: ORG, actor: { actorType: "user", userId: ADMIN }, award: { winnerName: "Spelling Variant Ltd.", buyerNameRaw: "ALBERTA HEALTH SERVICES." }, source: { sourceType: "USER_ENTRY", sourceKey: `manual:${stamp}-variant`, capturedAt: new Date() }, confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED" });
     const lm = await list(MEMBER);
+    const ls = await list(SUPER);
     const lv = await list(VIEWER);
     const rows = (lm.records as Rec[]) ?? [];
     const freshRow = rows.find((r) => r.id === fresh.id);
@@ -171,6 +176,8 @@ async function main() {
     ok(!JSON.stringify(lm).includes("should-not-show") && !JSON.stringify(lm).includes("evidenceSnippet"), "列表不带别的来源的链接与原文片段");
     const sug = (lm.buyerSuggestions as string[]) ?? [];
     ok(!sug.includes(`Pending Dispatch Buyer ${stamp}`) && !sug.includes(`Sales Client Corp ${stamp}`) && sug.filter((b) => b.toLowerCase().replace(/[^a-z]/g, "") === "albertahealthservices").length === 1 && sug.includes("Alberta Health Services") && sug.includes("Government of Alberta") && sug.includes("City of Calgary"), "采购方候选：不带待分派的与不是招标的项目；写法不同的同一采购方只留一个（项目写法优先）；含已有授标的采购方", sug);
+    const sugS = (ls.buyerSuggestions as string[]) ?? [];
+    ok(ls.canEnterManual === true && !sugS.includes(`Pending Dispatch Buyer ${stamp}`) && !sugS.includes(`Sales Client Corp ${stamp}`) && sugS.includes("Alberta Health Services"), "平台超级管理员的采购方候选也不带待分派与不是招标的项目", sugS);
 
     /* ---------- 10. 开关关 ---------- */
     process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY = "0";

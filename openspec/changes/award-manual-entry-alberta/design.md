@@ -4,7 +4,7 @@
 
 - 授标记录唯一写入口是 `src/lib/tender-intel/awards.ts` 的 `createOrObserveAwardRecord`：按 `(orgId, sourceType, sourceKey)` 幂等；同招标编号 + 同中标方 → 挂源到既有记录（`ATTACHED_EXISTING`）；按编号没找到时，同中标方 + 同授标日期 + 同金额（不看编号、不看采购方）→ 同样挂源；同中标方 + 同采购方但日期 / 金额对不上 → 新记录 `status = NEEDS_REVIEW` + `possibleDuplicateOfId`；`SYSTEM_VERIFIED` 只认带编号的 `CANADABUYS_OPEN_DATA`（服务里强制）。它不写审计。
 - 信任级词表：`AI_EXTRACTED | HUMAN_CONFIRMED | SYSTEM_VERIFIED | NEEDS_REVIEW`；来源类型：`CANADABUYS_OPEN_DATA | WEB_SEARCH | PROJECT_RECORD | USER_ENTRY | OTHER_PUBLIC`。
-- 授标情报的数字层（`deriveAwardIntelligence`）只算 `ACTIVE` 且 `HUMAN_CONFIRMED / SYSTEM_VERIFIED` 的记录；`NEEDS_REVIEW` 只算线索、不出数字。组织管理员在「历史授标」页确认（→ `HUMAN_CONFIRMED`）或撤回（`tender/award-review`）。
+- 授标情报的数字层（`deriveAwardIntelligence`）只算 `ACTIVE` 且 `HUMAN_CONFIRMED / SYSTEM_VERIFIED` 的记录；`NEEDS_REVIEW` 只算线索、不出数字。组织管理员在「历史中标」页确认（→ `HUMAN_CONFIRMED`）或撤回（`tender/award-review`）。
 - CHAIN-2 / CHAIN-3 的「本采购方的他人授标」读同一张表，按采购方规整名找；CHAIN-3 的中标者名单只认 `ACTIVE` 且人工确认或权威来源的记录，CHAIN-2 的可比价格只用权威记录——待复核的人工录入要等组织管理员确认后才进入它们。
 - CHAIN-1 前置核查：APC 对程序化访问返回 Cloudflare 人机验证，到此为止；交接文档第四十四次更正：现有授标历史面板做不了 Alberta 人工录入。
 
