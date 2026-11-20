@@ -7,7 +7,7 @@
 ## 2. 服务与接口
 
 - [x] 2.1 `service.ts`：`loadDecisions` 读两种 action 并调用 `effectiveDecisions`；视图带 `decidedPairs`（名称用本项目写法、裁决人只取本组织现有成员、条数不含不采用的）与 `canDecideAliases`；`revokeImportLeadAlias`（422 → 404 → 409 → 锁内 409，写撤回审计行）；`importLeads`、`addImportLeadSupplier`、`decideImportLeadAlias` 返回的视图用调用人的真实 `canDecideAliases`（verify：隔离库用例「撤回确认与撤回否决」「不能撤回的情形」「列出与按钮」）
-- [x] 2.2 `api-access.ts`：组织管理员判定（平台超级管理员；或本组织有效成员且组织角色 ≥ `org_admin`）与 `requireImportLeadsAliasDecide`；`aliases` 接口改用它，新增 `aliases/revoke` 接口；`route.ts`、`suppliers/route.ts` 把 `canDecideAliases` 传给服务（verify：隔离库用例「不是组织管理员」；401 / 404 / 开关 404 顺序不变；源码断言新路由走统一权限判定、不出站）
+- [x] 2.2 `api-access.ts`：组织管理员判定（平台超级管理员；或本组织有效成员且组织角色 ≥ `org_admin`）与 `requireImportLeadsAliasDecide`；`aliases` 接口改用它，新增 `aliases/revoke` 接口；`route.ts`、`suppliers/route.ts` 把 `canDecideAliases` 传给服务；撤回要写原因（Lucas 2026-11-20 GATE）：`aggregate-pure.ts` 的 `normalizeRevokeReason`；撤回接口在「请求不完整」之后判原因、400 不写库；服务把原因写进撤回审计；面板行内填原因（verify：隔离库用例「不是组织管理员」；401 / 404 / 开关 404 顺序不变；源码断言新路由走统一权限判定、不出站；撤回原因的规整与 400：`import-leads.test.ts` 的原因规整与接口顺序断言；隔离库「撤回原因」用例）
 
 ## 3. 界面
 

@@ -119,6 +119,16 @@ export function aggregateByExporter(leads: readonly MatchedLeadInput[], opts: { 
 
 /* ---------------------------------- 视图 ---------------------------------- */
 
+/** CHAIN-3c（Lucas 2026-11-20）：撤回必须填原因，与授标记录撤回同一口径（空白折叠、去首尾空白、最多 200 字） */
+export const IMPORT_LEAD_REVOKE_REASON_MAX = 200;
+
+export function normalizeRevokeReason(raw: unknown): { ok: true; reason: string } | { ok: false; code: "REASON_REQUIRED" | "REASON_TOO_LONG"; messageZh: string } {
+  const reason = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
+  if (!reason) return { ok: false, code: "REASON_REQUIRED", messageZh: IMPORT_LEADS_TEXT.revokeReasonRequired };
+  if (reason.length > IMPORT_LEAD_REVOKE_REASON_MAX) return { ok: false, code: "REASON_TOO_LONG", messageZh: IMPORT_LEADS_TEXT.revokeReasonTooLong };
+  return { ok: true, reason };
+}
+
 export const IMPORT_LEADS_TEXT = {
   caveat: IMPORT_LEAD_CAVEAT_ZH,
   leadStatus: IMPORT_LEAD_STATUS_ZH.LEAD_UNVERIFIED,
@@ -132,6 +142,8 @@ export const IMPORT_LEADS_TEXT = {
   /** CHAIN-3c：裁决与撤回只限组织管理员 */
   notOrgAdmin: "只有组织管理员能确认、否决或撤回「是不是同一家」（对本组织所有项目生效）。",
   revokeConflict: "同事已经撤回或改过这一对的裁决，页面已更新；请看清现在的结论再操作。",
+  revokeReasonRequired: "请填写撤回原因。",
+  revokeReasonTooLong: `撤回原因太长了（最多 ${IMPORT_LEAD_REVOKE_REASON_MAX} 字）。`,
   pairNotInProject: "本项目已没有涉及这一对的记录（可能刚在供应链页标为不采用，或历史中标者有变），页面已更新。",
   revokedConfirmed: (importer: string, winner: string) => `已撤回「${importer}」和「${winner}」的确认，这一对回到待确认；靠它对上的记录已移出出口商汇总（已加入供应商库的不受影响）。`,
   revokedRejected: (importer: string, winner: string) => `已撤回「${importer}」和「${winner}」的否决，这一对回到待确认。否决期间导入时被当作「不是这个采购方的中标者」跳过的记录没有保存，需要的话请重新导入原表（已导入的不会重复）。`,

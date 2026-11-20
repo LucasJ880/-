@@ -435,6 +435,8 @@ export async function revokeImportLeadAlias(input: {
   userId: string;
   pairKey: string;
   decisionId: string;
+  /** 撤回原因（已规整，必填） */
+  reason: string;
   canEdit?: boolean;
   now?: Date;
 }): Promise<{ ok: true; view: ImportLeadsView; revokedDecision: "CONFIRMED" | "REJECTED" } | ServiceFailure> {
@@ -462,7 +464,7 @@ export async function revokeImportLeadAlias(input: {
         targetType: IMPORT_LEAD_ALIAS_TARGET,
         targetId,
         beforeData: JSON.stringify(decision),
-        afterData: JSON.stringify({ pairKey: input.pairKey, revokedAuditId: auditId, revokedBy: input.userId, revokedAt: now.toISOString() }),
+        afterData: JSON.stringify({ pairKey: input.pairKey, revokedAuditId: auditId, revokedBy: input.userId, revokedAt: now.toISOString(), reason: input.reason }),
       },
     });
     return decision.decision;

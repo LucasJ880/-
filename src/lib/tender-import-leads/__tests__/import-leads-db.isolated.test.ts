@@ -100,8 +100,10 @@ async function main() {
     const res = await aliasesRoute.POST(post(`${base(p)}/aliases`, body, who), { params: Promise.resolve({ id: p }) });
     return { status: res.status, json: (await res.json()) as { view?: View; error?: string } };
   };
-  const revoke = async (p: string, body: unknown, who: string | null = owner) => {
-    const res = await revokeRoute.POST(post(`${base(p)}/aliases/revoke`, body, who), { params: Promise.resolve({ id: p }) });
+  // 撤回必须填原因：用例没写原因时补一句（专门测原因的用例传 withReason: false）
+  const revoke = async (p: string, body: Record<string, unknown>, who: string | null = owner, withReason = true) => {
+    const payload = withReason && !("reason" in body) ? { ...body, reason: "测试：判断错了" } : body;
+    const res = await revokeRoute.POST(post(`${base(p)}/aliases/revoke`, payload, who), { params: Promise.resolve({ id: p }) });
     return { status: res.status, json: (await res.json()) as { view?: View; error?: string; revokedDecision?: string } };
   };
   const addSupplier = async (p: string, exporterKey: string, who: string | null = owner) => {
@@ -320,14 +322,19 @@ async function main() {
     const nip = await revoke(pR, { pairKey: pairNorth, decisionId: "x" });
     ok(nip.status === 404 && nip.json.error === "本项目已没有涉及这一对的记录（可能刚在供应链页标为不采用，或历史中标者有变），页面已更新。", "撤回一对不在本项目里的：404", nip);
     ok((await revoke(pR, { pairKey: pG })).status === 400, "撤回不带裁决标识：400");
+    const rowsNoReason = await aliasRows();
+    const noReason = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId }, owner, false);
+    const blankReason = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId, reason: "   " });
+    const longReason = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId, reason: "x".repeat(201) });
+    ok(noReason.status === 400 && noReason.json.error === "请填写撤回原因。" && blankReason.status === 400 && longReason.status === 400 && longReason.json.error === "撤回原因太长了（最多 200 字）。" && (await aliasRows()) === rowsNoReason, "撤回不填原因、只填空白、超过 200 字：400，没有审计行", [noReason.json, blankReason.json, longReason.json]);
     const pR2 = await mkProject(RBUYER);
     const r2i = await doImport(pR2, { text: "Importer,Exporter,URL\nGlacier Linen Supply,Xiamen Linen Co,https://example.test/r2/1\n" });
     ok(r2i.json.result?.matched === 1, "另一个同采购方项目：确认过的一对直接挂上", r2i.json.result);
-    const rv1 = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId });
+    const rv1 = await revoke(pR, { pairKey: pG, decisionId: dG!.decisionId, reason: "  这一家其实是 不同的公司  " });
     ok(rv1.status === 200 && rv1.json.revokedDecision === "CONFIRMED" && !!rv1.json.view?.suggestions.some((x) => x.pairKey === pG) && !rv1.json.view.exporters.some((e) => e.exporterName === "Ningbo Linen Co") && !rv1.json.view.decidedPairs.some((d) => d.pairKey === pG), "撤回确认：回到待确认，不在汇总，不在已裁决里", rv1.json);
     const revRows = await db.auditLog.findMany({ where: { orgId: ORG, action: "tender.import_lead_alias_revoked" } });
     const ra = JSON.parse(revRows[0]?.afterData ?? "{}") as Record<string, unknown>, rb = JSON.parse(revRows[0]?.beforeData ?? "{}") as Record<string, unknown>;
-    ok(revRows.length === 1 && revRows[0].userId === OWNER && revRows[0].targetType === "import_lead_alias" && ra.revokedAuditId === dG!.decisionId && ra.revokedBy === OWNER && typeof ra.revokedAt === "string" && rb.decision === "CONFIRMED" && rb.pairKey === pG, "撤回审计：指向原裁决的审计行，带原裁决、撤回人、时间", revRows);
+    ok(revRows.length === 1 && revRows[0].userId === OWNER && revRows[0].targetType === "import_lead_alias" && ra.revokedAuditId === dG!.decisionId && ra.revokedBy === OWNER && typeof ra.revokedAt === "string" && ra.reason === "这一家其实是 不同的公司" && rb.decision === "CONFIRMED" && rb.pairKey === pG, "撤回审计：指向原裁决的审计行，带原裁决、撤回人、时间、规整后的原因", revRows);
     const decidedRow = await db.auditLog.findUnique({ where: { id: dG!.decisionId } });
     ok(!!decidedRow && JSON.parse(decidedRow.afterData ?? "{}").decision === "CONFIRMED" && revRows[0].beforeData === decidedRow.afterData && !/@|example\.test/.test(`${revRows[0].beforeData}${revRows[0].afterData}`), "原裁决的审计行还在、没有改；撤回行原样带着它，不含联系方式与来源网址");
     const other2 = await get(pR2);

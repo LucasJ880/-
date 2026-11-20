@@ -26,7 +26,7 @@
 - **THEN** 依次 404、404、401、404、403 / 403 / 403；只读成员读到的 `canEdit` 为 false（`import-leads-db.isolated.test.ts`）
 
 ### Requirement: 审计
-导入、裁决、撤回、加入供应商库 SHALL 各写一条审计：`tender.import_leads_imported`（批次、各项条数、来源说明）、`tender.import_lead_alias_decided`（两个名称、裁决、裁决人、时间）、`tender.import_lead_alias_revoked`（被撤回的那条裁决原样与它的审计行、撤回人、时间）、`tender.import_lead_supplier_added`（供应商、是否新建、出口商、关联的线索条数）。审计 SHALL NOT 记联系方式或运单原文。
+导入、裁决、撤回、加入供应商库 SHALL 各写一条审计：`tender.import_leads_imported`（批次、各项条数、来源说明）、`tender.import_lead_alias_decided`（两个名称、裁决、裁决人、时间）、`tender.import_lead_alias_revoked`（被撤回的那条裁决原样与它的审计行、撤回人、时间、撤回原因）、`tender.import_lead_supplier_added`（供应商、是否新建、出口商、关联的线索条数）。审计 SHALL NOT 记联系方式或运单原文。
 
 #### Scenario: 审计
 - **WHEN** 导入、裁决、加入供应商库各做几次
@@ -58,6 +58,13 @@
 #### Scenario: 不能撤回的情形
 - **WHEN** 项目编辑者（不是组织管理员）撤回；组织管理员撤回一对不在本项目里的；拿另一对的裁决标识撤回；拿这一对已被撤回、又被重新裁决之前的旧标识撤回
 - **THEN** 依次 403 且没有新审计行、404、409、409（`NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts`）
+
+### Requirement: 撤回要写原因
+撤回请求 SHALL 带撤回原因：空白折叠、去掉首尾空白后不能为空，最多 200 字（与授标记录的撤回同一口径）。没填或只有空白 SHALL 返回 400 `请填写撤回原因。`，超过 200 字 SHALL 返回 400 `撤回原因太长了（最多 200 字）。`，都 SHALL NOT 写库。规整后的原因 SHALL 记进撤回的审计。面板上点「撤回」后 SHALL 先写明后果、再要人填 `撤回原因（必填，最多 200 字，会记进审计）`，没填时「确认撤回」SHALL 不可点。
+
+#### Scenario: 撤回原因
+- **WHEN** 组织管理员撤回时不带原因、只填空白、填 201 字；再填「  这一家其实是 不同的公司  」撤回
+- **THEN** 前三次 400（依次 `请填写撤回原因。`、`请填写撤回原因。`、`撤回原因太长了（最多 200 字）。`）且没有审计行；第四次成功，撤回审计记着 `这一家其实是 不同的公司`（`NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts`；`npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts`）
 
 ### Requirement: 已裁决的一节
 读视图 SHALL 带 `canDecideAliases` 与本项目现有记录（不含不采用的）涉及、当前有裁决的每一对（按裁决日期从新到旧）；导入与加入供应商库接口返回的视图里的 `canDecideAliases` SHALL 是调用人的真实值。面板 SHALL 以 `已裁决的（对本组织所有项目生效）` 列出这些对，每一对写 `「{进口商}」和中标者「{中标者}」：{已确认是同一家 / 已标为不是同一家}（裁决人：{名字}，{日期}），涉及 N 条记录。`，名称用本项目的写法；裁决人 SHALL 只取本组织现有成员的名字，没填名字写 `本组织成员（未填姓名）`，不是本组织现有成员写 `本组织以外的人`。组织管理员 SHALL 看到「撤回」，点了 SHALL 先按结论分别确认（写出两个名称、撤回后汇总与已导入记录会怎样）；撤回后 SHALL 按结论写出结果（写出两个名称；撤回否决时提示否决期间跳过的记录要重新导入），进口商已和别的中标者对上时 SHALL 另说明这一对不会显示为待确认；其他人 SHALL NOT 看到「撤回」，写 `哪一对判断错了，请组织管理员在这里撤回。`。

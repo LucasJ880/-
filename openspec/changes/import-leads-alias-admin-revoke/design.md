@@ -29,7 +29,7 @@
 
 ### D2：撤回是一条新的审计行，指向它撤回的那一行；不靠时间先后
 
-撤回写 `AuditLog`：`action = "tender.import_lead_alias_revoked"`，`targetType`、`targetId` 与裁决相同，`beforeData` = 被撤回的那条裁决（原样），`afterData` = `{ pairKey, revokedAuditId, revokedBy, revokedAt }`，`revokedAuditId` 是被撤回的那条裁决审计行的 `id`。一条裁决「有效」⇔ 没有撤回行的 `revokedAuditId` 指向它；读裁决时（`loadDecisions`）把两种 action 都读回来，先排除被撤回的，再在剩下的里取每对最新的一条（裁决与撤回在同一把锁下写，正常情况下每对最多只有一条有效裁决）。纯函数 `effectiveDecisions(rows)` 单测覆盖。写入与裁决共用同一把 advisory lock（同一 `targetId`）。
+撤回写 `AuditLog`：`action = "tender.import_lead_alias_revoked"`，`targetType`、`targetId` 与裁决相同，`beforeData` = 被撤回的那条裁决（原样），`afterData` = `{ pairKey, revokedAuditId, revokedBy, revokedAt, reason }`，`revokedAuditId` 是被撤回的那条裁决审计行的 `id`。一条裁决「有效」⇔ 没有撤回行的 `revokedAuditId` 指向它；读裁决时（`loadDecisions`）把两种 action 都读回来，先排除被撤回的，再在剩下的里取每对最新的一条（裁决与撤回在同一把锁下写，正常情况下每对最多只有一条有效裁决）。纯函数 `effectiveDecisions(rows)` 单测覆盖。写入与裁决共用同一把 advisory lock（同一 `targetId`）。
 
 - 备选 A：按 `createdAt`、`id` 取每对最新一行，最新是撤回就算没有裁决。否决：`createdAt` 是毫秒精度、由应用进程取时间，多实例时钟有偏差，同一毫秒靠 cuid 也不单调；排在后面的撤回可能拿到更早的时间，界面说已撤回、读出来却还在。
 - 备选 B：删掉或改写原裁决行。否决：审计只追加；改了就丢了「谁当初裁决的」。
@@ -70,6 +70,13 @@
 裁决人与撤回人存的是用户 id。显示名只从本组织 `OrganizationMember`（`status = active`）关联的用户里取名字；不是本组织现有成员（已离开、或平台超级管理员）一律写 `本组织以外的人`；现有成员没填名字写 `本组织成员（未填姓名）`。裁决日期取裁决里的时间，形状不对时退回审计行的写入时间。视图不带邮箱、不带用户 id。
 
 - 备选：按用户表取名字。否决：会把平台人员与已离开的人的名字给组织成员看；这一节只需要说明「是谁定的」，组织外的人用一句话就够。
+
+### D7：撤回要写原因（Lucas 2026-11-20 GATE）
+
+撤回请求带 `reason`：空白折叠、去首尾空白后 1–200 字（纯函数 `normalizeRevokeReason`，与授标记录撤回 `retractAwardRecord` 同一口径）；没填 / 只有空白 → 400 `请填写撤回原因。`（`REASON_REQUIRED`），超长 → 400 `撤回原因太长了（最多 200 字）。`（`REASON_TOO_LONG`）。判定在「请求不完整」之后、调服务之前，不写库。规整后的原因写进撤回审计的 `afterData.reason`。面板上点「撤回」不再弹浏览器确认框，而是在这一对下面展开：先写那两句后果，再是原因输入框（`maxLength` 200），没填时「确认撤回」不可点，另有「取消」。同一 GATE 决定平台超级管理员照旧能裁决与撤回。
+
+- 备选 A：原因选填。否决：Lucas 定「撤回也需要填原因」。
+- 备选 B：先弹确认框、再弹 `window.prompt` 要原因。否决：两次弹窗、输入框没有字数提示，也和授标记录页的撤回（行内输入原因）不一致。
 
 ## 八条硬纪律
 

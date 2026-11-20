@@ -41,6 +41,9 @@ export const IMPORT_LEADS_UI = {
   decidedRejected: "已标为不是同一家",
   revokeButton: "撤回",
   revoking: "正在撤回…",
+  revokeReasonLabel: "撤回原因（必填，最多 200 字，会记进审计）",
+  revokeSubmit: "确认撤回",
+  revokeCancel: "取消",
   decidedBy: "裁决人：",
   confirmRevokeConfirmed: (importer: string, winner: string) => `撤回「${importer}」和中标者「${winner}」是同一家的确认？撤回后这一对回到「要确认是不是同一家」，本组织所有项目里靠它对上的进口记录会移出出口商汇总，等重新确认；已加入供应商库的供应商和关联不变。`,
   confirmRevokeRejected: (importer: string, winner: string) => `撤回「${importer}」和中标者「${winner}」不是同一家的否决？撤回后这一对回到「要确认是不是同一家」，本组织所有项目里否决前存着的记录会重新显示为待确认；否决期间导入时被跳过的记录不会自动回来，要重新导入。`,
@@ -208,6 +211,9 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
   const [busy, setBusy] = useState<"import" | "decide" | string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // CHAIN-3c：正在填撤回原因的那一对（撤回必须填原因）
+  const [revokingPair, setRevokingPair] = useState<string | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -252,9 +258,9 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
       setNotice(decision === "CONFIRMED" ? IMPORT_LEADS_TEXT.aliasConfirmed : IMPORT_LEADS_TEXT.aliasRejected);
     });
   // CHAIN-3c：撤回（组织管理员）；裁决已被同事换掉时 409，刷新后照实说
-  const revoke = (d: DecidedPairView) =>
+  const revoke = (d: DecidedPairView, reason: string) =>
     run(`revoke:${d.pairKey}`, async () => {
-      const out = await postJson(`${base}/aliases/revoke`, { pairKey: d.pairKey, decisionId: d.decisionId });
+      const out = await postJson(`${base}/aliases/revoke`, { pairKey: d.pairKey, decisionId: d.decisionId, reason });
       if (!out.ok) {
         setError(out.error);
         await refresh();
@@ -262,6 +268,8 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
       }
       const next = out.json.view as ImportLeadsView;
       onView(next);
+      setRevokingPair(null);
+      setRevokeReason("");
       const wasRejected = (out.json as { revokedDecision?: string }).revokedDecision === "REJECTED";
       const base0 = wasRejected ? IMPORT_LEADS_TEXT.revokedRejected(d.importerName, d.winnerName) : IMPORT_LEADS_TEXT.revokedConfirmed(d.importerName, d.winnerName);
       // 本项目里这家进口商已和别的中标者对上时，这一对不会显示为待确认：照实说
@@ -382,19 +390,36 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
                 <span>
                   「{d.importerName}」和中标者「{d.winnerName}」：{d.decision === "CONFIRMED" ? IMPORT_LEADS_UI.decidedConfirmed : IMPORT_LEADS_UI.decidedRejected}（{IMPORT_LEADS_UI.decidedBy}{d.deciderName}，{d.decidedOn}），涉及 {d.recordCount} 条记录。
                 </span>
-                {view.canDecideAliases ? (
+                {view.canDecideAliases && revokingPair !== d.pairKey ? (
                   <button
                     type="button"
                     disabled={busy !== null}
                     onClick={() => {
-                      const text = d.decision === "CONFIRMED" ? IMPORT_LEADS_UI.confirmRevokeConfirmed(d.importerName, d.winnerName) : IMPORT_LEADS_UI.confirmRevokeRejected(d.importerName, d.winnerName);
-                      if (window.confirm(text)) revoke(d);
+                      setRevokingPair(d.pairKey);
+                      setRevokeReason("");
                     }}
                     className={btn}
                     aria-label={`撤回「${d.importerName}」和「${d.winnerName}」${d.decision === "CONFIRMED" ? "是同一家的确认" : "不是同一家的否决"}`}
                   >
-                    {busy === `revoke:${d.pairKey}` ? IMPORT_LEADS_UI.revoking : IMPORT_LEADS_UI.revokeButton}
+                    {IMPORT_LEADS_UI.revokeButton}
                   </button>
+                ) : null}
+                {view.canDecideAliases && revokingPair === d.pairKey ? (
+                  <div className="w-full space-y-1 rounded-lg border border-border p-2" data-testid="il-revoke-form">
+                    <p>{d.decision === "CONFIRMED" ? IMPORT_LEADS_UI.confirmRevokeConfirmed(d.importerName, d.winnerName) : IMPORT_LEADS_UI.confirmRevokeRejected(d.importerName, d.winnerName)}</p>
+                    <label className="block">
+                      <span className="text-muted">{IMPORT_LEADS_UI.revokeReasonLabel}</span>
+                      <textarea className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1" rows={2} maxLength={200} value={revokeReason} onChange={(e) => setRevokeReason(e.target.value)} />
+                    </label>
+                    <div className="flex gap-2">
+                      <button type="button" disabled={busy !== null || !revokeReason.trim()} onClick={() => revoke(d, revokeReason)} className={btn}>
+                        {busy === `revoke:${d.pairKey}` ? IMPORT_LEADS_UI.revoking : IMPORT_LEADS_UI.revokeSubmit}
+                      </button>
+                      <button type="button" disabled={busy !== null} onClick={() => setRevokingPair(null)} className={btn}>
+                        {IMPORT_LEADS_UI.revokeCancel}
+                      </button>
+                    </div>
+                  </div>
                 ) : null}
               </li>
             ))}
