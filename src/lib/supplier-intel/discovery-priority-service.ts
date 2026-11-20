@@ -45,6 +45,8 @@ export async function loadProjectPriorityBrief(orgId: string, projectId: string)
 }
 
 export function prioritizeSignal(brief: DiscoveryPriorityBriefInput | null, signal: DiscoveryPrioritySignalInput): DiscoveryPriorityResult | null {
+  // CHAIN-3：进口记录是运单线索，不是公开网页 / 平台上的厂家线索，找厂优先级不适用
+  if (signal.platform === "TRADE_DATA") return null;
   return brief ? computeDiscoveryPriority(brief, signal) : null;
 }
 

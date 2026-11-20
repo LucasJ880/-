@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import { Radar } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
+import { ImportLeadsPanel, ImportLeadsSlotSummary, useImportLeads } from "@/components/tender-intel/import-leads-panel";
 
 type DomainStatus = "CONFIRMED" | "SUPPORTED" | "INFERRED" | "UNKNOWN";
 
@@ -168,6 +169,9 @@ export function OrgAwardIntelSlots({
 }) {
   // Lane 2：一键导出 RFI 问题清单 PDF（走既有 generate-pdf / owner_clarification 文档链）
   const [rfiExport, setRfiExport] = useState<"idle" | "busy" | "done" | "error">("idle");
+  // CHAIN-3：进口线索（开关关时接口 404 → 供应链槽保持原来的规划占位）
+  const importLeads = useImportLeads(projectId);
+  const [importLeadsOpen, setImportLeadsOpen] = useState(false);
   const [intel, setIntel] = useState<Intelligence | null>(null);
   const [failed, setFailed] = useState(false);
   const [strategy, setStrategy] = useState<BidStrategyAuto | null>(null);
@@ -364,8 +368,12 @@ export function OrgAwardIntelSlots({
               )}
         </Slot>
 
-        <Slot slotKey="supply_chain" title="供应链情报" status={intel?.supplyChain.status ?? null}>
-          {empty("规划中：M3 海关数据源（Trade 域证据只读引用）接入后启用")}
+        <Slot slotKey="supply_chain" title="供应链情报" status={importLeads.state.kind === "hidden" ? (intel?.supplyChain.status ?? null) : null}>
+          {importLeads.state.kind === "hidden" ? (
+            empty("规划中：M3 海关数据源（Trade 域证据只读引用）接入后启用")
+          ) : (
+            <ImportLeadsSlotSummary state={importLeads.state} open={importLeadsOpen} onToggle={() => setImportLeadsOpen((v) => !v)} />
+          )}
         </Slot>
 
         <Slot
@@ -446,6 +454,11 @@ export function OrgAwardIntelSlots({
           )}
         </Slot>
       </div>
+      {importLeadsOpen && projectId && importLeads.state.kind === "ok" ? (
+        <div className="mt-3">
+          <ImportLeadsPanel projectId={projectId} view={importLeads.state.view} onView={importLeads.setView} />
+        </div>
+      ) : null}
     </section>
   );
 }

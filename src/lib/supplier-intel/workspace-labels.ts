@@ -172,6 +172,8 @@ export function platformDisplay(platform: string): LabelWithTone {
       return { label: "官网", tone: "neutral", hint: null };
     case "MANUAL":
       return { label: "人工录入", tone: "info", hint: "采购人员手动提交的线索" };
+    case "TRADE_DATA":
+      return { label: "进口记录（人工导入）", tone: "info", hint: "用户贴进来的进口记录；只是寻源线索，不代表当前供货" };
     default:
       return { label: platform, tone: "neutral", hint: null };
   }

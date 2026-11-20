@@ -37,7 +37,7 @@
 
 ### D4 匹配：中标者来自授标记录，剔除我方结果，三档照 TI-3a
 
-中标者 = 把 CHAIN-2 寻源建议里「本采购方的他人授标」抽成共用函数 `listOthersAwardsForBuyer`（`src/lib/tender-intel/buyer-awards.ts`：先看 `isT4AwardSchemaReady`，`listAwardsForBuyer` 按规整采购方在库里筛（上限 200 条，最新的），按最早来源键与本组织名剔除我方结果），再取其中 `ACTIVE`、核实状态有依据（`HUMAN_CONFIRMED` / `SYSTEM_VERIFIED`）的中标方，按规整后名称去重。寻源建议改用它，行为不变（既有测试不改期望）。每条记录对每个中标者：`isSameEntity`（同名或已确认别名）→ 挂上；`compareCompanyNames` 为建议且这一对没裁决过 → 待确认；一条记录既与一个中标者同名、又与另一个是建议时，以同名为准、不再列建议。全都无关 → 不导入，结果列出这些进口商名称（最多 10 个）与条数。T4 没接通、项目没有采购方、没有他人中标记录 → 整批不导入，照实说。
+中标者 = 把 CHAIN-2 寻源建议里「本采购方的他人授标」从 `sourcing-suggestions.ts` 导出为共用函数 `listOthersAwardsForBuyer`（先看 `isT4AwardSchemaReady`，`listAwardsForBuyer` 按规整采购方在库里筛（上限 200 条，最新的），按最早来源键与本组织名剔除我方结果），再取其中 `ACTIVE`、核实状态有依据（`HUMAN_CONFIRMED` / `SYSTEM_VERIFIED`）的中标方，按规整后名称去重。寻源建议改用它，行为不变（既有测试不改期望）。每条记录对每个中标者：`isSameEntity`（同名或已确认别名）→ 挂上；`compareCompanyNames` 为建议且这一对没裁决过 → 待确认；一条记录既与一个中标者同名、又与另一个是建议时，以同名为准、不再列建议。全都无关 → 不导入，结果列出这些进口商名称（最多 10 个）与条数。T4 没接通、项目没有采购方、没有他人中标记录 → 整批不导入，照实说。
 
 - 否决：无关的记录也存下来——会把用户整张表都存进来，汇总里出现与本标无关的出口商。
 

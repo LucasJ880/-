@@ -54,6 +54,7 @@ const SOURCE_LABELS: Record<string, string> = {
   xiaohongshu: "小红书",
   "1688": "1688",
   cold_call: "陌生拜访",
+  trade_data: "进口线索",
   other: "其他",
 };
 
@@ -64,6 +65,7 @@ const SOURCE_COLORS: Record<string, string> = {
   xiaohongshu: "bg-red-100 text-red-700",
   "1688": "bg-orange-100 text-orange-700",
   cold_call: "bg-amber-100 text-amber-700",
+  trade_data: "bg-sky-100 text-sky-700",
   other: "bg-gray-100 text-gray-600",
 };
 

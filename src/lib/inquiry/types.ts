@@ -80,6 +80,8 @@ export const SUPPLIER_SOURCES = {
   XIAOHONGSHU: "xiaohongshu",
   ALIBABA_1688: "1688",
   COLD_CALL: "cold_call",
+  /** CHAIN-3：从进口线索（人工导入的进口记录）加入供应商库 */
+  TRADE_DATA: "trade_data",
   OTHER: "other",
 } as const;
 
@@ -92,6 +94,7 @@ export const SUPPLIER_SOURCE_LABELS: Record<SupplierSource, string> = {
   xiaohongshu: "小红书",
   "1688": "1688",
   cold_call: "陌生拜访",
+  trade_data: "进口线索",
   other: "其他",
 };
 

@@ -484,6 +484,8 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/attachment-db.isolated.test.t
 npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts
 npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts
+npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts
+NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts
 npx tsx src/lib/__tests__/google-email-mime.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts

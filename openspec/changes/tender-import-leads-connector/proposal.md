@@ -45,6 +45,6 @@ TI-3a 已有进口线索的契约（`LEAD_UNVERIFIED` 只能人工用 12 个月�
 
 ## Impact
 
-- 新增：`src/lib/tender-import-leads/`（开关、解析、数据源接口、匹配与汇总纯函数、服务）；`src/lib/tender-intel/buyer-awards.ts`（从 CHAIN-2 抽出「本采购方的他人授标、剔除我方结果」，寻源建议与本功能共用）；`src/app/api/projects/[id]/tender-intel/import-leads/`（读 / 导入、别名裁决、加入供应商库三个接口）；`src/components/tender-intel/import-leads-panel.tsx`。
-- 修改：`src/lib/tender-intel/sourcing-suggestions.ts`（改用抽出的函数，行为不变）、`src/lib/supplier-intel/constants.ts`（`SIGNAL_PLATFORMS` 加 `TRADE_DATA`）、`src/lib/supplier-intel/workspace-labels.ts`（平台名称）、`src/lib/supplier-intel/discovery-priority-service.ts`（这类线索不算找厂优先级）、`src/lib/inquiry/types.ts` 与 `src/app/(main)/suppliers/` 下四处来源名称表（`trade_data`「进口线索」）、`src/components/tender-intel/org-award-intel-slots.tsx`（供应链槽）。
+- 新增：`src/lib/tender-import-leads/`（开关、解析、数据源接口、匹配与汇总纯函数、服务）；`src/app/api/projects/[id]/tender-intel/import-leads/`（读 / 导入、别名裁决、加入供应商库三个接口）；`src/components/tender-intel/import-leads-panel.tsx`。
+- 修改：`src/lib/tender-intel/sourcing-suggestions.ts`（把「本采购方的他人授标、剔除我方结果」导出为 `listOthersAwardsForBuyer`，寻源建议与本功能共用，行为不变）、`src/lib/supplier-intel/constants.ts`（`SIGNAL_PLATFORMS` 加 `TRADE_DATA`）、`src/lib/supplier-intel/workspace-labels.ts`（平台名称）、`src/lib/supplier-intel/discovery-priority-service.ts`（这类线索不算找厂优先级）、`src/lib/inquiry/types.ts` 与 `src/app/(main)/suppliers/` 下四处来源名称表（`trade_data`「进口线索」）、`src/components/tender-intel/org-award-intel-slots.tsx`（供应链槽）。
 - 不新增依赖；零 schema（信号与供应商用既有表，线索明细进 `SupplierDiscoverySignal.rawMetadataJson`，别名裁决进 `AuditLog`）。

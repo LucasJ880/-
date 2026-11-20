@@ -68,6 +68,7 @@ const SOURCE_LABELS: Record<string, string> = {
   xiaohongshu: "小红书",
   "1688": "1688",
   cold_call: "陌生拜访",
+  trade_data: "进口线索",
   other: "其他",
 };
 
