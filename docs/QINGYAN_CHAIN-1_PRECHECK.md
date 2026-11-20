@@ -28,6 +28,7 @@
 
 1. **书面许可或数据导出**：向 Service Alberta（采购）或 1GX 供应商支持申请书面许可 / 授标数据导出。拿到许可前不碰 APC。
 2. **人工录入**：在授标记录里人工补录 Alberta 的历史中标（既有 `PROVINCIAL_MANUAL` 口径，T4 授标记录已有人工录入入口），不需要新代码。
+   - **更正（2026-11-20，交接文档第四十四次核对）**：上面这句不准。在授标记录里人工补录 Alberta 历史中标——**但现有入口做不到**（第四十四次核对）：`PROVINCIAL_MANUAL` 是采购监控的来源键，不是授标来源类型（`src/lib/procurement-records/watch-config.ts:57`；授标来源类型见 `src/lib/tender-intel/awards.ts` `AWARD_SOURCE_TYPES`）；授标历史面板只能确认 CanadaBuys 检索结果或 Web 线索里的对手名，带编号确认时一律记为 `CANADABUYS_OPEN_DATA`（`src/app/api/projects/[id]/external-intel/award-history/route.ts` 约 166–175 行），Alberta 编号会被标错来源。要走这条路，大概需要一个小的人工录入入口（另立 change，动手前先核对）。
 3. **独家采购服务合同**可以作为一条补充来源单独立项（许可清楚、机器可读），但它满足不了「上一个中标者 / 可比价格」这个核心需求，价值有限。
 4. 判断点 2（`ALBERTA_APC_PUBLIC` 进 `SYSTEM_VERIFIED` 白名单，Lucas 已授权）**没有用上**：没有数据源，就不改 T4 冻结服务的白名单。
 
