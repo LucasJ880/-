@@ -11,11 +11,11 @@
 
 ## 3. 界面
 
-- [x] 3.1 `import-leads-panel.tsx` 与 `aggregate-pure.ts`：非管理员无裁决按钮并写那一句；两句确认改「组织管理员可以撤回」；「已裁决的」一节与撤回（先确认、结果一句、否决时再加一句）；只读说明与「等组织管理员确认」「要等组织管理员确认」；撤回在这一对下面先写后果、再填原因（按裁决标识开、没填不能点）；已标为不是同一家的单独计数（槽里一行、已裁决的一节标题后面，`rejectedPairsSummaryZh` / `decidedCountsZh`）（verify：`import-leads.test.ts` 源码断言逐字）
+- [x] 3.1 `import-leads-panel.tsx` 与 `aggregate-pure.ts`：非管理员无裁决按钮并写那一句；两句确认改「组织管理员可以撤回」；「已裁决的」一节与撤回（先确认、结果一句、否决时再加一句）；只读说明与「等组织管理员确认」「要等组织管理员确认」；撤回在这一对下面先写后果、再填原因（按裁决标识开、没填不能点）；已标为不是同一家的单独计数（槽里一行、已裁决的一节标题后面，`rejectedPairsSummaryZh` / `decidedCountsZh`；涉及条数由服务去重算好放进视图 `rejectedPairRecordCount`，`countRecordsTouchingRejected`）（verify：`import-leads.test.ts` 源码断言逐字）
 
 ## 4. 测试与门禁
 
 - [x] 4.1 `import-leads-db.isolated.test.ts`：加 EDITOR、ORG_OWNER、SUPER 三个身份与上述用例（含开关关时两个接口 404、视图里没有邮箱与用户 id）（verify：`NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts` 通过）
 - [x] 4.2 既有期望只改槽里与导入结果里那两句文字（verify：`import-leads.test.ts`、`import-leads-db.isolated.test.ts` 的其余既有断言原样通过；`sourcing-suggestions.test.ts`、`readiness` 相关不受影响）
 - [x] 4.3 全量门禁（verify：`npm test` 只有 main 上同样的既有失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate import-leads-alias-admin-revoke --strict`；`git diff origin/main -- prisma/ vercel.json` 为空）
-- [x] 4.4 写 `docs/QINGYAN_CHAIN-3c_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、GATE 的三个问题与 Lucas 2026-11-20 的回答（平台超级管理员也能、撤回要填原因已做、否决计数未答）；TASKFLOW 新增 CHAIN-3c 一行为 `[~]`）
+- [x] 4.4 写 `docs/QINGYAN_CHAIN-3c_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、GATE 的三个问题与 Lucas 2026-11-20 的回答（平台超级管理员也能、撤回要填原因、否决单独计数，三项都已做）；TASKFLOW 新增 CHAIN-3c 一行为 `[~]`）

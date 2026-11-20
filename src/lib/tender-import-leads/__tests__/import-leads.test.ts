@@ -9,7 +9,7 @@ import { BATCH_TEXT, IMPORT_COLUMNS_HINT_ZH, IMPORT_HEADER_NAMES_ZH, groupProble
 import { MANUAL_SOURCE_NOTE_ZH, importLeadSourceNotesZh, manualPasteProvider } from "../provider";
 import { candidatePairKeys, createCandidatePairFinder, createImporterMatcher, matchImporter, preparedPairKey, prepareName, relatePrepared, uniqueWinnerNames } from "../match-pure";
 import { IMPORT_LEAD_ALIAS_AUDIT_ACTION, IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, effectiveDecisions } from "../alias-decisions";
-import { IMPORT_LEADS_TEXT, IMPORT_LEAD_REVOKE_REASON_MAX, normalizeRevokeReason, rejectedPairsSummaryZh, decidedCountsZh, aggregateByExporter, importResultZh, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
+import { IMPORT_LEADS_TEXT, IMPORT_LEAD_REVOKE_REASON_MAX, normalizeRevokeReason, rejectedPairsSummaryZh, decidedCountsZh, countRecordsTouchingRejected, aggregateByExporter, importResultZh, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
 import { aliasPairKey, compareCompanyNames, decideAlias } from "@/lib/tender-competition/company-identity";
 import { createImportLead } from "@/lib/tender-competition/import-leads";
 import { platformDisplay, sourceOriginDisplay } from "@/lib/supplier-intel/workspace-labels";
@@ -171,7 +171,7 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
     caveatZh: IMPORT_LEADS_TEXT.caveat, leadStatusZh: IMPORT_LEADS_TEXT.leadStatus, sourceNotesZh: notes, winners: { status: "ok", names: ["W"] },
     suggestions: [{ pairKey: "k", importerName: "I", winnerName: "W", basisZh: "只差公司后缀", recordCount: 1 }],
     exporters: aggregateByExporter([{ exporterName: "E", shipmentDate: "2026-01-01", goods: "tent", winners: ["W"], linkedSupplier: { id: "s", name: "E", hasEmail: false, active: true } }], { now: NOW, requirementTexts: ["Tents"] }),
-    leadCount: 1, storedLeadCount: 2, canDecideAliases: false, decidedPairs: [], canEdit: true,
+    leadCount: 1, storedLeadCount: 2, canDecideAliases: false, decidedPairs: [], rejectedPairRecordCount: 0, canEdit: true,
   };
   const keys = new Set<string>();
   const walk = (v: unknown) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { keys.add(k); walk(x); } };
@@ -288,11 +288,13 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   }
   {
     // CHAIN-3c（Lucas 2026-11-20「需要单独计数」）：已标为不是同一家的对单独计数
-    const pairs = [{ decision: "CONFIRMED" as const, recordCount: 3 }, { decision: "REJECTED" as const, recordCount: 2 }, { decision: "REJECTED" as const, recordCount: 4 }];
-    ok(rejectedPairsSummaryZh(pairs) === "已标为不是同一家 2 对（6 条进口记录因此不显示）" && rejectedPairsSummaryZh([{ decision: "CONFIRMED", recordCount: 1 }]) === null && rejectedPairsSummaryZh([]) === null, "已标为不是同一家：对数与不显示的记录条数，没有就不写");
-    ok(decidedCountsZh(pairs) === "已确认是同一家 1 对，已标为不是同一家 2 对" && decidedCountsZh([{ decision: "REJECTED" }]) === "已标为不是同一家 1 对" && decidedCountsZh([]) === "", "已裁决的一节标题后面：两种结论各几对，为 0 的不写");
+    const pairs = [{ decision: "CONFIRMED" as const }, { decision: "REJECTED" as const }, { decision: "REJECTED" as const }];
+    ok(rejectedPairsSummaryZh({ decidedPairs: pairs, rejectedPairRecordCount: 5 }) === "已标为不是同一家 2 对（涉及 5 条进口记录）" && rejectedPairsSummaryZh({ decidedPairs: [{ decision: "CONFIRMED" }], rejectedPairRecordCount: 0 }) === null && rejectedPairsSummaryZh({ decidedPairs: [], rejectedPairRecordCount: 0 }) === null, "已标为不是同一家：对数与涉及的记录条数（不说「不显示」），没有就不写");
+    const rej = new Set(["r1", "r2"]);
+    ok(countRecordsTouchingRejected([["r1", "r2"], ["r1", "c1"], ["c1"], [], ["p1"]], rej) === 2 && countRecordsTouchingRejected([], rej) === 0, "涉及的记录条数去重：一条记录涉及两对否决只算一次；同时涉及确认的也算；不涉及否决的不算");
+    ok(decidedCountsZh(pairs) === "本项目涉及：已确认是同一家 1 对，已标为不是同一家 2 对" && decidedCountsZh([{ decision: "REJECTED" }]) === "本项目涉及：已标为不是同一家 1 对" && decidedCountsZh([]) === "", "已裁决的一节标题后面：本项目涉及的两种结论各几对，为 0 的不写");
     const panelSrc = readFileSync(path.join(process.cwd(), "src/components/tender-intel/import-leads-panel.tsx"), "utf8");
-    ok(panelSrc.includes("{rejectedPairsSummaryZh(v.decidedPairs) ? <p>{rejectedPairsSummaryZh(v.decidedPairs)}</p> : null}") && panelSrc.includes("{decidedCountsZh(view.decidedPairs)}"), "槽里与已裁决的一节都写单独计数");
+    ok(panelSrc.includes("const rejectedLine = rejectedPairsSummaryZh(v);") && panelSrc.includes("{rejectedLine ? <p>{rejectedLine}</p> : null}") && /\{IMPORT_LEADS_UI\.decidedTitle\}\s*<span[^>]*>\{decidedCountsZh\(view\.decidedPairs\)\}<\/span>/.test(panelSrc), "槽里写单独计数一行；已裁决的一节标题后面紧跟两种结论各几对");
   }
   ok(IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION === "tender.import_lead_alias_revoked" && IMPORT_LEAD_ALIAS_AUDIT_ACTION === "tender.import_lead_alias_decided", "两种审计 action");
   const finder = createCandidatePairFinder(["Northfield Pest Supply Inc.", "Boreal Outfitters"]);

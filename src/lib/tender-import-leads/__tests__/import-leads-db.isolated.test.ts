@@ -305,7 +305,7 @@ async function main() {
     ok(dv.decidedPairs.length === 3 && dG?.decision === "CONFIRMED" && dG.importerName === "Glacier Linen Supply" && dG.winnerName === "Glacier Linen Supply Inc." && dG.deciderName === `Fixture ${OWNER}` && dG.recordCount === 1 && /^\d{4}-\d{2}-\d{2}$/.test(dG.decidedOn) && dH?.decision === "REJECTED" && dH.deciderName === "所有者 Fixture" && dC?.deciderName === "本组织以外的人", "已裁决的一节：三对、结论、裁决人（平台超级管理员不是本组织成员）、条数、日期", dv.decidedPairs);
     {
       const { rejectedPairsSummaryZh, decidedCountsZh } = await import("../aggregate-pure");
-      ok(rejectedPairsSummaryZh(dv.decidedPairs) === "已标为不是同一家 1 对（1 条进口记录因此不显示）" && decidedCountsZh(dv.decidedPairs) === "已确认是同一家 2 对，已标为不是同一家 1 对", "单独计数：一对否决（1 条记录不显示），两对确认", [rejectedPairsSummaryZh(dv.decidedPairs), decidedCountsZh(dv.decidedPairs)]);
+      ok(dv.rejectedPairRecordCount === 1 && rejectedPairsSummaryZh(dv) === "已标为不是同一家 1 对（涉及 1 条进口记录）" && decidedCountsZh(dv.decidedPairs) === "本项目涉及：已确认是同一家 2 对，已标为不是同一家 1 对", "单独计数：一对否决（涉及 1 条记录），两对确认", [dv.rejectedPairRecordCount, rejectedPairsSummaryZh(dv), decidedCountsZh(dv.decidedPairs)]);
     }
     const edAfter = (await get(pR, editor)).json.decidedPairs;
     ok(JSON.stringify(edAfter) === JSON.stringify(dv.decidedPairs), "编辑者看到的已裁决的对与组织管理员相同", edAfter);

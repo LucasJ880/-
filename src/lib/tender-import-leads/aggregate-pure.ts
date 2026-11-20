@@ -219,6 +219,8 @@ export type ImportLeadsView = {
   canDecideAliases: boolean;
   /** CHAIN-3c：已裁决的一节 */
   decidedPairs: DecidedPairView[];
+  /** 本项目记录里至少涉及一对「不是同一家」的条数（去重；不含不采用的） */
+  rejectedPairRecordCount: number;
 };
 
 /**
@@ -235,22 +237,29 @@ export function slotSummaryZh(view: Pick<ImportLeadsView, "exporters" | "leadCou
   return IMPORT_LEADS_TEXT.empty;
 }
 
-/**
- * CHAIN-3c（Lucas 2026-11-20「需要单独计数」）：已标为「不是同一家」的对单独计数——
- * 槽里与面板上写「已标为不是同一家 N 对（M 条进口记录因此不显示）」；没有就不写。条数口径同已裁决的一节（不含不采用的）。
- */
-export function rejectedPairsSummaryZh(decidedPairs: Pick<DecidedPairView, "decision" | "recordCount">[]): string | null {
-  const rejected = decidedPairs.filter((d) => d.decision === "REJECTED");
-  if (!rejected.length) return null;
-  const records = rejected.reduce((sum, d) => sum + d.recordCount, 0);
-  return `已标为不是同一家 ${rejected.length} 对（${records} 条进口记录因此不显示）`;
+/** 本项目每条记录（不含不采用的）涉及的对 → 至少涉及一对「不是同一家」的条数（一条记录涉及两对否决也只算一次） */
+export function countRecordsTouchingRejected(recordPairKeys: readonly (readonly string[])[], rejectedPairKeys: ReadonlySet<string>): number {
+  return recordPairKeys.filter((keys) => keys.some((k) => rejectedPairKeys.has(k))).length;
 }
 
-/** 已裁决的一节的标题后面写两种结论各几对（为 0 的不写） */
+/**
+ * CHAIN-3c（Lucas 2026-11-20「需要单独计数」）：已标为「不是同一家」的对单独计数——
+ * 槽里另写一行「已标为不是同一家 N 对（涉及 M 条进口记录）」；没有就不写。
+ * M 由服务算好（`rejectedPairRecordCount`：本项目记录里至少涉及一对否决的，去重、不含不采用的）。
+ * 不写「因此不显示」：同一条记录可能另和别的中标者对上（照常显示）或还在待确认里。
+ */
+export function rejectedPairsSummaryZh(view: { decidedPairs: Pick<DecidedPairView, "decision">[]; rejectedPairRecordCount: number }): string | null {
+  const rejected = view.decidedPairs.filter((d) => d.decision === "REJECTED").length;
+  if (!rejected) return null;
+  return `已标为不是同一家 ${rejected} 对（涉及 ${view.rejectedPairRecordCount} 条进口记录）`;
+}
+
+/** 已裁决的一节的标题后面写「本项目涉及：」与两种结论各几对（为 0 的不写；都为 0 时空串） */
 export function decidedCountsZh(decidedPairs: Pick<DecidedPairView, "decision">[]): string {
   const confirmed = decidedPairs.filter((d) => d.decision === "CONFIRMED").length;
   const rejected = decidedPairs.filter((d) => d.decision === "REJECTED").length;
-  return [confirmed ? `已确认是同一家 ${confirmed} 对` : "", rejected ? `已标为不是同一家 ${rejected} 对` : ""].filter(Boolean).join("，");
+  const parts = [confirmed ? `已确认是同一家 ${confirmed} 对` : "", rejected ? `已标为不是同一家 ${rejected} 对` : ""].filter(Boolean).join("，");
+  return parts ? `本项目涉及：${parts}` : "";
 }
 
 export type ImportResultCounts = {

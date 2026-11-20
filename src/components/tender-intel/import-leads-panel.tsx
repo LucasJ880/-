@@ -105,6 +105,7 @@ export function ImportLeadsSlotSummary({ state, open, onToggle }: { state: Impor
   if (state.kind === "error") return <p>{IMPORT_LEADS_UI.unreadable}</p>;
   if (state.kind !== "ok") return null;
   const v = state.view;
+  const rejectedLine = rejectedPairsSummaryZh(v);
   return (
     <>
       <p className="text-foreground/70">{slotSummaryZh(v)}</p>
@@ -114,7 +115,7 @@ export function ImportLeadsSlotSummary({ state, open, onToggle }: { state: Impor
         </p>
       ))}
       {v.suggestions.length ? <p>另有 {v.suggestions.length} 对等组织管理员确认是不是同一家</p> : null}
-      {rejectedPairsSummaryZh(v.decidedPairs) ? <p>{rejectedPairsSummaryZh(v.decidedPairs)}</p> : null}
+      {rejectedLine ? <p>{rejectedLine}</p> : null}
       <button
         type="button"
         onClick={onToggle}
@@ -391,7 +392,7 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
         <div className="mt-3">
           <p className="font-medium text-foreground">
             {IMPORT_LEADS_UI.decidedTitle}
-            <span className="ml-1 font-normal text-muted">{decidedCountsZh(view.decidedPairs)}</span>
+            <span className="ml-2 font-normal text-muted">{decidedCountsZh(view.decidedPairs)}</span>
           </p>
           <ul className="mt-1 divide-y divide-border/50">
             {view.decidedPairs.map((d) => (

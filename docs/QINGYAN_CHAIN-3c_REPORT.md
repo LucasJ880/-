@@ -5,7 +5,7 @@
 | TASKFLOW | CHAIN-3c（Phase F（续）— 情报串联的后续） |
 | 起因 | CHAIN-3 安全审查留给 GATE 的一项（`docs/QINGYAN_CHAIN-3_REPORT.md` §5、交接文档第四十四次 §0.5h「之后还有什么」第 3 条） |
 | 拍板 | Lucas 2026-11-20 GATE：「别名裁决只允许组织管理员做，并做撤回（同样只限组织管理员，撤回写审计记录）。单独开一个 change。」 |
-| OpenSpec change | `openspec/changes/import-leads-alias-admin-revoke/`（修改 `tender/import-leads`：改 6 条（其中「情报页签的供应链槽」「导入框与导入结果」只改说法）、新增 3 条） |
+| OpenSpec change | `openspec/changes/import-leads-alias-admin-revoke/`（修改 `tender/import-leads`：改 6 条（其中「导入框与导入结果」只改说法，「情报页签的供应链槽」改说法并引用单独计数那一行）、新增 5 条） |
 | 基线 | origin/main `91d928e4`（CHAIN-3 归档 #531 之后） |
 | 开关 | 沿用 `TENDER_IMPORT_LEADS_ENABLED`（默认关）；没有新开关 |
 
@@ -20,6 +20,7 @@
 | 裁决前的确认框 | 「……不能撤回」 | 「……组织管理员可以撤回」；否决那句加「之后各项目再导入这家进口商的记录会被跳过、不保存（撤回后也要重新导入）」 |
 | 撤回的冲突 | — | 不是本项目涉及的一对 404（`本项目已没有涉及这一对的记录……页面已更新。`）；没有裁决或已被同事换掉 409（`同事已经撤回或改过这一对的裁决，页面已更新；请看清现在的结论再操作。`）；中标者读不出 422；与裁决同一对串行（同一把锁） |
 | 写接口返回的视图 | 导入、加入供应商库的视图写死 `canEdit: true`，裁决权限没有 | 都带调用人真实的 `canDecideAliases` |
+| 已标为不是同一家的对 | 只在「已裁决的」一节逐对列出 | **单独计数**（Lucas 2026-11-20）：槽里另写 `已标为不是同一家 N 对（涉及 M 条进口记录）`（M 去重：一条记录涉及两对否决只算一次；不说「不显示」）；「已裁决的」一节标题后面写 `本项目涉及：已确认是同一家 a 对，已标为不是同一家 b 对` |
 | 槽里与导入结果的说法 | 「等你确认」「要你确认」「另有 N 对要确认是不是同一家」 | 「等组织管理员确认」「要等组织管理员确认」「另有 N 对等组织管理员确认是不是同一家」；只读说明去掉「确认」 |
 
 **撤回怎么认（design D2）**：撤回行的 `afterData.revokedAuditId` 指向被撤回的裁决审计行；一条裁决「有效」当且仅当没有撤回行指向它，每一对取最新的有效裁决。不靠时间先后（同一毫秒、时钟回拨都不会认错）。裁决与撤回都在 `import-lead-alias:{组织}:{中标者}` 锁内重读再写。
@@ -34,18 +35,18 @@
 |---|---|
 | `src/lib/tender-import-leads/alias-decisions.ts`（新） | `effectiveDecisions(rows)`：排除被撤回指向的，再取每对最新；形状不对的行跳过；`recordedAt` 兜底 |
 | `src/lib/tender-import-leads/match-pure.ts` | `createCandidatePairFinder(winners)`：列出进口商与中标者之间「疑似同一家」的对（按规整名记忆）；三档比对规则不改 |
-| `src/lib/tender-import-leads/service.ts` | `loadDecisions` 读裁决与撤回两种 action；视图带 `decidedPairs` 与 `canDecideAliases`；`revokeImportLeadAlias`（422 → 404 → 409 → 锁内 409 → 写审计）；三个写服务返回调用人的真实权限 |
+| `src/lib/tender-import-leads/service.ts` | `loadDecisions` 读裁决与撤回两种 action；视图带 `decidedPairs` 与 `canDecideAliases`；`revokeImportLeadAlias`（422 → 404 → 409 → 锁内 409 → 写审计）；视图带去重后的 `rejectedPairRecordCount`；三个写服务返回调用人的真实权限 |
 | `src/lib/tender-import-leads/api-access.ts` | 组织管理员判定（`isSuperAdmin` 或本组织有效成员且组织角色 ≥ `org_admin`）、`requireImportLeadsAliasDecide` |
-| `src/lib/tender-import-leads/aggregate-pure.ts` | 视图类型、全部新文字、两处说法 |
+| `src/lib/tender-import-leads/aggregate-pure.ts` | 视图类型（含 `rejectedPairRecordCount`）、全部新文字、两处说法；单独计数的 `countRecordsTouchingRejected` / `rejectedPairsSummaryZh` / `decidedCountsZh` |
 | `src/app/api/projects/[id]/tender-intel/import-leads/{route,aliases/route,suppliers/route}.ts`，`…/aliases/revoke/route.ts`（新） | 裁决改用组织管理员判定；新增撤回接口；读与写都把 `canDecideAliases` 传给服务 |
-| `src/components/tender-intel/import-leads-panel.tsx` | 非管理员说明；「已裁决的」一节与撤回（逐条确认、逐条结果、撤回中的忙碌提示） |
+| `src/components/tender-intel/import-leads-panel.tsx` | 非管理员说明；「已裁决的」一节与撤回（逐条确认、逐条结果、撤回中的忙碌提示）；槽里单独计数一行、一节标题后面两种结论各几对 |
 | 测试 | `import-leads.test.ts`、隔离库 `import-leads-db.isolated.test.ts` 补用例（都是 CHAIN-3 已注册的文件，没有新文件） |
 
 ## 3. 测试（开工前 → 结束）
 
 | 测试 | 开工前 | 结束 |
 |---|---|---|
-| `tender-import-leads/__tests__/import-leads.test.ts` | 101 | 130（新：已标为不是同一家的单独计数（对数、条数、标题后两种结论各几对、面板接线）；撤回原因的规整（空白折叠、必填、最多 200 字）与接口判定顺序；槽里「另有 N 对」那句、撤回与裁决按钮都包在组织管理员判断里；`effectiveDecisions` 的撤回 / 两条未撤回取最新 / 坏行兜底、候选对、视图键、文字逐字、新路由源码断言） |
+| `tender-import-leads/__tests__/import-leads.test.ts` | 101 | 131（新：已标为不是同一家的单独计数（对数、涉及条数去重、标题后「本项目涉及：」两种结论各几对、面板接线）；撤回原因的规整（空白折叠、必填、最多 200 字）与接口判定顺序；槽里「另有 N 对」那句、撤回与裁决按钮都包在组织管理员判断里；`effectiveDecisions` 的撤回 / 两条未撤回取最新 / 坏行兜底、候选对、视图键、文字逐字、新路由源码断言） |
 | 隔离库 `import-leads-db.isolated.test.ts` | 34 | 69（新：单独计数——两对确认一对否决时那两句；撤回不填原因 / 只填空白 / 超过 200 字 400 且不写库、撤回审计记着规整后的原因；已裁决的一节按日期从新到旧；中标者读不出时撤回 422；没填姓名的组织管理员显示「本组织成员（未填姓名）」；不采用的记录不算条数、只剩不采用的时撤回 404；视图里的字符串都不含用户 id；EDITOR / ORG_OWNER / SUPER 三个身份；非管理员确认与否决 403 且不写库；撤回确认、撤回否决；404 / 409 / 旧标识 409；撤回后可重新裁决；撤回审计 `beforeData` 等于原裁决；视图不带邮箱、用户 id、别的项目的内容；开关关时两个接口 404；别的组织 404） |
 | `tender-intel/__tests__/sourcing-suggestions`、`tender-bid-readiness/__tests__/readiness` / `stage-policy` | 55 / 31 / 25 | 55 / 31 / 25 |
 
@@ -130,13 +131,25 @@
 | | 报告的门禁说明过时；tasks 的界面部分放错位置；proposal 一处说法 | **已改** |
 | 使用流畅与文案 | 焦点丢失；没有字数、没有占位提示；错误只在上方状态区；开着一个表单还能点别的对；「确认撤回」不是红色；「审计」说法不清；超长那句不指导下一步 | **已修**：自动聚焦、取消后焦点回「撤回」、`n/200`、占位提示、表单内写错误、开着时别的「撤回」不可点、红色按钮、「会记入审计日志」、`撤回原因最多 200 字，请删减后再提交。` |
 
+**按 GATE 加单独计数之后（四个子 agent，各审一个维度，只看 `2eb2851c..e68d61ef`）**——逐条核实后：
+
+| 维度 | 意见 | 处理 |
+|---|---|---|
+| 正确性与回归 | 「M 条进口记录因此不显示」不成立：进口商另和别的中标者同名或已确认时记录照常显示；还在待确认时不显示的原因不是否决；一条记录涉及两对否决被算两次 | **已修**：改成「涉及 M 条进口记录」；M 由服务去重算好放进视图（`countRecordsTouchingRejected`，单测覆盖去重） |
+| | 注释说「槽里与面板上写」；面板里同一句算两遍 | **已修** |
+| 安全 / 隐私 / 硬纪律 | 无阻塞、无应修（没有新的数据访问；只多一个数字字段） | — |
+| 规格—代码—测试一致性 | 规格与 design 的 M 口径不一；tasks 4.4 还写「否决计数未答」；报告「新增 3 条」；「情报页签的供应链槽」没提新那一行；报告 §1 / §2 没写 | **已改** |
+| | 「已裁决的一节」那条没提标题后的计数 | 不改那一条（加了会超过 500 字）；计数写在「已标为不是同一家的单独计数」里 |
+| 使用流畅与文案 | 标题后的计数紧挨「（对本组织所有项目生效）」，像是全组织的对数 | **已修**：前面加「本项目涉及：」、间距加大 |
+| | 「都对不上……（或已标为不是同一家）」与新那一行重复；槽里没说怎样恢复 | 不改：不在这次范围；下面紧挨着就是「导入 / 查看进口线索」 |
+
 ## 6. 留给 GATE 的问题
 
 Lucas 2026-11-20 对开 PR 时的三个问题的回答（三个都已答）：
 
 1. **平台超级管理员**能不能裁决 / 撤回？——**也能**（与授标记录的确认 / 撤回同一口径，代码不变）。
 2. **撤回要不要填原因？**——**要**：已做（design D7、规格「撤回要写原因」；必填、最多 200 字、记进撤回审计；面板行内填）。
-3. **「已标为不是同一家」要不要单独计数**——**要**：已做（design D8、规格「已标为不是同一家的单独计数」）：槽里另写「已标为不是同一家 N 对（M 条进口记录因此不显示）」，「已裁决的」一节标题后面写两种结论各几对。
+3. **「已标为不是同一家」要不要单独计数**——**要**：已做（design D8、规格「已标为不是同一家的单独计数」）：槽里另写「已标为不是同一家 N 对（涉及 M 条进口记录）」（M 去重），「已裁决的」一节标题后面写「本项目涉及：」两种结论各几对。
 
 ## 7. 已知限制
 

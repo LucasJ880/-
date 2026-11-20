@@ -35,6 +35,7 @@ import {
   type DecidedPairView,
   type PendingSuggestionView,
   type WinnersState,
+  countRecordsTouchingRejected,
 } from "./aggregate-pure";
 
 export const IMPORT_LEAD_PLATFORM = "TRADE_DATA";
@@ -181,6 +182,8 @@ type ProjectState = {
   /** CHAIN-3c：本项目现有记录（不含不采用的）与当前中标者之间「疑似同一家」的对 */
   activePairKeys: Set<string>;
   decidedPairs: DecidedPairView[];
+  /** 本项目记录里（不含不采用的）至少涉及一对「不是同一家」的条数（去重） */
+  rejectedPairRecordCount: number;
 };
 
 /** CHAIN-3c：裁决人显示名只取本组织现有成员（没填名字写「本组织成员（未填姓名）」）；其余写「本组织以外的人」（不带邮箱、不带用户 id） */
@@ -208,16 +211,21 @@ async function loadProjectState(orgId: string, projectId: string, now: Date): Pr
   const activePairKeys = new Set<string>();
   const decisionByPair = new Map(decisions.map((d) => [d.pairKey, d]));
   const decidedAcc = new Map<string, { importerName: string; winnerName: string; recordCount: number }>();
+  const recordPairKeys: string[][] = [];
   for (const s of signals) {
     if (s.status === "REJECTED") continue;
+    const keys: string[] = [];
+    recordPairKeys.push(keys);
     for (const p of finder(s.meta.importerRaw)) {
       activePairKeys.add(p.pairKey);
+      keys.push(p.pairKey);
       if (!decisionByPair.has(p.pairKey)) continue;
       const cur = decidedAcc.get(p.pairKey) ?? { importerName: s.meta.importerRaw, winnerName: p.winnerName, recordCount: 0 };
       cur.recordCount += 1;
       decidedAcc.set(p.pairKey, cur);
     }
   }
+  const rejectedPairRecordCount = countRecordsTouchingRejected(recordPairKeys, new Set(decisions.filter((d) => d.decision === "REJECTED").map((d) => d.pairKey)));
   const names = await loadDeciderNames(orgId, [...decidedAcc.keys()].map((k) => decisionByPair.get(k)!.decidedBy));
   const decidedPairs: DecidedPairView[] = [...decidedAcc.entries()].map(([pairKey, a]) => {
     const d = decisionByPair.get(pairKey)!;
@@ -232,7 +240,7 @@ async function loadProjectState(orgId: string, projectId: string, now: Date): Pr
     linkedSupplier: s.linkedSupplier,
     linkable: !s.linkedSupplier && (s.status === "NEW" || s.status === "REVIEWED"),
   }));
-  return { project: { clientOrganization: project?.clientOrganization ?? null }, winners, signals, decisions, classified, exporters: aggregateByExporter(leads, { now, requirementTexts }), activePairKeys, decidedPairs };
+  return { project: { clientOrganization: project?.clientOrganization ?? null }, winners, signals, decisions, classified, exporters: aggregateByExporter(leads, { now, requirementTexts }), activePairKeys, decidedPairs, rejectedPairRecordCount };
 }
 
 function toView(state: ProjectState, canEdit: boolean, canDecideAliases: boolean): ImportLeadsView {
@@ -248,6 +256,7 @@ function toView(state: ProjectState, canEdit: boolean, canDecideAliases: boolean
     canEdit,
     canDecideAliases,
     decidedPairs: state.decidedPairs,
+    rejectedPairRecordCount: state.rejectedPairRecordCount,
   };
 }
 
