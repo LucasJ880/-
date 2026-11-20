@@ -54,6 +54,8 @@
 | `openspec validate bid-readiness-import-leads --strict` | valid |
 | `git diff origin/main -- prisma/ vercel.json` | 空 |
 
+全量 `npm test` 是在补派规格一致性审查之前跑的；之后的修改只加测试与改文档，补完后重跑了 `npm run test:ci`（PASS）、`npm run typecheck`、`npm run lint:baseline`（PASS），以及改到的单测与隔离库测试（见 §3 / §5 的条数）。
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与代码）**——逐条核实后并入四件套（`09c87f09`）：不吞异常（要么不 catch、要么写进规格——选了不 catch，与同一 `Promise.all` 里的其它查询一致）；轻量模块只依赖 `@/lib/db` 与 `./flags`，口径与 CHAIN-3 的 `storedLeadCount` 一致；用 `findFirst` 判有没有、字段是布尔；信号表没有 `projectId` 索引写进 Risks；测试注册写进 1.1；What 每条一个动词；`loadWorkspaceContext` 的其它调用方写进 Impact。
