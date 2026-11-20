@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 |---|---|
-| change | `tender-analysis-call-deadline`（新能力 `tender/analysis-slice-budget`，8 条要求） |
+| change | `tender-analysis-call-deadline`（新能力 `tender/analysis-slice-budget`，8 条要求、19 个场景） |
 | TASKFLOW | FIX-12（Phase F（续）— 生产实测修复，2026-11-20） |
 | 来源 | Lucas 2026-11-20 生产实测「12-3 Indoor Canadian Flag」（Job 09:27 创建）：一键分析第 3 步 09:46:29、09:54:29 两次 504「Task timed out after 300 seconds」；11-19「12-01」Job 的「长时间没有进展」（`stale_running_exhausted`）同一根因 |
 | 拍板 | 四件套 Lucas 2026-11-20 同意；截止失败计入 3 次上限同意；窗口门槛 45 → 80 秒为 Lucas 建议、本次采纳（design D8） |
@@ -32,12 +32,12 @@
 
 ## 2. 做了什么
 
-1. **绝对截止时间贯穿全链**：每个阶段开工时算 `callDeadlineAt = now + callTimeoutFor(remaining)`（= 切片截止 − 15s，最短 1s），经阶段函数 → `callStructured` → 钉住模型的 invoker → `createTenderCompletion`；每一次请求（首调、同模型重试、换备用、结构化重试、瞬时错误重试）在发起那一刻取 `min(阶段上限, 截止 − now)`。
-2. **截止即停**：剩余 < 1s 不发请求；一次请求失败后剩余 < 5s（本方截止中止必然落在这里）不重试、不换模型，抛 `TenderCallDeadlineError`（`code = CALL_DEADLINE_EXCEEDED`，文案不含 timeout / aborted，任何一层都不会判为可重试）；`callStructured` 认这个错误直接返回，不做 transient 重试；结构化层的第二次尝试带 `retry` 标记，剩余 < 5s 时 invoker 不发。
+1. **绝对截止时间贯穿全链**：每个阶段开工时算 `callDeadlineAt = max(now + 1s, 切片截止 − 15s)`（锚定切片截止），经阶段函数 → `callStructured` → 钉住模型的 invoker → `createTenderCompletion`；每一次请求（首调、同模型重试、换备用、结构化重试、瞬时错误重试）在发起那一刻取 `min(阶段上限, 截止 − now)`。
+2. **截止即停**：剩余 < 0.5s 不发请求；一次请求以可重试的错误失败（本方截止中止必然落在这里）或输出不合格之后剩余 < 5s，不重试、不换模型，抛 `TenderCallDeadlineError`（`code = CALL_DEADLINE_EXCEEDED`，文案不含 timeout / aborted，任何一层都不会判为可重试）；`callStructured` 认这个错误直接返回，不做 transient 重试；结构化层的第二次尝试带 `retry` 标记，剩余 < 5s 时 invoker 不发；最后一次换备用撞截止同样记为截止；不可重试的错误（400 等）照旧原样返回；发之前就拒的不记调用日志。
 3. **截止即让出**：窗口批次 / 澄清 / Analyst 任一遍拿到 `CALL_DEADLINE_EXCEEDED` → 按既有语义记下（窗口 attempts + 1、澄清记未解决、Analyst 失败次数 + 1）→ 写检查点 → 以 `call_deadline` 让出。
-4. **中文化**：`translateRequirementTexts` 把它已有的总预算截止放进每批请求。
+4. **中文化**：`translateRequirementTexts` 把它已有的总预算截止放进每批请求——落库前那次与「补翻」接口 `POST /api/projects/[id]/bid-fit/translate`（100 秒预算、`maxDuration` 120 秒）都受益。
 5. **窗口门槛 45s → 80s**（design D8）：生产单次窗口 17–73s，45s 门槛下最短超时 30s；80s 时最短 65s。t+190s 剩 50s 的那一批现在不开，直接让出。
-6. **测试注入口**：`createTenderCompletion` / `createPinnedTenderInvoker` 可选 `now`、`complete`，缺省即原实现。
+6. **测试注入口**：`createTenderCompletion` / `createPinnedTenderInvoker` 可选 `now`、`complete`，缺省即原实现，注释标 `@internal`（生产不得传：会绕过费用预检与记账）。
 
 没有截止时间的调用方（单次编排 `analyzeTender`、报价推导、分析备忘、供应商情报等）不传 `deadlineAt`，行为逐字节不变（`tender.test.ts` DL-03）。
 
@@ -63,7 +63,7 @@
 
 只加截止判断、还没改门槛时，SD-03（生产时间线）已从 330s 降到 225s，只剩「t+190s 仍开了一批」三项失败；改门槛后全过。
 
-**改后**——31 / 31：
+**改后**（多维审查修复之后，用例从 31 增到 43）——43 / 43：
 
 ```
 · SD-01 让出于 225.0s，理由 call_deadline，请求 9 次
@@ -71,14 +71,15 @@
 · SD-04 让出于 225.0s；备用请求 p7 215.0s timeout=10.0s，p8 215.0s timeout=10.0s，p9 215.0s timeout=10.0s
 · SD-05 让出于 225.0s（CLARIFY/call_deadline）；澄清请求 主 150.0s timeout=60.0s，备 210.0s timeout=15.0s
 · SD-06 让出于 225.0s（ANALYST_A/call_deadline）；Analyst 请求 主 1.0s timeout=224.0s
-通过 31，失败 0
+· SD-12 让出于 225.0s；请求 主@0.0s/180.0s ×3 备@180.0s/45.0s ×3        ← 全部窗口都不返回
+通过 43，失败 0
 ```
 
 | 测试 | 开工前 | 结束 |
 |---|---|---|
-| `v2-slice-deadline.test.ts`（新） | — | 31 |
-| `model-policy/__tests__/tender.test.ts` | 39 | 53（DL-01…DL-09） |
-| 改动涉及模块的其余 26 个已注册测试（model-policy 9 个、tender-understanding 5 个、v2-resumable、worker-budget-guards、t5-p11 / seg2 / seg3、analyst-synthesis、memo-v2、analyst-memo-v1、bid-draft、pricing-helper、rfi-export、bid-fit-usability、search-brief） | 全过 | 全过，通过数不变 |
+| `v2-slice-deadline.test.ts`（新） | — | 43（SD-01…SD-12） |
+| `model-policy/__tests__/tender.test.ts` | 39 | 55（DL-01…DL-11） |
+| 改动涉及模块的其余 26 个已注册测试（model-policy 9 个、tender-understanding 4 个、v2-resumable、worker-budget-guards、t5-p11 / seg2 / seg3、analyst-synthesis、memo-v2、analyst-memo-v1、bid-draft、pricing-helper、rfi-export、bid-fit-usability、search-brief） | 全过 | 全过，通过数不变 |
 
 ## 4. 门禁
 
@@ -86,7 +87,29 @@
 
 ## 5. 多维审查
 
-（见下方，审查后填）
+开 PR 前并行派了五个子 agent，各审一个维度，只给 diff 与四件套、不给结论；每条意见先核实再处理（两条关键说法——SDK 重试等待不看 signal、同一次调用的第二个任务不看截止——读源码核实属实；两个复现脚本在修复后重跑确认）。
+
+| 维度 | 意见 | 处理 |
+|---|---|---|
+| 正确性与回归 | 小预算（本地 / 测试）下调用截止 = 开工 + 1s，而「不发请求」阈值也是 1s，过 1 毫秒首次请求就被拒，白吃一次窗口 / Analyst 尝试（脚本复现：12 秒预算第 1 切片发出 0 个请求） | **已修**：阈值 0.5s；重跑脚本第 1 切片发出 4 个请求、3 个窗口有结果；新增 DL-10、SD-09、SD-10 |
+| | 最后一次换备用在截止时被中止，原样抛出，上一层没有重试机会时记成 `TRANSIENT_MODEL_ERROR`、按预算不足让出 | **已修**：最后一次请求失败也按「可重试且剩余 < 5s → 截止」判；重跑脚本得 `CALL_DEADLINE_EXCEEDED`；新增 DL-11 |
+| | 调用截止用 `now()` 在 `buildResult` 等同步计算之后取，截止会被推后这段 CPU 时间 | **已修**：锚定切片截止 `max(now + 1s, 切片截止 − 15s)` |
+| | 发之前就被拒的请求也记一条日志，算进 `llmCalls` | **已修**：只在真的发过请求时记日志（SD-07 断言 `llmCalls = 0`） |
+| | 费用预检在计时器开始之前；单次编排的中文化现在也受 240 秒总预算约束；澄清被截止后永久记为未解决 | 不改：15 秒余量盖得住预检；中文化受预算约束是规格要求（「中文化不越过它的总预算」已写明两个调用方）；澄清的保守方向与既有失败相同 → 另开任务（§7） |
+| | 没有同一批里有成功有截止的用例 | **已补** SD-08 |
+| 安全 / 隐私与硬纪律 | 八条硬纪律都不违反；测试注入口若被生产调用方传入会绕过费用预检与记账（今天没有任何路径能传到） | **已修**：注释标 `@internal`；`check-test-registry` 与运行时架构守卫通过 |
+| 规格—代码—测试一致性 | 规格写「任何失败 < 5s 都记截止」，代码对不可重试错误原样抛出 | **已修规格**：可重试的失败或输出不合格才记截止，不可重试的原样结束（加场景「不可重试的错误原样结束」） |
+| | 补翻接口 `bid-fit/translate` 也被约束了，规格与 proposal 没写 | **已补**：规格「中文化不越过它的总预算」写明两个调用方，proposal Impact 与 design D6 补上 |
+| | 「剩余不足 1 秒」与「最短 1 秒」冲突 | **已修**（同正确性第 1 条），规格加场景「最短 1 秒的截止仍发出首次请求」 |
+| | 场景缺断言：混合批次、Analyst 第二遍、小预算、全部窗口都不返回、中文化截止保留原文；SD-07 上界太松；SD-03 没断言让出理由 | **已补** SD-07（收紧 + 截止批次）、SD-08、SD-09、SD-10、SD-11、SD-12，SD-03 断言理由 |
+| | design / tasks 写错函数名 `translateRequirementsZh`；场景标题「被中止后」实为限流；「之前结束」应为「不晚于」；报告测试数 5 应为 4；Impact 漏 `index.ts`；What 要点没以动词开头 | **已修** |
+| | 局限说明里会出现英文码 `CALL_DEADLINE_EXCEEDED` | 规格补「3 次用尽后按既有规则计入局限说明」；中文化另开任务（§7） |
+| 使用流畅与文案 | 上线后的观察写法不对（时间充裕时照旧换备用属正常）；缺白话摘要；术语没解释；「t =」含糊；按钮名应为「重新分析当前投标文件包」 | **已修**（§0、§1、§6） |
+| | Analyst 两次超时后没有中文解读却没有说明；复核没跑完却显示「未通过 AI 质检」；局限说明里的英文码可能经 Analyst 带到项目解读；被截止的澄清检查永久记为未解决、照样发问 | 不改：都是既有的降级路径（本次只是让它们从「被硬杀」变成「能走到」）；§6 写明可能看到的降级；另开任务（§7） |
+| 时序与性能 | SDK 两次重试之间的等待不看 signal（openai 6.32.0 `retryRequest`，本机实测中止 2 秒、`retry-after: 6` → 6.06 秒返回） | 不改：调用截止到硬超时约 75 秒余量；关掉 SDK 重试会让限流时直接换 sol、改变模型用法。design Context 第 5 条原先「被计时器整体截住」的说法已改正；§7 记为观察项 |
+| | 同一次调用里第二个任务不看截止（`processor.ts` 785–791、472–474），可能从 226 秒起再跑一轮不受预算约束的步骤；PERSIST 只留 5 秒余量；旧 cron 的 FINALIZE 无时限；kick 的预算起点；`processQueuedAgentRuns` 无界 | 不改：都是既有的、不在本次的重试链里，也不是这次 504 的原因（日志是同一个任务的窗口链）→ 另开任务（§7，第二个任务列为最高优先） |
+| | 预算在 [80, 80 + 开销) 秒时窗口永远开不了批（门槛悬崖从 45 移到 80）；旧 cron 认领门槛 45 秒低于窗口门槛 80 秒 | 不改：生产固定 240 秒；只影响测试 / 脚本与吞吐，记入 design D8 的影响面 |
+| | 虚拟时钟测试看不到 SDK 等待、预检、检查点写入耗时 | 不改：这些在 `complete` 注入口之下，属于上面的观察项；测试覆盖的是本次改动的重试链 |
 
 ## 6. 上线后
 
@@ -96,6 +119,12 @@
 
 ## 7. 没做的（另开任务或等观察）
 
+建议另开的两个 change（会话里生成建议任务的工具超时，没能排上，以本节为准）：
+
+1. **切片之外仍可能越过 300 秒的路径**（时序审查，最高优先）：`processQueuedWorkforceJobs(2)` 两个任务共用一个 240 秒预算，循环与轮次都不看 `executionBudget.deadlineAt`，第二个任务可能在 226 秒之后开一轮不受预算约束的步骤（如 `tender_risk_analysis` 不带超时调 `createCompletion`）；PERSIST 中文化只留 5 秒余量、其后落库事务最长 130 秒；旧 cron 的 FINALIZE 无时限；`kickQueuedWorkforceJobSlice` 的预算从被调用时刻起算；`processQueuedAgentRuns` 在 workforce 之前无界（实测约 48 秒）；OpenAI SDK 重试之间的等待不看 signal；费用预检在计时器之前。
+2. **降级结果用白话说清楚**（体验审查）：局限说明里的英文错误码改中文、不说「窗口」；Analyst 两次没完成时说明为什么没有中文解读；复核没跑完与「未通过」分开；被截止的澄清检查下一切片重查（或像 D8 一样提高澄清门槛），或在问题上注明「没来得及核对文件里是否已有答案」。
+
+另记：
+
 - `ai.call` 的 `retryCount` 口径：结构化层的重试仍记 0（本报告 §1 写明来源）；要改成递增另开小 change。
-- `kickQueuedWorkforceJobSlice` 的预算从被调用时刻起算，不从 HTTP 请求开始（只在路由层调用，与本次 504 无关）。
 - 门槛 80s 是按 Lucas 给的 17–73s 定的；上线后看 `call_deadline` 让出与窗口耗时分布再调。

@@ -8,7 +8,7 @@
 2. `runExtractionWindow` / `resolveClarificationItem` / `runAnalystPassA|B`：把超时与本阶段上限（180s / 60s / 240s）取小，交给 `callStructured`。
 3. `callStructured`（`src/lib/tender-understanding/llm.ts`）：最多 2 次尝试；invoker 抛错时「transient 只额外重试一次」，结构化输出不合格时带错误反馈再试；**两种重试都用同一个 `req.timeoutMs`**。
 4. 钉住模型的 invoker → `createTenderCompletion`（`src/lib/ai/model-policy/tender.ts`）：首调失败后按 `decideTenderRecovery` 做同模型重试（只对 Astra）或换备用模型（terra / Astra → sol）；**每一次都用同一个 `timeoutMs`**。`createPinnedTenderInvoker` 只在备用**成功**后才把钉住的模型换成备用。
-5. `createCompletionDetailed`（`src/lib/ai/client.ts`）：`setTimeout(abort, timeoutMs)`；OpenAI SDK 自身的重试在同一个 signal 下，被计时器整体截住。被中止时 SDK 抛「Request was aborted.」，`classifyModelError` 因含 `aborted` 判为 retryable。
+5. `createCompletionDetailed`（`src/lib/ai/client.ts`）：`setTimeout(abort, timeoutMs)`；OpenAI SDK 自身的重试（`maxRetries` 缺省 2）共用同一个 signal，**但两次重试之间的等待（`retry-after` 或缺省退避）不看 signal**，睡完才检查（openai 6.32.0 `retryRequest`），所以一次请求最多比超时多出两段等待（见 Risks）。被中止时 SDK 抛「Request was aborted.」，`classifyModelError` 因含 `aborted` 判为 retryable。
 
 所以一次窗口调用的最坏用时是 `2（callStructured）× 2（主 + 备）× timeoutMs`；`timeoutMs` 是按剩余预算裁的，乘以 4 就越过了切片截止。t+260s 那轮 terra / retryCount 0 就是第 3 层的 transient 重试（`retryCount` 缺省 0，钉住模型仍是 terra）。
 
@@ -34,7 +34,7 @@
 
 ### D1 截止时间是请求上的一个绝对时刻（`deadlineAt`，epoch 毫秒）
 
-`LlmCallRequest` 加可选 `deadlineAt`；`advanceV2Analysis` 每个阶段开工时算 `callDeadlineAt = now + callTimeoutFor(remaining)`（等于 `deadlineAt − 15s`，最短 now + 1s，与现在的相对超时完全同值），经阶段函数 → `callStructured` → invoker → `createTenderCompletion`。每一次请求在**发起那一刻**算 `min(阶段上限, callDeadlineAt − now)`。
+`LlmCallRequest` 加可选 `deadlineAt`；`advanceV2Analysis` 每个阶段开工时算 `callDeadlineAt = max(now + 1s, 切片截止 − 15s)`（锚定切片截止，不受阶段内 `buildResult` 等同步计算耗时影响；与现在的相对超时同值），经阶段函数 → `callStructured` → invoker → `createTenderCompletion`。每一次请求在**发起那一刻**算 `min(阶段上限, callDeadlineAt − now)`。
 
 - 否决：每层继续传相对超时、在重试前按已用时间扣减。要在三层各自记起点，`callStructured` 与 `createTenderCompletion` 互不知道对方用了多少，漏一层就重演本次事故。
 - 否决：重试时把超时按次数折半（主 35s、备 17s…）。仍可能越过截止（层数相乘），且把可用时间浪费掉。
@@ -52,6 +52,9 @@
 
 - 否决：认「Request was aborted」/ `APIUserAbortError` 文本判断是不是我方中止。依赖 SDK 的错误文案，换供应商或升级 SDK 就失效；也分不清「阶段上限到了」与「截止到了」。
 - 5 秒的取舍：不足 5 秒的备用请求几乎不可能完成一次窗口抽取，只会多烧一次调用再被中止。阶段上限先到（如澄清 60s）而剩余还多时，不受此限，照旧换模型。
+- 最后一次请求（换备用，或没有备用时的同模型重试）失败后同样按这条规则判：可重试的错误且剩余 < 5s → 记为截止，免得上一层把它当瞬时错误、调用方按「预算不足」而不是 `call_deadline` 让出。
+- 「不发请求」的阈值是 0.5 秒，必须低于 `callTimeoutFor` 的 1 秒下限：小预算（本地 / 测试，阶段门槛退化为 10 秒）下调用截止 = 开工 + 1 秒，若阈值也是 1 秒，过去 1 毫秒首次请求就会被拒、白白吃掉一次尝试（多维审查发现，已修）。
+- 发之前就被拒的（没有真实请求）不记调用日志，不计入调用次数。
 
 ### D4 截止失败的窗口计入 3 次上限
 
@@ -112,7 +115,9 @@
 - [门槛 80 秒让每个切片尾部最多空出约 80 秒] → 生产批次用时约 60–75 秒，原本这段时间里开的批次大多被裁短；空出的尾巴换来的是少烧尝试与费用。
 - [5 秒阈值让「剩 6 秒时换备用」仍会发生，备用大概率被中止] → 有界（不越过截止），只多一次短请求；阈值是常量，生产观测后可调。
 - [不传截止时间的调用方仍是旧行为，最坏 4× 超时] → 它们不在 300 秒硬超时的切片里；本次 Non-Goals 已列明。
-- [测试注入口出现在生产代码里] → 两个可选参数，缺省即原实现；不在任何 API 上暴露。
+- [测试注入口出现在生产代码里] → 两个可选参数，缺省即原实现，注释标 `@internal`；不在任何 API 上暴露（多维审查核对过两个生产入口都不传）。
+- [SDK 重试之间的等待不看 signal，一次请求可能比截止多出两段 `retry-after`] → 调用截止（t+225s）到平台硬超时（300s）还有约 75 秒，盖得住两段常见的等待；对招标请求关掉 SDK 重试会让限流时直接换 sol、改变模型用法，不在本次范围。报告 §7 记为后续观察项。
+- [切片之外仍可能越过 300 秒的路径（同一次调用里的第二个任务不看截止、落库事务、旧 cron 的收尾步骤）] → 都是既有的、不在本次的重试链里；另开任务（报告 §7）。
 
 ## Migration Plan
 
