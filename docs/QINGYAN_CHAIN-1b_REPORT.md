@@ -57,8 +57,8 @@
 
 | 项 | 结果 |
 |---|---|
-| `npm test`（本机，带隔离库） | 待跑（见下次更新） |
-| `npm run test:ci` | 待跑 |
+| `npm test`（本机，带隔离库） | `703/714 通过, 11 失败`，11 项全是 main 上同样失败的既有项（与 `docs/QINGYAN_CHAIN-3_REPORT.md` §4 同一批，含「T4 授标情报真实 Postgres 矩阵」）；全量里 `award-manual-entry` 43、`award-manual-entry-db` 18 全过 |
+| `npm run test:ci`（不带数据库，与 CI 相同） | PASS（注册校验：已注册 681 个，历史欠账 66 条） |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（审查修复后一处 `prefer-const` 已改） |
 | `openspec validate award-manual-entry-alberta --strict` | valid（12 条要求都不超过 500 字） |
