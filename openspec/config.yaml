@@ -32,6 +32,7 @@ context: |
   - openspec/specs/** 只能通过 /opsx:archive 归档进来，禁止手写。
   - 不删 docs/ 下任何文件；不动 .claude/launch.json。
   - 换会话续做用 /opsx:continue <change>，不凭记忆重写。
+  - 多维审查（Lucas 2026-11-19 定）：每次开 PR 之前，必须并行派出多个子 agent，各自独立审查本次 diff，每个只管一个维度。实现 PR 至少四个维度：正确性与回归、安全 / 隐私与八条硬纪律、规格—代码—测试一致性、使用流畅与文案；按改动再加维度（性能、迁移、权限等）。每条意见先自己核实属实再改；不改的写理由；超出本 change 范围的另开任务。改完重跑测试再开 PR。PR 正文必须有「多维审查」一节，列出每个维度的结论和每条意见的处理（已修 / 不改及理由 / 另开任务）。archive 小 PR 至少派一个子 agent，核对归档后的主规格与 delta 逐条一致、TASKFLOW 状态与合并记录一致。
 
 rules:
   proposal:
