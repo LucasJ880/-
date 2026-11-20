@@ -6,7 +6,7 @@
 | TASKFLOW | FIX-12（Phase F（续）— 生产实测修复，2026-11-20） |
 | 来源 | Lucas 2026-11-20 生产实测「12-3 Indoor Canadian Flag」（Job 09:27 创建）：一键分析第 3 步 09:46:29、09:54:29 两次 504「Task timed out after 300 seconds」；11-19「12-01」Job 的「长时间没有进展」（`stale_running_exhausted`）同一根因 |
 | 拍板 | 四件套 Lucas 2026-11-20 同意；截止失败计入 3 次上限同意；窗口门槛 45 → 80 秒为 Lucas 建议、本次采纳（design D8） |
-| PR | Draft（编号见 TASKFLOW） |
+| PR | LucasJ880/-#540（Draft） |
 | 分支 | `claude/amazing-planck-0s5wnb` |
 | 性质 | 修既有的超时链。零 schema、零新模型调用（只会少调）、没有出站。**没有开关——合并即生效** |
 
