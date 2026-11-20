@@ -260,5 +260,18 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(IMPORT_COLUMNS_HINT_ZH === "把表格里的记录连同表头一起粘贴进来（逗号或制表符分隔）。需要的列：进口商、出口商；可选：日期、品名、数量、来源网址。", "导入框说明需要的列");
 }
 
+{
+  // CHAIN-3b：投标准备度只问「有没有导入的进口记录」，口径与 service.ts 一致，且不把 service.ts 的整串依赖带进投标工作区读取
+  const root = process.cwd();
+  const rc = readFileSync(path.join(root, "src/lib/tender-import-leads/readiness-count.ts"), "utf8");
+  const svcSrc = readFileSync(path.join(root, "src/lib/tender-import-leads/service.ts"), "utf8");
+  const lit = (src: string, name: string) => src.match(new RegExp(`export const ${name} = "([^"]+)";`))?.[1];
+  ok(!!lit(rc, "READINESS_IMPORT_LEAD_PLATFORM") && lit(rc, "READINESS_IMPORT_LEAD_PLATFORM") === lit(svcSrc, "IMPORT_LEAD_PLATFORM") && !!lit(rc, "READINESS_IMPORT_LEAD_KIND") && lit(rc, "READINESS_IMPORT_LEAD_KIND") === lit(svcSrc, "IMPORT_LEAD_KIND"), "投标准备度：平台与 kind 与 service.ts 的常量相同");
+  const imports = [...rc.matchAll(/^import [^;]*? from "([^"]+)";/gm)].map((m) => m[1]);
+  ok(JSON.stringify(imports.sort()) === JSON.stringify(["./flags", "@/lib/db"]), "投标准备度：readiness-count.ts 只 import @/lib/db 与 ./flags", imports);
+  ok(/status: \{ not: "REJECTED" \}/.test(rc) && /findFirst\(/.test(rc) && !/\.count\(/.test(rc) && /if \(!isImportLeadsEnabledForOrg\(input\.orgId\)\) return false;/.test(rc) && rc.indexOf("isImportLeadsEnabledForOrg(input.orgId)") < rc.indexOf("findFirst("), "投标准备度：开关关时不查库；不采用的不算；只判有没有（findFirst）");
+  ok(/status !== "REJECTED"/.test(svcSrc) && /storedLeadCount: state\.signals\.filter\(\(s\) => s\.status !== "REJECTED"\)\.length/.test(svcSrc), "投标准备度与读视图的「已导入 N 条」同一口径（不采用的不算）");
+}
+
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
 if (fail > 0) process.exit(1);
