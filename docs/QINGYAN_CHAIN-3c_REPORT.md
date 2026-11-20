@@ -55,7 +55,7 @@
 
 | 项 | 结果 |
 |---|---|
-| `npm test`（本机，带隔离库） | 待跑（见下次更新） |
+| `npm test`（本机，带隔离库） | `701/712 通过, 11 失败`，11 项全是 main 上同样失败的既有项（与 `docs/QINGYAN_CHAIN-3_REPORT.md` §4 同一批）；全量里 `import-leads-db` 62 全过 |
 | `npm run test:ci` | 待跑 |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（无新增指纹） |
