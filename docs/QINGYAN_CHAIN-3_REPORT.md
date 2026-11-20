@@ -62,7 +62,15 @@
 
 ## 4. 门禁
 
-待第二轮修复后填。
+| 项 | 结果 |
+|---|---|
+| `npm test`（本机，带隔离库，第二轮修复之后） | `701/712 通过, 11 失败`，11 项全是 main 上同样失败的既有项（来信观察 DB、Mention Gateway M2-A Identity DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB 75 / 76）——与 CHAIN-2 / 4a / 4b / 0c 报告同一批 |
+| `npm run test:ci` | PASS（注册校验：已注册 679 个，历史欠账 66 条） |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS（无新增指纹）；`suppliers/[id]/page.tsx` 里的 4 处既有错误不是本次引入 |
+| `openspec validate tender-import-leads-connector --strict` | valid |
+| `git diff origin/main -- prisma/ vercel.json` | 空 |
+| 隔离库（全量里）`import-leads-db` / `sourcing-suggestions-db` / `supplier-groups-db` | 34 / 36 / 53 全过 |
 
 ## 5. 多维审查
 

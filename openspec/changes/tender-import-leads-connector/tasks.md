@@ -20,7 +20,7 @@
 
 - [x] 4.1 新增隔离库 `src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts` 并注册（test-all + test-ci-unit）；verify：本机隔离库全部通过、外部请求 0
 - [x] 4.2 多维审查：并行派子 agent（正确性与回归、安全 / 隐私与硬纪律、规格—代码—测试一致性、使用流畅与文案）各审一遍 diff，逐条核实后修，超出范围的另开任务；verify：报告「多维审查」一节逐条写明处理
-- [ ] 4.3 写 `docs/QINGYAN_CHAIN-3_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` CHAIN-3 状态列，跑全量门禁（`npm test` 与 main 对照失败名单、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`openspec validate tender-import-leads-connector --strict`、`git diff origin/main -- prisma/ vercel.json` 为空）；verify：两个文件在 PR diff 里，门禁输出写进报告
+- [x] 4.3 写 `docs/QINGYAN_CHAIN-3_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` CHAIN-3 状态列，跑全量门禁（`npm test` 与 main 对照失败名单、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`openspec validate tender-import-leads-connector --strict`、`git diff origin/main -- prisma/ vercel.json` 为空）；verify：两个文件在 PR diff 里，门禁输出写进报告
 
 ## Workflow follow-up
 
