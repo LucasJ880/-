@@ -37,7 +37,7 @@
 
 ### D1 菜单询价单 = 询价单生成器 + 附件模板，放在 `tender-rfq` 里
 
-新增两个文件（与 `attachment.ts` / `attachment-service.ts` 同样的分法）：`src/lib/tender-rfq/sheet-download.ts` 是纯函数（排内容 `composeRfqSheet`、失败的错误码与说明、异常类型），`sheet-download-service.ts` 导出服务端函数 `buildProjectRfqSheet`：读项目（截标日期、组织设置）→ `loadRfqRequirementInputs` → `loadProjectIdentity` → `buildRfqDocument`（`quantityTiers` 不传、`incoterm: null`、`destination: null`、`extraQuestions: []`、`scopeNote: null`，其余入参与 `prepareRfqRound` 一一对应）→ 模板文字过禁出清单 → 渲染并检查 PDF。成功返回 HTML、PDF 字节、询价编号、起草时刻与日期、内容指纹、页数；失败返回带原因的结果。`generate-docs.ts` 的 `supplier_rfq` 分支只调用它并落库，放在函数最前面——不再执行那条读项目名称、描述、情报摘要的大查询。
+新增两个文件（与 `attachment.ts` / `attachment-service.ts` 同样的分法）：`src/lib/tender-rfq/sheet-download.ts` 是纯函数（排内容 `composeRfqSheet`、失败的错误码与说明、异常类型），`sheet-download-service.ts` 导出服务端函数 `buildProjectRfqSheet`：读项目（截标日期、组织设置）→ `loadRfqRequirementInputs` → `loadProjectIdentity` → `buildRfqDocument`（`quantityTiers` 不传、`incoterm: null`、`destination: null`、`extraQuestions: []`、`scopeNote: null`，其余入参与 `prepareRfqRound` 一一对应）→ 模板文字过禁出清单 → 渲染并检查 PDF。成功返回 HTML、PDF 字节、询价编号、起草时刻与日期、内容指纹、页数；失败在写任何东西之前直接抛出（见 D6）。`generate-docs.ts` 的 `supplier_rfq` 分支只调用它并落库，放在函数最前面——不再执行那条读项目名称、描述、情报摘要的大查询。
 
 - 否决：把这段逻辑写在 `generate-docs.ts` 里——询价单的取数与检查散到第二个目录，下次改生成规则（RFQ-PDF-2 就要改）得两处一起改。
 - 否决：直接调用 `draftRfqAttachment`——它生成 PDF 后丢弃字节，菜单要存这份字节，等于渲染两次（每次约 5 秒）。
@@ -75,15 +75,17 @@
 
 ### D6 不生成的情形：一个带错误码的异常类型，路由按码映射
 
-`sheet-download.ts` 导出 `SupplierRfqSheetError`（`errorCode`、`status`、中文说明）；`generateProjectDocument` 对 D1 的失败结果抛出它，招标身份命中仍抛既有的 `SupplierIdentityLeakError`（命中项沿用询价单生成器返回的类别与位置）。路由在既有的 422 分支旁加一个分支。
+`sheet-download.ts` 导出 `SupplierRfqSheetError`（`errorCode`、`status`、中文说明）；`buildProjectRfqSheet` 失败时直接抛出它（`generateProjectDocument` 不拦，原样到路由），招标身份命中仍抛既有的 `SupplierIdentityLeakError`（命中项沿用询价单生成器返回的类别与位置）。路由在既有的 422 分支旁加一个分支。
 
 | 情形 | 状态码 | `errorCode` | 说明 |
 |---|---|---|---|
 | 没有已确认的供应商侧要求 | 422 | `NO_CONFIRMED_REQUIREMENTS` | 询价单生成器的原句：「没有已确认且属于供应商侧的要求，先在青砚「招标要求」里逐条确认后再生成询价。」 |
-| 命中内部财务信息 | 422 | `SENSITIVE_LEAK` | 「询价内容里有不能发给供应商的内容（如我方价格或内部备注），询价单没有生成。请到「需求」检查已确认的要求。」 |
+| 命中内部财务信息 | 422 | `SENSITIVE_LEAK` | 「询价内容里有不能发给供应商的内容（如我方价格或内部备注），询价单没有生成，也没有保存文件。请到「招标要求」核对已确认的要求，并看一下询价设置里的发件抬头；页面上改不了的请联系管理员。」 |
 | 命中招标身份（含模板文字） | 422 | `IDENTITY_LEAK` | 既有的「供应商侧文件含招标身份信息（命中：{类别}·{位置}），未生成。」 |
 | PDF 生成出错 / 不是 PDF / 没有内嵌中文字体 | 503 | `RFQ_SHEET_RENDER_FAILED` | 「询价单 PDF 没能生成，没有保存任何文件。请稍后再试；一直不行请联系管理员。」 |
-| PDF 超过 5 MB | 422 | `RFQ_SHEET_TOO_LARGE` | 「询价单 PDF 超过 5 MB，没有保存。通常是要问供应商的要求太多：请到「需求」减少后再试。」 |
+| PDF 超过 5 MB | 422 | `RFQ_SHEET_TOO_LARGE` | 「询价单 PDF 超过 5 MB，没有保存。通常是已确认的供应商侧要求太多，请联系管理员处理。」 |
+
+说明里的地方用界面上的叫法（页签叫「招标要求」）；已确认的要求在页面上改不了（只有未确认的能确认 / 驳回），所以两句都不叫人去「减少」或「修改」，改不了的找管理员。发件抬头保存时不查敏感词，所以内部财务信息那句也提到它。
 
 - 否决：`SENSITIVE_LEAK` 直接用生成器的原句「…请检查范围说明/自定义问题」——菜单生成没有这两栏，会把人引去找不存在的东西。错误码沿用，说明按文件场景写（网页询价入口也是自己写的说明，不用原句）。
 - 否决：PDF 生成失败也回 422——它不是内容问题，稍后重试可能成功；附件预览接口对同一种失败用的也是 503。
@@ -99,7 +101,7 @@
 ### D8 清理范围与情报室清单
 
 - 删：`tender-doc-html.ts` 的 `buildSupplierRfqHtml`、`supplierRfqScanSegments`、`supplierRfqRows`、`supplierHeaderBlock`、`SupplierDocHeader`、`SUPPLIER_RFQ_TITLE`、`htmlToText`（只被前者与测试使用；测试里那条「改前的抬头会被拦下」保留，去标签的几行挪进测试）；`china-supplier-brief.ts` 的 `buildChinaSupplierBriefText`、`assertNoForbiddenLeak`、`scrubSensitiveSupplierBriefText` 与相关类型和私有函数；`pdf-common.ts` 的 `sanitizeSupplierFacing`；`generate-docs.ts` 的 `loadChinaBriefFacts`、`assertSupplierDocClean`、两段固定英文模板；`china-supplier-brief-panel.tsx` 整个文件与 `bid-tab.tsx` 里的引用。
-- 改测试：`tender-doc-html.test.ts`（留内部备忘录的用例与「改前的抬头（夹具）过禁出清单」那一条，分析综合版供应商表的用例移除）、`china-supplier-brief.test.ts`（只留敏感词判断的用例；注册表里的名称改为「供应商侧敏感词判断」）、`project-identity-deny.test.ts`（「接上了防护」的调用方名单：去掉 `china-supplier-brief.ts`，加上 `sheet-download-service.ts`）、`cjk-pdf.test.ts`（CJK-GEN-03 改为断言供应商询价单不走回落、CJK-CFG-03 的面板文件已删）、`analyst-memo-v1.test.ts`（AM-16c 断言的取证清单随简报移除，这条用例删去，RFQ-PDF-2 把清单并入询价单时在那边加回）、`bid-workflow-phase1.test.ts`（白名单断言改为不含已下线类型）。
+- 改测试：`tender-doc-html.test.ts`（留内部备忘录的用例与「改前的抬头（夹具）过禁出清单」那一条，分析综合版供应商表的用例移除）、`china-supplier-brief.test.ts`（只留敏感词判断的用例；注册表里的名称改为「供应商侧敏感词判断」）、`project-identity-deny.test.ts`（「接上了防护」的调用方名单：去掉 `china-supplier-brief.ts`，加上 `sheet-download-service.ts`）、`cjk-pdf.test.ts`（CJK-GEN-03 改为「旧的文字替换已随旧路径删除」，新增 CJK-GEN-04 断言供应商询价单不走回落，CJK-CFG-03 改为面板文件已删）、`analyst-memo-v1.test.ts`（AM-16c 断言的取证清单随简报移除，这条用例删去，RFQ-PDF-2 把清单并入询价单时在那边加回）、`bid-workflow-phase1.test.ts`（白名单断言改为不含已下线类型）。
 - `scripts/cjk-pdf-e2e.ts`（手工脚本）：把两处已下线类型换成仍存在的内部类型，保证类型检查通过。`scripts/bid-workflow-cotton-iso-fixture.ts` 直接写库造一条旧记录，不动。
 - `start-intelligence.ts`：默认交付物清单删去 `china_supplier_brief`「国内供应商中文 PDF」一项。核实结果：它的 key 就是简报的文件类型，指的是已下线的简报；询价单已由同一清单里的「厂家询价表」代表。只影响之后新建的情报室。
   - 否决：把这一项改成指向询价单——与「厂家询价表」重复成两项。
@@ -136,6 +138,8 @@ PDF 生成沿用既有的 `__setRfqAttachmentPdfRendererForTest`（菜单路径�
 
 - [合规取证清单出现空窗] 简报下线后、RFQ-PDF-2 合并前，营业执照 / 工厂照片 / 劳工制度那份清单不在任何生成文件里 → 两个 PR 相继合并；RFQ-PDF-2 的任务书第 6 项把它并入询价单。报告里写明。
 - [以前点了就有文件，现在会被拒] 没有已确认要求的项目，旧路径会出一份 7 行英文的文件，现在回 422 → 这是本次的目的；说明里写了去哪里确认。
+- [并发生成] 见 D5：同一项目同一类并发生成可能出现重复版本号与两条「未过期」记录，这是现状，本次接受，不在本 change 里改。
+- [身份命中的说明没有出路] 「供应商侧文件含招标身份信息（命中：…），未生成。」是 CHAIN-4b 定下的句子，位置名「询价附件」在下载场景也不贴切 → 任务书要求沿用既有结果，本次不改；与「回复截止落在截标当天」一起在后续 change 里处理。
 - [部署前打开的页面] 旧菜单项与简报面板还在浏览器里 → D7 的说明指向新菜单项；刷新后消失。
 - [与 #538 改同一个文件] 两边都动 `generate-docs.ts` → 后合并的一方 rebase，两边改动都保留；本次的改动集中在 `supplier_rfq` 分支、三条供应商路径与落库函数，合并前对照 #538 的 diff 逐段核对。
 - [生成多几秒] 询价单要过一次真实 Chromium（实测约 5 秒，冷启动更久） → 路由 `maxDuration` 已是 800 秒，旧路径本来也要转 PDF，耗时相当。

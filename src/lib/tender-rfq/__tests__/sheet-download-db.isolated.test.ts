@@ -125,7 +125,7 @@ async function main() {
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   const cookie = `qy_session=${await createSession({ sub: OWNER, email: email(OWNER), role: "user" })}`;
   type PostJson = { error?: string; errorCode?: string; allowed?: string[]; previewText?: string; fontLimitation?: unknown; document?: { id: string; title: string; version: number; fileUrl: string | null; blobUrl: string | null; metaJson: string | null; stale: boolean } };
-  const post = async (projectId: string, body: Record<string, unknown>) => {
+  const post = async (projectId: string, body: Record<string, unknown> | null) => {
     const req = new NextRequest(`http://localhost/api/projects/${projectId}/generate-pdf`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) });
     const res = await route.POST(req, { params: Promise.resolve({ id: projectId }) });
     return { status: res.status, json: (await res.json()) as PostJson };
@@ -238,7 +238,7 @@ async function main() {
     ok(rNotPdf.status === 503 && rNotPdf.json.errorCode === "RFQ_SHEET_RENDER_FAILED" && same(await counts(pPdf), cPdf), "输出不是 PDF → 503，什么都没保存", rNotPdf);
     __setRfqAttachmentPdfRendererForTest(async () => Buffer.concat([Buffer.from(`%PDF-1.7\n${FONT}\n`, "latin1"), Buffer.alloc(5 * 1024 * 1024 + 1, 0x20)]));
     const rBig = await post(pPdf, { docType: "supplier_rfq" });
-    ok(rBig.status === 422 && rBig.json.errorCode === "RFQ_SHEET_TOO_LARGE" && rBig.json.error === "询价单 PDF 超过 5 MB，没有保存。通常是要问供应商的要求太多：请到「需求」减少后再试。" && same(await counts(pPdf), cPdf), "超过 5 MB → 422，什么都没保存", { status: rBig.status, json: rBig.json });
+    ok(rBig.status === 422 && rBig.json.errorCode === "RFQ_SHEET_TOO_LARGE" && rBig.json.error === "询价单 PDF 超过 5 MB，没有保存。通常是已确认的供应商侧要求太多，请联系管理员处理。" && same(await counts(pPdf), cPdf), "超过 5 MB → 422，什么都没保存", { status: rBig.status, json: rBig.json });
     __setRfqAttachmentPdfRendererForTest(okRenderer);
 
     // —— 7. 第二次生成：版本号接着旧记录算，旧记录标为可能过期 ——
@@ -267,7 +267,9 @@ async function main() {
     ok(same(await counts(pRet), cRet) && renders === rendersBefore, "已停用的类型：不生成任何内容，不写文件与记录");
     const rNope = await post(pRet, { docType: "nope" });
     const rEmpty = await post(pRet, {});
-    ok([rNope, rEmpty].every((r) => r.status === 400 && r.json.error === "docType 无效" && r.json.errorCode === undefined) && same([...(rNope.json.allowed ?? [])].sort(), ["analyst_memo", "bid_draft", "internal_analysis", "owner_clarification", "supplier_rfq", "teammate_tasks"]), "不认识的类型照旧 400「docType 无效」，允许的类型里没有已停用的两类", rNope);
+    const rNull = await post(pRet, null);
+    const rArray = await post(pRet, { docType: ["tech_confirm"] });
+    ok([rNope, rEmpty, rNull, rArray].every((r) => r.status === 400 && r.json.error === "docType 无效" && r.json.errorCode === undefined) && same([...(rNope.json.allowed ?? [])].sort(), ["analyst_memo", "bid_draft", "internal_analysis", "owner_clarification", "supplier_rfq", "teammate_tasks"]), "不认识的类型、空对象、JSON null、docType 不是字符串 → 400「docType 无效」，可用类型里没有已停用的两类", [rNope, rEmpty, rNull, rArray].map((r) => [r.status, r.json.error]));
     const listed = await list(pRet);
     const listedIds = listed.json.documents.map((d) => d.id);
     ok(listed.status === 200 && listedIds.includes(oldTech.id) && listedIds.includes(oldBrief.id) && listed.json.documents.find((d) => d.id === oldTech.id)?.title === "供应商技术确认表 v1" && listed.json.documents.every((d) => !!d.fileUrl), "列表里仍有之前生成的两类旧记录，标题不变、带文件地址", listed.json.documents.map((d) => [d.docType, d.title]));

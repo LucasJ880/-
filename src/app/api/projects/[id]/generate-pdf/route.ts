@@ -60,8 +60,10 @@ export const POST = withAuth(async (request, ctx, user) => {
   const access = await requireProjectWriteAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
-  const body = await request.json().catch(() => ({}));
-  const docTypeRaw = String(body.docType || "");
+  // 请求体不是 JSON 对象（含 JSON 的 null）一律当空对象，落到「docType 无效」
+  const parsed: unknown = await request.json().catch(() => null);
+  const body = (parsed && typeof parsed === "object" ? parsed : {}) as { docType?: unknown };
+  const docTypeRaw = typeof body.docType === "string" ? body.docType : "";
   // RFQ-PDF-1：已停用的两类供应商文件——不生成任何内容，说明写清改用哪一项、旧文件还在
   const retiredMessage = retiredDocTypeMessageZh(docTypeRaw);
   if (retiredMessage) {

@@ -5,6 +5,7 @@ import { FileDown, Loader2, ChevronDown, ExternalLink, Download } from "lucide-r
 import { apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
 import { BidDraftGateNotes, type BidDraftGates } from "@/components/tender/bid-draft-card";
+import { RETIRED_PROJECT_PDF_DOC_TYPES } from "@/lib/bid-workflow/pdf-doc-types";
 
 const OPTIONS = [
   { docType: "analyst_memo", label: "投标分析师备忘录 PDF（事实+标准展开+市场基准+GO/NO-GO）" },
@@ -102,10 +103,11 @@ export function ProjectGenerateMenu({
         if (round === 11) throw new Error("多轮生成超出轮次上限，请再点一次继续");
       }
       await load();
-      setOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "生成失败");
     }
+    // 成功、失败都收起下拉层：它是浮层，开着会盖住下面那行说明
+    setOpen(false);
     setBusy(null);
     setProgressZh(null);
   };
@@ -164,7 +166,7 @@ export function ProjectGenerateMenu({
         <p className="mt-2 text-[11px] text-accent">{progressZh}（全文多轮推理，可能需要几分钟）</p>
       ) : null}
       {error ? (
-        <p className="mt-2 text-[11px] text-red-500">{error}</p>
+        <p role="alert" className="mt-2 text-xs leading-relaxed text-red-500">{error}</p>
       ) : null}
 
       {docs.length > 0 ? (
@@ -181,6 +183,10 @@ export function ProjectGenerateMenu({
                   {d.title}
                   {d.stale ? (
                     <span className="ml-1 text-[10px] text-amber-600">可能过期</span>
+                  ) : null}
+                  {/* RFQ-PDF-1：已停止生成的两类供应商文件，旧文件还能打开，标明不是现在该发的那一份 */}
+                  {Object.prototype.hasOwnProperty.call(RETIRED_PROJECT_PDF_DOC_TYPES, d.docType) ? (
+                    <span className="ml-1 text-[10px] text-muted">已停用的旧文件</span>
                   ) : null}
                 </span>
                 {url ? (

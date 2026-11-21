@@ -14,7 +14,7 @@
 ## 3. 下线与清理
 
 - [x] 3.1 下线 `tech_confirm` / `china_supplier_brief`（design D7）：`pdf-doc-types.ts` 白名单与已停用名称表、路由 400 `DOC_TYPE_RETIRED`、去掉 `GenerateDocType` 两个成员与三个入参及 `fontLimitation`；`project-generate-menu.tsx` 去掉两项并把 `supplier_rfq` 改名「供应商询价单 PDF」；删除 `china-supplier-brief-panel.tsx` 与 `bid-tab.tsx` 的引用；`start-intelligence.ts` 默认清单去掉简报一项；隔离库测试补「两类 POST 被拒、不认识的类型照旧、GET 仍列出旧记录」，`sheet-download.test.ts` 补菜单 / 页签 / 清单的源码断言；verify：两个新测试通过，`npm run typecheck` 与 `npm run lint:baseline` 通过
-- [x] 3.2 清理不再被调用的代码与测试（design D8）：`tender-doc-html.ts` 的供应商询价表模板、`china-supplier-brief.ts` 的简报拼装（保留敏感词判断）、`pdf-common.ts` 的 `sanitizeSupplierFacing`、`generate-docs.ts` 里的旧路径；改 `tender-doc-html` / `china-supplier-brief` / `project-identity-deny` / `cjk-pdf` / `analyst-memo-v1` / `bid-workflow-phase1` 六个测试里指向被删代码的断言与注册表里的名称；`scripts/cjk-pdf-e2e.ts` 换成仍存在的类型；`sheet-download.test.ts` 补「生成代码不再引用分析综合的供应商询价表模板与简报正文拼装」的源码断言；verify：六个测试逐个通过，`grep -rn "buildSupplierRfqHtml\|buildChinaSupplierBriefText\|sanitizeSupplierFacing" src scripts` 无结果，`npm run typecheck` 通过
+- [x] 3.2 清理不再被调用的代码与测试（design D8）：`tender-doc-html.ts` 的供应商询价表模板、`china-supplier-brief.ts` 的简报拼装（保留敏感词判断）、`pdf-common.ts` 的 `sanitizeSupplierFacing`、`generate-docs.ts` 里的旧路径；改 `tender-doc-html` / `china-supplier-brief` / `project-identity-deny` / `cjk-pdf` / `analyst-memo-v1` / `bid-workflow-phase1` 六个测试里指向被删代码的断言与注册表里的名称；`scripts/cjk-pdf-e2e.ts` 换成仍存在的类型；`sheet-download.test.ts` 补「生成代码不再引用分析综合的供应商询价表模板与简报正文拼装」的源码断言；verify：六个测试逐个通过，`grep -rn "buildSupplierRfqHtml\|buildChinaSupplierBriefText\|sanitizeSupplierFacing" src scripts --exclude-dir=__tests__` 无结果（测试里只剩否定断言），`npm run typecheck` 通过
 
 ## 4. 端到端与收尾
 
