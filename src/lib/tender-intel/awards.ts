@@ -299,6 +299,10 @@ export async function createOrObserveAwardRecord(
       },
     });
   }
+  // 按编号没找到时退到「中标方 + 授标日期 + 金额」；两条都有招标编号且规范化后不同 → 不挂上
+  // （CHAIN-1b，Lucas 2026-11-20 定「收紧」）。但同一笔授标常有两套编号（开放数据的参考号 / 项目自己的招标编号），
+  // 中标方、日期、金额都相同时不能悄悄当成另一次招标：记下这条，新记录标为疑似重复，留给组织管理员裁决。
+  let sameAwardOtherNumber: AwardRecordRow | null = null;
   if (!target && input.award.awardDate && input.award.contractAmount != null) {
     const sameKey = await c.awardRecord.findMany({
       where: {
@@ -309,10 +313,9 @@ export async function createOrObserveAwardRecord(
       },
       take: 10,
     });
-    target =
-      sameKey.find(
-        (r) => toAmountNumber(r.contractAmount) === toAmountNumber(input.award.contractAmount),
-      ) ?? null;
+    const sameAmount = sameKey.filter((r) => toAmountNumber(r.contractAmount) === toAmountNumber(input.award.contractAmount));
+    target = sameAmount.find((r) => !isDistinctSolicitation(solicitation, r.solicitationNumber)) ?? null;
+    if (!target) sameAwardOtherNumber = sameAmount[0] ?? null;
   }
 
   const sourceData = {
@@ -367,6 +370,8 @@ export async function createOrObserveAwardRecord(
     });
     weak = sameWinnerBuyer.find((r) => !isDistinctSolicitation(solicitation, r.solicitationNumber)) ?? null;
   }
+  // 中标方、授标日期、金额都相同但编号不同（见上）：不挂上，标为疑似重复
+  if (!weak && sameAwardOtherNumber) weak = sameAwardOtherNumber;
 
   const record = await c.awardRecord.create({
     data: {
