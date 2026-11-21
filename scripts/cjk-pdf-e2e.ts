@@ -55,7 +55,7 @@ async function main() {
   if (!project) throw new Error("快照上无 tender 项目");
   console.log(`  项目：${project.name.slice(0, 40)}`);
 
-  for (const docType of ["china_supplier_brief", "teammate_tasks"] as const) {
+  for (const docType of ["teammate_tasks"] as const) {
     const row = await generateProjectDocument({
       projectId: project.id,
       orgId: project.orgId,
@@ -100,7 +100,7 @@ async function main() {
       projectId: project.id,
       orgId: project.orgId,
       userId: project.ownerId,
-      docType: "tech_confirm",
+      docType: "teammate_tasks",
     });
     const meta = JSON.parse((row as { metaJson?: string }).metaJson ?? "{}");
     const bytes = readLocalBlob((row as { blobUrl: string }).blobUrl);

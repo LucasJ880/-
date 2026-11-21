@@ -8,9 +8,7 @@ import { BidDraftGateNotes, type BidDraftGates } from "@/components/tender/bid-d
 
 const OPTIONS = [
   { docType: "analyst_memo", label: "投标分析师备忘录 PDF（事实+标准展开+市场基准+GO/NO-GO）" },
-  { docType: "china_supplier_brief", label: "国内供应商简报 PDF（China Brief）" },
-  { docType: "supplier_rfq", label: "国内供应商询价 PDF" },
-  { docType: "tech_confirm", label: "供应商技术确认表 PDF" },
+  { docType: "supplier_rfq", label: "供应商询价单 PDF" },
   { docType: "internal_analysis", label: "内部项目分析 PDF" },
   { docType: "teammate_tasks", label: "同事执行任务单 PDF" },
   { docType: "owner_clarification", label: "RFI 问题清单 PDF（中英，可直接提交）" },
@@ -211,7 +209,7 @@ export function ProjectGenerateMenu({
         </ul>
       ) : (
         <p className="mt-2 text-xs text-muted">
-          生成供应商询价、内部分析或同事任务单，自动读取当前项目资料。生成后可直接下载发送。
+          生成供应商询价单、内部分析或同事任务单，自动读取当前项目资料。生成后可直接下载发送。
         </p>
       )}
     </div>

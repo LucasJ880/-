@@ -37,7 +37,7 @@
 
 ### D1 菜单询价单 = 询价单生成器 + 附件模板，放在 `tender-rfq` 里
 
-新增 `src/lib/tender-rfq/sheet-download.ts`，导出一个服务端函数（暂名 `buildProjectRfqSheet`）：读项目（截标日期、组织设置）→ `loadRfqRequirementInputs` → `loadProjectIdentity` → `buildRfqDocument`（`quantityTiers` 不传、`incoterm: null`、`destination: null`、`extraQuestions: []`、`scopeNote: null`，其余入参与 `prepareRfqRound` 一一对应）→ 模板文字过禁出清单 → 渲染并检查 PDF。成功返回 HTML、PDF 字节、询价编号、起草时刻与日期、内容指纹、页数；失败返回带原因的结果。`generate-docs.ts` 的 `supplier_rfq` 分支只调用它并落库，放在函数最前面——不再执行那条读项目名称、描述、情报摘要的大查询。
+新增两个文件（与 `attachment.ts` / `attachment-service.ts` 同样的分法）：`src/lib/tender-rfq/sheet-download.ts` 是纯函数（排内容 `composeRfqSheet`、失败的错误码与说明、异常类型），`sheet-download-service.ts` 导出服务端函数 `buildProjectRfqSheet`：读项目（截标日期、组织设置）→ `loadRfqRequirementInputs` → `loadProjectIdentity` → `buildRfqDocument`（`quantityTiers` 不传、`incoterm: null`、`destination: null`、`extraQuestions: []`、`scopeNote: null`，其余入参与 `prepareRfqRound` 一一对应）→ 模板文字过禁出清单 → 渲染并检查 PDF。成功返回 HTML、PDF 字节、询价编号、起草时刻与日期、内容指纹、页数；失败返回带原因的结果。`generate-docs.ts` 的 `supplier_rfq` 分支只调用它并落库，放在函数最前面——不再执行那条读项目名称、描述、情报摘要的大查询。
 
 - 否决：把这段逻辑写在 `generate-docs.ts` 里——询价单的取数与检查散到第二个目录，下次改生成规则（RFQ-PDF-2 就要改）得两处一起改。
 - 否决：直接调用 `draftRfqAttachment`——它生成 PDF 后丢弃字节，菜单要存这份字节，等于渲染两次（每次约 5 秒）。
@@ -61,13 +61,15 @@
 
 ### D4 继续用 `supplier_rfq` 这一类的版本号与过期标记
 
-版本号 = 该项目 `supplier_rfq` 已有记录数 + 1（旧版记录计入），同类未过期的旧记录标为可能过期；标题「询价单-{询价编号} v{N}」（菜单用标题拼下载文件名，所以文件名里有询价编号）；Blob 路径沿用 `projects/{id}/generated/supplier_rfq-v{N}-{时间戳}.pdf`。`metaJson` 在既有键之外加 `reference`、`draftedAt`、`draftedOn`、`contentHash`、`templateVersion`、`replyLeadDays`、`pages`；`conclusionVersion` 写 `rfq_sheet_v{版式版本}`，`renderMode` 写 `chromium_pdf`（列表的乱码过滤只认这个值与 `html_fallback:`）。
+版本号 = 该项目 `supplier_rfq` 已有记录数 + 1（旧版记录计入），同类未过期的旧记录标为可能过期；标题「询价单-{询价编号} v{N}」（菜单用标题拼下载文件名，所以文件名里有询价编号）；Blob 路径沿用 `projects/{id}/generated/supplier_rfq-v{N}-{时间戳}.pdf`。`metaJson` 保留通用键（`docType`、`version`、`generatedAt`、`renderMode`、`createdById`、`conclusionVersion`），加 `reference`、`draftedAt`、`draftedOn`、`contentHash`、`templateVersion`、`replyLeadDays`、`pages`；内部文件才有的 `projectName` 与 `addendumFingerprint` 不写（它们来自 D1 跳过的那条查询，仓库里没有任何代码读这两个键）；`conclusionVersion` 写 `rfq_sheet_v{版式版本}`，`renderMode` 写 `chromium_pdf`（列表的乱码过滤只认这个值与 `html_fallback:`）。
 
 - 否决：新开一个文件类型（如 `rfq_sheet`）——菜单、白名单、版本历史抽屉都要认新类型，同一个菜单项的旧记录与新记录分成两串版本，「可能过期」也标不到旧记录上。
 
 ### D5 `supplier_rfq` 直接存检查过的 PDF，不经过会回落的那条落库路径
 
-把 `persistGeneratedHtml` 拆成两步：「HTML → PDF，失败存 HTML」（内部文件照旧用）与「把一份已定的文件字节落库」（写 Blob、标旧记录过期、建生成记录与项目文件记录）。`supplier_rfq` 拿 D1 返回的 PDF 字节直接走第二步；D1 失败时在写任何东西之前抛出。版本号的计算与过期标记留在第二步里，所以失败时旧记录的过期标记不会被动到。
+把 `persistGeneratedHtml` 里的三段拆成三个小函数：算版本号、写 Blob、建记录（标旧记录过期 + 生成记录 + 项目文件记录），先后顺序与现在相同。内部文件照旧：转 PDF 并写 Blob 放在同一个 try 里，任一步失败都改存 HTML 并标注原因（现状是「转换失败或 PDF 写入失败都回落」，拆开后保持）。`supplier_rfq` 拿 D1 返回的 PDF 字节依次走这三步，没有回落；D1 失败时在写任何东西之前抛出，旧记录的过期标记不会被动到。
+
+版本号「先数后建」不在事务里、也没有唯一约束，两个并发请求可能得到同一个版本号——这是现状（所有文件类型共用），本次不改；菜单在生成期间禁用按钮，实际撞上的机会很小。
 
 - 否决：给 `persistGeneratedHtml` 加一个「不许回落」的参数、仍由它渲染——它的渲染不检查内嵌字体与 5 MB，要么再检查一遍（两套检查），要么渲染两次。
 
@@ -97,7 +99,7 @@
 ### D8 清理范围与情报室清单
 
 - 删：`tender-doc-html.ts` 的 `buildSupplierRfqHtml`、`supplierRfqScanSegments`、`supplierRfqRows`、`supplierHeaderBlock`、`SupplierDocHeader`、`SUPPLIER_RFQ_TITLE`、`htmlToText`（只被前者与测试使用；测试里那条「改前的抬头会被拦下」保留，去标签的几行挪进测试）；`china-supplier-brief.ts` 的 `buildChinaSupplierBriefText`、`assertNoForbiddenLeak`、`scrubSensitiveSupplierBriefText` 与相关类型和私有函数；`pdf-common.ts` 的 `sanitizeSupplierFacing`；`generate-docs.ts` 的 `loadChinaBriefFacts`、`assertSupplierDocClean`、两段固定英文模板；`china-supplier-brief-panel.tsx` 整个文件与 `bid-tab.tsx` 里的引用。
-- 改测试：`tender-doc-html.test.ts`（留内部备忘录的用例与「改前的抬头（夹具）过禁出清单」那一条，分析综合版供应商表的用例移除）、`china-supplier-brief.test.ts`（只留敏感词判断的用例；注册表里的名称改为「供应商侧敏感词判断」）、`project-identity-deny.test.ts`（「接上了防护」的调用方名单：去掉 `china-supplier-brief.ts`，加上 `sheet-download.ts`）、`cjk-pdf.test.ts`（CJK-GEN-03 改为断言供应商询价单不走回落、CJK-CFG-03 的面板文件已删）、`analyst-memo-v1.test.ts`（AM-16c 断言的取证清单随简报移除，这条用例删去，RFQ-PDF-2 把清单并入询价单时在那边加回）、`bid-workflow-phase1.test.ts`（白名单断言改为不含已下线类型）。
+- 改测试：`tender-doc-html.test.ts`（留内部备忘录的用例与「改前的抬头（夹具）过禁出清单」那一条，分析综合版供应商表的用例移除）、`china-supplier-brief.test.ts`（只留敏感词判断的用例；注册表里的名称改为「供应商侧敏感词判断」）、`project-identity-deny.test.ts`（「接上了防护」的调用方名单：去掉 `china-supplier-brief.ts`，加上 `sheet-download-service.ts`）、`cjk-pdf.test.ts`（CJK-GEN-03 改为断言供应商询价单不走回落、CJK-CFG-03 的面板文件已删）、`analyst-memo-v1.test.ts`（AM-16c 断言的取证清单随简报移除，这条用例删去，RFQ-PDF-2 把清单并入询价单时在那边加回）、`bid-workflow-phase1.test.ts`（白名单断言改为不含已下线类型）。
 - `scripts/cjk-pdf-e2e.ts`（手工脚本）：把两处已下线类型换成仍存在的内部类型，保证类型检查通过。`scripts/bid-workflow-cotton-iso-fixture.ts` 直接写库造一条旧记录，不动。
 - `start-intelligence.ts`：默认交付物清单删去 `china_supplier_brief`「国内供应商中文 PDF」一项。核实结果：它的 key 就是简报的文件类型，指的是已下线的简报；询价单已由同一清单里的「厂家询价表」代表。只影响之后新建的情报室。
   - 否决：把这一项改成指向询价单——与「厂家询价表」重复成两项。
@@ -138,6 +140,7 @@ PDF 生成沿用既有的 `__setRfqAttachmentPdfRendererForTest`（菜单路径�
 - [与 #538 改同一个文件] 两边都动 `generate-docs.ts` → 后合并的一方 rebase，两边改动都保留；本次的改动集中在 `supplier_rfq` 分支、三条供应商路径与落库函数，合并前对照 #538 的 diff 逐段核对。
 - [生成多几秒] 询价单要过一次真实 Chromium（实测约 5 秒，冷启动更久） → 路由 `maxDuration` 已是 800 秒，旧路径本来也要转 PDF，耗时相当。
 - [5 MB 上限对下载是否过严] 下载本身不受邮件大小限制 → 任务书要求同一套检查；CHAIN-4a 实测 120 行约 93 KB，离上限很远。
+- [回复截止落在截标当天会被拦] 回复截止的下限是「今天 + 2 天」，截标前 2 天（或把提前量设成 0）时它等于截标日期，模板文字过禁出清单就会命中「截标日期·询价附件」，菜单询价单与起草询价都生成不了 → 这是询价单生成规则里的既有行为，本次只在规格里写明、在测试里固定；根治（回复截止不印成截标当天）要改 `build.ts` 的规则并升版式版本，另开任务。既有的 `attachment-db.isolated.test.ts` 用真实时钟与 2026-12-05 的截标日，2026-12-03 那天会因此失败，同一任务里修。
 - [D2 触碰起草流程的两个文件] → 输出不变由既有测试不改期望值证明；退路见 D2 的否决项。
 
 ## Migration Plan

@@ -41,3 +41,47 @@
 #### Scenario: 截标当天生成
 - **WHEN** 起草日期恰好等于截标日期
 - **THEN** 照常生成（起草日期不参与比对）（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`）
+
+#### Scenario: 回复截止落在截标当天
+- **WHEN** 在截标前 2 天生成供应商询价单（回复截止按「不早于今天 + 2 天」的既有规则落在截标当天）
+- **THEN** 不生成，命中截标日期，位置为「询价附件」——与起草询价是同一条既有规则，本次不改（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`）
+
+### Requirement: 项目名称只在我方撰写的部分比对
+项目名称类词条 SHALL 只在我方撰写的部分里比对：邮件标题、正文里由模板写的句子、发起人填写的栏目（补充说明、目的地、附加问题）、生成文件的抬头与固定文字。项目名称类词条 SHALL NOT 在招标要求的原文与译文、分析的交付要求事实里比对。其余四类词条与格式检查 SHALL 在全部供应商可见内容里比对。
+
+#### Scenario: 要求原文与项目名称相同的词不拦
+- **WHEN** 项目名称为 `Sleeping Bags and Mats`，一条已确认的产品类要求写着 `Sleeping bags and mats shall be rated to -20C`
+- **THEN** 询价单生成成功，这条要求在行项里（`npx tsx src/lib/tender-rfq/__tests__/build.test.ts`）
+
+#### Scenario: 自己填的栏目写了项目名称
+- **WHEN** 同一项目，发起人在补充说明里写 `本轮只询 Sleeping Bags and Mats`
+- **THEN** 询价单生成失败，命中项目名称，位置为补充说明（同一测试）
+
+### Requirement: 命中即整份失败
+询价单（每条行项、交付要求、发起人填写的栏目）、每一家的询价邮件标题与正文、供应商侧生成文件，任一处命中禁出清单或格式检查时，系统 SHALL 不产出这一份内容：送审时不建询价轮次、不建审批卡；生成文件时不写文件、不建文件记录。系统 SHALL NOT 把命中的部分替换或删去后继续产出。失败说明 SHALL 逐项写明命中的类别（招标编号 / 采购方名称 / 截标日期 / 交货地址 / 项目名称 / 邮箱地址 / 电话号码）与位置（栏目名、要求编号、邮件标题、文件抬头等），SHALL NOT 复述命中的原文。既有的出站敏感词检查 SHALL 照旧先做，先命中的按原有规则报。
+
+#### Scenario: 要求里写了采购方名称
+- **WHEN** 项目采购方为 `City of Ottawa`，一条已确认的交付类要求 `R-02` 写着 `Deliver to the City of Ottawa warehouse`，发起人在网页上送审
+- **THEN** 不建询价轮次、不建审批卡；说明含「命中：采购方名称·要求 R-02」且不含 `City of Ottawa`（`npx tsx src/lib/tender-rfq/__tests__/build.test.ts`；`npx tsx src/lib/tender-rfq/__tests__/supplier-identity-guard-db.isolated.test.ts`）
+
+#### Scenario: 内部敏感词与身份信息同时出现
+- **WHEN** 补充说明同时含 `ourBidPrice` 与采购方名称
+- **THEN** 按既有规则报出站敏感词，不报身份命中（`build.test.ts`）
+
+### Requirement: 询价邮件用中性询价编号
+发给供应商的询价邮件 SHALL 用询价编号称呼项目，编号为 `RFQ-{组织代码}-{年份}-{5 位码}`：组织代码取本组织代码的第一段字母数字、转大写、最多 8 个字符，组织代码为空时为 `QY`；年份为项目创建时间在组织时区的年份；5 位码由项目标识确定，只用数字与不含 I、L、O、U 的大写字母。同一项目的各轮询价、询价入口与供应商侧生成文件 SHALL 用同一个编号。邮件标题 SHALL 为 `询价 {编号}`，有轮次号时接 `（第 N 轮）`，有回复截止时接 ` — 请于 {回复截止} 前回复`；正文对项目的介绍 SHALL 为 `{我方抬头} 现就询价 {编号} 邀请贵司报价，请按以下清单逐项回复。`。正文里数量行（`- 数量：`）与强制要求标记（`【强制】{要求编号}`）的写法 SHALL 不变。邮件标题与正文 SHALL NOT 含项目名称、招标编号、采购方名称与截标日期。
+
+#### Scenario: 联邦标的询价邮件
+- **WHEN** 用「禁出清单的来源与类别」里的联邦标项目（组织代码 `sunny-home-deco`、项目创建于 2026 年）起草第 1 轮询价
+- **THEN** 标题以 `询价 RFQ-SUNNY-2026-` 开头、接 5 位码与 `（第 1 轮）`；标题与正文都不含 `24062-27-057`、`Treasury Board`、`Sleeping Bags and Mats` 与 `2026-12-05`（`npx tsx src/lib/tender-rfq/__tests__/supplier-identity-guard-db.isolated.test.ts`）
+
+#### Scenario: 同一项目编号不变
+- **WHEN** 同一项目先后起草第 1 轮与第 2 轮询价，并生成供应商询价单
+- **THEN** 两封邮件与询价单文件里的询价编号相同；另一个项目的编号不同（`npx tsx src/lib/bid-workflow/__tests__/project-identity-deny.test.ts`；`supplier-identity-guard-db.isolated.test.ts`；询价单文件与邮件同号见 `NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
+
+### Requirement: 内部文件不变
+内部决策备忘录、分析师备忘录、RFI 问题清单、投标文件起草、同事任务单 SHALL 照旧印出项目名称、项目编号、采购方与截标日期，SHALL NOT 过禁出清单。
+
+#### Scenario: 内部备忘录照旧
+- **WHEN** 用项目名称 `测试项目`、项目编号 `COS-1`、采购方 `Buyer Agency`、截标 `2026-09-04` 的项目生成内部决策备忘录
+- **THEN** 备忘录里有 `测试项目`、`COS-1`、`Buyer Agency` 与 `2026-09-04`（`npx tsx src/lib/projects/generate/__tests__/tender-doc-html.test.ts`）

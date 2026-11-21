@@ -13,6 +13,10 @@
 - **WHEN** 项目的当前可用分析里有 3 条已确认的供应商侧要求、1 条已确认的保险类要求、1 条未确认的要求，生成 `supplier_rfq`
 - **THEN** 200，询价单里有那 3 条要求的编号与规格，没有保险类与未确认的那两条；抬头是组织询价设置里的发件抬头；贸易条款一栏是「请注明报价贸易条款」（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
 
+#### Scenario: 组织没有配置询价设置或项目没有组织
+- **WHEN** 项目所属组织没有保存过询价设置，或项目没有所属组织，生成 `supplier_rfq`
+- **THEN** 发件抬头与回复截止提前量用询价设置的默认值（与起草询价读同一份设置、同一个回落），起草日期用系统默认时区；照常生成（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`）
+
 #### Scenario: 起草日期按组织时区
 - **WHEN** 组织时区为 `America/Toronto`，在 UTC `2026-12-02T03:30:00Z` 生成
 - **THEN** 询价单上的起草日期是 `2026-12-01`（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`）
@@ -29,7 +33,7 @@
 - **THEN** 200；项目的询价轮次数、审批卡数不变，发信函数被调用 0 次（同一测试）
 
 ### Requirement: 询价单文件不输出什么
-询价单文件 SHALL NOT 含 AI 分析综合里的任何文字（要求标题与说明、风险、报价关注、澄清问题），SHALL NOT 含项目 AI 上下文、项目名称与项目描述，SHALL NOT 含我方报价、中标价、项目估值、毛利率与预算，SHALL NOT 含任何供应商名称或邮箱。招标身份（招标编号、采购方名称、截标日期、精确交货地址）按 `tender/supplier-identity-guard` 处理。
+询价单文件 SHALL NOT 含 AI 分析综合里的任何文字（要求标题与说明、风险、报价关注、澄清问题），SHALL NOT 含项目 AI 上下文与项目描述，我方撰写的部分（标题、栏目名、固定文字、我方抬头）SHALL NOT 含项目名称，SHALL NOT 含我方报价、中标价、项目估值、毛利率与预算，SHALL NOT 含任何供应商名称或邮箱。招标身份（招标编号、采购方名称、截标日期、精确交货地址）与招标要求原文里恰好和项目名称相同的词，按 `tender/supplier-identity-guard` 处理。
 
 #### Scenario: 分析综合里写着毛利与预算
 - **WHEN** 项目的分析综合在技术要求说明里写着「毛利」「预算」与采购方名称，已确认的要求里没有这些词，生成 `supplier_rfq`
@@ -65,11 +69,11 @@
 - **THEN** 分别是 503 `RFQ_SHEET_RENDER_FAILED`、422 `RFQ_SHEET_TOO_LARGE`；都没有新记录、没有 HTML 文件（同一测试）
 
 ### Requirement: 生成记录与文件名
-生成成功时接口 SHALL 返回 200 与 `document`（含记录 id、标题、版本、文件地址），并写入：一份 PDF 文件；一条生成记录，标题为「询价单-{询价编号} v{版本号}」，版本号 SHALL 为该项目 `supplier_rfq` 类已有记录数加一，同类之前的记录 SHALL 被标为可能过期；一条项目文件记录，文件类型为 PDF。生成记录的元数据 SHALL 记询价编号、起草时刻、起草日期、内容指纹、版式版本与回复截止提前量。响应 SHALL NOT 再带 `fontLimitation` 字段。
+生成成功时接口 SHALL 返回 200 与 `document`（含记录 id、标题、版本、文件地址），并写入：一份 PDF 文件；一条生成记录，标题为「询价单-{询价编号} v{版本号}」，版本号 SHALL 为该项目 `supplier_rfq` 类已有记录数加一，同类之前的记录 SHALL 被标为可能过期；一条项目文件记录，文件类型为 PDF。菜单下载时的文件名 SHALL 为「{标题}.pdf」，因而含询价编号。生成记录的元数据 SHALL 记询价编号、起草时刻、起草日期、内容指纹、版式版本与回复截止提前量，SHALL NOT 记项目名称。响应 SHALL NOT 再带 `fontLimitation` 字段。
 
 #### Scenario: 第二次生成
 - **WHEN** 项目已有一条之前生成的 `supplier_rfq` 记录（标题「国内供应商询价 v1」），再生成一次
-- **THEN** 新记录标题为「询价单-{询价编号} v2」、未过期，旧记录被标为可能过期；存下的文件以 `%PDF-` 开头；元数据里有 64 位十六进制的内容指纹与当前版式版本（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
+- **THEN** 新记录标题为「询价单-{询价编号} v2」、未过期，旧记录被标为可能过期；存下的文件以 `%PDF-` 开头；元数据里有 64 位十六进制的内容指纹与当前版式版本，没有项目名称；菜单用标题拼下载文件名（`sheet-download.test.ts` 源码断言）（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
 
 ### Requirement: 已停用的两类文件
 接口 SHALL 拒绝生成 `tech_confirm`（供应商技术确认表）与 `china_supplier_brief`（国内供应商简报），含简报的预览：返回 400、`errorCode: "DOC_TYPE_RETIRED"` 与说明「「{文件名称}」已停用，请改用「供应商询价单 PDF」。之前生成的文件仍可在列表里打开、下载。」；SHALL NOT 生成任何内容、SHALL NOT 写文件或记录。其它不认识的类型 SHALL 照旧返回 400 与「docType 无效」。请求体里的 `previewOnly`、`includePublicHistoricalAmounts`、`confirmNotes` SHALL 被忽略。
