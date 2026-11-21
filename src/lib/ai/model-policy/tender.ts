@@ -152,7 +152,11 @@ export const TENDER_CALL_MIN_BUDGET_MS = 500;
 /** 一次请求失败后距截止不足这么多：不做同模型重试、不换备用、不做结构化重试。 */
 export const TENDER_RETRY_MIN_BUDGET_MS = 5_000;
 
-/** 调用截止时间已到（或剩余不足以再试一次）。message 不含 timeout / aborted，避免被任何一层判为可重试。 */
+/**
+ * 调用截止时间已到（或剩余不足以再试一次）。
+ * message 不含 timeout / aborted，也不带数字（剩余毫秒数放在 remainingMs 上）：
+ * classifyModelError 按子串判断，「429」这样的数字会被判成可重试。
+ */
 export class TenderCallDeadlineError extends Error {
   readonly code = TENDER_CALL_DEADLINE_CODE;
   readonly remainingMs: number;
@@ -162,7 +166,7 @@ export class TenderCallDeadlineError extends Error {
   readonly requestSent: boolean;
   constructor(remainingMs: number, lastError?: unknown) {
     super(
-      `${TENDER_CALL_DEADLINE_CODE}: 距调用截止剩余 ${Math.max(0, Math.round(remainingMs))}ms，不再请求`,
+      `${TENDER_CALL_DEADLINE_CODE}: 距调用截止的剩余时间不足，不再请求`,
     );
     this.name = "TenderCallDeadlineError";
     this.remainingMs = remainingMs;
@@ -189,7 +193,7 @@ export type TenderCompletionFn = (
  * 400 / schema / auth 不重试。一次 run 内由 createPinnedTenderInvoker 钉住模型。
  *
  * 带 deadlineAt（epoch ms）时（FIX-12）：每一次请求的超时取 min(timeoutMs, deadlineAt − now)；
- * 剩余 < 1s 不发请求；失败后剩余 < 5s 不再同模型重试 / 换备用，抛 TenderCallDeadlineError。
+ * 剩余 < 0.5s 不发请求；失败后剩余 < 5s 不再同模型重试 / 换备用，抛 TenderCallDeadlineError。
  * 不带 deadlineAt 时行为与以前完全相同。
  */
 export async function createTenderCompletion(

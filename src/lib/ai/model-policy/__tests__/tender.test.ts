@@ -4,6 +4,8 @@
 import { OPENAI_BUILTIN, OPENAI_GPT6_ASTRA } from "@/lib/ai/model-registry";
 import { EXTRACT_SYSTEM_PROMPT } from "@/lib/tender-understanding/prompts";
 import { extractionOutputSchema } from "@/lib/tender-understanding/contract";
+import { callStructured } from "@/lib/tender-understanding/llm";
+import { z } from "zod";
 import {
   GPT6_PHASE1_WORKFLOWS,
   QUALITY_FIRST_ROLES,
@@ -21,6 +23,7 @@ import {
   TENDER_PRIMARY_WHEN_ENABLED,
   TENDER_WORKFLOW,
   createPinnedTenderInvoker,
+  TENDER_CALL_DEADLINE_CODE,
   createTenderCompletion,
   classifyModelError,
   isTenderCallDeadlineError,
@@ -453,6 +456,13 @@ async function deadlineCases() {
     classifyModelError(new TenderCallDeadlineError(0, new Error("Request was aborted."))) === "non_retryable",
     "DL-08 截止错误分类为 non_retryable",
   );
+  // 剩余毫秒数里带「429」也不得被判成可重试（文案不带数字）
+  expect(
+    [429, 1429, 4290].every(
+      (ms) => classifyModelError(new TenderCallDeadlineError(ms, new Error("Request was aborted."))) === "non_retryable",
+    ),
+    "DL-08 剩余毫秒数含 429 的截止错误仍是 non_retryable",
+  );
   // DL-09 钉住模型的 invoker 透传截止时间
   {
     const m = scripted([{ latencyMs: Number.POSITIVE_INFINITY }]);
@@ -469,6 +479,47 @@ async function deadlineCases() {
       "DL-09 pinned invoker 透传 deadlineAt：超时 20s、截止后零重试",
     );
     expect(inv.snapshot().activeModel === terraPolicy.model, "DL-09 截止失败不改钉住的模型");
+  }
+  // DL-12 结构化输出层 → 钉住模型的 invoker 的接线：输出不合格后的那次重试带着「这是重试」，剩余 < 5s 就不发
+  {
+    const strict = z.object({ must: z.string() }); // scripted 的回复是 "{}"，过不了这个 schema
+    const req = {
+      promptName: "p", promptVersion: "v", systemPrompt: "s", userPrompt: "u",
+      maxTokens: 10, timeoutMs: 60_000,
+    };
+    const m = scripted([{ latencyMs: 2_000 }, { latencyMs: 2_000 }]);
+    const inv = createPinnedTenderInvoker({ env: {}, now: m.now, complete: m.complete });
+    const res = await callStructured(inv, { ...req, deadlineAt: m.start + 6_000 }, strict);
+    expect(
+      !res.ok && res.errorCode === TENDER_CALL_DEADLINE_CODE && m.reqs.length === 1,
+      `DL-12 输出不合格后剩余 4s → 结构化重试不发，CALL_DEADLINE_EXCEEDED（请求 ${m.reqs.length}）`,
+    );
+    const m2 = scripted([{ latencyMs: 2_000 }, { latencyMs: 2_000 }]);
+    const inv2 = createPinnedTenderInvoker({ env: {}, now: m2.now, complete: m2.complete });
+    const res2 = await callStructured(inv2, { ...req, deadlineAt: m2.start + 60_000 }, strict);
+    expect(
+      !res2.ok && res2.errorCode === "INVALID_STRUCTURED_OUTPUT" && m2.reqs.length === 2 && m2.reqs[1]!.timeoutMs === 58_000,
+      `DL-12 剩余充足 → 结构化重试照发，超时 = 剩余 58s（请求 ${m2.reqs.length}，第二次超时 ${m2.reqs[1]?.timeoutMs}）`,
+    );
+  }
+  // DL-13 结构化输出层对「请求抛错」的既有规则是不分种类再试一次：400 在模型请求层原样抛出（DL-06），
+  // 到了这一层那次再试因剩余 < 5s 不发，整次调用记为截止（规格「不可重试的错误在模型请求层原样结束」）
+  {
+    const m = scripted([{ latencyMs: 1_000, error: { status: 400, message: "400 invalid_request" } }]);
+    const inv = createPinnedTenderInvoker({ env: {}, now: m.now, complete: m.complete });
+    const res = await callStructured(
+      inv,
+      {
+        promptName: "p", promptVersion: "v", systemPrompt: "s", userPrompt: "u",
+        maxTokens: 10, timeoutMs: 60_000, deadlineAt: m.start + 2_000,
+      },
+      z.object({}).passthrough(),
+    );
+    expect(
+      !res.ok && res.errorCode === TENDER_CALL_DEADLINE_CODE && m.reqs.length === 1 &&
+        res.logs.length === 1 && res.logs[0]!.errorCode === "TRANSIENT_MODEL_ERROR",
+      `DL-13 400 且剩余 1s → 只发一次请求，调用日志记 TRANSIENT_MODEL_ERROR，整次调用以 CALL_DEADLINE_EXCEEDED 结束（请求 ${m.reqs.length}）`,
+    );
   }
 }
 

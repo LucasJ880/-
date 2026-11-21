@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 |---|---|
-| change | `tender-analysis-call-deadline`（新能力 `tender/analysis-slice-budget`，8 条要求、19 个场景） |
+| change | `tender-analysis-call-deadline`（新能力 `tender/analysis-slice-budget`，8 条要求、21 个场景——合并前复审补了 2 个，见 §5） |
 | TASKFLOW | FIX-12（Phase F（续）— 生产实测修复，2026-11-20） |
 | 来源 | Evan 2026-11-20 生产实测「12-3 Indoor Canadian Flag」（Job 09:27 创建）：一键分析第 3 步 09:46:29、09:54:29 两次 504「Task timed out after 300 seconds」；11-19「12-01」Job 的「长时间没有进展」（`stale_running_exhausted`）同一根因 |
 | 拍板 | 四件套 Lucas 2026-11-20 同意；截止失败计入 3 次上限同意；窗口门槛 45 → 80 秒为 Lucas 建议、本次采纳（design D8） |
@@ -78,7 +78,7 @@
 | 测试 | 开工前 | 结束 |
 |---|---|---|
 | `v2-slice-deadline.test.ts`（新） | — | 43（SD-01…SD-12） |
-| `model-policy/__tests__/tender.test.ts` | 39 | 55（DL-01…DL-11） |
+| `model-policy/__tests__/tender.test.ts` | 39 | 59（DL-01…DL-13；DL-12、DL-13 与 DL-08 的补充断言是合并前复审加的，见 §5） |
 | 改动涉及模块的其余 26 个已注册测试（model-policy 9 个、tender-understanding 4 个、v2-resumable、worker-budget-guards、t5-p11 / seg2 / seg3、analyst-synthesis、memo-v2、analyst-memo-v1、bid-draft、pricing-helper、rfi-export、bid-fit-usability、search-brief） | 全过 | 全过，通过数不变 |
 
 ## 4. 门禁
@@ -120,6 +120,24 @@
 | | 预算在 [80, 80 + 开销) 秒时窗口永远开不了批（门槛悬崖从 45 移到 80）；旧 cron 认领门槛 45 秒低于窗口门槛 80 秒 | 不改：生产固定 240 秒；只影响测试 / 脚本与吞吐，记入 design D8 的影响面 |
 | | 虚拟时钟测试看不到 SDK 等待、预检、检查点写入耗时 | 不改：这些在 `complete` 注入口之下，属于上面的观察项；测试覆盖的是本次改动的重试链 |
 
+### 合并前独立复审（2026-11-21，接手的新会话）
+
+合并前又并行派了三个子 agent 独立复审（正确性与回归、时序、规格—代码—测试一致性与硬纪律），只给 diff 与四件套、不给结论。三份结论都是**没有阻断项**；逐条核实后的处理：
+
+| 意见 | 处理 |
+|---|---|
+| 规格「不可重试的错误原样结束」只在模型请求层成立：400 且剩余不足 5 秒时，结构化输出层按既有规则（请求抛错不分种类再试一次）去再试，那次再试因剩余不足不发，整次调用记为 `CALL_DEADLINE_EXCEEDED`（读代码与探针脚本核实属实；后果是该窗口记一次失败并让出，下一切片重跑时 400 会照常暴露） | **已修（规格）**：Requirement 措辞收窄到模型请求层，写明结构化输出层的结果；补场景与测试 DL-13 |
+| 规格「切片从开始到让出不超过预算加安全余量」说「在任何模型响应时长下」，但 openai SDK 6.32.0 在服务端限流应答后的等待不看中止信号、对 `retry-after` 不封顶（两个子 agent 各自用本地服务实测：中止 1 秒 + `retry-after: 90` → 90.05 秒返回；经真实 `createCompletionDetailed` 截止 1.5 秒 + `retry-after: 4` → 4.01 秒返回）。只会多等一段，不是 design 原先写的两段 | **已修（规格与 design）**：Requirement 写明 SDK 的这一段等待不在保证之内；design 风险条更正为「一段、不封顶」。代码不改，留给 §7 第 1 条的 change（在 `createTenderCompletion` 里让请求与截止赛跑） |
+| 结构化重试的接线没有测试（结构化输出层第二次尝试带「这是重试」→ 钉住模型的 invoker 据此判断剩余时间），DL-05 是手动设的标志 | **已修**：补 DL-12（输出不合格后剩余 4 秒不发、剩余 58 秒照发且超时 58 秒） |
+| 截止报错的文案里带剩余毫秒数，`classifyModelError` 按子串判断，剩余恰好含「429」（429 / 1429 / 4290 毫秒）时会被判成可重试；现有各处都先按错误码识别截止，所以今天不会出错，但注释「不会被任何一层判为可重试」不成立 | **已修**：文案不再带数字（毫秒数仍在 `remainingMs` 上）；DL-08 补三个取值的断言 |
+| `tender.ts` 注释写「剩余 < 1s 不发请求」，常量是 0.5 秒；tasks 2.3 的截止公式与代码 / design D1 不一致；design D5 仍写「45s 门槛」；design D2 说截止错误「不进 `decideTenderRecovery`」，代码是先由它判定 | **已修**（注释与文档措辞） |
+| 落库阶段不受 t+225 秒约束：中文化可以跑到 t+235 秒，其后落库事务配置上限 130 秒（`v2-persist.ts`、`v2-persist-workforce.ts`），事务实际耗时没有实测 | 不改：既有路径，不在本次的重试链里；并入 §7 第 1 条 |
+| 被截止的澄清检查记为未解决后不再重试（窗口会重试）；澄清开工门槛 30 秒、最短超时 15 秒，切片尾部的条目可能永久变成澄清问题 | 不改：规格如此（保守方向）；并入 §7 第 2 条 |
+| 旧 cron 在剩余 ≥ 45 秒时认领第二个分析，但窗口开批现在要 80 秒，那次认领会不做事就让出（不涉及超时；两分钟一次的 cron 会接上） | 不改：并入 §7 第 1 条 |
+| 费用预检在计时器之前（只有带组织与用户的旧管线会走到） | 不改：同上次审查的结论 |
+
+硬纪律一项无新发现：`prisma/`、`vercel.json`、`openspec/specs/**` 无改动；无新增出站、队列、模型调用；测试注入口从请求输入够不着。修订后重跑：`tender.test.ts` 59 / 59、`v2-slice-deadline.test.ts` 43 / 43、`npm run typecheck` 通过、`openspec validate --strict` valid。
+
 ## 6. 上线后
 
 - 合并部署后，「12-01」「12-3」两个项目在项目页「AI 数字员工 · 投标分析」卡片上点「重新分析」（一键分析，走 `/api/cron/agent-runs`）。分析面板里的「重新分析当前投标文件包」走旧的自动分析管线（`/api/cron/tender-auto-analysis`），同样经 `advanceV2Analysis`、同样受本次修复保护，但不是一键分析那条路。
@@ -137,3 +155,4 @@
 
 - `ai.call` 的 `retryCount` 口径：结构化层的重试仍记 0（本报告 §1 写明来源）；要改成递增另开小 change。
 - 门槛 80s 是按 Lucas 给的 17–73s 定的；上线后看 `call_deadline` 让出与窗口耗时分布再调。
+- 合并前复审（§5 末）核实的补充，写第 1 条那个 change 时一并处理：在 `createTenderCompletion` 里让请求与截止赛跑（盖住 SDK 按 `retry-after` 的等待）；落库事务的时限；旧 cron 认领第二个分析的门槛（45 秒）与窗口开批门槛（80 秒）对齐。复审还核对出第 1 条里两处说法不属实：`processQueuedAgentRuns` 的用时是算进截止的（截止锚在请求开始，`cron/agent-runs/route.ts`）；旧 cron 的各个分析共用一个截止，不是各有 240 秒（`worker.ts`）。

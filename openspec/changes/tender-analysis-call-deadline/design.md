@@ -41,7 +41,7 @@
 
 ### D2 只在招标模型调用层看时钟，`callStructured` 只认一个带类型的「截止」错误
 
-`createTenderCompletion` 是唯一读时钟、算超时、决定要不要再请求的地方：发起前剩余 < 0.5s 不发（低于 `callTimeoutFor` 的 1 秒下限，保证小预算下首次请求不会因为过去了几毫秒就被拒）；可重试的失败后、或结构化层的重试前剩余 < 5s 抛 `TenderCallDeadlineError`（`code = "CALL_DEADLINE_EXCEEDED"`）而不进入 `decideTenderRecovery`。`callStructured` 捕到这个错误（按 `code` 识别）就记日志、以 `CALL_DEADLINE_EXCEEDED` 返回，不做 transient 重试；结构化不合格后的第二次尝试照常调 invoker，由 invoker 在剩余不足时抛同一个错误。
+`createTenderCompletion` 是唯一读时钟、算超时、决定要不要再请求的地方：发起前剩余 < 0.5s 不发（低于 `callTimeoutFor` 的 1 秒下限，保证小预算下首次请求不会因为过去了几毫秒就被拒）；可重试的失败后、或结构化层的重试前剩余 < 5s 抛 `TenderCallDeadlineError`（`code = "CALL_DEADLINE_EXCEEDED"`），不再做同模型重试或换备用（先由 `decideTenderRecovery` 判定：它判为不可重试的错误照旧原样抛出、不改写成截止；可重试的才看剩余时间）。`callStructured` 捕到这个错误（按 `code` 识别）就记日志、以 `CALL_DEADLINE_EXCEEDED` 返回，不做 transient 重试；结构化不合格后的第二次尝试照常调 invoker，由 invoker 在剩余不足时抛同一个错误。
 
 - 否决：在 `createCompletionDetailed` 里统一做截止。它是全平台共用的入口（聊天、报价、销售……），改它的影响面远超本次。
 - 否决：`callStructured` 自己也读 `Date.now()` 判截止。两处时钟要保持一致，测试里的虚拟时钟要注入两遍；而且测试用的假 invoker 会被误判。
@@ -66,7 +66,7 @@
 
 窗口批次、澄清、Analyst 任一遍拿到 `CALL_DEADLINE_EXCEEDED` 后：照既有语义记下结果 → 写检查点 → `yieldNow(phase, "call_deadline")`。
 
-- 否决：记下后 `continue` 回循环顶部交给 `canStartPhase` 判断。生产预算下结果相同（剩余约 15s < 45s 门槛），但小预算环境里门槛退化为 10s，会接着开一批只有 1 秒超时的请求，必然再撞截止，白白多一次检查点写入与调用。
+- 否决：记下后 `continue` 回循环顶部交给 `canStartPhase` 判断。生产预算下结果相同（剩余约 15s，低于开批门槛——D8 之前 45s、之后 80s），但小预算环境里门槛退化为 10s，会接着开一批只有 1 秒超时的请求，必然再撞截止，白白多一次检查点写入与调用。
 
 ### D6 落库前的中文化用它自己的截止时间
 
@@ -116,7 +116,7 @@
 - [5 秒阈值让「剩 6 秒时换备用」仍会发生，备用大概率被中止] → 有界（不越过截止），只多一次短请求；阈值是常量，生产观测后可调。
 - [不传截止时间的调用方仍是旧行为，最坏 4× 超时] → 它们不在 300 秒硬超时的切片里；本次 Non-Goals 已列明。
 - [测试注入口出现在生产代码里] → 两个可选参数，缺省即原实现，注释标 `@internal`；不在任何 API 上暴露（多维审查核对过两个生产入口都不传）。
-- [SDK 重试之间的等待不看 signal，一次请求可能比截止多出两段 `retry-after`] → 调用截止（t+225s）到平台硬超时（300s）还有约 75 秒，盖得住两段常见的等待；对招标请求关掉 SDK 重试会让限流时直接换 sol、改变模型用法，不在本次范围。报告 §7 记为后续观察项。
+- [SDK 重试之间的等待不看 signal，一次请求可能比截止多出一段 `retry-after`（合并前复审实测更正：本方中止之后只会再睡一次，不是两段；openai 6.32.0 对 `retry-after` 不封顶，中止 1 秒 + `retry-after: 90` → 90.05 秒才返回）] → 调用截止（t+225s）到平台硬超时（300s）还有约 75 秒，SDK 自己的退避不超过 8 秒，只有服务端给出约 70 秒以上的 `retry-after` 才会越过 300 秒；规格「切片从开始到让出不超过预算加安全余量」已写明这一段等待不在保证之内；对招标请求关掉 SDK 重试会让限流时直接换 sol、改变模型用法，不在本次范围。报告 §7 记为后续观察项。
 - [切片之外仍可能越过 300 秒的路径（同一次调用里的第二个任务不看截止、落库事务、旧 cron 的收尾步骤）] → 都是既有的、不在本次的重试链里；另开任务（报告 §7）。
 
 ## Migration Plan
