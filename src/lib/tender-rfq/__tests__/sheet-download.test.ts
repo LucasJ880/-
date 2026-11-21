@@ -61,7 +61,7 @@ console.log("rfq sheet download");
   if (r.ok) {
     ok(r.doc.lineItems.map((i) => i.requirementCode).join(",") === "R-001,R-002,R-003", "只收已确认的供应商侧要求（保险类与未确认的不进）", r.doc.lineItems.map((i) => i.requirementCode));
     ok(r.doc.buyerDisplayName === "Fixture Purchasing" && r.replyLeadDays === 5 && r.doc.replyBy === "2026-11-30", "发件抬头与回复截止提前量取组织询价设置", { name: r.doc.buyerDisplayName, replyBy: r.doc.replyBy });
-    ok(r.doc.incoterm === null && r.doc.scopeNote === null && r.doc.quantityTiers === null && r.doc.questions.every((q) => !q.text.includes("FSC")), "发起人填写项与贸易条款为空");
+    ok(r.doc.incoterm === null && r.doc.scopeNote === null && r.doc.quantityTiers === null && r.doc.questions.length === 5 && r.doc.questions.every((q) => /^(以下强制要求|各数量档|收到订单后|报价有效期|可提供的认证)/.test(q.text)), "发起人填写项与贸易条款为空（问题清单只有固定的 5 条，没有附加问题）", r.doc.questions.map((q) => q.text.slice(0, 8)));
     ok(r.doc.destination === "Ottawa, ON", "目的地只取分析地点里的「城市, 省」", r.doc.destination);
     ok(r.doc.reference === REF && r.draftedAt === NOW.toISOString() && r.draftedOn === "2026-11-19", "询价编号、起草时刻与起草日期");
     const html = renderRfqAttachmentHtml(r.doc, { draftedOn: r.draftedOn });
@@ -168,7 +168,7 @@ function sourceChecks() {
   const branchStart = gen.indexOf('input.docType === "supplier_rfq"');
   const branchEnd = gen.indexOf("db.project.findUnique", branchStart);
   const branch = branchStart >= 0 && branchEnd > branchStart ? gen.slice(branchStart, branchEnd) : "";
-  ok(branch.includes("buildProjectRfqSheet") && branch.includes("persistGeneratedFile") && branch.includes("return"), "供应商询价单在读项目名称 / 描述 / 情报摘要的查询之前就返回，走询价单生成与专用落库", { branchStart, branchEnd });
+  ok(/const sheet = await buildProjectRfqSheet\(\{ projectId: input\.projectId, now: input\.now \}\);\s*return persistGeneratedFile\(/.test(branch) && branch.indexOf("return persistGeneratedFile(") < branch.indexOf("const docType = input.docType;"), "供应商询价单在读项目名称 / 描述 / 情报摘要的查询之前就返回：先排版并检查，再走专用落库", { branchStart, branchEnd });
   ok(!/buildProjectAiContextBlock|project\.name|project\.description|readAnalystSynthesis|renderHtmlToPdf|html_fallback/.test(branch), "供应商询价单的生成路径不拼接项目 AI 上下文、项目名称、项目描述，不读分析综合，不走会回落 HTML 的转换");
   ok((gen.match(/input\.docType === "supplier_rfq"/g) ?? []).length === 1 && !/"tech_confirm"|"china_supplier_brief"|supplierFacing/.test(gen), "生成代码里供应商询价单只有那一个分支；两类已停用的类型与旧的供应商侧文本路径不再出现", (gen.match(/input\.docType === "supplier_rfq"/g) ?? []).length);
   ok(!/projectName|addendumFingerprint/.test(branch) && branch.includes("contentHash: sheet.contentHash") && branch.includes("reference: sheet.reference") && branch.includes("rfqSheetRecordTitle(sheet.reference, version)"), "询价单记录的元数据记询价编号与内容指纹，不记项目名称；标题带询价编号");
@@ -183,11 +183,20 @@ function sourceChecks() {
   ok(!/process\.env/.test(svc) && !/process\.env/.test(pure), "没有开关：生成模块不读环境变量");
 
   const route = code("src/app/api/projects/[id]/generate-pdf/route.ts");
-  ok(route.includes("SupplierRfqSheetError") && route.includes("SupplierIdentityLeakError") && route.includes("retiredDocTypeMessageZh") && !/previewOnly|confirmNotes|includePublicHistoricalAmounts|fontLimitation/.test(route), "接口：映射询价单的不生成情形与已停用类型；不再读预览 / 备注 / 历史金额，响应不再带 fontLimitation");
+  ok(!/previewOnly|confirmNotes|includePublicHistoricalAmounts|fontLimitation/.test(route), "接口：不再读预览 / 备注 / 历史金额，响应不再带 fontLimitation");
+  // 隔离库端到端在没有隔离库的环境里会跳过，这几条把接口的映射从结构上钉住
+  ok(/if \(e instanceof SupplierRfqSheetError\) \{\s*return NextResponse\.json\(\{ error: e\.message, errorCode: e\.errorCode \}, \{ status: e\.status \}\);/.test(route), "接口：询价单没有生成 → 按异常自带的状态码、错误码与说明回（不落到 500）");
+  ok(/if \(e instanceof SupplierIdentityLeakError\) \{\s*return NextResponse\.json\(\{ error: e\.message, errorCode: e\.errorCode \}, \{ status: 422 \}\);/.test(route), "接口：招标身份命中 → 422");
+  ok(/const retiredMessage = retiredDocTypeMessageZh\(docTypeRaw\);\s*if \(retiredMessage\) \{\s*return NextResponse\.json\(\{ error: retiredMessage, errorCode: "DOC_TYPE_RETIRED" \}, \{ status: 400 \}\);/.test(route) && route.indexOf("if (retiredMessage)") < route.indexOf("if (!isProjectPdfDocType(docTypeRaw)") && route.indexOf("requireProjectWriteAccess(request, projectId)", route.indexOf("export const POST")) < route.indexOf("if (retiredMessage)"), "接口：已停用类型在鉴权之后、白名单判断之前回 400 DOC_TYPE_RETIRED");
+  {
+    const gd = gen.slice(gen.indexOf("async function recordGeneratedFile"));
+    ok(/where: \{ projectId: input\.projectId, docType: input\.docType, stale: false \},\s*data: \{ stale: true \}/.test(gd) && /count\(\{ where: \{ projectId: target\.projectId, docType: target\.docType \} \}\)\) \+ 1/.test(gen), "落库：只把同一项目同一类的旧记录标为可能过期；版本号数同类全部记录（含已过期的）");
+  }
 
   ok(isProjectPdfDocType("supplier_rfq") && !isProjectPdfDocType("tech_confirm") && !isProjectPdfDocType("china_supplier_brief") && (PROJECT_PDF_DOC_TYPES as readonly string[]).length === 6, "白名单：留 supplier_rfq，去掉两类已停用的", PROJECT_PDF_DOC_TYPES);
   ok(Object.keys(RETIRED_PROJECT_PDF_DOC_TYPES).sort().join(",") === "china_supplier_brief,tech_confirm", "已停用类型表");
   ok(retiredDocTypeMessageZh("tech_confirm") === "「供应商技术确认表」已停用，请改用「供应商询价单 PDF」。之前生成的文件仍可在列表里打开、下载。" && retiredDocTypeMessageZh("china_supplier_brief") === "「国内供应商简报」已停用，请改用「供应商询价单 PDF」。之前生成的文件仍可在列表里打开、下载。" && retiredDocTypeMessageZh("supplier_rfq") === null && retiredDocTypeMessageZh("nope") === null, "已停用的说明：写明改用哪一项、旧文件还在");
+  ok(["constructor", "__proto__", "toString", "hasOwnProperty", ""].every((k) => retiredDocTypeMessageZh(k) === null), "已停用类型表不认对象原型上的名字");
 
   const menu = code("src/components/project-generate/project-generate-menu.tsx");
   ok(menu.includes('{ docType: "supplier_rfq", label: "供应商询价单 PDF" }') && !/tech_confirm|china_supplier_brief|国内供应商询价 PDF|China Brief/.test(menu), "菜单：有「供应商询价单 PDF」，没有两类已停用的");

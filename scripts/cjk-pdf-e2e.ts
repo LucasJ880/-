@@ -16,6 +16,8 @@ import { join } from "node:path";
 import { db } from "@/lib/db";
 import { generateProjectDocument } from "@/lib/projects/generate/generate-docs";
 import { extractText } from "unpdf";
+import { SupplierRfqSheetError } from "@/lib/tender-rfq/sheet-download";
+import { SupplierIdentityLeakError } from "@/lib/bid-workflow/project-identity-deny";
 
 let pass = 0;
 let fail = 0;
@@ -90,6 +92,20 @@ async function main() {
       fileRow?.fileType === "pdf",
       `E2E[${docType}]-03: 项目文件列表登记为 pdf（实得 ${fileRow?.fileType}）`,
     );
+  }
+
+  // RFQ-PDF-1：供应商询价单走真实 Chromium（不回落 HTML）。快照里的项目没有已确认的供应商侧要求时跳过并写明原因。
+  try {
+    const row = await generateProjectDocument({ projectId: project.id, orgId: project.orgId, userId: project.ownerId, docType: "supplier_rfq" });
+    const meta = JSON.parse((row as { metaJson?: string }).metaJson ?? "{}");
+    const bytes = readLocalBlob((row as { blobUrl: string }).blobUrl);
+    ok(
+      meta.renderMode === "chromium_pdf" && bytes.subarray(0, 5).toString("latin1").startsWith("%PDF-") && /\/BaseFont\s*\/(?:[A-Z]{6}\+)?NotoSansSC/.test(bytes.toString("latin1")) && /^[0-9a-f]{64}$/.test(String(meta.contentHash)),
+      `E2E[supplier_rfq]-05: 询价单为真 PDF、内嵌 Noto Sans SC、记了内容指纹（${meta.pages} 页，${bytes.length} bytes）`,
+    );
+  } catch (e) {
+    if (e instanceof SupplierRfqSheetError || e instanceof SupplierIdentityLeakError) console.log(`  ⏭  E2E[supplier_rfq]: 跳过——${e.message}`);
+    else throw e;
   }
 
   // 降级安全：Chromium 不可用 → 回落 HTML + 显式标注（绝不阻塞、绝不存坏字节）

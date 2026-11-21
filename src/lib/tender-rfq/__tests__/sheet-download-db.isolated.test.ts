@@ -41,7 +41,14 @@ async function main() {
     chrome: process.env.CHROME_EXECUTABLE_PATH,
     flag: process.env.TENDER_RFQ_ATTACHMENT_ENABLED,
     allow: process.env.TENDER_RFQ_ATTACHMENT_ORG_ALLOWLIST,
+    fromName: process.env.TENDER_RFQ_FROM_NAME,
+    fromEmail: process.env.TENDER_RFQ_FROM_EMAIL,
+    mailbox: process.env.TENDER_RFQ_MAILBOX_EMAIL,
   };
+  // 询价设置在组织没配置时会回落到这三个环境变量：清掉，免得本机环境改变「默认值」那一段的结果
+  delete process.env.TENDER_RFQ_FROM_NAME;
+  delete process.env.TENDER_RFQ_FROM_EMAIL;
+  delete process.env.TENDER_RFQ_MAILBOX_EMAIL;
   process.env.PRODUCT_CONTENT_LOCAL_STORE = "1";
   process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR = blobDir;
   // 本地存储模式每个文件旁边有一份 .meta.json，不算文件本身
@@ -55,6 +62,7 @@ async function main() {
   const { __setRfqAttachmentPdfRendererForTest } = await import("../attachment-service");
   const { RFQ_ATTACHMENT_TEMPLATE_VERSION } = await import("../attachment");
   const { RFQ_SHEET_FAILURES } = await import("../sheet-download");
+  const { SupplierIdentityLeakError } = await import("@/lib/bid-workflow/project-identity-deny");
   const { TENDER_SEND_RFQ_TYPE } = await import("../types");
   type Payload = import("../types").TenderSendRfqPayload;
   const route = await import("@/app/api/projects/[id]/generate-pdf/route");
@@ -117,7 +125,8 @@ async function main() {
   ];
   const FED_LOCATION = "Delivery to 2 Constellation Crescent, Ottawa, ON K1A 0K9";
   const FED = { name: "Sleeping Bags and Mats", solicitationNumber: "24062-27-057", clientOrganization: "Treasury Board of Canada Secretariat", closeDate: "2026-12-05T19:00:00Z", criticalFacts: { location: { status: "KNOWN", text: FED_LOCATION } } };
-  const FED_NOW = new Date("2026-11-19T15:00:00Z");
+  // UTC 已是 11-19、多伦多还是 11-18：起草日期按组织时区才会得到 11-18
+  const FED_NOW = new Date("2026-11-19T03:30:00Z");
 
   const genDocs = (projectId: string) => db.projectGeneratedDocument.findMany({ where: { projectId }, orderBy: { createdAt: "asc" } });
   const fileDocs = (projectId: string) => db.projectDocument.findMany({ where: { projectId } });
@@ -184,7 +193,7 @@ async function main() {
     const htmlFed = lastHtml();
     const metaFed = JSON.parse((rowFed as { metaJson?: string | null }).metaJson ?? "{}") as Record<string, unknown>;
     ok(!!payload?.attachment && metaFed.contentHash === payload.attachment.contentHash && htmlFed === attachmentHtml, "同一项目、同一时刻：询价单文件与询价附件的渲染内容逐字节相同，内容指纹相同", { sheet: metaFed.contentHash, attachment: payload?.attachment?.contentHash });
-    ok(!!payload && metaFed.reference === payload.attachment?.draft.reference && payload.items.every((i) => i.subject.includes(String(metaFed.reference))) && metaFed.draftedOn === "2026-11-19", "询价单文件与询价邮件用同一个询价编号；起草日期按组织时区", metaFed);
+    ok(!!payload && metaFed.reference === payload.attachment?.draft.reference && payload.items.every((i) => i.subject.includes(String(metaFed.reference))) && metaFed.draftedOn === "2026-11-18" && metaFed.draftedAt === FED_NOW.toISOString() && htmlFed.includes("2026-11-18") && !htmlFed.includes("2026-11-19"), "询价单文件与询价邮件用同一个询价编号；起草日期按组织时区（UTC 11-19 03:30 = 多伦多 11-18）", metaFed);
     ok(htmlFed.includes(String(metaFed.reference)) && htmlFed.includes("询价单 / 符合性确认表") && htmlFed.includes("目的地 Ottawa, ON") && !["24062-27-057", "Treasury Board", "Sleeping Bags and Mats", "2026-12-05", "Constellation", "K1A"].some((x) => htmlFed.includes(x)), "联邦标：有标题与询价编号，没有招标编号、采购方、项目名称、截标日期与精确地址，目的地为 Ottawa, ON");
     const cardsBefore = await db.pendingAction.count({ where: { orgId: ORG } });
     const roundsBefore = await db.projectInquiry.count({ where: { projectId: pFed } });
@@ -192,6 +201,19 @@ async function main() {
     ok((await db.pendingAction.count({ where: { orgId: ORG } })) === cardsBefore && (await db.projectInquiry.count({ where: { projectId: pFed } })) === roundsBefore, "附件开关打开时生成询价单文件：同样不建轮次、不建审批卡");
     delete process.env.TENDER_RFQ_ATTACHMENT_ENABLED;
     delete process.env.TENDER_RFQ_ATTACHMENT_ORG_ALLOWLIST;
+    // 同一项目已生成两次：版本号 1、2，只有最新一条未过期；再来一次是 3
+    await generateProjectDocument({ projectId: pFed, orgId: ORG, userId: OWNER, docType: "supplier_rfq", now: FED_NOW });
+    const fedRows = await genDocs(pFed);
+    ok(same(fedRows.map((r) => [r.version, r.stale]), [[1, true], [2, true], [3, false]]) && new Set(fedRows.map((r) => r.title)).size === 3, "同一项目生成三次：版本号 1 / 2 / 3，只有最新一条未过期", fedRows.map((r) => [r.title, r.stale]));
+
+    // 模板文字命中（回复截止落在截标当天，既有规则）：经菜单路径同样整份不生成，不启动 PDF 生成、什么都不写
+    {
+      const before = { c: await counts(pFed), renders };
+      let caught: unknown = null;
+      try { await generateProjectDocument({ projectId: pFed, orgId: ORG, userId: OWNER, docType: "supplier_rfq", now: new Date("2026-12-03T15:00:00Z") }); } catch (e) { caught = e; }
+      const hits = caught instanceof SupplierIdentityLeakError ? caught.hits : [];
+      ok(caught instanceof SupplierIdentityLeakError && hits.length > 0 && hits.every((h) => h.category === "close_date" && h.where === "询价附件") && caught.message === "供应商侧文件含招标身份信息（命中：截标日期·询价附件），未生成。" && renders === before.renders && same(await counts(pFed), before.c), "截标前 2 天生成：模板文字命中截标日期·询价附件 → 抛身份命中，PDF 生成函数没被调用，记录与文件都没有变", caught instanceof Error ? caught.message : caught);
+    }
 
     // —— 3. 分析综合里的「毛利」「预算」与采购方带不进来 ——
     const leakyItem = { id: "TR-1", titleZh: "泡沫密度要求（预算内）", explanationZh: "Cox Agency 要求密度不低于 50kg/m3；我方毛利空间有限，预算紧。", whyItMattersZh: "不达标即技术不合格。", phase: "TECHNICAL_COMPLIANCE", impact: "BID_REQUIRED", severity: "HIGH", supportingRequirementIds: [], supportingFactIds: [], supportingRiskIds: [] };
@@ -244,8 +266,13 @@ async function main() {
     // —— 7. 第二次生成：版本号接着旧记录算，旧记录标为可能过期 ——
     const pV2 = await mkProject({ name: "Fixture Second Version", reqs: BASE_REQS });
     const oldV1 = await oldRecord(pV2, "supplier_rfq", "国内供应商询价 v1");
+    const otherType = await oldRecord(pV2, "internal_analysis", "内部项目分析 v1");
     const rV2 = await post(pV2, { docType: "supplier_rfq" });
     const rowsV2 = await genDocs(pV2);
+    const metaV2 = JSON.parse(rV2.json.document?.metaJson ?? "{}") as Record<string, unknown>;
+    const blobV2 = blobFiles().find((f) => f.includes(pV2));
+    ok(rowsV2.find((r) => r.id === otherType.id)?.stale === false, "第二次生成：别的类型的记录不受影响（不会被标成可能过期）");
+    ok(!!blobV2 && blobV2.endsWith("supplier_rfq-v2-" + blobV2.split("supplier_rfq-v2-")[1]) && readFileSync(blobV2).subarray(0, 5).toString("latin1") === "%PDF-" && /^[0-9a-f]{64}$/.test(String(metaV2.contentHash)) && metaV2.templateVersion === RFQ_ATTACHMENT_TEMPLATE_VERSION && !("projectName" in metaV2), "第二次生成：存下的文件以 %PDF- 开头、路径带 v2；元数据有内容指纹与版式版本，没有项目名称", { blobV2, metaV2 });
     ok(rV2.status === 200 && /^询价单-RFQ-SUNNY-2026-[0-9A-Z]{5} v2$/.test(rV2.json.document?.title ?? "") && rV2.json.document?.version === 2 && rV2.json.document?.stale === false && rowsV2.find((r) => r.id === oldV1.id)?.stale === true && rowsV2.find((r) => r.id === oldV1.id)?.title === "国内供应商询价 v1", "第二次生成：新记录「询价单-{询价编号} v2」未过期，旧记录标为可能过期、标题不动", rowsV2.map((r) => [r.title, r.stale]));
 
     // —— 8. 项目所属组织没有保存过询价设置：用默认值照常生成 ——
@@ -274,7 +301,9 @@ async function main() {
     const listedIds = listed.json.documents.map((d) => d.id);
     ok(listed.status === 200 && listedIds.includes(oldTech.id) && listedIds.includes(oldBrief.id) && listed.json.documents.find((d) => d.id === oldTech.id)?.title === "供应商技术确认表 v1" && listed.json.documents.every((d) => !!d.fileUrl), "列表里仍有之前生成的两类旧记录，标题不变、带文件地址", listed.json.documents.map((d) => [d.docType, d.title]));
     const listedV2 = await list(pV2);
-    ok(listedV2.json.documents.length === 2 && listedV2.json.documents.some((d) => d.title === "国内供应商询价 v1"), "旧版询价文件的记录也仍在列表里");
+    ok(listedV2.json.documents.length === 3 && listedV2.json.documents.some((d) => d.title === "国内供应商询价 v1"), "旧版询价文件的记录也仍在列表里");
+    const briefListed = listed.json.documents.find((d) => d.id === oldBrief.id);
+    ok(briefListed?.title === "China Supplier Sourcing Brief v1" && briefListed.fileUrl === "/api/files/blob?pathname=old-china_supplier_brief.pdf" && listed.json.documents.find((d) => d.id === oldTech.id)?.fileUrl === "/api/files/blob?pathname=old-tech_confirm.pdf", "旧记录的标题与文件地址原样不变", listed.json.documents.map((d) => [d.title, d.fileUrl]));
 
     // —— 10. Chromium 不可用（真实生成函数）：供应商询价单不保存；内部文件照旧回落成 HTML ——
     __setRfqAttachmentPdfRendererForTest(null);
@@ -295,6 +324,9 @@ async function main() {
     restore("CHROME_EXECUTABLE_PATH", prevEnv.chrome);
     restore("TENDER_RFQ_ATTACHMENT_ENABLED", prevEnv.flag);
     restore("TENDER_RFQ_ATTACHMENT_ORG_ALLOWLIST", prevEnv.allow);
+    restore("TENDER_RFQ_FROM_NAME", prevEnv.fromName);
+    restore("TENDER_RFQ_FROM_EMAIL", prevEnv.fromEmail);
+    restore("TENDER_RFQ_MAILBOX_EMAIL", prevEnv.mailbox);
     rmSync(blobDir, { recursive: true, force: true });
     await db.auditLog.deleteMany({ where: { OR: [{ orgId: { in: [ORG, ORG_BARE] } }, { userId: OWNER }] } });
     await db.pendingAction.deleteMany({ where: { orgId: { in: [ORG, ORG_BARE] } } });
