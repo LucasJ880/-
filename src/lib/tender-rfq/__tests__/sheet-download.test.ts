@@ -176,8 +176,9 @@ function sourceChecks() {
 
   const svc = code("src/lib/tender-rfq/sheet-download-service.ts");
   const pure = code("src/lib/tender-rfq/sheet-download.ts");
-  ok(!/tender-analyst|readAnalystSynthesis|project-ai-context|isRfqAttachmentEnabled|requestApproval|createInquiry|sendGmail|google-email/.test(svc + pure), "询价单文件的生成不读分析综合与项目上下文、不读附件开关、不建轮次、不建审批卡、不发信");
-  ok(/select:\s*\{\s*id:\s*true,\s*closeDate:\s*true,\s*org:/.test(svc) && !/name:\s*true|description:\s*true/.test(svc), "只读项目的截标日期与组织设置，不读项目名称与描述");
+  ok(!/tender-analyst|readAnalystSynthesis|project-ai-context|isRfqAttachmentEnabled|requestApproval|createInquiry|sendGmail|google-email/.test(svc + pure), "询价单文件的生成不读分析综合与项目上下文、不读附件开关、不调用建轮次 / 建审批卡 / 发信的函数");
+  ok(/import \{ loadRfqRequirementInputs \} from "\.\/service";/.test(svc) && (svc.match(/from "\.\/service"/g) ?? []).length === 1, "从起草询价的模块只引入读要求与关键事实的那一个函数");
+  ok(/select:\s*\{\s*id:\s*true,\s*closeDate:\s*true,\s*org:/.test(svc) && !/name:\s*true|description:\s*true/.test(svc), "本模块自己的查询只取项目的截标日期与组织设置（项目名称只由禁出清单读去做比对，不排进内容）");
   ok(svc.includes("renderCheckedRfqSheet") && code("src/lib/tender-rfq/attachment-service.ts").includes("await renderCheckedRfqSheet("), "菜单询价单与起草询价的附件走同一个排版并检查的函数");
   ok(code("src/lib/tender-rfq/service.ts").includes("rfqTemplateOnlyDocument(doc, input.destination)") && pure.includes("rfqTemplateOnlyDocument(built.doc, null)"), "两边用同一个函数留空招标原文");
   ok(!/process\.env/.test(svc) && !/process\.env/.test(pure), "没有开关：生成模块不读环境变量");
@@ -208,6 +209,7 @@ function sourceChecks() {
     ok((gen.match(/setOpen\(false\)/g) ?? []).length === 1 && /\} catch \(e\) \{\s*setError\(e instanceof Error \? e\.message : "生成失败"\);\s*\}\s*setOpen\(false\);\s*setBusy\(null\);/.test(gen), "菜单：生成结束后无论成败都收起下拉层（收起只有一处，在 try / catch 整个结束之后）");
   }
   ok(/const retired = Object\.prototype\.hasOwnProperty\.call\(RETIRED_PROJECT_PDF_DOC_TYPES, d\.docType\);/.test(menu) && /\{retired \? \(\s*<span className="shrink-0 [^"]*">已停用<\/span>\s*\) : d\.stale \? \(\s*<span className="shrink-0 [^"]*">可能过期<\/span>/.test(menu) && menu.includes('<span className="min-w-0 truncate">{d.title}</span>'), "菜单：列表里两类已停用的旧文件标「已停用」；标记在截断的标题之外（窄屏不会被挤没）");
+  ok(menu.includes("const staleHint = docs.some((d) => d.stale && !Object.prototype.hasOwnProperty.call(RETIRED_PROJECT_PDF_DOC_TYPES, d.docType));"), "菜单：「建议重新生成」的提示不算已停用的旧文件（它们不能再生成）");
   ok(menu.includes("生成供应商询价单、内部分析或同事任务单，自动读取当前项目资料。生成后可直接下载发送。"), "菜单：空状态提示");
   const tab = code("src/components/project-detail/tabs/bid-tab.tsx");
   ok(!/ChinaSupplierBriefPanel|china-supplier-brief-panel/.test(tab) && !existsSync(path.join(root, "src/components/bid-workflow/china-supplier-brief-panel.tsx")), "「标书与报价」页签不再有简报面板，面板文件已删除");

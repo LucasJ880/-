@@ -112,7 +112,8 @@ export function ProjectGenerateMenu({
     setProgressZh(null);
   };
 
-  const staleHint = docs.some((d) => d.stale);
+  // 已停用的旧文件不能再生成，不拿它们来提示「建议重新生成」
+  const staleHint = docs.some((d) => d.stale && !Object.prototype.hasOwnProperty.call(RETIRED_PROJECT_PDF_DOC_TYPES, d.docType));
 
   return (
     <div className="rounded-xl border border-border bg-card-bg p-5">

@@ -101,7 +101,7 @@
 ### D8 清理范围与情报室清单
 
 - 删：`tender-doc-html.ts` 的 `buildSupplierRfqHtml`、`supplierRfqScanSegments`、`supplierRfqRows`、`supplierHeaderBlock`、`SupplierDocHeader`、`SUPPLIER_RFQ_TITLE`、`htmlToText`（只被前者与测试使用；测试里那条「改前的抬头会被拦下」保留，去标签的几行挪进测试）；`china-supplier-brief.ts` 的 `buildChinaSupplierBriefText`、`assertNoForbiddenLeak`、`scrubSensitiveSupplierBriefText` 与相关类型和私有函数；`pdf-common.ts` 的 `sanitizeSupplierFacing`；`generate-docs.ts` 的 `loadChinaBriefFacts`、`assertSupplierDocClean`、两段固定英文模板；`china-supplier-brief-panel.tsx` 整个文件与 `bid-tab.tsx` 里的引用。
-- 改测试：`tender-doc-html.test.ts`（留内部备忘录的用例与「改前的抬头（夹具）过禁出清单」那一条，分析综合版供应商表的用例移除）、`china-supplier-brief.test.ts`（只留敏感词判断的用例；注册表里的名称改为「供应商侧敏感词判断」）、`project-identity-deny.test.ts`（「接上了防护」的调用方名单：去掉 `china-supplier-brief.ts`，加上 `sheet-download-service.ts`）、`cjk-pdf.test.ts`（CJK-GEN-03 改为「旧的文字替换已随旧路径删除」，新增 CJK-GEN-04 断言供应商询价单不走回落，CJK-CFG-03 改为面板文件已删）、`analyst-memo-v1.test.ts`（AM-16c 断言的取证清单随简报移除，这条用例删去，RFQ-PDF-2 把清单并入询价单时在那边加回）、`bid-workflow-phase1.test.ts`（白名单断言改为不含已下线类型）。
+- 改测试：`tender-doc-html.test.ts`（留内部备忘录的用例与「改前的抬头（夹具）过禁出清单」那一条，分析综合版供应商表的用例移除）、`china-supplier-brief.test.ts`（只留敏感词判断的用例；注册表里的名称改为「供应商侧敏感词判断」）、`project-identity-deny.test.ts`（「接上了防护」的调用方名单：去掉 `china-supplier-brief.ts` 与 `generate-docs.ts`（它不再直接调用防护），加上 `sheet-download-service.ts`）、`cjk-pdf.test.ts`（CJK-GEN-03 改为「旧的文字替换已随旧路径删除」，新增 CJK-GEN-04 断言供应商询价单不走回落，CJK-CFG-03 改为面板文件已删）、`analyst-memo-v1.test.ts`（AM-16c 断言的取证清单随简报移除，这条用例删去，RFQ-PDF-2 把清单并入询价单时在那边加回）、`bid-workflow-phase1.test.ts`（白名单断言改为不含已下线类型）。
 - `scripts/cjk-pdf-e2e.ts`（手工脚本）：把两处已下线类型换成仍存在的内部类型，保证类型检查通过。`scripts/bid-workflow-cotton-iso-fixture.ts` 直接写库造一条旧记录，不动。
 - `start-intelligence.ts`：默认交付物清单删去 `china_supplier_brief`「国内供应商中文 PDF」一项。核实结果：它的 key 就是简报的文件类型，指的是已下线的简报；询价单已由同一清单里的「厂家询价表」代表。只影响之后新建的情报室。
   - 否决：把这一项改成指向询价单——与「厂家询价表」重复成两项。
@@ -121,7 +121,7 @@ PDF 生成沿用既有的 `__setRfqAttachmentPdfRendererForTest`（菜单路径�
 3. 禁止第三套队列：不涉及。同步请求内完成，没有任何排队、调度、认领。
 4. 脱敏：触碰，方向是收紧。AI 分析综合的文字不再进入任何供应商文件；菜单询价单与询价邮件一样过敏感词两档与招标身份检查，命中即整份不生成，不做局部替换（旧的「替换成[已隐藏]」函数删除）。
 5. 不爬登录页：不涉及。
-6. 邮箱分离：不涉及。只读询价设置里的发件抬头与提前量，不读展示发件人与授权邮箱这两个设置（发件抬头是组织自己填的文字，照原样印；里面若写了本组织的邮箱也会印出来，外部邮箱会被格式检查拦下）；RFQ-PDF-2 才印展示发件人。
+6. 邮箱分离：不涉及。询价单的内容只取询价设置里的发件抬头与提前量；展示发件人与授权邮箱这两个设置只被禁出清单读去当「本组织自己的地址」白名单，不印出（发件抬头是组织自己填的文字，照原样印；里面若写了本组织的邮箱也会印出来，外部邮箱会被格式检查拦下）；RFQ-PDF-2 才印展示发件人。
 7. 确定性优先：遵守。零模型调用；内容全部来自已确认的要求与规则。
 8. 测试注册：两个新测试在创建它们的同一条 task 里注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；`bash scripts/check-test-registry.sh` 通过，`ci/test-registry-baseline.txt` 不增。
 
@@ -131,22 +131,22 @@ PDF 生成沿用既有的 `__setRfqAttachmentPdfRendererForTest`（菜单路径�
 - `NODE_ENV=test DATABASE_ENVIRONMENT=isolated … npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`（本机隔离库：内容来源、与附件内容指纹相同、零出站、分析综合带不进来、五种不生成、记录与版本、下线类型、旧记录在列表里、内部文件回落）。
 - 不改期望值通过：`attachment.test.ts`、`build.test.ts`、`round-pure.test.ts`、`web-entry-pure.test.ts`、`auto-draft-pure.test.ts`，隔离库 `attachment-db.isolated.test.ts`、`supplier-identity-guard-db.isolated.test.ts`、`auto-draft-db.isolated.test.ts`。
 - 改过断言后通过：D8 列出的六个既有测试。
-- 真实 Chromium 抽检一次：用隔离库里的联邦标样例从菜单路径生成，确认是 PDF、内嵌 Noto Sans SC、页数与同一样例的附件相同；结果写进报告。
+- 真实 Chromium 抽检一次：用联邦标样例经菜单路径的排内容与「排版并检查」两个函数生成（不经数据库、不落库），确认是 PDF、内嵌 Noto Sans SC、页数与同一样例的附件相同；结果写进报告。
 - 门禁：`npm test`（失败项与开工前基线逐项对照）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate supplier-docs-converge --strict`、`git diff origin/main -- prisma/ vercel.json` 为空。
 
 ## Risks / Trade-offs
 
 - [合规取证清单出现空窗] 简报下线后、RFQ-PDF-2 合并前，营业执照 / 工厂照片 / 劳工制度那份清单不在任何生成文件里 → 两个 PR 相继合并；RFQ-PDF-2 的任务书第 6 项把它并入询价单。报告里写明。
-- [内部字段检查的词表很窄] 要求原文、译文、交付要求只过询价单生成规则里那张「只属于我方内部的字段与词」的短表（毛利、利润率、底价、我方预算等），要求编号与数量不过敏感词。人工确认过的要求里若写着「我方报价 98.7 万」「目标毛利 31%」，或数量事实里带金额，会照印——起草询价也是同一张表，不是本次引入，但菜单文件以前不印要求原文，这是新的内容面 → 规格按实际口径写（不另加词表）；扩词表、编号与数量也过检查并入 RFQ-PDF-2（任务书 T2 已要求数量事实过内部字段检查）。
+- [内部字段检查的词表很窄] 要求原文、译文、交付要求只过询价单生成规则里那张「只属于我方内部的字段与词」的短表（毛利、利润率、底价、我方预算等），要求编号与数量不过敏感词。人工确认过的要求里若写着「我方报价 98.7 万」「target margin 31%」，或数量事实里带金额，会照印（带「毛利」「底价」字样的会被拦）——起草询价也是同一张表，不是本次引入，但菜单文件以前不印要求原文，这是新的内容面 → 规格按实际口径写（不另加词表）；扩词表、编号与数量也过检查并入 RFQ-PDF-2（任务书 T2 已要求数量事实过内部字段检查）。
 - [精确地址与截标日期的变体写法绕得过禁出清单] 地点事实缺失时交付事实里的门牌地址、写成「June 5th, 2031」的截标日期不会被拦（CHAIN-4b 的既有口径，与旧路径同一检查）→ 不在本次范围，另开任务。
 - [以前点了就有文件，现在会被拒] 没有已确认要求的项目，旧路径会出一份 7 行英文的文件，现在回 422 → 这是本次的目的；说明里写了去哪里确认。
 - [并发生成] 见 D5：同一项目同一类并发生成可能出现重复版本号与两条「未过期」记录，这是现状，本次接受，不在本 change 里改。
-- [身份命中的说明没有出路] 「供应商侧文件含招标身份信息（命中：…），未生成。」是 CHAIN-4b 定下的句子，位置名「询价附件」在下载场景也不贴切 → 任务书要求沿用既有结果，本次不改；与「回复截止落在截标当天」一起在后续 change 里处理。
+- [身份命中的说明没有出路] 「供应商侧文件含招标身份信息（命中：…），未生成。」是 CHAIN-4b 定下的句子，位置名「询价附件」在下载场景也不贴切 → 任务书要求沿用既有结果，本次不改；与「回复截止落在截标当天」一起并入 RFQ-PDF-2。
 - [部署前打开的页面] 旧菜单项与简报面板还在浏览器里 → D7 的说明指向新菜单项；刷新后消失。
 - [与 #538 改同一个文件] 两边都动 `generate-docs.ts` → 后合并的一方 rebase，两边改动都保留；本次的改动集中在 `supplier_rfq` 分支、三条供应商路径与落库函数，合并前对照 #538 的 diff 逐段核对。
 - [生成多几秒] 询价单要过一次真实 Chromium（实测约 5 秒，冷启动更久） → 路由 `maxDuration` 已是 800 秒，旧路径本来也要转 PDF，耗时相当。
 - [5 MB 上限对下载是否过严] 下载本身不受邮件大小限制 → 任务书要求同一套检查；CHAIN-4a 实测 120 行约 93 KB，离上限很远。
-- [回复截止落在截标当天会被拦] 回复截止的下限是「今天 + 2 天」，截标前 2 天（或把提前量设成 0）时它等于截标日期，模板文字过禁出清单就会命中「截标日期·询价附件」，菜单询价单与起草询价都生成不了 → 这是询价单生成规则里的既有行为，本次只在规格里写明、在测试里固定；根治（回复截止不印成截标当天）要改 `build.ts` 的规则并升版式版本，另开任务。既有的 `attachment-db.isolated.test.ts` 用真实时钟与 2026-12-05 的截标日，2026-12-03 那天会因此失败，同一任务里修。
+- [回复截止落在截标当天会被拦] 回复截止的下限是「今天 + 2 天」，截标前 2 天（或把提前量设成 0）时它等于截标日期，模板文字过禁出清单就会命中「截标日期·询价附件」，菜单询价单与起草询价都生成不了 → 这是询价单生成规则里的既有行为，本次只在规格里写明、在测试里固定；根治（回复截止不印成截标当天）要改 `build.ts` 的规则并升版式版本，并入 RFQ-PDF-2（那里本来就要升一次版式版本；TASKFLOW 的 RFQ-PDF-2 行已写上）。既有的 `attachment-db.isolated.test.ts` 用真实时钟与 2026-12-05 的截标日，2026-12-03 那天会因此失败，同在 RFQ-PDF-2 里修。
 - [D2 触碰起草流程的两个文件] → 输出不变由既有测试不改期望值证明；退路见 D2 的否决项。
 
 ## Migration Plan

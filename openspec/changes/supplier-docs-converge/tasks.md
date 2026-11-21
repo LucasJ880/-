@@ -18,7 +18,7 @@
 
 ## 4. 端到端与收尾
 
-- [x] 4.1 真实 Chromium 抽检：用隔离库里的联邦标样例从菜单路径生成一份，确认以 `%PDF-` 开头、内嵌 Noto Sans SC、页数与同一样例的附件相同、文字层不含招标身份；verify：命令与输出写进报告
+- [x] 4.1 真实 Chromium 抽检：用联邦标样例经菜单路径的排内容与「排版并检查」两个函数生成一份（不经数据库、不落库），确认以 `%PDF-` 开头、内嵌 Noto Sans SC、页数与同一样例的附件相同、文字层不含招标身份；verify：命令与输出写进报告
 - [ ] 4.2 全量门禁：`npm test`（失败项与开工前基线逐项对照）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`openspec validate supplier-docs-converge --strict`；`git diff origin/main -- prisma/ vercel.json` 为空；verify：输出写进报告
 - [ ] 4.3 写 `docs/QINGYAN_RFQ-PDF-1_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`（新增 RFQ-PDF-1、RFQ-PDF-2 两行，状态列如实）；verify：两个文件与 `docs/QINGYAN_RFQ-PDF_TASKBRIEF.md` 都在 PR diff 里
 

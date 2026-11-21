@@ -3,7 +3,7 @@
  *
  * 菜单生成的询价单与发询价时的询价单是同一个生成器（build.ts）、同一个模板（attachment.ts）、同一套检查
  * （attachment-service.ts）。区别只有一处：菜单生成没有发起人，所以发起人填写项（数量阶梯、目的地、范围说明、
- * 附加问题）与贸易条款一律为空。不读 AI 分析综合、项目名称、项目描述与项目 AI 上下文。
+ * 附加问题）与贸易条款一律为空。内容里没有 AI 分析综合、项目描述与项目 AI 上下文（项目名称只进禁出清单做比对，不排进内容）。
  */
 
 import { resolveOrgTimezone } from "@/lib/automation/registry";

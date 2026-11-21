@@ -44,7 +44,7 @@
 
 #### Scenario: 回复截止落在截标当天
 - **WHEN** 在截标前 2 天生成供应商询价单（回复截止按「不早于今天 + 2 天」的既有规则落在截标当天）
-- **THEN** 不生成、不启动 PDF 生成，命中截标日期，位置为「询价附件」（询价单模板文字的位置名）——与起草询价是同一条既有规则，本次不改（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`）
+- **THEN** 不生成、不启动 PDF 生成，命中截标日期，位置为「询价附件」（询价单模板文字的位置名）——与起草询价是同一条既有规则，本次不改（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`；经菜单路径端到端、PDF 生成函数没被调用见 `NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
 
 ### Requirement: 项目名称只在我方撰写的部分比对
 项目名称类词条 SHALL 只在我方撰写的部分里比对：邮件标题、正文里由模板写的句子、发起人填写的栏目（补充说明、目的地、附加问题）、生成文件的抬头与固定文字。项目名称类词条 SHALL NOT 在招标要求的原文与译文、分析的交付要求事实里比对。其余四类词条与格式检查 SHALL 在全部供应商可见内容里比对。
