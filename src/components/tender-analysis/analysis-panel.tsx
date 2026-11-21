@@ -22,6 +22,12 @@ import {
   type AnalystSection,
 } from "./analyst-synthesis-view";
 import type { TenderAnalystSynthesisV1 } from "@/lib/tender-analyst/contract";
+import {
+  PARSE_FAILED_NEXT_STEP_HINT,
+  exclusionReasonWithParseError,
+  hasParseFailedExclusion,
+  parseErrorsByFilename,
+} from "@/lib/tender-auto-analysis/exclusion-text";
 
 /** RFQ-AUTO-2：审核接口响应里的自动起草结果（只取界面用到的类型） */
 type RfqAutoDraftView = RfqAutoDraftResult;
@@ -117,6 +123,8 @@ type CoveragePayload = {
     fileType: string | null;
     parseStatus: string | null;
     exclusionReason: string;
+    /** 解析失败原文（FIX-13）；只有因解析失败被排除的文件有值 */
+    parseError?: string | null;
   }>;
   label: string;
   note: string | null;
@@ -490,11 +498,17 @@ export function TenderAnalysisPanel({
                   </li>
                 ))}
                 {data.coverage.excludedFiles.map((f) => (
-                  <li key={f.filename} className="text-amber-700">
-                    {f.filename} · 未纳入：{f.exclusionReason}
+                  <li key={f.filename} className="text-amber-700 break-words [overflow-wrap:anywhere]">
+                    {f.filename} · 未纳入：
+                    {exclusionReasonWithParseError(f.exclusionReason, f.parseError)}
                   </li>
                 ))}
               </ul>
+              {hasParseFailedExclusion(data.coverage.excludedFiles) ? (
+                <p className="text-amber-700" data-testid="parse-failed-next-step">
+                  {PARSE_FAILED_NEXT_STEP_HINT}
+                </p>
+              ) : null}
             </div>
           ) : packageDocs.length > 0 ? (
             <div className="mt-2 text-xs text-[var(--muted)] space-y-1">
@@ -651,6 +665,9 @@ export function TenderAnalysisPanel({
           section={tab as AnalystSection}
           runStatus={data.run.status}
           onOpenTab={(key) => setTab(key as TabKey)}
+          currentParseErrors={
+            data.coverage ? parseErrorsByFilename(data.coverage.excludedFiles) : undefined
+          }
         />
       ) : null}
 
