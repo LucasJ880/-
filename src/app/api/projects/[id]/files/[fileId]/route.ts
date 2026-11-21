@@ -2,13 +2,19 @@ import { NextResponse } from "next/server";
 import { deleteBlob, blobPathnameFromUrl } from "@/lib/files/blob-access";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { requireProjectReadAccess } from "@/lib/projects/access";
 
 /**
  * DELETE /api/projects/:id/files/:fileId
  * 删除项目文件（同时清理 Blob 存储）
+ *
+ * 需项目读权限（成员/owner/admin），与上传同级。先过权限再查文件：
+ * 与项目无关的人永远得到 403，不能靠 404 / 403 的差别探测文件 ID。
  */
-export const DELETE = withAuth(async (_request, ctx) => {
+export const DELETE = withAuth(async (request, ctx) => {
   const { id: projectId, fileId } = await ctx.params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
 
   const doc = await db.projectDocument.findFirst({
     where: { id: fileId, projectId },
