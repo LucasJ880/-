@@ -29,6 +29,7 @@ npx tsx src/lib/tender-auto-analysis/__tests__/chat-context.test.ts
 npx tsx src/lib/trade/__tests__/chat-attachments.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/v2-slice-deadline.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/document-units.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/alerts.test.ts
 npx tsx src/lib/release/__tests__/drift.test.ts
