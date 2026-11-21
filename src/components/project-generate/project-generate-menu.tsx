@@ -174,19 +174,20 @@ export function ProjectGenerateMenu({
           {docs.slice(0, 8).map((d) => {
             const url = resolveDocUrl(d);
             const filename = d.title.endsWith(".pdf") ? d.title : `${d.title}.pdf`;
+            // RFQ-PDF-1：已停止生成的两类供应商文件，旧文件还能打开，标明不是现在该发的那一份
+            const retired = Object.prototype.hasOwnProperty.call(RETIRED_PROJECT_PDF_DOC_TYPES, d.docType);
             return (
               <li
                 key={d.id}
                 className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-2.5 py-2"
               >
-                <span className="min-w-0 flex-1 truncate">
-                  {d.title}
-                  {d.stale ? (
-                    <span className="ml-1 text-[10px] text-amber-600">可能过期</span>
-                  ) : null}
-                  {/* RFQ-PDF-1：已停止生成的两类供应商文件，旧文件还能打开，标明不是现在该发的那一份 */}
-                  {Object.prototype.hasOwnProperty.call(RETIRED_PROJECT_PDF_DOC_TYPES, d.docType) ? (
-                    <span className="ml-1 text-[10px] text-muted">已停用的旧文件</span>
+                {/* 标题单独截断，标记不参与截断：窄屏上长标题不会把标记挤没 */}
+                <span className="flex min-w-0 flex-1 items-center gap-1">
+                  <span className="min-w-0 truncate">{d.title}</span>
+                  {retired ? (
+                    <span className="shrink-0 text-[10px] text-muted">已停用</span>
+                  ) : d.stale ? (
+                    <span className="shrink-0 text-[10px] text-amber-600">可能过期</span>
                   ) : null}
                 </span>
                 {url ? (

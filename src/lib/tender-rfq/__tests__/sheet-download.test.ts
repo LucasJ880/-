@@ -122,10 +122,10 @@ console.log("rfq sheet download");
   const codes: RfqSheetFailureCode[] = ["NO_CONFIRMED_REQUIREMENTS", "SENSITIVE_LEAK", "RFQ_SHEET_RENDER_FAILED", "RFQ_SHEET_TOO_LARGE"];
   ok(codes.map((c) => RFQ_SHEET_FAILURES[c].status).join(",") === "422,422,503,422", "状态码：内容问题 422，PDF 没生成出来 503");
   ok(RFQ_SHEET_FAILURES.NO_CONFIRMED_REQUIREMENTS.message === "没有已确认且属于供应商侧的要求，先在青砚「招标要求」里逐条确认后再生成询价。", "没有要求：沿用询价单生成器的原句");
-  ok(RFQ_SHEET_FAILURES.SENSITIVE_LEAK.message === "询价内容里有不能发给供应商的内容（如我方价格或内部备注），询价单没有生成，也没有保存文件。请到「招标要求」核对已确认的要求，并看一下询价设置里的发件抬头；页面上改不了的请联系管理员。", "内部财务信息的说明");
+  ok(RFQ_SHEET_FAILURES.SENSITIVE_LEAK.message === "询价单没有生成，也没有保存文件：内容里有不能发给供应商的字样（如毛利、利润率、底价、我方预算）。请到「招标要求」在已确认的要求里找这些字样；组织管理员另请检查「询价与落地价设置」里的「发件显示名」。改不了的请联系管理员。", "内部财务信息的说明");
   ok(RFQ_SHEET_FAILURES.RFQ_SHEET_RENDER_FAILED.message === "询价单 PDF 没能生成，没有保存任何文件。请稍后再试；一直不行请联系管理员。", "PDF 没生成出来的说明");
-  ok(RFQ_SHEET_FAILURES.RFQ_SHEET_TOO_LARGE.message === "询价单 PDF 超过 5 MB，没有保存。通常是已确认的供应商侧要求太多，请联系管理员处理。", "超过 5 MB 的说明");
-  ok(codes.every((c) => !/[A-Z]{3,}_[A-Z_]+|Error|范围说明|自定义问题|「需求」|减少/.test(RFQ_SHEET_FAILURES[c].message)), "说明里没有错误码、异常字样；不把人引去菜单生成没有的栏目，不用界面上没有的叫法（页签叫「招标要求」），不叫人去做页面上做不了的事（减少已确认的要求）");
+  ok(RFQ_SHEET_FAILURES.RFQ_SHEET_TOO_LARGE.message === "询价单 PDF 超过 5 MB，没有保存。通常是要问供应商的已确认要求太多，请联系管理员处理。", "超过 5 MB 的说明");
+  ok(codes.every((c) => !/[A-Z]{3,}_[A-Z_]+|Error|范围说明|自定义问题|「需求」|减少|询价设置|发件抬头/.test(RFQ_SHEET_FAILURES[c].message)), "说明里没有错误码、异常字样；不把人引去菜单生成没有的栏目，不用界面上没有的叫法（页签叫「招标要求」），不叫人去做页面上做不了的事（减少已确认的要求）");
   const e = new SupplierRfqSheetError("RFQ_SHEET_RENDER_FAILED");
   ok(e instanceof Error && e.errorCode === "RFQ_SHEET_RENDER_FAILED" && e.status === 503 && e.message === RFQ_SHEET_FAILURES.RFQ_SHEET_RENDER_FAILED.message, "异常类型带错误码、状态码与说明");
   ok(rfqSheetRenderFailureCode("render_failed") === "RFQ_SHEET_RENDER_FAILED" && rfqSheetRenderFailureCode("too_large") === "RFQ_SHEET_TOO_LARGE", "PDF 检查结果 → 错误码");
@@ -208,7 +208,7 @@ function sourceChecks() {
     const afterCatch = gen.slice(gen.indexOf("} catch (e) {"));
     ok(afterCatch.includes("setOpen(false)") && !gen.slice(0, gen.indexOf("} catch (e) {")).includes("setOpen(false)"), "菜单：生成结束后无论成败都收起下拉层");
   }
-  ok(menu.includes("RETIRED_PROJECT_PDF_DOC_TYPES, d.docType") && menu.includes("已停用的旧文件"), "菜单：列表里两类已停用的旧文件带「已停用的旧文件」");
+  ok(/const retired = Object\.prototype\.hasOwnProperty\.call\(RETIRED_PROJECT_PDF_DOC_TYPES, d\.docType\);/.test(menu) && /\{retired \? \(\s*<span className="shrink-0 [^"]*">已停用<\/span>\s*\) : d\.stale \? \(\s*<span className="shrink-0 [^"]*">可能过期<\/span>/.test(menu) && menu.includes('<span className="min-w-0 truncate">{d.title}</span>'), "菜单：列表里两类已停用的旧文件标「已停用」；标记在截断的标题之外（窄屏不会被挤没）");
   ok(menu.includes("生成供应商询价单、内部分析或同事任务单，自动读取当前项目资料。生成后可直接下载发送。"), "菜单：空状态提示");
   const tab = code("src/components/project-detail/tabs/bid-tab.tsx");
   ok(!/ChinaSupplierBriefPanel|china-supplier-brief-panel/.test(tab) && !existsSync(path.join(root, "src/components/bid-workflow/china-supplier-brief-panel.tsx")), "「标书与报价」页签不再有简报面板，面板文件已删除");

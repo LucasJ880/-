@@ -260,7 +260,7 @@ async function main() {
     ok(rNotPdf.status === 503 && rNotPdf.json.errorCode === "RFQ_SHEET_RENDER_FAILED" && same(await counts(pPdf), cPdf), "输出不是 PDF → 503，什么都没保存", rNotPdf);
     __setRfqAttachmentPdfRendererForTest(async () => Buffer.concat([Buffer.from(`%PDF-1.7\n${FONT}\n`, "latin1"), Buffer.alloc(5 * 1024 * 1024 + 1, 0x20)]));
     const rBig = await post(pPdf, { docType: "supplier_rfq" });
-    ok(rBig.status === 422 && rBig.json.errorCode === "RFQ_SHEET_TOO_LARGE" && rBig.json.error === "询价单 PDF 超过 5 MB，没有保存。通常是已确认的供应商侧要求太多，请联系管理员处理。" && same(await counts(pPdf), cPdf), "超过 5 MB → 422，什么都没保存", { status: rBig.status, json: rBig.json });
+    ok(rBig.status === 422 && rBig.json.errorCode === "RFQ_SHEET_TOO_LARGE" && rBig.json.error === "询价单 PDF 超过 5 MB，没有保存。通常是要问供应商的已确认要求太多，请联系管理员处理。" && same(await counts(pPdf), cPdf), "超过 5 MB → 422，什么都没保存", { status: rBig.status, json: rBig.json });
     __setRfqAttachmentPdfRendererForTest(okRenderer);
 
     // —— 7. 第二次生成：版本号接着旧记录算，旧记录标为可能过期 ——
