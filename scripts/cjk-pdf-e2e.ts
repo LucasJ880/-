@@ -104,7 +104,10 @@ async function main() {
       `E2E[supplier_rfq]-05: 询价单为真 PDF、内嵌 Noto Sans SC、记了内容指纹（${meta.pages} 页，${bytes.length} bytes）`,
     );
   } catch (e) {
-    if (e instanceof SupplierRfqSheetError || e instanceof SupplierIdentityLeakError) console.log(`  ⏭  E2E[supplier_rfq]: 跳过——${e.message}`);
+    // 只有内容原因（没有已确认的要求 / 内部财务信息 / 招标身份）才跳过；PDF 没生成出来或太大正是这一段要抓的，算失败
+    const contentOnly = e instanceof SupplierIdentityLeakError || (e instanceof SupplierRfqSheetError && (e.errorCode === "NO_CONFIRMED_REQUIREMENTS" || e.errorCode === "SENSITIVE_LEAK"));
+    if (contentOnly) console.log(`  ⏭  E2E[supplier_rfq]: 跳过——${(e as Error).message}`);
+    else if (e instanceof SupplierRfqSheetError) ok(false, `E2E[supplier_rfq]-05: 询价单 PDF 没有生成（${e.errorCode}）`);
     else throw e;
   }
 

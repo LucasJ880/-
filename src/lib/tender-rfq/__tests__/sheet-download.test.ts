@@ -205,8 +205,7 @@ function sourceChecks() {
   {
     // 下拉层是浮层，开着会盖住说明：生成结束后无论成败都要收起（收起写在 try / catch 之后，不在 try 里）
     const gen = menu.slice(menu.indexOf("const generate = async"), menu.indexOf("const staleHint"));
-    const afterCatch = gen.slice(gen.indexOf("} catch (e) {"));
-    ok(afterCatch.includes("setOpen(false)") && !gen.slice(0, gen.indexOf("} catch (e) {")).includes("setOpen(false)"), "菜单：生成结束后无论成败都收起下拉层");
+    ok((gen.match(/setOpen\(false\)/g) ?? []).length === 1 && /\} catch \(e\) \{\s*setError\(e instanceof Error \? e\.message : "生成失败"\);\s*\}\s*setOpen\(false\);\s*setBusy\(null\);/.test(gen), "菜单：生成结束后无论成败都收起下拉层（收起只有一处，在 try / catch 整个结束之后）");
   }
   ok(/const retired = Object\.prototype\.hasOwnProperty\.call\(RETIRED_PROJECT_PDF_DOC_TYPES, d\.docType\);/.test(menu) && /\{retired \? \(\s*<span className="shrink-0 [^"]*">已停用<\/span>\s*\) : d\.stale \? \(\s*<span className="shrink-0 [^"]*">可能过期<\/span>/.test(menu) && menu.includes('<span className="min-w-0 truncate">{d.title}</span>'), "菜单：列表里两类已停用的旧文件标「已停用」；标记在截断的标题之外（窄屏不会被挤没）");
   ok(menu.includes("生成供应商询价单、内部分析或同事任务单，自动读取当前项目资料。生成后可直接下载发送。"), "菜单：空状态提示");
