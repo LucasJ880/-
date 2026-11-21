@@ -4,7 +4,11 @@
 
 import { db } from "@/lib/db";
 import { readBlobBuffer } from "@/lib/files/blob-access";
-import { decodeTextFile, toStorableText } from "@/lib/files/extracted-text";
+import {
+  decodeTextFile,
+  toStorableParseError,
+  toStorableText,
+} from "@/lib/files/extracted-text";
 import { PARSE_VERSION } from "./constants";
 import { sha256Content } from "./hash";
 import {
@@ -98,7 +102,7 @@ function classifyPageText(raw: string): {
 function sanitizeParseError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
   // 截到 500 字之后再清理：报错文字本身也可能带 U+0000，截断也可能劈开代理对（FIX-13）
-  return toStorableText(msg.replace(/[\r\n\t]+/g, " ").slice(0, 500));
+  return toStorableParseError(msg.replace(/[\r\n\t]+/g, " "));
 }
 
 /**
@@ -327,7 +331,7 @@ export async function parseDocumentPagesAndStore(
         where: { id: documentId },
         data: {
           parseStatus: "failed",
-          parseError: nonPdf.error,
+          parseError: toStorableParseError(nonPdf.error),
           parseVersion: PARSE_VERSION,
           contentHash,
           pageCount: null,

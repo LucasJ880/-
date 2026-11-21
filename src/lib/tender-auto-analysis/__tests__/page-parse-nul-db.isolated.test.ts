@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
+import { LINE_A, LINE_B, buildCheckboxPdf } from "./fixtures/nul-pdf";
 
 function skip(reason: string): never {
   console.log(`⏭  跳过 FIX-13 解析 U+0000 入库 DB 测试（${reason}）`);
@@ -39,48 +40,6 @@ const NUL = "\u0000";
 const FFFD = String.fromCharCode(0xfffd);
 /** 落单的 UTF-16 代理字符（高位后面不是低位，或低位前面不是高位） */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-
-const LINE_A = "Conflict of interest: if none, check the box.";
-const LINE_B = "The Bidder declares that no conflict exists.";
-
-/**
- * 手写最小 PDF（PDF 1.3）。/F1 = Helvetica；/F2 = Type0 / SymbolMT / Identity-H，
- * 后代字体 CIDFontType2 只有 FontDescriptor——没有嵌入字体、没有 ToUnicode，
- * 所以 unpdf 把 <0000> 抽成 U+0000（与附录 B 的勾选框同一机理）。
- */
-function buildPdf(pageStreams: string[]): Buffer {
-  const objs: string[] = [];
-  const kids = pageStreams.map((_, i) => `${7 + 2 * i} 0 R`).join(" ");
-  objs[1] = "<< /Type /Catalog /Pages 2 0 R >>";
-  objs[2] = `<< /Type /Pages /Kids [${kids}] /Count ${pageStreams.length} >>`;
-  objs[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
-  objs[4] = "<< /Type /Font /Subtype /Type0 /BaseFont /SymbolMT /Encoding /Identity-H /DescendantFonts [5 0 R] >>";
-  objs[5] = "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /SymbolMT /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 6 0 R /DW 1000 >>";
-  objs[6] = "<< /Type /FontDescriptor /FontName /SymbolMT /Flags 4 /FontBBox [0 0 1000 1000] /ItalicAngle 0 /Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 >>";
-  pageStreams.forEach((s, i) => {
-    objs[7 + 2 * i] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${8 + 2 * i} 0 R >>`;
-    objs[8 + 2 * i] = `<< /Length ${Buffer.byteLength(s, "latin1")} >>\nstream\n${s}\nendstream`;
-  });
-  let out = "%PDF-1.3\n";
-  const offsets: number[] = [];
-  for (let i = 1; i < objs.length; i++) {
-    offsets[i] = Buffer.byteLength(out, "latin1");
-    out += `${i} 0 obj\n${objs[i]}\nendobj\n`;
-  }
-  const xref = Buffer.byteLength(out, "latin1");
-  out += `xref\n0 ${objs.length}\n0000000000 65535 f \n`;
-  for (let i = 1; i < objs.length; i++) out += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
-  out += `trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  return Buffer.from(out, "latin1");
-}
-
-/** 第 1 页：整页只有 U+0000；第 2 页：勾选框式（「…check the box.\n\u0000 The Bidder…」，与附录 B 第 2 页同形） */
-function buildCheckboxPdf(): Buffer {
-  return buildPdf([
-    "BT /F2 12 Tf 72 720 Td <00000000000000000000> Tj ET",
-    `BT /F1 12 Tf 72 720 Td (${LINE_A}) Tj ET\nBT /F2 12 Tf 72 700 Td <0000> Tj ET\nBT /F1 12 Tf 84 700 Td ( ${LINE_B}) Tj ET`,
-  ]);
-}
 
 /**
  * 纯文本夹具（三行）：
@@ -108,6 +67,9 @@ async function main() {
   const { parseAndStoreContent } = await import("@/lib/files/parse-content");
   const { buildBlockUnits } = await import("../document-units");
   const { NOT_UTF8_TEXT_ERROR, toStorableText } = await import("@/lib/files/extracted-text");
+  const { getPackageCoverage } = await import("../package-coverage");
+  const { loadCoverageForRun } = await import("../v2-persist");
+  const { getExecutiveBrief } = await import("../executive-brief");
   const XLSX = await import("xlsx");
   const { extractText } = await import("unpdf");
 
@@ -119,9 +81,6 @@ async function main() {
   process.env.PRODUCT_CONTENT_LOCAL_STORE = "1";
   process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR = storeDir;
 
-  await db.user.create({ data: { id: OWNER, email: `${OWNER}@fixture.test`, name: "Fixture Owner", role: "user" } });
-  await db.organization.create({ data: { id: ORG, name: "Fixture Buyer Inc.", code: `nul-${stamp}`, ownerId: OWNER } });
-  await db.project.create({ data: { id: PROJECT, name: `Fixture Tender ${stamp}`, orgId: ORG, ownerId: OWNER, workDomain: "tender", intakeStatus: "dispatched" } });
 
   let seq = 0;
   async function mkDoc(filename: string, fileType: string, body: Buffer, extra?: { parseStatus?: string; parseError?: string }) {
@@ -140,6 +99,10 @@ async function main() {
   const pagesOf = (id: string) => db.projectDocumentPage.findMany({ where: { documentId: id }, orderBy: { pageNumber: "asc" }, select: { pageNumber: true, contentText: true, charCount: true, parseStatus: true, unitLabel: true } });
 
   try {
+    await db.user.create({ data: { id: OWNER, email: `${OWNER}@fixture.test`, name: "Fixture Owner", role: "user" } });
+    await db.organization.create({ data: { id: ORG, name: "Fixture Buyer Inc.", code: `nul-${stamp}`, ownerId: OWNER } });
+    await db.project.create({ data: { id: PROJECT, name: `Fixture Tender ${stamp}`, orgId: ORG, ownerId: OWNER, workDomain: "tender", intakeStatus: "dispatched" } });
+
     // —— 0. 前提：这份 PDF 真的会被 unpdf 抽出 U+0000（否则后面的断言没有意义） ——
     const pdf = buildCheckboxPdf();
     const raw = await extractText(new Uint8Array(pdf), { mergePages: false });
@@ -249,6 +212,18 @@ async function main() {
     await parseAndStoreContent(png);
     const dPng = await docOf(png);
     ok(dPng.parseStatus === "done" && dPng.parseError === null && dPng.contentText === null, "整份文字解析：不支持提取文字的类型（图片）标为 done，上一次留下的失败原因清掉", { parseStatus: dPng.parseStatus, parseError: dPng.parseError });
+
+    // —— 9. 接线：解析失败原文只到分析详情用的覆盖清单；快照与投标简报拿不到 ——
+    // 此刻项目里有两份解析失败的文件（上面第 7 节那两份没有字节序标记的 UTF-16）
+    const cov = await getPackageCoverage(PROJECT, null);
+    const failedInCov = cov.excludedFiles.filter((f) => f.exclusionReason === "文件解析失败");
+    ok(failedInCov.length === 2 && failedInCov.every((f) => f.parseError === NOT_UTF8_TEXT_ERROR), "现算的覆盖清单（分析详情接口用的那份）从库里取到解析失败原文", failedInCov);
+    const snapshot = await loadCoverageForRun(PROJECT, "no-such-run");
+    const snapFailed = snapshot.excluded.filter((f) => f.exclusionReason === "文件解析失败");
+    ok(snapFailed.length === 2 && snapshot.excluded.every((f) => Object.keys(f).sort().join() === "contentHashReady,exclusionReason,fileType,filename,pageCount,parseStatus") && !JSON.stringify(snapshot).includes(NOT_UTF8_TEXT_ERROR), "存进综合解读的快照（真实取数）：被排除文件只有六项，不含解析失败原文", snapshot.excluded[0]);
+    const brief = await getExecutiveBrief(PROJECT, null);
+    const briefFailed = brief.coverage.excludedFiles.filter((f) => f.exclusionReason === "文件解析失败");
+    ok(briefFailed.length === 2 && brief.coverage.excludedFiles.every((f) => f.parseError === null) && !JSON.stringify(brief).includes(NOT_UTF8_TEXT_ERROR) && brief.coverage.uploaded === cov.uploaded, "投标简报 / 工作台汇总用的覆盖清单（真实取数）：计数相同，解析失败原文恒为空", briefFailed);
   } finally {
     // 每一步各自收尾：一步失败不拦住后面的清理
     const cleanup = [

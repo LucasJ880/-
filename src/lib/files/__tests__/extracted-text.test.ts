@@ -4,9 +4,11 @@
  */
 import {
   NOT_UTF8_TEXT_ERROR,
+  PARSE_ERROR_MAX_CHARS,
   TEXT_FILE_MAX_NUL_RATIO,
   decodeTextFile,
   hasUnstorableChars,
+  toStorableParseError,
   toStorableText,
 } from "../extracted-text";
 
@@ -87,6 +89,29 @@ ok(textOf(decodeTextFile(Buffer.from(`check the box.\n${NUL} The Bidder declares
   ok(TEXT_FILE_MAX_NUL_RATIO === 0.1 && "text" in decodeTextFile(Buffer.from(atLimit, "utf-8")) && "error" in decodeTextFile(Buffer.from(overLimit, "utf-8")), "decodeTextFile：U+0000 占比正好 10% 仍可读，超过 10% 判为不可读");
 }
 ok(textOf(decodeTextFile(Buffer.alloc(0))) === "" && textOf(decodeTextFile(Buffer.from([0xff, 0xfe]))) === "", "decodeTextFile：空文件、只有字节序标记的文件 → 空字符串，不报错");
+
+// —— 没有字节序标记、读出来 U+0000 不多的情况 ——
+{
+  const CHINESE = "投标须知：投标人须在截止时间之前提交全部文件。\r\n第二条 投标保证金为投标总价的百分之十。\r\n第三条 交货期为合同签订后三十日内。".repeat(4);
+  const noBom = decodeTextFile(utf16(CHINESE)); // 中文为主：U+0000 只来自换行与标点，但两成以上解不出来（U+FFFD）
+  ok("error" in noBom && noBom.error === NOT_UTF8_TEXT_ERROR, "decodeTextFile：没有字节序标记、以中文为主的 UTF-16 → 判为不可读（U+0000 加解不出的字符合计超过 10%）");
+  const utf32 = Buffer.concat([Buffer.from([0xff, 0xfe, 0x00, 0x00]), Buffer.from(Array.from("Item,Qty\nFlag,10").flatMap((ch) => [ch.charCodeAt(0), 0, 0, 0]))]);
+  const r32 = decodeTextFile(utf32);
+  ok("error" in r32 && r32.error === NOT_UTF8_TEXT_ERROR, "decodeTextFile：UTF-32 小端（字节序标记也以 FF FE 开头）→ 判为不可读，不当成 UTF-16 读出隔字空格");
+  const gbkLike = Buffer.from([0xcd, 0xb6, 0xb1, 0xea, 0xd0, 0xeb, 0xd6, 0xaa, 0x20, 0x41, 0x42, 0x43]); // GBK 的「投标须知 ABC」：没有 U+0000
+  ok("text" in decodeTextFile(gbkLike), "decodeTextFile：不含 U+0000 的其它编码（如 GBK）照旧按 UTF-8 读（本次不识别，行为不变）");
+}
+
+// —— 失败原因写库前的收口 ——
+{
+  const long = "E".repeat(700);
+  ok(PARSE_ERROR_MAX_CHARS === 500 && toStorableParseError(long).length === 500, "toStorableParseError：700 字的报错截到 500 字");
+  ok(toStorableParseError(`Unrecognized tag: bad${NUL}tag`) === "Unrecognized tag: bad tag", "toStorableParseError：报错文字里的 U+0000 换成空格");
+  const split = `${"x".repeat(499)}😀tail`; // 第 500 个字符是表情符号的前一半
+  const cut = toStorableParseError(split);
+  ok(cut.length === 500 && cut.endsWith(FFFD) && !hasUnstorableChars(cut), "toStorableParseError：截断劈开一对代理字符 → 末尾是 U+FFFD，长度仍是 500，能入库");
+  ok(toStorableParseError("下载的文件内容为空") === "下载的文件内容为空" && toStorableParseError("") === "", "toStorableParseError：普通的短报错原样返回");
+}
 
 console.log(`\nfiles extracted-text: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

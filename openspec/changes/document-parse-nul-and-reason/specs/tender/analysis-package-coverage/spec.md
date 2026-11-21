@@ -8,7 +8,7 @@
 
 ### Requirement: 覆盖清单的逐文件排除明细带解析失败原文
 
-招标分析的文件覆盖清单里，每个因解析失败被排除的文件 SHALL 带上该文件当前 `parseError` 的原文；其它原因（格式不支持、超出页数上限）被排除的文件该字段 SHALL 为空。分析详情接口返回的覆盖清单 SHALL 带这个字段；投标简报、工作台汇总两个接口返回的覆盖清单里这个字段 SHALL 恒为空（它们只用计数与说明，不显示原文）。
+招标分析的文件覆盖清单里，每个因解析失败被排除的文件 SHALL 带上该文件当前 `parseError` 的原文（去掉首尾空白）；其它原因（格式不支持、超出页数上限）被排除的文件该字段 SHALL 为空。分析详情接口返回的覆盖清单 SHALL 带这个字段；投标简报、工作台汇总两个接口返回的覆盖清单里这个字段 SHALL 恒为空（它们只用计数与说明，不显示原文）。
 
 #### Scenario: 解析失败的文件带原文
 - **WHEN** 项目上传 6 个文件，其中 2 个 `parseStatus = failed`、`parseError` 为「Invalid `prisma.projectDocumentPage.createMany()` invocation: … 22021 …」

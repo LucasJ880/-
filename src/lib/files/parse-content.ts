@@ -7,7 +7,11 @@
 
 import { db } from "@/lib/db";
 import { readBlobBuffer } from "./blob-access";
-import { decodeTextFile, toStorableText } from "./extracted-text";
+import {
+  decodeTextFile,
+  toStorableParseError,
+  toStorableText,
+} from "./extracted-text";
 
 const MAX_TEXT_LENGTH = 200_000; // DB 存储上限，约 20 万字符
 
@@ -122,7 +126,7 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
         // 失败原因不超过 500 字；报错文字本身也清理一遍（FIX-13）
         data: {
           parseStatus: "failed",
-          parseError: toStorableText(result.error.slice(0, 500)),
+          parseError: toStorableParseError(result.error),
         },
       });
       return;
@@ -147,7 +151,7 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
       where: { id: documentId },
       data: {
         parseStatus: "failed",
-        parseError: toStorableText(errorMsg.slice(0, 500)),
+        parseError: toStorableParseError(errorMsg),
       },
     });
   }

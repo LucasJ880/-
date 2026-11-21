@@ -233,7 +233,7 @@ console.log("tender-auto-analysis package-coverage");
   ok(snapshotExclusionText("文件解析失败", "dup.pdf", odd) === "文件解析失败（原因：第二个）", "两个同名的失败文件：共用后一个的原因（快照里没有文件 id，只能按文件名对）");
 
   // 面板清单下面那句「下一步怎么办」：只在有解析失败的文件时出现
-  ok(hasParseFailedExclusion(c.excludedFiles) && PARSE_FAILED_NEXT_STEP_HINT.includes("「项目文件」") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新处理") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新分析"), "面板：有解析失败的文件时给出下一步（去「项目文件」重新处理，再重新分析）");
+  ok(hasParseFailedExclusion(c.excludedFiles) && PARSE_FAILED_NEXT_STEP_HINT === "解析失败的文件 AI 没有读到。请到右上角「项目文件」里重新处理，再回到这里重新分析；仍然失败请把上面的原因发给管理员。" && PARSE_FAILED_NEXT_STEP_HINT.includes("「项目文件」") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新处理") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新分析"), "面板：有解析失败的文件时给出下一步（去「项目文件」重新处理，再重新分析）");
   ok(!hasParseFailedExclusion(c.excludedFiles.filter((f) => f.exclusionReason !== "文件解析失败")) && !hasParseFailedExclusion([]), "面板：只有其它原因的排除（或没有排除）时不出现这句话");
 }
 
