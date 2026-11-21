@@ -4,14 +4,14 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | ⟦2026-11-21 第四十八次（新会话接手，两份交接合成一份；FIX-12 #540 已转 Ready、第二轮多维审计进行中；FIX-13 已实施并推到分支、多维审查进行中、还没开 PR；其它四条文字抽取路径的只读核对已做完。**新会话从 §0.5j 进**。）⟧ 两个会话在 2026-11-20 并行各更新过本文件，合并时两边原文都保留——**会话 A（情报串联，原 PR #537）**：2026-11-20 第四十七次（Lucas 第三轮回答「#539的规则不用变，532统一，534 需要单独计数，536 不要限制」：#534 单独计数已做并推送；#532 ④「统一」新开 CHAIN-2e，四件套已写、分支已推送、**还没实现、没开 PR**；账号额度将尽，交接给下一个账号。七个 Draft PR **都没有合并**；新会话从 §0.5h「第四十七次」进。上一次：同日第四十六次） **会话 B（生产实测修复，原 PR #541）**：2026-11-20 第四十五次（生产实测修复：FIX-12 一键分析不再被 300 秒硬杀，Draft PR #540；FIX-13 解析出的 U+0000 让文件「解析失败」且看不到原因，四件套待审；记录：生产 GPT-6 Astra 未启用。新会话从 §0.5i 进。上一次：2026-11-20 第四十四次，情报串联 CHAIN） |
+| 最后更新 | ⟦2026-11-21 第四十八次（新会话接手，两份交接合成一份。**同一天有两个会话在并行做同一份任务书，Evan 已定分工：#540（FIX-12）归另一个会话「青砚招投标线 T1–T6」，FIX-13 / T3 / T5 / T4 / T6 归本会话**。FIX-13 已实施、经两轮多维审查，分支已推送；#540 的第二轮审计结论已转给另一个会话。**新会话从 §0.5j 进**。）⟧ 两个会话在 2026-11-20 并行各更新过本文件，合并时两边原文都保留——**会话 A（情报串联，原 PR #537）**：2026-11-20 第四十七次（Lucas 第三轮回答「#539的规则不用变，532统一，534 需要单独计数，536 不要限制」：#534 单独计数已做并推送；#532 ④「统一」新开 CHAIN-2e，四件套已写、分支已推送、**还没实现、没开 PR**；账号额度将尽，交接给下一个账号。七个 Draft PR **都没有合并**；新会话从 §0.5h「第四十七次」进。上一次：同日第四十六次） **会话 B（生产实测修复，原 PR #541）**：2026-11-20 第四十五次（生产实测修复：FIX-12 一键分析不再被 300 秒硬杀，Draft PR #540；FIX-13 解析出的 U+0000 让文件「解析失败」且看不到原因，四件套待审；记录：生产 GPT-6 Astra 未启用。新会话从 §0.5i 进。上一次：2026-11-20 第四十四次，情报串联 CHAIN） |
 | 任务来源 | Lucas，2026-11-11：同事反馈 ChatGPT 的 workflow 好，要更新青砚招投标类目的 workflow；三方对比（青砚 / ChatGPT / 开源），长任务要做好交接，要多轮交叉验证 |
 | 方案 | `docs/QINGYAN_TENDER_FLOW_PLAN.md`（三方矩阵已填）；**当前主文档：`docs/tender-intelligence-gap-analysis.md`** |
 | 底稿 | 青砚 `docs/QINGYAN_TENDER_FLOW_BASELINE.md`；开源 `docs/QINGYAN_TENDER_FLOW_OSS_SURVEY.md`；ChatGPT：`qyane-tender-intelligence` Skill 与实施任务书（Lucas 2026-11-11 上传；**原文未入库**，见 §0 第 3 条） |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F：FLOW-0 `[~]`、TI-0 `[~]`；FIX-1、TI-1、TI-2、TI-3a、TI-3b、TI-4a、TI-4b、TI-4c 均为 `[x]`；Phase F（续）情报串联：CHAIN-0c、CHAIN-4b、CHAIN-4a、CHAIN-2、CHAIN-3 为 `[x]`，CHAIN-0 `[~]`（第 2–7 项待生产权限），CHAIN-1 `[ ]`（前置核查不通过，已停）；CHAIN-4c / 2b / 3b / 3c / 1b / 2c / 2d 七行在各自的 Draft PR 里（`[~]`，main 上的 TASKFLOW 还没有这七行，合并后才有）；CHAIN-2e 只有四件套（分支上，TASKFLOW 行还没加） |
 | 工作分支 | 没有叠层的链。七个 Draft PR 各在 `claude/inspiring-johnson-o54xbt-chain-{4c,2b,3b,3c,1b,2c,2d}`，都从 main `91d928e4` 开、直接指向 `main`；CHAIN-2e 在 `claude/inspiring-johnson-o54xbt-chain-2e`（同样从 `91d928e4` 开，还没有 PR）。新 change 直接从最新 `main` 开分支、直接指向 `main`（不要再叠层，见 §0.2 的教训三）。本文件的后续更新走普通 PR |
 | 性质 | main 上：询价生成器的类别归一（FIX-1，线上行为已变：询价能带上要求）；TI-1 / TI-2 / TI-3a / TI-3b 是纯函数目录，线上不可达；TI-4a 三个接口、TI-4b 面板、TI-4c 逐行录入都在开关 `TENDER_BID_WORKSPACE_ENABLED` 之后，默认关，生产未启用。情报串联：CHAIN-0c、CHAIN-4b 不加开关，合并即生效；CHAIN-4a、CHAIN-2、CHAIN-3 都在默认关的开关之后，生产未启用（§0.5h） |
-| 进行中的 change | ⟦（第四十八次）`tender-analysis-call-deadline`（FIX-12，PR #540，Ready，未合并）；`document-parse-nul-and-reason`（FIX-13，已实施，分支 `claude/amazing-planck-0s5wnb-parse-error`，还没开 PR）。会话 A 的七个 Draft PR 与 CHAIN-2e 原样未动。详见 §0.5j。⟧ **会话 A 写下的（2026-11-20 第四十七次，原文）**：七个，各在自己的分支上、Draft PR 待审（main 上 `openspec list` 仍为空）：`rfq-web-entry-spec-split`（#533）、`pricing-helper-finance-gate`（#532）、`bid-readiness-import-leads`（#535）、`import-leads-alias-admin-revoke`（#534）、`award-manual-entry-alberta`（#536）、`project-owner-change-guard`（#539）、`strategy-memo-cost-strip`（#538），见 §0.5h「第四十五次」「第四十六次」；另有第八个 `finance-view-compare-quote-gate`（CHAIN-2e，只有四件套、没有 PR，见「第四十七次」）。合并后各自 `/opsx:archive <change> --yes`（独立小 PR）。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） **会话 B 写下的（2026-11-20 第四十五次，原文）**：`tender-analysis-call-deadline`（FIX-12，已实施，Draft PR #540，分支 `claude/amazing-planck-0s5wnb`）；`document-parse-nul-and-reason`（FIX-13，四件套待审，分支 `claude/amazing-planck-0s5wnb-parse-error`）。见 §0.5i。情报串联能在容器里做的都已做完，剩下的见 §0.5h「之后还有什么」。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 在 main 上为空（上面两个 change 在各自分支上；`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
+| 进行中的 change | ⟦（第四十八次）`tender-analysis-call-deadline`（FIX-12，PR #540，Ready，未合并，**归另一个会话「青砚招投标线 T1–T6」**）；`document-parse-nul-and-reason`（FIX-13，已实施并经多维审查，分支 `claude/amazing-planck-0s5wnb-parse-error`，本会话）。会话 A 的七个 Draft PR 与 CHAIN-2e 原样未动。详见 §0.5j。⟧ **会话 A 写下的（2026-11-20 第四十七次，原文）**：七个，各在自己的分支上、Draft PR 待审（main 上 `openspec list` 仍为空）：`rfq-web-entry-spec-split`（#533）、`pricing-helper-finance-gate`（#532）、`bid-readiness-import-leads`（#535）、`import-leads-alias-admin-revoke`（#534）、`award-manual-entry-alberta`（#536）、`project-owner-change-guard`（#539）、`strategy-memo-cost-strip`（#538），见 §0.5h「第四十五次」「第四十六次」；另有第八个 `finance-view-compare-quote-gate`（CHAIN-2e，只有四件套、没有 PR，见「第四十七次」）。合并后各自 `/opsx:archive <change> --yes`（独立小 PR）。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 现在为空（`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） **会话 B 写下的（2026-11-20 第四十五次，原文）**：`tender-analysis-call-deadline`（FIX-12，已实施，Draft PR #540，分支 `claude/amazing-planck-0s5wnb`）；`document-parse-nul-and-reason`（FIX-13，四件套待审，分支 `claude/amazing-planck-0s5wnb-parse-error`）。见 §0.5i。情报串联能在容器里做的都已做完，剩下的见 §0.5h「之后还有什么」。此前：`tender-submission-record`（FLOW-H4a，#446）已合并并归档；`tender-submission-checklist`（FLOW-H4b，#454）已合并并归档；`stage-tasks-create-fix`（FIX-7，原 FIX-5，#447）已合并并归档；`tender-stage-status-catch-up`（FIX-6，#450）已合并并归档（不加开关）。`tender-stage-auto-advance`（FLOW-H1c，#449）已合并并归档。此前：`rfq-supplier-groups`、`rfq-followup-optin-ordering`、`requirement-review-batch-confirm` 都已归档，见 §0.5a。`rfq-round-followup-preapproval` 已归档。此前的八个 change：八个 change 已归档到 `openspec/changes/archive/2026-11-11-*`，规格在 `openspec/specs/tender/{rfq-requirement-selection,price-schedule,bid-cost-sheet,competition-leads,bid-readiness,stage-policy,bid-workspace,bid-workspace-panel,bid-workspace-line-entry}`（共 68 条要求）。`openspec list` 在 main 上为空（上面两个 change 在各自分支上；`vis-1c-notify-settings-search`、`next16-proxy-rename` 已分别归档到 `2026-11-11-*`、`2026-11-16-*`） |
 
 ---
 
@@ -464,20 +464,53 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 - 2026-11-21 稍后（T2 实施中）：「现在你来全权负责，需要做多轮交叉验证，如果需要合并你来做，如果有问题，按照你推荐的做，需要多个子 AGENT 从多方面来审计 PR……这个是个长任务，做好 hand off」。本会话据此：每个 PR 合并前派多个子 agent 分维度审计、逐条核实后处理，然后由本会话合并。
 - **没有变的边界**：不动生产环境变量；不在真实供应商的询价卡上点「批准发送」；不发任何对外邮件；不买付费数据；会话 A 的 7 个 PR（#533、#532、#535、#534、#536、#539、#538）与 CHAIN-2e 不碰（等 Lucas 回答待定问题）；#537、#541 不关；T4、T6 只出四件套、不实现（任务书的范围，新授权没有扩大它）。
 
+**先看这一条：有两个会话在并行做这份任务书**
+
+2026-11-21 02:18 UTC 另有一个 Claude Code 会话「青砚招投标线 T1–T6」（`session_01S6TUMQWjut1btSm1teBx21`，分支 `claude/wizardly-bardeen-12kvvu`）也拿着同一份任务书开工，两边互不知情，直到本会话向 #540 推送被拒（03:2x UTC）才发现。Evan 在本会话里定了分工（「按已推的分支分」）：
+
+| 归谁 | 内容 | 分支 / PR |
+|---|---|---|
+| 另一个会话 | #540（FIX-12）的收尾、合并、合并后的 archive 小 PR | `claude/amazing-planck-0s5wnb`，PR #540 |
+| 本会话 | FIX-13 的实现、审查与 PR；T3 只读核对；T5 两份交接合成一份；T4、T6 四件套；FIX-14（其它抽取路径） | `claude/amazing-planck-0s5wnb-parse-error`；`claude/modest-einstein-4ovbd2`（PR #543） |
+
+- 本会话不再向 #540 的分支推送。本会话对 #540 做的第二轮独立审计（四个子 agent，结论都是「可合并，无阻断」）与建议的三条测试断言、报告改法，已经用会话间消息转给另一个会话；补丁另存在本会话容器的 `/home/user/scratch/fix12-audit-followup.patch`（容器回收后就没有了，要点见下面「#540 第二轮审计的结论」）。
+- 另一个会话在 `claude/wizardly-bardeen-12kvvu` 上也合并了一遍两份交接文档，与本 PR 重复；以本 PR（#543）为准。
+- **一处记录矛盾，#540 合并前要核对**：另一个会话在 #540 的提交 `64ecef2` 里把 FIX-12 报告的「生产实测人」改成了 Evan（写「Evan 2026-11-21 确认」）；本会话两次用选择题问 Evan（第二次写明了对方的改动），两次回答都是 **Lucas**。本会话的 FIX-13 报告按 Lucas 写。
+- 接手的人开工前先做一件事：用 `list_sessions` / GitHub 上各分支的最新提交时间看一眼有没有别的会话在动同一批分支，再动手。
+
 **当前状态（写于 2026-11-21，工作进行中；以本节最后一次更新为准）**
 
 | 任务（任务书编号） | 状态 | 在哪 |
 |---|---|---|
-| T1 #540（FIX-12）收尾 | 门禁已用真实输出复核（`v2-slice-deadline` 43 / 43、`tender.test` 55 / 55、CI 子集 PASS、typecheck 通过、`openspec validate --strict` valid、GitHub 检查全绿）；拍板记录不用改（Evan 确认实测、读日志给出 17–73 秒、建议 80 秒、同意四件套四项**都是 Lucas**）；已从 Draft 转 Ready。**还没合并**：第二轮多维审计（四个子 agent）进行中 | PR #540，head `67a14bde` |
-| T2 FIX-13 实现 | tasks 1.1–2.4 已做完并推到分支（`f23dfe2`）；隔离库回归测试改动前 2 / 18、改动后 18 / 18；全量 `npm test` 与五个维度的多维审查进行中；**还没开 PR** | 分支 `claude/amazing-planck-0s5wnb-parse-error`；报告 `docs/QINGYAN_FIX-13_REPORT.md`（门禁与审查两节待补） |
-| T3 其它四条抽取路径的只读核对 | 已做完：采购记录附件**会失败**；AI 对话文档附件**会失败**（jsonb 同样不收 U+0000）；产品资料录入、询价回复附件**有条件会失败**；供应商画册**不写库**。结论写在 FIX-13 报告 §7.1 | 另开小 change（FIX-14）还没开 |
-| T5 两份交接合成一份 | 本文件 | 本 PR |
-| T4 切片之外仍可能超过 300 秒（只出四件套） | 还没开始 | — |
-| T6 降级结果用白话说清楚（只出四件套） | 还没开始 | — |
+| T1 #540（FIX-12）收尾 | 本会话做了：门禁用真实输出复核（`v2-slice-deadline` 43 / 43、`tender.test` 55 / 55、CI 子集 PASS、typecheck 通过、`openspec validate --strict` valid、GitHub 检查全绿）、Draft 转 Ready、第二轮独立审计。**之后归另一个会话**（它已推了两个提交：`64ecef2`、`76cbf55`）。未合并 | PR #540 |
+| T2 FIX-13 实现 | tasks 1.1–2.5 做完；五个维度的多维审查（无阻断）→ 逐条核实 → 修 → 重跑门禁；第二轮复核进行中；还没开 PR。隔离库回归测试改动前 4 / 30、改动后 30 / 30；全量 `npm test` 两轮：704 / 714（10 项既有失败）、702 / 714（多出的两项与本次无关，见报告 §4） | 分支 `claude/amazing-planck-0s5wnb-parse-error`（`809a8b6d`）；报告 `docs/QINGYAN_FIX-13_REPORT.md` |
+| T3 其它抽取路径的只读核对 | 做完，结论在 FIX-13 报告 §7.1（六个入口：采购记录附件、AI 对话附件**会失败**；产品资料录入、询价回复、报价成本表导入**有条件会失败**；供应商画册**不写库**） | 另开小 change（暂名 FIX-14）还没开 |
+| T5 两份交接合成一份 | 本文件 | Draft PR #543 |
+| T4 切片之外仍可能超过 300 秒（只出四件套） | 还没写；素材已齐（见下面「#540 第二轮审计的结论」） | — |
+| T6 降级结果用白话说清楚（只出四件套） | 还没写；素材同上 | — |
 
-**FIX-13 归属的三处确认**（Evan 2026-11-21）：本地用 unpdf 复现的是 Lucas（四件套不改）；要求界面显示 `parseError` 原文的是 Evan（design「Risks」已改）；2026-11-20 生产实测是 Lucas（任务书 T2 第 1 点写「生产实测是 Evan」，以这次回答为准）。
+**FIX-13 归属的确认**（Evan 2026-11-21，本会话）：本地用 unpdf 复现的是 Lucas（四件套不改）；要求界面显示 `parseError` 原文的是 Evan（design「Risks」已改）；2026-11-20 生产实测是 Lucas（任务书 T2 第 1 点写「生产实测是 Evan」，以这次回答为准）。FIX-12 的四项（生产实测、读日志给出 17–73 秒、建议 80 秒、同意四件套与「截止失败计入 3 次上限」）Evan 的回答都是 Lucas。
 
-**环境做法（本会话的容器，重建后都要重来）**：Node 24 下在 `/home/user/node24/`；本机 PostgreSQL 16（`pg_ctlcluster 16 main start`，先 `apt-get update && apt-get install -y postgresql-16-pgvector`），角色 `qy`，隔离库 `qy_isolated_fix13`（单测与截图）与 `qy_isolated_fix13_full`（全量 `npm test`，约 1 小时）；每个 change 一个 git worktree（`/home/user/wt-540`、`/home/user/wt-fix13`）。CI 子集按 `.github/workflows/ci.yml` 的四个环境变量跑（占位连接串，不连库）。
+**FIX-13 上线后要做的事**（细节与截图在 `docs/QINGYAN_FIX-13_REPORT.md` §5）：已经失败的两份附录 B 不会自己恢复。**第 0 步：先不要打开文件抽屉**，在「招标要求」页签把两份附录 B 那两行橙色的失败原因截图保存（抽屉一打开就自动重新处理并清掉原因，生产上的原始报错至今没人看过）；然后打开「项目文件」抽屉让它重新处理；再点「AI 数字员工 · 投标分析」卡片上的「重新分析」。
+
+**#540 第二轮审计的结论**（本会话的四个子 agent；T4、T6 的四件套要用）
+
+- 修复本身成立：截止时间传到了切片里每一次模型请求；多切片模拟里改动前 34 个窗口 20 次运行被硬杀 27 次，改动后 0 次；不带截止时间的调用方改动前后发出的请求完全相同。
+- 仍可能超过 300 秒的路径（都是既有的，按可能性排）：① PERSIST 切片——中文化可以跑到切片截止前 5 秒，其后才开始落库事务（`maxWait 10s + timeout 120s`，逐行插入）；② 同一次调用里的第二个任务或后续轮次——`processQueuedWorkforceJobs` 的循环（`processor.ts:785–791`）不看整次调用的截止，轮次门（`:472–474`）按任务自己的开始时间算；不带超时调模型的是综合解读（t8，`synthesis.ts:239`）、核验器（`verifier.ts:231`）、规划器（`planner.ts:326`）与收尾步骤 t9 的外部情报（报告 §7 举的 `tender_risk_analysis` 在现行计划上不调模型）；③ OpenAI SDK 6.32.0 的限流等待没有上限、不看中止信号（实测 `retry-after: 75` → 75.5 秒才返回）；④ 写检查点本身是带 10 + 120 秒超时的事务；⑤ 旧管线的 FINALIZE、`kickQueuedWorkforceJobSlice` 的预算起点、`processQueuedAgentRuns` 没有上限。被硬杀两次，这一步就判失败（步骤的尝试上限是 2）。
+- 窄条件下的退步：主模型单次请求用满 180 秒时，备用模型只剩约 45 秒，而且每个切片重新先试主模型；需要 45–60 秒才能靠备用读出来的窗口会在 3 个切片后被跳过。主模型整体卡死时要磨约 15 个切片、53 分钟才以「分析为空」失败。
+- 降级看不出来：跳过的窗口只记在 `summaryJson.limitations`，界面、通知、Muse 都不读；Analyst 两次没完成时通知仍写「可以开始确认招标要求」；复核没跑完显示成「未通过 AI 质检」；澄清检查被截止后永久记为未解决（开工门槛 30 秒，最短只给 15 秒，建议提到 75 秒）；一键分析这条路不记 `call_deadline`。
+- 测试的守护缺口：澄清 / Analyst 两遍「让出之前先写检查点」没有断言（已给出三条能守住它的断言）；80 秒、5 秒、0.5 秒三个阈值没有被钉死；「输出不合格之后不足 5 秒不重试」的两行接线没有端到端测试。
+
+**审查中发现、还没登记任务的既有问题**（本会话的登记工具两次超时，以这里为准）
+
+1. **安全**：`POST /api/projects/[id]/files/process-next` 与 `DELETE /api/projects/[id]/files/[fileId]` 只查登录、不查项目权限（`withAuth` 而不是 `requireProject*Access`）——任何登录用户知道项目 id 就能触发别的企业项目的文件重新处理（会调用模型），或删除其文件。读代码确认。建议尽快单独修。
+2. 文件抽屉的自动处理会循环：一轮结束后整页刷新、抽屉重新挂载，只要还有文件处于解析失败 / 解析中、摘要失败 / 生成中，或有停在「已解析、摘要待生成」的文件，就再来一轮，期间可能反复调用模型。
+3. 其它抽取路径的 U+0000 问题（FIX-14，见上表 T3）。询价回复那一条要在打开询价自动化开关之前修。
+4. `import-leads-db.isolated.test.ts` 有一条断言依赖同一时刻写入的几行的先后顺序，全量运行里偶发失败（单独跑 34 / 34）。
+5. 一键分析这条路的模型调用不带企业与用户，费用预检不执行、用量台账不记。
+6. 「AI 数字员工 · 投标分析」卡片上的「重新分析」没有底色与边框（样式引用的颜色名 `primary` 没定义）；文件抽屉的绿色提示指向不存在的「概览」页签；分析面板不显示「N 个可分析文件尚未纳入本次分析」。
+
+**环境做法（本会话的容器，重建后都要重来）**：Node 24 下在 `/home/user/node24/`（从 nodejs.org 下载、校验 sha256）；本机 PostgreSQL 16（`pg_ctlcluster 16 main start`，先 `apt-get update && apt-get install -y postgresql-16-pgvector`），角色 `qy`，隔离库 `qy_isolated_fix13`（单测与截图）与 `qy_isolated_fix13_full`（全量 `npm test`，约 1 小时；同一个库上跑第二次全量时 M2-A 会失败，要干净结果就新建一个库）；每个 change 一个 git worktree。CI 子集按 `.github/workflows/ci.yml` 的四个环境变量跑（占位连接串，不连库）。起真实应用截图：`unset NODE_ENV`，另加 `TENDER_PACKAGE_AI_EXPERIENCE_ENABLED=1`、`TENDER_WORKFORCE_ANALYSIS_ENABLED=1`、`PRODUCT_CONTENT_LOCAL_STORE=1`、`PRODUCT_CONTENT_LOCAL_STORE_DIR=<目录>`，其余同 §0.7。多维审查的做法：每个维度一个子 agent，只给 diff 与四件套、不给结论，要求「能跑就跑、给出触发输入」；回来的每一条先自己核实再改；改完再派一轮只看修改的复核。
 <!-- J-END -->
 
 ### 0.6 实施中沿用的约定
