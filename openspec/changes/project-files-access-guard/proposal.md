@@ -49,7 +49,18 @@ TASKFLOW：FIX-17（FIX-12 在未合并的 #540；FIX-13 `document-parse-nul-and
 
 ## 顺带核对：数字员工工具的 `DOCUMENT_PARSE_FAILED` 字符串
 
-（子 agent 正在追这个字符串的去向，结论补在这里。）
+`src/lib/tender-workforce/tools.ts` 的 `handleParseDocuments` 有两处带着页级解析的报错原文（`<文件名>: <报错原文>`，每条截 200 字）：全部失败时拼进返回的 `error`（`DOCUMENT_PARSE_FAILED: 所有投标文件解析失败（…）`）；部分失败时放进返回数据的 `unparsedDocuments`。报错原文来自 `src/lib/tender-auto-analysis/page-parse.ts`，除几句固定文字外是解析库 / 数据库 / 读文件抛出的异常文本，只去掉换行、截 500 字，不做别的清理。去向由子 agent 追踪、我逐条对过代码：
+
+| 去向 | 全部失败的 `error` | 部分失败的 `unparsedDocuments` |
+|---|---|---|
+| 模型提示 | **不进**。它只写进该步骤的 `AgentRunStep.errorMessage` 与 `tool.failed` 事件载荷（`agent-runtime-v2/executor.ts` 约 690–718 行），不会成为后续步骤的输入；验证步骤在确定性结论不是通过时不调模型 | **会进**。它留在 t2 步骤的输出里 → 被原样抄进交接信封的 `outputs`（`workforce-runtime/handoff.ts`，只排除内部身份字段）→ t8 综合步骤依赖 t2（`deterministic-plan.ts`），把上游 `outputs` 整个放进 `userPrompt` 发给模型（`workforce-runtime/synthesis.ts` 约 226–245 行）。只有 t2 那一条超过 4096 字节时才被丢掉 |
+| 通知 / 邮件 | **不进**。失败通知的标题固定，正文只用「卡在第 N 步〈…〉：工具执行失败」这类查表得到的固定句（`tender-auto-analysis/alerts.ts`、`tender-workforce/job-failure-surfacing.ts`）；审计里写的也是这句 | 不进 |
+| Muse 通道 | **不进**。`src/lib/muse-bridge/` 下没有任何地方读步骤报错、`parseError` 或 `unparsedDocuments` | 不进 |
+| 给人看的页面 | 不显示原文。项目页的失败原因、Job 时间线、Agent Trace（只对平台管理员开放，且载荷白名单里没有 `error`）都不带它；助手任务卡会原样显示步骤报错，但只认带会话线程的 Job，招投标 Job 不带 | 除上面的模型提示外没有读它的地方 |
+
+结论：任务书点名的 `error` 字符串不进模型提示、通知、Muse，只留在库里两处内部记录。**同一个函数里的 `unparsedDocuments` 会把同样的报错原文送进 t8 综合步骤的模型提示**（没有新增模型调用，是已有的那一次）。能混进去的内容：解析库的报错文本、数据库报错文本、本地存储模式下带绝对路径的读文件报错；Blob 下载报错不带地址（已被换成固定句）。
+
+处理办法（不在本次，另开一条；并进预留的 FIX-16「降级说明」还是另取号由审核定）：`unparsedDocuments` 与 `error` 里只留文件名加一个固定分类（下载失败 / 格式不支持 / 页数超限 / 解析出错），不带异常原文；原文已经存在 `ProjectDocument.parseError` 里，排查不受影响。顺带一条同源的小问题：`job-failure-surfacing.ts` 用正则在步骤报错原文里找限流 / 超时标记，解析库报错里碰巧有这些词会被归成错的固定原因——收掉原文后这条也随之消失。
 
 ## Capabilities
 
