@@ -10,6 +10,8 @@
 import { db } from "@/lib/db";
 import { isAnalyzableFileType } from "./enqueue-helpers";
 import { PACKAGE_ANALYSIS_MAX_PDF_PAGES } from "./page-parse";
+import type { AnalystCoverage } from "@/lib/tender-analyst/contract";
+import { PARSE_FAILED_REASON_LABEL } from "./exclusion-text";
 
 export type CoverageRow = {
   documentId: string;
@@ -22,6 +24,8 @@ export type CoverageRow = {
   title?: string | null;
   contentHashReady?: boolean;
   pageCount?: number | null;
+  /** 文件当前记下的解析失败原因（ProjectDocument.parseError） */
+  parseError?: string | null;
 };
 
 export type ExcludedFileDetail = {
@@ -31,6 +35,12 @@ export type ExcludedFileDetail = {
   contentHashReady: boolean;
   pageCount: number | null;
   exclusionReason: string;
+  /**
+   * 解析失败原文（FIX-13）：只有因解析失败被排除的文件有值，其它原因恒为 null。
+   * 只给登录后的网页接口与界面用——可能含数据库报错与服务端路径，
+   * 不得进模型提示、Muse 通道、通知，也不得存进综合解读的快照（见 toAnalystCoverage）。
+   */
+  parseError: string | null;
 };
 
 export type PackageCoverage = {
@@ -51,7 +61,7 @@ export type PackageCoverage = {
 const REASON_LABEL: Record<string, string> = {
   unsupported_format:
     "格式不支持逐条溯源（如旧版 .doc / 图片），未纳入 Package AI",
-  parse_failed: "文件解析失败",
+  parse_failed: PARSE_FAILED_REASON_LABEL,
   // 观察期包4：解析层放行 81–400 页，但包分析（legacy 管线）守 80 页/文件。
   // 用户必须不用问就知道文件为何被排除（含真实页数，见逐文件明细的动态文案）。
   over_page_limit: `单文件超出包分析 ${PACKAGE_ANALYSIS_MAX_PDF_PAGES} 页上限（可由 AI 分析纳入）`,
@@ -98,6 +108,8 @@ export function summarizePackageCoverage(
           reason === "over_page_limit"
             ? `${r.pageCount} 页超出包分析单文件 ${PACKAGE_ANALYSIS_MAX_PDF_PAGES} 页上限（可由 AI 分析纳入）`
             : (REASON_LABEL[reason] ?? reason),
+        parseError:
+          reason === "parse_failed" ? r.parseError?.trim() || null : null,
       });
     }
   }
@@ -129,6 +141,29 @@ export function summarizePackageCoverage(
   };
 }
 
+/**
+ * 覆盖清单 → 存进综合解读的快照（FIX-13）。
+ *
+ * 被排除文件**显式只取六项**：综合解读整块会经投标草稿的取数进模型提示，
+ * 解析失败原文（parseError）不能跟着进去。以后给 ExcludedFileDetail 加字段，
+ * 也不会自动流进快照。
+ */
+export function toAnalystCoverage(cov: PackageCoverage): AnalystCoverage {
+  return {
+    uploaded: cov.uploaded,
+    eligible: cov.eligible,
+    analyzed: cov.analyzed,
+    excluded: cov.excludedFiles.map((f) => ({
+      filename: f.filename,
+      fileType: f.fileType,
+      parseStatus: f.parseStatus,
+      contentHashReady: f.contentHashReady,
+      pageCount: f.pageCount,
+      exclusionReason: f.exclusionReason,
+    })),
+  };
+}
+
 /** 取数并汇总当前项目 package 覆盖率（analyzed 基于给定 run 的文档集）。 */
 export async function getPackageCoverage(
   projectId: string,
@@ -142,6 +177,7 @@ export async function getPackageCoverage(
         title: true,
         fileType: true,
         parseStatus: true,
+        parseError: true,
         source: true,
         contentHash: true,
         pageCount: true,
@@ -160,6 +196,7 @@ export async function getPackageCoverage(
       title: r.title,
       fileType: r.fileType,
       parseStatus: r.parseStatus,
+      parseError: r.parseError,
       source: r.source,
       contentHashReady: Boolean(r.contentHash),
       pageCount: r.pageCount,

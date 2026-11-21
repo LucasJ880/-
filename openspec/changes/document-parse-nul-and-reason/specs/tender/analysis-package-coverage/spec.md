@@ -30,6 +30,11 @@
 #### Scenario: 原因缺失
 - **WHEN** 一个解析失败的文件 `parseError` 为空
 - **THEN** 该行写「未纳入：文件解析失败（原因：系统未记录原因）」
+- **AND** 测试 `npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts` 通过
+
+#### Scenario: 分析完成之后文件重新解析成功
+- **WHEN** 一份分析完成时两份附录 B 解析失败，之后这两份文件重新解析成功、还没有重新分析
+- **THEN** 这份分析的「排除 K（原因）」展开列表里这两行只写「文件解析失败」，不带「（原因：…）」（当前已经没有失败原因可取）
 
 ### Requirement: 解析失败原文不进模型与对外通道
 

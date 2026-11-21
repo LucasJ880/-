@@ -7,6 +7,7 @@
 
 import { db } from "@/lib/db";
 import { readBlobBuffer } from "./blob-access";
+import { toStorableText } from "./extracted-text";
 
 const MAX_TEXT_LENGTH = 200_000; // DB 存储上限，约 20 万字符
 
@@ -93,14 +94,15 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
   if (!parser) {
     await db.projectDocument.update({
       where: { id: documentId },
-      data: { parseStatus: "done", contentText: null },
+      data: { parseStatus: "done", contentText: null, parseError: null },
     });
     return;
   }
 
   await db.projectDocument.update({
     where: { id: documentId },
-    data: { parseStatus: "parsing" },
+    // 重新解析开始时清掉上一次的失败原因（与页级解析一致）
+    data: { parseStatus: "parsing", parseError: null },
   });
 
   try {
@@ -119,7 +121,12 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
       return;
     }
 
-    const text = result.text.slice(0, MAX_TEXT_LENGTH);
+    // FIX-13：写库前清掉 PostgreSQL / Prisma 不收的字符（U+0000、落单代理字符）。
+    // 先清理再去首尾空白——整页都是 U+0000 的页面清理后只剩空格，不留在文字两端；
+    // 截断之后再清理一遍——截断可能把一对代理字符劈开，产生新的落单字符。
+    const text = toStorableText(
+      toStorableText(result.text).trim().slice(0, MAX_TEXT_LENGTH),
+    );
     await db.projectDocument.update({
       where: { id: documentId },
       data: { contentText: text || null, parseStatus: "done", parseError: null },

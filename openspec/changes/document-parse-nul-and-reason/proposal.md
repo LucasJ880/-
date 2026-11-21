@@ -30,7 +30,7 @@ TASKFLOW：FIX-13（Phase F（续）— 生产实测修复，2026-11-20）
 - 代码：新文件 `src/lib/files/extracted-text.ts`（清理函数）；`src/lib/tender-auto-analysis/page-parse.ts`、`src/lib/files/parse-content.ts`（写库前清理）；`src/lib/tender-auto-analysis/package-coverage.ts`（排除明细带 `parseError`）；`src/lib/tender-auto-analysis/v2-persist.ts`（综合解读快照显式只取原来的六项，`AnalystCoverage` 类型不变）；`src/components/tender-analysis/analysis-panel.tsx`、`src/components/tender-analysis/analyst-synthesis-view.tsx`、`src/components/project-files/project-file-manager.tsx`（显示原因）。
 - 接口：`GET /api/projects/[id]/tender-analysis/runs/[runId]`、`GET /api/projects/[id]/tender-brief`、`GET /api/projects/[id]/workbench-summary` 返回的覆盖清单里，被排除文件多一个 `parseError` 字段（只对解析失败的文件有值）。
 - 测试：新增 `src/lib/files/__tests__/extracted-text.test.ts`、`src/lib/tender-auto-analysis/__tests__/page-parse-nul-db.isolated.test.ts`，扩 `package-coverage.test.ts`；都注册进 `scripts/test-all.sh`（纯函数测试同时进 `scripts/test-ci-unit.sh`）。
-- 无 schema、无新开关、无新依赖、无新模型调用；合并即生效。已经失败的文件要重新解析一次（项目文件页打开时会自动重试失败的文件，或点「重试」），再重新发起分析。
+- 无 schema、无新开关、无新依赖、无新模型调用；合并即生效。已经失败的文件要重新解析一次（打开项目页右上的「项目文件」抽屉时会自动重新处理失败的文件，或点红色提示条上的「重新处理」），再重新发起分析。
 
 ## Out of scope
 

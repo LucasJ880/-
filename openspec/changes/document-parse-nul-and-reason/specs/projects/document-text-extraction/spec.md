@@ -36,6 +36,11 @@
 - **WHEN** 一份文件的解析或写库失败
 - **THEN** 该文件 `parseStatus = failed` 且 `parseError` 非空
 
+#### Scenario: 以前失败的文件重新解析成功
+- **WHEN** 一份 `parseStatus = failed`、`parseError` 记着 22021 报错的文件重新解析（两条解析路径任意一条）并成功
+- **THEN** 该文件 `parseStatus = done` 且 `parseError` 为空
+- **AND** 测试 `npx tsx src/lib/tender-auto-analysis/__tests__/page-parse-nul-db.isolated.test.ts` 通过
+
 ### Requirement: 项目文件列表显示解析失败的原因
 
 项目文件列表里解析失败的文件 SHALL 在该行下方显示 `parseError` 的全文（不截断）；没有记录原因时 SHALL 只显示「解析失败」。SHALL NOT 把 `parseError` 放进任何模型提示、Muse 通道或通知。

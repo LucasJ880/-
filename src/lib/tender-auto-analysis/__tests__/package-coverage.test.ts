@@ -5,8 +5,14 @@
 
 import {
   summarizePackageCoverage,
+  toAnalystCoverage,
   type CoverageRow,
 } from "../package-coverage";
+import {
+  exclusionReasonWithParseError,
+  parseErrorsByFilename,
+  snapshotExclusionText,
+} from "../exclusion-text";
 
 let pass = 0;
 let fail = 0;
@@ -90,6 +96,129 @@ console.log("tender-auto-analysis package-coverage");
   const c = summarizePackageCoverage(rows);
   ok(c.analyzed === 1 && c.eligible === 2, "analyzed<eligible");
   ok(!!c.note && c.note.includes("尚未纳入"), "提示未纳入本次分析");
+}
+
+// FIX-13：解析失败的文件带出 parseError 原文；其它原因不带
+{
+  const ERR_E =
+    "Invalid `prisma.projectDocumentPage.createMany()` invocation: … PostgresError { code: \"22021\", message: \"invalid byte sequence for encoding \\\"UTF8\\\": 0x00\" }";
+  const ERR_F = "Invalid `prisma.projectDocumentPage.createMany()` invocation: … 22021 …";
+  const rows: CoverageRow[] = [
+    ...Array.from({ length: 4 }, (_, i) =>
+      row({ title: `RFP-part-${i + 1}.pdf`, analyzed: true, pageCount: 12 }),
+    ),
+    row({ title: "2026004-Appendix-B-RFP-e(PDF).pdf", parseStatus: "failed", analyzed: false, parseError: ERR_E }),
+    row({ title: "2026004-Appendix-B-RFP-f(PDF).pdf", parseStatus: "failed", analyzed: false, parseError: ERR_F }),
+  ];
+  const c = summarizePackageCoverage(rows);
+  ok(
+    c.uploaded === 6 && c.analyzed === 4 && c.excludedFiles.length === 2,
+    "上传 6 · 纳入分析 4 · 排除 2",
+  );
+  const e = c.excludedFiles.find((f) => f.filename.includes("-e("));
+  const f = c.excludedFiles.find((f) => f.filename.includes("-f("));
+  ok(
+    e?.exclusionReason === "文件解析失败" && f?.exclusionReason === "文件解析失败",
+    "两个排除明细的排除原因仍是「文件解析失败」（标签不变，原文不拼进去）",
+  );
+  ok(e?.parseError === ERR_E && f?.parseError === ERR_F, "解析失败原文 = 各自的 parseError，逐字不变");
+}
+
+{
+  const c = summarizePackageCoverage([
+    row({ title: "no-reason.pdf", parseStatus: "failed", analyzed: false, parseError: null }),
+    row({ title: "blank-reason.pdf", parseStatus: "failed", analyzed: false, parseError: "   " }),
+    row({ title: "undefined-reason.pdf", parseStatus: "failed", analyzed: false }),
+  ]);
+  ok(
+    c.excludedFiles.length === 3 && c.excludedFiles.every((f) => f.parseError === null),
+    "解析失败但没有记下原因（空 / 只有空白 / 没取到）：原文为 null",
+  );
+}
+
+{
+  const c = summarizePackageCoverage([
+    // 超出页数上限、格式不支持——即使行上残留着旧的 parseError，也不当作解析失败原文带出
+    row({ title: "big.pdf", pageCount: 120, analyzed: false, parseError: "上一次的旧报错" }),
+    row({ title: "old.doc", fileType: "doc", analyzed: false, parseError: "不支持的文件格式: doc" }),
+    row({ title: "ok.pdf", analyzed: true, parseError: "不应出现" }),
+  ]);
+  const big = c.excludedFiles.find((f) => f.filename === "big.pdf");
+  const old = c.excludedFiles.find((f) => f.filename === "old.doc");
+  ok(
+    c.excludedFiles.length === 2 && big?.parseError === null && old?.parseError === null,
+    "超出 80 页上限、格式不支持的文件：解析失败原文为空",
+  );
+  ok(
+    !!big && big.exclusionReason.includes("120 页") && c.excludedReasons.over_page_limit === 1,
+    "超出页数上限的排除原因照旧（含真实页数）",
+  );
+}
+
+// FIX-13：存进综合解读的快照只有既有六项，解析失败原文不进去
+{
+  const SECRET = "Invalid `prisma…` invocation in /var/task/.next/server/chunks/1234.js:1:2 … 22021";
+  const c = summarizePackageCoverage([
+    row({ title: "a.pdf", analyzed: true }),
+    row({ title: "b.pdf", parseStatus: "failed", analyzed: false, parseError: SECRET, contentHashReady: true, pageCount: 3 }),
+  ]);
+  const snap = toAnalystCoverage(c);
+  ok(
+    snap.uploaded === 2 && snap.eligible === 1 && snap.analyzed === 1 && snap.excluded.length === 1,
+    "快照的计数与覆盖清单一致",
+  );
+  ok(
+    Object.keys(snap.excluded[0]!).sort().join() ===
+      "contentHashReady,exclusionReason,fileType,filename,pageCount,parseStatus",
+    "快照里被排除的文件只有六项：文件名、类型、解析状态、内容指纹就绪、页数、排除原因",
+  );
+  ok(
+    snap.excluded[0]!.filename === "b.pdf" && snap.excluded[0]!.exclusionReason === "文件解析失败" &&
+      snap.excluded[0]!.parseStatus === "failed" && snap.excluded[0]!.contentHashReady === true && snap.excluded[0]!.pageCount === 3,
+    "六项的值与覆盖清单相同",
+  );
+  ok(!JSON.stringify(snap).includes("22021") && !JSON.stringify(snap).includes("/var/task"), "快照序列化后不含解析失败原文");
+  ok(c.excludedFiles[0]!.parseError === SECRET, "现算的覆盖清单仍带原文（给界面用）");
+}
+
+// FIX-13：界面上「未纳入：」后面那段文字
+{
+  const ERR = "Invalid `prisma.projectDocumentPage.createMany()` invocation: … 22021 …";
+  const c = summarizePackageCoverage([
+    row({ title: "B-e.pdf", parseStatus: "failed", analyzed: false, parseError: ERR }),
+    row({ title: "B-f.pdf", parseStatus: "failed", analyzed: false, parseError: null }),
+    row({ title: "big.pdf", pageCount: 120, analyzed: false }),
+    row({ title: "old.doc", fileType: "doc", analyzed: false }),
+  ]);
+  const line = (name: string) => {
+    const f = c.excludedFiles.find((x) => x.filename === name)!;
+    return `${f.filename} · 未纳入：${exclusionReasonWithParseError(f.exclusionReason, f.parseError)}`;
+  };
+  ok(line("B-e.pdf") === `B-e.pdf · 未纳入：文件解析失败（原因：${ERR}）`, "面板明细：解析失败的文件写「未纳入：文件解析失败（原因：〈parseError 原文〉）」");
+  ok(line("B-f.pdf") === "B-f.pdf · 未纳入：文件解析失败（原因：系统未记录原因）", "面板明细：没有记录原因时写「（原因：系统未记录原因）」");
+  ok(
+    line("big.pdf") === `big.pdf · 未纳入：${c.excludedFiles.find((x) => x.filename === "big.pdf")!.exclusionReason}` &&
+      !line("big.pdf").includes("原因：") && !line("old.doc").includes("原因："),
+    "面板明细：超出页数上限、格式不支持的文件照旧，不加「（原因：…）」",
+  );
+
+  // 「排除 K（原因）」展开列表：条目来自快照（不存原文），原文按文件名取当前的记录
+  const current = parseErrorsByFilename(c.excludedFiles);
+  ok(
+    Object.keys(current).sort().join() === "B-e.pdf,B-f.pdf" && current["B-e.pdf"] === ERR && current["B-f.pdf"] === null,
+    "对照表只收当前因解析失败被排除的文件",
+  );
+  const snap = toAnalystCoverage(c).excluded;
+  const text = (name: string, map: Record<string, string | null> | undefined) => {
+    const f = snap.find((x) => x.filename === name)!;
+    return snapshotExclusionText(f.exclusionReason, f.filename, map);
+  };
+  ok(text("B-e.pdf", current) === `文件解析失败（原因：${ERR}）`, "展开列表：解析失败的文件按同样的写法带原文，原文取当前的记录");
+  ok(text("B-f.pdf", current) === "文件解析失败（原因：系统未记录原因）", "展开列表：当前没有记录原因 → 系统未记录原因");
+  ok(text("big.pdf", current) === snap.find((x) => x.filename === "big.pdf")!.exclusionReason, "展开列表：其它原因照旧");
+  ok(text("B-e.pdf", {}) === "文件解析失败", "展开列表：快照里解析失败、现在已经重新解析成功（当前清单里没有它）→ 只显示标签");
+  ok(text("B-e.pdf", undefined) === "文件解析失败", "展开列表：拿不到当前清单时只显示标签");
+  ok(snapshotExclusionText("文件解析失败", "constructor", current) === "文件解析失败", "对照表按自有属性取值：文件名叫 constructor 也不会取到原型上的东西");
 }
 
 // 空项目

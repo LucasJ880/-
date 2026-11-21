@@ -716,8 +716,8 @@ function FileRow({
             {doc.parseStatus === "failed" && (
               <>
                 <span>·</span>
-                <span className="text-red-400 flex items-center gap-0.5" title={doc.parseError || undefined}>
-                  <AlertTriangle size={8} /> 解析失败{doc.parseError ? `（${doc.parseError.slice(0, 60)}）` : ""}
+                <span className="text-red-400 flex items-center gap-0.5">
+                  <AlertTriangle size={8} /> 解析失败
                 </span>
               </>
             )}
@@ -748,6 +748,16 @@ function FileRow({
           </button>
         </div>
       </div>
+
+      {/* 解析失败的原因：全文显示在文件行下方，不截断、不需要悬停（FIX-13） */}
+      {doc.parseStatus === "failed" && doc.parseError?.trim() ? (
+        <p
+          className="border-t border-border/20 px-3 py-2 text-[11px] leading-relaxed text-red-500 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+          data-testid="parse-error-detail"
+        >
+          原因：{doc.parseError.trim()}
+        </p>
+      ) : null}
 
       {/* AI 摘要展开区 */}
       {expanded && summary && (

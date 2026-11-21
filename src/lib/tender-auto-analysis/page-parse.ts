@@ -4,6 +4,7 @@
 
 import { db } from "@/lib/db";
 import { readBlobBuffer } from "@/lib/files/blob-access";
+import { toStorableText } from "@/lib/files/extracted-text";
 import { PARSE_VERSION } from "./constants";
 import { sha256Content } from "./hash";
 import {
@@ -112,7 +113,11 @@ export async function extractPdfPagesFromBuffer(
   });
   const pageTexts = Array.isArray(text) ? text : [String(text ?? "")];
   const pages: ExtractedPdfPage[] = pageTexts.map((pageText, idx) => {
-    const classified = classifyPageText(pageText);
+    // FIX-13：先清掉写不进库的字符（U+0000 / 落单代理字符），再判断近乎空白——
+    // 整页都是 U+0000 的页面清理后是空白，落到「需要 OCR」
+    const classified = classifyPageText(
+      toStorableText(typeof pageText === "string" ? pageText : String(pageText ?? "")),
+    );
     return {
       pageNumber: idx + 1,
       contentText: classified.contentText,
@@ -140,7 +145,9 @@ export async function extractNonPdfUnits(
     if (type === "docx") {
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ buffer });
-      return { units: buildBlockUnits(result.value?.trim() || "") };
+      return {
+        units: storableUnits(buildBlockUnits(toStorableText(result.value || "").trim())),
+      };
     }
     if (type === "xls" || type === "xlsx") {
       const XLSX = await import("xlsx");
@@ -148,20 +155,28 @@ export async function extractNonPdfUnits(
       const sheets: { name: string; csv: string }[] = [];
       for (const name of workbook.SheetNames) {
         const sheet = workbook.Sheets[name];
-        const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
-        if (csv.trim()) sheets.push({ name, csv: csv.trim() });
+        const csv = toStorableText(
+          XLSX.utils.sheet_to_csv(sheet, { blankrows: false }),
+        );
+        if (csv.trim()) sheets.push({ name: toStorableText(name), csv: csv.trim() });
       }
-      return { units: buildSheetUnits(sheets) };
+      return { units: storableUnits(buildSheetUnits(sheets)) };
     }
     if (type === "csv") {
       return {
-        units: buildSheetUnits([
-          { name: "CSV", csv: buffer.toString("utf-8").trim() },
-        ]),
+        units: storableUnits(
+          buildSheetUnits([
+            { name: "CSV", csv: toStorableText(buffer.toString("utf-8")).trim() },
+          ]),
+        ),
       };
     }
     if (type === "txt") {
-      return { units: buildBlockUnits(buffer.toString("utf-8").trim()) };
+      return {
+        units: storableUnits(
+          buildBlockUnits(toStorableText(buffer.toString("utf-8")).trim()),
+        ),
+      };
     }
     // 旧二进制 .doc 无可靠文本抽取器 → 明确不支持（不静默产出空单元）
     return { error: `不支持的文件格式: ${fileType}` };
@@ -170,12 +185,31 @@ export async function extractNonPdfUnits(
   }
 }
 
+/**
+ * 单元切好之后再清理一遍（FIX-13）：切单元前已经清过原文，所以这里只可能遇到
+ * 「按字符数切块时把一对代理字符劈开」留下的落单字符；替换是一个换一个，
+ * 单元的字符数与空 / 非空判断不受影响。
+ */
+function storableUnits(units: DocumentUnit[]): DocumentUnit[] {
+  return units.map((u) => ({
+    ...u,
+    unitLabel: toStorableText(u.unitLabel),
+    contentText: toStorableText(u.contentText),
+  }));
+}
+
+/** 截断之后再清理：截断可能把一对代理字符劈开，产生新的落单字符（FIX-13） */
+function truncateForDocument(text: string): string {
+  return toStorableText(text.slice(0, MAX_CONTENT_TEXT_CHARS));
+}
+
 function joinPagesForDocument(pages: ExtractedPdfPage[]): string {
-  return pages
-    .map((p) => p.contentText)
-    .filter((t) => t.length > 0)
-    .join("\n\n")
-    .slice(0, MAX_CONTENT_TEXT_CHARS);
+  return truncateForDocument(
+    pages
+      .map((p) => p.contentText)
+      .filter((t) => t.length > 0)
+      .join("\n\n"),
+  );
 }
 
 /**
@@ -311,10 +345,7 @@ export async function parseDocumentPagesAndStore(
 
     const units = nonPdf.units;
     const contentText =
-      units
-        .map((u) => u.contentText)
-        .join("\n\n")
-        .slice(0, MAX_CONTENT_TEXT_CHARS) || null;
+      truncateForDocument(units.map((u) => u.contentText).join("\n\n")) || null;
 
     await db.$transaction(async (tx) => {
       await tx.projectDocumentPage.deleteMany({ where: { documentId } });

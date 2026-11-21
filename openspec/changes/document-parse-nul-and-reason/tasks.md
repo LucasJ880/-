@@ -2,14 +2,14 @@
 
 ## 1. 测试先行
 
-- [ ] 1.1 隔离库测试 `src/lib/tender-auto-analysis/__tests__/page-parse-nul-db.isolated.test.ts`（测试里拼最小 PDF：勾选框式 U+0000 夹在「check the box.」与「The Bidder declare」之间的一页 + 整页 U+0000 的一页；本地文件存储；真实的 `parseDocumentPagesAndStore` 与 `parseAndStoreContent`），同一步注册进 `scripts/test-all.sh`；verify：在改动前的代码上运行失败（两条路径 `failed`，`parseError` 含 `22021` 或 `0x00`），输出贴进报告；`bash scripts/check-test-registry.sh` 输出 OK
+- [x] 1.1 隔离库测试 `src/lib/tender-auto-analysis/__tests__/page-parse-nul-db.isolated.test.ts`（测试里拼最小 PDF：勾选框式 U+0000 夹在「check the box.」与「The Bidder declare」之间的一页 + 整页 U+0000 的一页；本地文件存储；真实的 `parseDocumentPagesAndStore` 与 `parseAndStoreContent`），同一步注册进 `scripts/test-all.sh`；verify：在改动前的代码上运行失败（两条路径 `failed`，`parseError` 含 `22021` 或 `0x00`），输出贴进报告；`bash scripts/check-test-registry.sh` 输出 OK
 
 ## 2. 实现
 
-- [ ] 2.1 新文件 `src/lib/files/extracted-text.ts`（`toStorableText` / `hasUnstorableChars`）+ 纯函数测试 `src/lib/files/__tests__/extracted-text.test.ts`，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；verify：`npx tsx src/lib/files/__tests__/extracted-text.test.ts` 全过（U+0000 → 空格、落单高 / 低位代理 → U+FFFD、成对代理 / 中文 / 制表 / 换行不变、截断劈开代理对后再清理）
-- [ ] 2.2 `page-parse.ts`（PDF 逐页在判断近乎空白之前、整份文字截断之后、非 PDF 单元）与 `parse-content.ts`（截断之后）写库前调用 `toStorableText`；verify：1.1 的隔离库测试全过（连跑 2 次），`page-parse.test.ts` 照旧通过
-- [ ] 2.3 `package-coverage.ts` 排除明细加 `parseError`（只对解析失败有值，取数多选 `parseError`）；`v2-persist.ts` 的 `loadCoverageForRun` 显式只取六项；`package-coverage.test.ts` 补用例；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts` 全过，`analyst-synthesis.test.ts` 照旧通过
-- [ ] 2.4 界面：`analysis-panel.tsx` 逐文件明细「未纳入：文件解析失败（原因：…）」并把「文件名 → 原文」交给 `analyst-synthesis-view.tsx` 的展开列表；`project-file-manager.tsx` 行下方显示全文；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出码 0；真实应用截图两张存 `docs/acceptance/fix-13/`
+- [x] 2.1 新文件 `src/lib/files/extracted-text.ts`（`toStorableText` / `hasUnstorableChars`）+ 纯函数测试 `src/lib/files/__tests__/extracted-text.test.ts`，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；verify：`npx tsx src/lib/files/__tests__/extracted-text.test.ts` 全过（U+0000 → 空格、落单高 / 低位代理 → U+FFFD、成对代理 / 中文 / 制表 / 换行不变、截断劈开代理对后再清理）
+- [x] 2.2 `page-parse.ts`（PDF 逐页在判断近乎空白之前、整份文字截断之后、非 PDF 单元）与 `parse-content.ts`（截断之后）写库前调用 `toStorableText`；verify：1.1 的隔离库测试全过（连跑 2 次），`page-parse.test.ts` 照旧通过
+- [x] 2.3 `package-coverage.ts` 排除明细加 `parseError`（只对解析失败有值，取数多选 `parseError`）；`v2-persist.ts` 的 `loadCoverageForRun` 显式只取六项；`package-coverage.test.ts` 补用例；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts` 全过，`analyst-synthesis.test.ts` 照旧通过
+- [x] 2.4 界面：`analysis-panel.tsx` 逐文件明细「未纳入：文件解析失败（原因：…）」并把「文件名 → 原文」交给 `analyst-synthesis-view.tsx` 的展开列表；`project-file-manager.tsx` 行下方显示全文；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出码 0；真实应用截图两张存 `docs/acceptance/fix-13/`
 
 ## 3. 验收
 
