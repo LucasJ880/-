@@ -346,7 +346,6 @@ function seedModuleData(
   if (key === "deliverables") {
     return {
       items: [
-        { key: "china_supplier_brief", title: "国内供应商中文 PDF", ready: false },
         { key: "internal_analysis", title: "内部项目分析", ready: false },
         { key: "go_brief", title: "管理层 Go/No-Go 简报", ready: false },
         { key: "rfq_form", title: "厂家询价表", ready: false },

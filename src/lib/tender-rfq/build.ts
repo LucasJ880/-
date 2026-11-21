@@ -318,6 +318,20 @@ function rfqIdentitySegments(doc: RfqDocument, input: RfqBuildInput, humanDestin
   return segs;
 }
 
+/**
+ * 把招标原文（规格、交付要求、从地点派生的目的地）留空的那一份询价单：模板自己写的句子用它过禁出清单
+ * （项目名称类也查）。人工填写的目的地保留——它属于「人工填写」，不是招标原文。
+ * 起草询价（邮件模板句子、附件模板文字）与菜单生成询价单共用，两边留空的口径不会不一样。
+ */
+export function rfqTemplateOnlyDocument(doc: RfqDocument, humanDestination: string | null | undefined): RfqDocument {
+  return {
+    ...doc,
+    lineItems: doc.lineItems.map((li) => ({ ...li, specZh: "", specOriginal: "" })),
+    requiredLeadTimeNote: null,
+    destination: humanDestination?.trim() || null,
+  };
+}
+
 /* ---------------------------------- 渲染 ---------------------------------- */
 
 /** 商务条件（邮件正文与 CHAIN-4a 附件共用同一份，两边不会写得不一样） */

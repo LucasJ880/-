@@ -21,9 +21,3 @@ export function writeWrappedText(
   doc.text(lines, x, y);
   return y + lines.length * lineHeight;
 }
-
-export function sanitizeSupplierFacing(text: string): string {
-  return text
-    .replace(/预算|利润|毛利|内部成本|竞争对手|竞品|客户电话|客户邮箱/gi, "[已隐藏]")
-    .slice(0, 8000);
-}

@@ -11,7 +11,7 @@
  * 运行：npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 let pass = 0;
@@ -56,9 +56,18 @@ ok(
   "CJK-GEN-02（反例守卫）: jsPDF 生成路径已从 generate-docs 整体退役",
 );
 ok(
-  gen.includes("textBody") && gen.includes("sanitizeSupplierFacing"),
-  "CJK-GEN-03: legacy 文本文档语义 1:1 并入漏斗（供应商脱敏保留）",
+  gen.includes("textBody") && !gen.includes("sanitizeSupplierFacing"),
+  "CJK-GEN-03: legacy 文本文档并入漏斗（RFQ-PDF-1：只剩内部文件；供应商侧的文字替换随旧路径删除，询价单命中即整份不生成）",
 );
+{
+  // RFQ-PDF-1：供应商询价单直接存检查过的 PDF，不走「转换失败存 HTML」那条路
+  const start = gen.indexOf('if (input.docType === "supplier_rfq") {');
+  const branch = gen.slice(start, gen.indexOf("const docType = input.docType;", start));
+  ok(
+    start > 0 && branch.includes("persistGeneratedFile(") && branch.includes('renderMode: "chromium_pdf"') && !/persistGeneratedHtml|html_fallback|renderHtmlToPdf/.test(branch),
+    "CJK-GEN-04: 供应商询价单不回落 HTML（PDF 不合格就不保存）",
+  );
+}
 
 const cfg = read("next.config.ts");
 ok(
@@ -75,10 +84,9 @@ ok(
   route.includes("maxDuration = 800") && route.includes("ROUTE_BUDGET_MS"),
   "CJK-CFG-02: 生成路由 maxDuration=800（备忘录 v2 全文多轮推理；Fluid 上限试探，部署被拒即回退 300+续跑）+ 显式时间预算传入生成器",
 );
-const panel = read("src/components/bid-workflow/china-supplier-brief-panel.tsx");
 ok(
-  !panel.includes("复用既有 jsPDF"),
-  "CJK-CFG-03: 面板过时文案（复用既有 jsPDF）已纠正",
+  !existsSync(join(process.cwd(), "src/components/bid-workflow/china-supplier-brief-panel.tsx")),
+  "CJK-CFG-03: 国内供应商简报面板已随简报下线删除（RFQ-PDF-1；原断言是面板里过时的 jsPDF 文案已纠正）",
 );
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
