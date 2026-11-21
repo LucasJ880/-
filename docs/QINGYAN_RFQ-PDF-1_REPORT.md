@@ -105,7 +105,23 @@
 
 ## 5. 门禁
 
-（最后一轮的输出在合并前填入本节。）
+本机（Node 24、本地 Postgres 16 隔离库、`NODE_ENV=test`、本地文件存储），2026-11-21：
+
+| 门禁 | 结果 |
+|---|---|
+| `npm test`，main `91d928e`（开工前基线，单独的工作树与数据库） | `701/712 通过, 11 失败` |
+| `npm test`，分支（两轮审查的代码修复都在内；这一轮跑完之后只改过文档） | `703/714 通过, 11 失败`——多出的 2 项是两个新测试；失败的 11 项与 main **逐项相同**（见下） |
+| 两个新测试在这一轮里 | `结果: 67 通过, 0 失败`；`RFQ-PDF-1 rfq sheet download DB: 38 passed, 0 failed` |
+| `npm run typecheck` | 通过（exit 0） |
+| `npm run lint:baseline` | `PASS（无新增 error fingerprint / 无 count 上升）` |
+| `bash scripts/check-test-registry.sh` | `OK 测试注册校验通过：已注册 681 个；历史欠账基线剩余 66 条（只减不增）` |
+| `openspec validate supplier-docs-converge --strict` | `Change 'supplier-docs-converge' is valid` |
+| `git diff origin/main -- prisma/ vercel.json` | 空 |
+| `npm run test:ci` 与 `build` | 由 PR #544 的 CI 跑（`validate-lint-typecheck-test-build`），结果见 PR |
+
+main 上本来就失败、分支上同样失败的 11 项（都与本次改动无关）：Autopilot A2-P0 Isolated E2E；Mention Gateway M2-A Identity DB；Phase3A-3 Approvals Smoke；Phase3A-4 Acceptance；Phase3A-4 Governance Smoke；Phase3A-5 Overview Acceptance；Quote Operations 客户报价 PDF 分页布局；Sunny 工艺单 DB 端到端；T4 授标情报真实 Postgres 矩阵；招标询价自动起草第 1 轮 DB 端到端（75 / 76，既有的那 1 项）；来信观察 DB 端到端。
+
+注意：`tsconfig.json` 不含 `scripts/` 与 `**/__tests__`，所以 typecheck 不覆盖测试与脚本；改过的测试都实跑过，改过的手工脚本 `scripts/cjk-pdf-e2e.ts` 没有实跑（它要一份带真实投标项目的隔离库快照）。
 
 ## 5a. 多维审查
 
