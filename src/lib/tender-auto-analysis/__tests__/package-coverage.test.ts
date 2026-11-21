@@ -6,10 +6,14 @@
 import {
   summarizePackageCoverage,
   toAnalystCoverage,
+  withoutParseErrors,
   type CoverageRow,
 } from "../package-coverage";
 import {
+  PARSE_FAILED_NEXT_STEP_HINT,
   exclusionReasonWithParseError,
+  fileListParseErrorLine,
+  hasParseFailedExclusion,
   parseErrorsByFilename,
   snapshotExclusionText,
 } from "../exclusion-text";
@@ -216,9 +220,43 @@ console.log("tender-auto-analysis package-coverage");
   ok(text("B-e.pdf", current) === `文件解析失败（原因：${ERR}）`, "展开列表：解析失败的文件按同样的写法带原文，原文取当前的记录");
   ok(text("B-f.pdf", current) === "文件解析失败（原因：系统未记录原因）", "展开列表：当前没有记录原因 → 系统未记录原因");
   ok(text("big.pdf", current) === snap.find((x) => x.filename === "big.pdf")!.exclusionReason, "展开列表：其它原因照旧");
-  ok(text("B-e.pdf", {}) === "文件解析失败", "展开列表：快照里解析失败、现在已经重新解析成功（当前清单里没有它）→ 只显示标签");
+  ok(text("B-e.pdf", {}) === "文件解析失败（上次分析时的记录，文件状态之后已变，重新分析后更新）", "展开列表：快照里解析失败、现在已经不在解析失败之列（重新处理成功了）→ 注明这是上次分析时的记录，不带原因");
+  ok(text("big.pdf", {}) === snap.find((x) => x.filename === "big.pdf")!.exclusionReason, "展开列表：其它原因的记录不加这句说明");
   ok(text("B-e.pdf", undefined) === "文件解析失败", "展开列表：拿不到当前清单时只显示标签");
-  ok(snapshotExclusionText("文件解析失败", "constructor", current) === "文件解析失败", "对照表按自有属性取值：文件名叫 constructor 也不会取到原型上的东西");
+  ok(snapshotExclusionText("文件解析失败", "constructor", current) === "文件解析失败（上次分析时的记录，文件状态之后已变，重新分析后更新）", "对照表按自有属性取值：文件名叫 constructor 也不会取到原型上的东西");
+  const odd = parseErrorsByFilename([
+    { filename: "__proto__", exclusionReason: "文件解析失败", parseError: "proto 的原因" },
+    { filename: "dup.pdf", exclusionReason: "文件解析失败", parseError: "第一个" },
+    { filename: "dup.pdf", exclusionReason: "文件解析失败", parseError: "第二个" },
+  ]);
+  ok(snapshotExclusionText("文件解析失败", "__proto__", odd) === "文件解析失败（原因：proto 的原因）", "文件名叫 __proto__ 也照常取到自己的原因");
+  ok(snapshotExclusionText("文件解析失败", "dup.pdf", odd) === "文件解析失败（原因：第二个）", "两个同名的失败文件：共用后一个的原因（快照里没有文件 id，只能按文件名对）");
+
+  // 面板清单下面那句「下一步怎么办」：只在有解析失败的文件时出现
+  ok(hasParseFailedExclusion(c.excludedFiles) && PARSE_FAILED_NEXT_STEP_HINT.includes("「项目文件」") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新处理") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新分析"), "面板：有解析失败的文件时给出下一步（去「项目文件」重新处理，再重新分析）");
+  ok(!hasParseFailedExclusion(c.excludedFiles.filter((f) => f.exclusionReason !== "文件解析失败")) && !hasParseFailedExclusion([]), "面板：只有其它原因的排除（或没有排除）时不出现这句话");
+}
+
+// FIX-13：项目文件列表里失败文件行下方的那一行
+{
+  const LONG = `Invalid \`db.projectDocument.update()\` invocation in\n/var/task/x.js:1:2\n${"e".repeat(260)}`;
+  ok(fileListParseErrorLine("failed", LONG) === `原因：${LONG}` && fileListParseErrorLine("failed", LONG)!.length === LONG.length + 3, "文件列表：解析失败的文件显示「原因：」加原因全文（300 字不截断，换行保留）");
+  ok(fileListParseErrorLine("failed", `  ${LONG}\n`) === `原因：${LONG}`, "文件列表：原因首尾的空白去掉");
+  ok(fileListParseErrorLine("failed", null) === "原因：系统未记录原因" && fileListParseErrorLine("failed", "   ") === "原因：系统未记录原因" && fileListParseErrorLine("failed", undefined) === "原因：系统未记录原因", "文件列表：没有记录原因时写「原因：系统未记录原因」（与分析面板一致）");
+  ok(fileListParseErrorLine("done", "旧的原因") === null && fileListParseErrorLine("parsing", "旧的原因") === null && fileListParseErrorLine("pending", null) === null && fileListParseErrorLine(null, "x") === null, "文件列表：不是解析失败状态的文件不显示这一行（即使还留着旧原因）");
+}
+
+// FIX-13：投标简报、工作台汇总用的覆盖清单不带原文
+{
+  const c = summarizePackageCoverage([
+    row({ title: "a.pdf", analyzed: true }),
+    row({ title: "b.pdf", parseStatus: "failed", analyzed: false, parseError: "22021 /var/task" }),
+    row({ title: "big.pdf", pageCount: 120, analyzed: false }),
+  ]);
+  const w = withoutParseErrors(c);
+  ok(w.excludedFiles.length === 2 && w.excludedFiles.every((f) => f.parseError === null) && !JSON.stringify(w).includes("22021"), "去掉原文的覆盖清单：每个被排除文件的解析失败原文都为空");
+  ok(w.uploaded === c.uploaded && w.analyzed === c.analyzed && w.excluded === c.excluded && w.label === c.label && w.note === c.note && w.excludedFiles[0]!.exclusionReason === "文件解析失败", "去掉原文的覆盖清单：计数、说明与排除原因的标签不变");
+  ok(c.excludedFiles[0]!.parseError === "22021 /var/task", "原来那份清单不被改动");
 }
 
 // 空项目

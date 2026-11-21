@@ -1,5 +1,5 @@
 /**
- * 覆盖清单里「未纳入」原因的文案（纯函数，客户端 / 服务端都能引用，不依赖数据库）。
+ * 「文件解析失败」相关的界面文案（纯函数，客户端 / 服务端都能引用，不依赖数据库）。
  *
  * FIX-13：解析失败的文件在「文件解析失败」后面带上系统记下的失败原文，
  * 让人不用问就知道文件为什么没纳入。原文只在登录后的网页上显示，
@@ -12,9 +12,24 @@ export const PARSE_FAILED_REASON_LABEL = "文件解析失败";
 /** 解析失败但系统没有记下原因时的说法 */
 export const PARSE_ERROR_MISSING_TEXT = "系统未记录原因";
 
+/** 分析面板上，有解析失败的文件时加在清单下面的一句「下一步怎么办」 */
+export const PARSE_FAILED_NEXT_STEP_HINT =
+  "解析失败的文件 AI 没有读到。请到右上角「项目文件」里重新处理，再回到这里重新分析；仍然失败请把上面的原因发给管理员。";
+
+/** 快照里记着解析失败、而文件现在已经不在「解析失败」之列时，加在标签后面的说明 */
+export const SNAPSHOT_STALE_NOTE =
+  "（上次分析时的记录，文件状态之后已变，重新分析后更新）";
+
 /** 这条排除原因是不是「解析失败」 */
 export function isParseFailedReason(exclusionReason: string): boolean {
   return exclusionReason === PARSE_FAILED_REASON_LABEL;
+}
+
+/** 被排除的文件里有没有解析失败的（决定要不要显示「下一步怎么办」那一句） */
+export function hasParseFailedExclusion(
+  excludedFiles: ReadonlyArray<{ exclusionReason: string }>,
+): boolean {
+  return excludedFiles.some((f) => isParseFailedReason(f.exclusionReason));
 }
 
 /**
@@ -33,7 +48,8 @@ export function exclusionReasonWithParseError(
 /**
  * 「文件名 → 解析失败原文」对照：只收当前因解析失败被排除的文件。
  * 给「排除 K（原因）」展开列表用——那份列表来自分析完成时的快照（不存原文），
- * 原文按文件名取当前的记录；对照里没有的文件（之后重新解析成功了）只显示标签。
+ * 原文按文件名取当前的记录。快照里没有文件 id，只能按文件名对；
+ * 两个同名的失败文件会共用后一个的原文。
  */
 export function parseErrorsByFilename(
   excludedFiles: ReadonlyArray<{
@@ -42,7 +58,8 @@ export function parseErrorsByFilename(
     parseError?: string | null;
   }>,
 ): Record<string, string | null> {
-  const out: Record<string, string | null> = {};
+  // 没有原型的对象：文件名叫 __proto__ / constructor 也只是普通的键
+  const out: Record<string, string | null> = Object.create(null);
   for (const f of excludedFiles) {
     if (isParseFailedReason(f.exclusionReason)) {
       out[f.filename] = f.parseError?.trim() || null;
@@ -52,19 +69,33 @@ export function parseErrorsByFilename(
 }
 
 /**
- * 快照里的一条排除记录怎么显示：当前仍因解析失败被排除 → 带原文；否则只显示快照里的原因。
+ * 快照里的一条排除记录怎么显示：
+ * - 不是解析失败，或拿不到当前清单 → 快照里的原因原样显示；
+ * - 当前仍因解析失败被排除 → 带上当前的原文；
+ * - 当前已经不在解析失败之列（重新处理成功了，或文件已删除）→ 标签后面注明这是上次分析时的记录。
  */
 export function snapshotExclusionText(
   exclusionReason: string,
   filename: string,
   currentParseErrors: Readonly<Record<string, string | null>> | undefined,
 ): string {
-  if (
-    !currentParseErrors ||
-    !isParseFailedReason(exclusionReason) ||
-    !Object.prototype.hasOwnProperty.call(currentParseErrors, filename)
-  ) {
+  if (!currentParseErrors || !isParseFailedReason(exclusionReason)) {
     return exclusionReason;
   }
+  if (!Object.prototype.hasOwnProperty.call(currentParseErrors, filename)) {
+    return `${exclusionReason}${SNAPSHOT_STALE_NOTE}`;
+  }
   return exclusionReasonWithParseError(exclusionReason, currentParseErrors[filename]);
+}
+
+/**
+ * 项目文件列表里，解析失败的文件行下方那一行：「原因：〈全文〉」；
+ * 没有记录原因时「原因：系统未记录原因」；文件不是解析失败状态时不显示（null）。
+ */
+export function fileListParseErrorLine(
+  parseStatus: string | null | undefined,
+  parseError: string | null | undefined,
+): string | null {
+  if (parseStatus !== "failed") return null;
+  return `原因：${parseError?.trim() || PARSE_ERROR_MISSING_TEXT}`;
 }

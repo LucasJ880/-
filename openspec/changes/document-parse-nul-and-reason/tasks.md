@@ -8,8 +8,10 @@
 
 - [x] 2.1 新文件 `src/lib/files/extracted-text.ts`（`toStorableText` / `hasUnstorableChars`）+ 纯函数测试 `src/lib/files/__tests__/extracted-text.test.ts`，注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；verify：`npx tsx src/lib/files/__tests__/extracted-text.test.ts` 全过（U+0000 → 空格、落单高 / 低位代理 → U+FFFD、成对代理 / 中文 / 制表 / 换行不变、截断劈开代理对后再清理）
 - [x] 2.2 `page-parse.ts`（PDF 逐页在判断近乎空白之前、整份文字截断之后、非 PDF 单元）与 `parse-content.ts`（截断之后）写库前调用 `toStorableText`；verify：1.1 的隔离库测试全过（连跑 2 次），`page-parse.test.ts` 照旧通过
-- [x] 2.3 `package-coverage.ts` 排除明细加 `parseError`（只对解析失败有值，取数多选 `parseError`）；`v2-persist.ts` 的 `loadCoverageForRun` 显式只取六项；`package-coverage.test.ts` 补用例；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts` 全过，`analyst-synthesis.test.ts` 照旧通过
-- [x] 2.4 界面：`analysis-panel.tsx` 逐文件明细「未纳入：文件解析失败（原因：…）」并把「文件名 → 原文」交给 `analyst-synthesis-view.tsx` 的展开列表；`project-file-manager.tsx` 行下方显示全文；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出码 0；真实应用截图两张存 `docs/acceptance/fix-13/`
+- [x] 2.3 `package-coverage.ts` 排除明细加 `parseError`（只对解析失败有值，取数多选 `parseError`）；存进综合解读的快照显式只取六项（`package-coverage.ts` 的纯函数，`v2-persist.ts` 的 `loadCoverageForRun` 调它）；投标简报用的清单去掉原文；`package-coverage.test.ts` 补用例；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts` 全过，`analyst-synthesis.test.ts` 照旧通过
+- [x] 2.4 界面：`analysis-panel.tsx` 逐文件明细「未纳入：文件解析失败（原因：…）」并把「文件名 → 原文」交给 `analyst-synthesis-view.tsx` 的展开列表；`project-file-manager.tsx` 行下方显示全文；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出码 0；真实应用截图存 `docs/acceptance/fix-13/`
+
+- [x] 2.5 多维审查后补的三项：纯文本 / CSV 按实际编码读（`decodeTextFile`，读不了的写明原因）；失败原因写入收口（≤ 500 字 + 清理）；文案收进 `exclusion-text.ts`（面板的下一步提示、展开列表的「上次分析时的记录」、文件列表的「原因：系统未记录原因」）；verify：三个测试文件全过（隔离库 30、纯函数 27、覆盖清单 50），`npm run typecheck` 退出码 0
 
 ## 3. 验收
 

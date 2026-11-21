@@ -2,7 +2,13 @@
  * FIX-13 解析出的文字入库前的清理（纯函数）
  * 运行：npx tsx src/lib/files/__tests__/extracted-text.test.ts
  */
-import { hasUnstorableChars, toStorableText } from "../extracted-text";
+import {
+  NOT_UTF8_TEXT_ERROR,
+  TEXT_FILE_MAX_NUL_RATIO,
+  decodeTextFile,
+  hasUnstorableChars,
+  toStorableText,
+} from "../extracted-text";
 
 let pass = 0;
 let fail = 0;
@@ -14,7 +20,7 @@ function ok(cond: boolean, name: string, detail?: unknown) {
 const NUL = "\u0000";
 const HIGH = "\uD83D"; // 😀 的高位代理
 const LOW = "\uDE00"; // 😀 的低位代理
-const FFFD = "�";
+const FFFD = String.fromCharCode(0xfffd);
 
 console.log("files extracted-text（FIX-13）");
 
@@ -50,6 +56,37 @@ ok(!hasUnstorableChars(plain) && !hasUnstorableChars("") && !hasUnstorableChars(
 const messy = `${LOW}x${NUL}${HIGH}😀${HIGH}`;
 ok(!hasUnstorableChars(toStorableText(messy)) && toStorableText(messy) === `${FFFD}x ${FFFD}😀${FFFD}`, "混在一起：清理后的结果不再含 U+0000 与落单代理字符");
 ok(toStorableText(toStorableText(messy)) === toStorableText(messy), "清理两遍与清理一遍结果相同");
+
+// —— 纯文本 / CSV 的解码 ——
+const textOf = (r: { text: string } | { error: string }) => ("text" in r ? r.text : `ERROR:${r.error}`);
+const utf16 = (text: string, bigEndian = false) => {
+  const body = Buffer.from(text, "utf16le");
+  if (bigEndian) body.swap16();
+  return body;
+};
+const SENTENCE = "投标须知 Mandatory: bid bond 10% 😀";
+ok(textOf(decodeTextFile(Buffer.from(SENTENCE, "utf-8"))) === SENTENCE, "decodeTextFile：UTF-8 文本原样读出");
+ok(textOf(decodeTextFile(Buffer.concat([Buffer.from([0xff, 0xfe]), utf16(SENTENCE)]))) === SENTENCE, "decodeTextFile：FF FE 开头 → 按 UTF-16LE 读，文字逐字正确");
+ok(textOf(decodeTextFile(Buffer.concat([Buffer.from([0xfe, 0xff]), utf16(SENTENCE, true)]))) === SENTENCE, "decodeTextFile：FE FF 开头 → 按 UTF-16BE 读，文字逐字正确");
+{
+  const be = Buffer.concat([Buffer.from([0xfe, 0xff]), utf16("AB", true)]);
+  const before = Buffer.from(be);
+  decodeTextFile(be);
+  ok(be.equals(before), "decodeTextFile：按 UTF-16BE 读时不改动传进来的字节");
+  ok(textOf(decodeTextFile(Buffer.concat([be, Buffer.from([0x00])]))) === "AB", "decodeTextFile：UTF-16BE 末尾多出半个字符的字节时不抛错，多出的那个字节丢掉");
+}
+{
+  const r = decodeTextFile(utf16("Item,Qty,Unit price")); // 没有字节序标记的 UTF-16：按 UTF-8 读出来一半是 U+0000
+  ok("error" in r && r.error === NOT_UTF8_TEXT_ERROR, "decodeTextFile：没有字节序标记的 UTF-16（满是 U+0000）→ 判为不可读，给出原因");
+  ok(NOT_UTF8_TEXT_ERROR.length <= 500 && !hasUnstorableChars(NOT_UTF8_TEXT_ERROR), "这句原因本身不超过 500 字、能入库");
+}
+ok(textOf(decodeTextFile(Buffer.from(`check the box.\n${NUL} The Bidder declares`, "utf-8"))) === `check the box.\n${NUL} The Bidder declares`, "decodeTextFile：零星的 U+0000 不算不可读，原样交给 toStorableText 去换");
+{
+  const atLimit = `${NUL}${"x".repeat(9)}`; // 正好 10%
+  const overLimit = `${NUL}${NUL}${"x".repeat(8)}`; // 20%
+  ok(TEXT_FILE_MAX_NUL_RATIO === 0.1 && "text" in decodeTextFile(Buffer.from(atLimit, "utf-8")) && "error" in decodeTextFile(Buffer.from(overLimit, "utf-8")), "decodeTextFile：U+0000 占比正好 10% 仍可读，超过 10% 判为不可读");
+}
+ok(textOf(decodeTextFile(Buffer.alloc(0))) === "" && textOf(decodeTextFile(Buffer.from([0xff, 0xfe]))) === "", "decodeTextFile：空文件、只有字节序标记的文件 → 空字符串，不报错");
 
 console.log(`\nfiles extracted-text: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

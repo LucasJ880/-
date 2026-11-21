@@ -4,7 +4,7 @@
 
 import { db } from "@/lib/db";
 import { readBlobBuffer } from "@/lib/files/blob-access";
-import { toStorableText } from "@/lib/files/extracted-text";
+import { decodeTextFile, toStorableText } from "@/lib/files/extracted-text";
 import { PARSE_VERSION } from "./constants";
 import { sha256Content } from "./hash";
 import {
@@ -97,7 +97,8 @@ function classifyPageText(raw: string): {
 
 function sanitizeParseError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  return msg.replace(/[\r\n\t]+/g, " ").slice(0, 500);
+  // 截到 500 字之后再清理：报错文字本身也可能带 U+0000，截断也可能劈开代理对（FIX-13）
+  return toStorableText(msg.replace(/[\r\n\t]+/g, " ").slice(0, 500));
 }
 
 /**
@@ -162,19 +163,16 @@ export async function extractNonPdfUnits(
       }
       return { units: storableUnits(buildSheetUnits(sheets)) };
     }
-    if (type === "csv") {
+    if (type === "csv" || type === "txt") {
+      // UTF-16（带字节序标记）按 UTF-16 读；满是 U+0000 的（编码不对 / 二进制）判为失败并写明原因
+      const decoded = decodeTextFile(buffer);
+      if ("error" in decoded) return { error: decoded.error };
+      const text = toStorableText(decoded.text).trim();
       return {
         units: storableUnits(
-          buildSheetUnits([
-            { name: "CSV", csv: toStorableText(buffer.toString("utf-8")).trim() },
-          ]),
-        ),
-      };
-    }
-    if (type === "txt") {
-      return {
-        units: storableUnits(
-          buildBlockUnits(toStorableText(buffer.toString("utf-8")).trim()),
+          type === "csv"
+            ? buildSheetUnits([{ name: "CSV", csv: text }])
+            : buildBlockUnits(text),
         ),
       };
     }

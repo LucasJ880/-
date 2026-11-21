@@ -7,7 +7,7 @@
 
 import { db } from "@/lib/db";
 import { readBlobBuffer } from "./blob-access";
-import { toStorableText } from "./extracted-text";
+import { decodeTextFile, toStorableText } from "./extracted-text";
 
 const MAX_TEXT_LENGTH = 200_000; // DB 存储上限，约 20 万字符
 
@@ -56,7 +56,10 @@ async function parseExcel(buffer: Buffer): Promise<ParseResult> {
 }
 
 async function parsePlainText(buffer: Buffer): Promise<ParseResult> {
-  return { text: buffer.toString("utf-8").trim() };
+  // UTF-16（带字节序标记）按 UTF-16 读；满是 U+0000 的（编码不对 / 二进制）判为失败并写明原因
+  const decoded = decodeTextFile(buffer);
+  if ("error" in decoded) return decoded;
+  return { text: decoded.text.trim() };
 }
 
 // ── 格式路由 ────────────────────────────────────────────────────
@@ -116,7 +119,11 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
     if ("error" in result) {
       await db.projectDocument.update({
         where: { id: documentId },
-        data: { parseStatus: "failed", parseError: result.error },
+        // 失败原因不超过 500 字；报错文字本身也清理一遍（FIX-13）
+        data: {
+          parseStatus: "failed",
+          parseError: toStorableText(result.error.slice(0, 500)),
+        },
       });
       return;
     }
@@ -140,7 +147,7 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
       where: { id: documentId },
       data: {
         parseStatus: "failed",
-        parseError: errorMsg.slice(0, 500),
+        parseError: toStorableText(errorMsg.slice(0, 500)),
       },
     });
   }

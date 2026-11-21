@@ -32,6 +32,7 @@ import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { isFolderImportPipelineActive } from "@/lib/projects/pending-folder-import";
 import { requestAutoAiPanels } from "@/lib/projects/auto-ai-panels";
 import { AnalysisProgressBanner } from "@/components/tender-analysis/analysis-progress-banner";
+import { fileListParseErrorLine } from "@/lib/tender-auto-analysis/exclusion-text";
 
 interface ProjectDocument {
   id: string;
@@ -642,6 +643,7 @@ function FileRow({
   const isExternal = doc.source !== "upload";
   const hasSummary = doc.aiSummaryStatus === "done" && doc.aiSummaryJson;
   const summaryGenerating = doc.aiSummaryStatus === "generating";
+  const parseErrorLine = fileListParseErrorLine(doc.parseStatus, doc.parseError);
 
   const summary: DocumentAiSummary | null = hasSummary
     ? (() => { try { return JSON.parse(doc.aiSummaryJson!) as DocumentAiSummary; } catch { return null; } })()
@@ -750,12 +752,12 @@ function FileRow({
       </div>
 
       {/* 解析失败的原因：全文显示在文件行下方，不截断、不需要悬停（FIX-13） */}
-      {doc.parseStatus === "failed" && doc.parseError?.trim() ? (
+      {parseErrorLine ? (
         <p
-          className="border-t border-border/20 px-3 py-2 text-[11px] leading-relaxed text-red-500 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+          className="border-t border-border/20 pl-[42px] pr-3 py-2 text-[11px] leading-relaxed text-danger whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
           data-testid="parse-error-detail"
         >
-          原因：{doc.parseError.trim()}
+          {parseErrorLine}
         </p>
       ) : null}
 

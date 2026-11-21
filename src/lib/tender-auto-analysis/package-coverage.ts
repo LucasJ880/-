@@ -37,8 +37,9 @@ export type ExcludedFileDetail = {
   exclusionReason: string;
   /**
    * 解析失败原文（FIX-13）：只有因解析失败被排除的文件有值，其它原因恒为 null。
-   * 只给登录后的网页接口与界面用——可能含数据库报错与服务端路径，
-   * 不得进模型提示、Muse 通道、通知，也不得存进综合解读的快照（见 toAnalystCoverage）。
+   * 只随分析详情接口返回、只在分析面板上显示——可能含数据库报错与服务端路径，
+   * 不得进模型提示、Muse 通道、通知，也不得存进综合解读的快照（见 toAnalystCoverage）；
+   * 不显示它的接口用 withoutParseErrors 去掉。
    */
   parseError: string | null;
 };
@@ -161,6 +162,17 @@ export function toAnalystCoverage(cov: PackageCoverage): AnalystCoverage {
       pageCount: f.pageCount,
       exclusionReason: f.exclusionReason,
     })),
+  };
+}
+
+/**
+ * 去掉解析失败原文的覆盖清单（FIX-13）：给不显示原文的接口用（投标简报、工作台汇总），
+ * 原文只随真正显示它的分析详情接口返回。
+ */
+export function withoutParseErrors(cov: PackageCoverage): PackageCoverage {
+  return {
+    ...cov,
+    excludedFiles: cov.excludedFiles.map((f) => ({ ...f, parseError: null })),
   };
 }
 

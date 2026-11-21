@@ -23,7 +23,9 @@ import {
 } from "./analyst-synthesis-view";
 import type { TenderAnalystSynthesisV1 } from "@/lib/tender-analyst/contract";
 import {
+  PARSE_FAILED_NEXT_STEP_HINT,
   exclusionReasonWithParseError,
+  hasParseFailedExclusion,
   parseErrorsByFilename,
 } from "@/lib/tender-auto-analysis/exclusion-text";
 
@@ -502,6 +504,11 @@ export function TenderAnalysisPanel({
                   </li>
                 ))}
               </ul>
+              {hasParseFailedExclusion(data.coverage.excludedFiles) ? (
+                <p className="text-amber-700" data-testid="parse-failed-next-step">
+                  {PARSE_FAILED_NEXT_STEP_HINT}
+                </p>
+              ) : null}
             </div>
           ) : packageDocs.length > 0 ? (
             <div className="mt-2 text-xs text-[var(--muted)] space-y-1">
