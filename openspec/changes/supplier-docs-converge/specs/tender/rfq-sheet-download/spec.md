@@ -30,7 +30,7 @@
 
 #### Scenario: 附件开关关闭时照样生成，且零出站
 - **WHEN** 附件开关未设，生成 `supplier_rfq`
-- **THEN** 200；项目的询价轮次数、审批卡数不变，发信函数被调用 0 次（同一测试）
+- **THEN** 200；项目的询价轮次数、审批卡数不变（同一测试）；生成询价单文件的代码不引用发信、建轮次与建审批卡的模块（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts` 源码断言）
 
 ### Requirement: 询价单文件不输出什么
 询价单文件 SHALL NOT 含 AI 分析综合里的任何文字（要求标题与说明、风险、报价关注、澄清问题），SHALL NOT 含项目 AI 上下文与项目描述，我方撰写的部分（标题、栏目名、固定文字、我方抬头）SHALL NOT 含项目名称，SHALL NOT 含我方报价、中标价、项目估值、毛利率与预算，SHALL NOT 含任何供应商名称或邮箱。招标身份（招标编号、采购方名称、截标日期、精确交货地址）与招标要求原文里恰好和项目名称相同的词，按 `tender/supplier-identity-guard` 处理。
