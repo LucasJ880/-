@@ -289,6 +289,15 @@
 | CHAIN-2 | 批准分析后自动建供应商情报 run，给出推荐型号（最多 3 个，带强制闸证据）与价格对照卡（三种口径并排、不合并） | CHAIN-0 第 6 项 | OpenSpec change `tender-auto-supplier-run`；报告 `docs/QINGYAN_CHAIN-2_REPORT.md` | [x]（#528，2026-11-20 合并；archive `2026-11-20-tender-auto-supplier-run`；主规格 `tender/auto-supplier-run` 13 条（新）、`tender/rfq-auto-draft` 新增 1 条改 3 条；判断点 1 按 A、4 按 B；**开关 `TENDER_AUTO_SUPPLIER_RUN_ENABLED`、`TENDER_RFQ_INTEL_RECIPIENTS_ENABLED` 默认关**，另需 `SUPPLIER_INTEL_ENABLED`；与任务书的出入：自动建池只用内部来源、推荐只读已完成的评估（报告 §1）；经两轮多维审查（六个子 agent，报告 §5）；生产开关需 Vercel 权限） |
 | CHAIN-3 | 中标者 → 进口线索（人工导入 CSV）→ 供货商候选；系统不抓任何第三方网站 | CHAIN-2 | OpenSpec change `tender-import-leads-connector`；报告 `docs/QINGYAN_CHAIN-3_REPORT.md` | [x]（#530，2026-11-20 合并；archive `2026-11-20-tender-import-leads-connector`；主规格 `tender/import-leads` 22 条（新）；判断点 3 按 A、7 按 A；**开关 `TENDER_IMPORT_LEADS_ENABLED` 默认关**，另需 `T4_AWARD_INTELLIGENCE_SCHEMA_READY` 才有中标者可比；与任务书的出入：新目录 `src/lib/tender-import-leads/`、无关记录不导入、进口线索的供应商不自动进自动起草（报告 §1）；经开工前 1 轮 + 实现后两轮多维审查（共七个子 agent，报告 §5）；别名裁决权限待 GATE；生产开关需 Vercel 权限） |
 
+### Phase F（续）— 询价单 PDF
+
+任务书：`docs/QINGYAN_RFQ-PDF_TASKBRIEF.md`（Evan 2026-11-20 反馈「国内供应商询价 PDF 很差」；产品侧核对后定两步：先把菜单里的供应商文件收口到询价单同一套内容、模板与检查，再做询价单模板第 2 版）。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| RFQ-PDF-1 | 菜单里的供应商文件收口到询价单：「一键生成文档」的 `supplier_rfq` 改用发询价时同一个询价单生成器、询价附件的同一个模板与同一套 PDF 检查（只收已确认的供应商侧要求，不读 AI 分析综合与项目上下文）；没有要求 / 含内部财务信息 / 含招标身份 / PDF 不合格时不保存并给中文说明，不再回落成 HTML；「供应商技术确认表」「国内供应商简报」停止生成（旧文件保留）；菜单项改名「供应商询价单 PDF」 | CHAIN-4a、CHAIN-4b | OpenSpec change `supplier-docs-converge`；任务书 T1「验收」七条；报告 `docs/QINGYAN_RFQ-PDF-1_REPORT.md` | [~]（实现完成，多维审查中，PR 待开） |
+| RFQ-PDF-2 | 询价单模板第 2 版：首屏放询价内容、补报价表（与回信解析的六个字段对上）、只留要求编号一套编号、按类别分组、去掉招标文件页码、缺中文译文的提示、合规取证清单并入「请随报价提供」、邮件正文同步；版式版本 1 → 2 | RFQ-PDF-1 | OpenSpec change `rfq-sheet-template-v2`；任务书 T2「验收」；报告附 8pt 与 7.5pt 两份样张，Evan 打印后定字号 | [ ] |
+
 ---
 
 ## Phase N — 导航与说明白话化 + 回复入口（看得懂、找得到、回得了）
