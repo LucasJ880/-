@@ -354,7 +354,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 
 | 件 | change / TASKFLOW | 分支 | PR | 状态 |
 |---|---|---|---|---|
-| 1 一键分析第 3 步被 Vercel 300 秒硬杀（09:46:29、09:54:29 两次 504）；11-19「12-01」的「长时间没有进展」同一根因（Lucas 判断，「12-01」的生产记录本会话未核对，见 §0.5h「等人做的」第 3 条） | `tender-analysis-call-deadline` / FIX-12 | `claude/amazing-planck-0s5wnb` | Draft #540 | 已实施；报告 `docs/QINGYAN_FIX-12_REPORT.md`。四件套 Lucas 同意；截止失败计入窗口 3 次上限同意；窗口开批门槛 45 → 80 秒是 Lucas 的建议、已采纳（design D8） |
+| 1 一键分析第 3 步被 Vercel 300 秒硬杀（09:46:29、09:54:29 两次 504）；11-19「12-01」的「长时间没有进展」同一根因（Lucas 判断，「12-01」的生产记录本会话未核对，见 §0.5h「等人做的」第 3 条） | `tender-analysis-call-deadline` / FIX-12 | `claude/amazing-planck-0s5wnb` | Draft #540 | 已实施，**CI 通过**（2026-11-20 17:35 UTC），等 Lucas / Evan 合并；报告 `docs/QINGYAN_FIX-12_REPORT.md`。四件套 Lucas 同意；截止失败计入窗口 3 次上限同意；窗口开批门槛 45 → 80 秒是 Lucas 的建议、已采纳（design D8） |
 | 2 招标文件「文件解析失败」不显示原因（上传 6、纳入 4，两份 `2026004-Appendix-B-RFP-e(PDF).pdf` / `-f(PDF).pdf` 被排除） | `document-parse-nul-and-reason` / FIX-13 | `claude/amazing-planck-0s5wnb-parse-error` | 未开（四件套已推到分支，等审） | 修法 Lucas 已定：两条解析路径写库前清掉 U+0000（顺带落单代理字符），不解密；界面显示 `parseError` 原文 |
 | 3 生产 GPT-6 Astra 未启用 | — | — | — | 只记录（见下面第 3 条） |
 
@@ -367,7 +367,12 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 5. **FIX-12 多维审查留下的两个后续 change（还没开，会话里生成建议任务的工具超时，以这里为准；细节见 `docs/QINGYAN_FIX-12_REPORT.md` §7）**：
    - 切片之外仍可能越过 300 秒的路径（最高优先）：`processQueuedWorkforceJobs(2)`（`src/lib/workforce-runtime/processor.ts` 约 785–791 行）两个任务共用 240 秒预算，但循环与轮次都不看 `executionBudget.deadlineAt`，第二个任务可能在 226 秒之后再跑一轮不受预算约束的步骤；另有 PERSIST 只留 5 秒余量、旧 cron 的 FINALIZE 无时限、kick 的预算起点、SDK 重试等待不看 signal。
    - 降级结果用白话说清楚：局限说明里的英文错误码、Analyst 两次没完成时没有说明、复核没跑完却显示「未通过 AI 质检」、被截止的澄清检查永久记为未解决。
-6. 本会话的环境做法同 §0.5h「本会话的环境做法」（Node 24、本机 Postgres + pgvector、隔离库变量）；两个 change 各在自己的 git worktree 里做，避免一个跑全量测试时另一个切分支。
+6. **FIX-13 实施要点（四件套等审；审过后 `/opsx:apply document-parse-nul-and-reason`，tasks 共 7 条）**：
+   - 回归测试的 PDF 在测试里现拼（不入库客户文件）。已验证的最小做法（unpdf 1.4.0）：PDF 1.3，页面资源两个字体——`/F1` 为 Type1 Helvetica（WinAnsiEncoding），`/F2` 为 `/Type0 /BaseFont /SymbolMT /Encoding /Identity-H`，`DescendantFonts` 是一个 `CIDFontType2`（`CIDSystemInfo` Adobe / Identity / 0，只有 FontDescriptor，**没有嵌入字体、没有 ToUnicode**）。第 1 页内容流 `BT /F1 12 Tf 72 720 Td (Conflict of interest: if none, check the box.) Tj ET` + `BT /F2 12 Tf 72 700 Td <0000> Tj ET` + `BT /F1 12 Tf 84 700 Td (The Bidder declares that no conflict exists.) Tj ET` → unpdf 抽出 `"Conflict of interest: if none, check the box.\n\u0000 The Bidder declares that no conflict exists."`（与 Appendix B 同一形态）；第 2 页 `BT /F2 12 Tf 72 720 Td <00000000000000000000> Tj ET` → 5 个 U+0000（判为需要 OCR）。xref 按对象偏移手写即可。
+   - 隔离库测试走真实的两条路径：`parseDocumentPagesAndStore`（`page-parse.ts`）与 `parseAndStoreContent`（`parse-content.ts`）；本地文件存储用 `PRODUCT_CONTENT_LOCAL_STORE=1` + `PRODUCT_CONTENT_LOCAL_STORE_DIR`，`blobUrl` 写成 `/api/files/<pathname>`；`ProjectDocument` 有外键，先按既有隔离库测试的做法建组织与项目。改动前的代码上两条路径都是 `failed`、`parseError` 含 22021。
+   - 截断（`slice`）之后再清理一遍——截断可能劈开一对代理字符。
+   - 综合解读的覆盖快照（`v2-persist.ts` `loadCoverageForRun`）**只取原来六项**，`parseError` 不能进去（它会经投标草稿取数进模型提示）；分析面板把现算的「文件名 → parseError」交给综合解读视图。
+7. 本会话的环境做法同 §0.5h「本会话的环境做法」（Node 24、本机 Postgres + pgvector、隔离库变量）；两个 change 各在自己的 git worktree 里做，避免一个跑全量测试时另一个切分支。
 
 ### 0.6 实施中沿用的约定
 
