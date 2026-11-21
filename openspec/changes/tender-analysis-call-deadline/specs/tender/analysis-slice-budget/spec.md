@@ -97,7 +97,7 @@
 
 ### Requirement: 澄清与 Analyst 遇到截止按既有失败语义记下后让出
 
-澄清阶段的一次解决检查以 `CALL_DEADLINE_EXCEEDED` 结束时，系统 SHALL 把该条记为「未解决」（与既有调用失败的保守方向相同）后让出；Analyst 两遍中任一遍以 `CALL_DEADLINE_EXCEEDED` 结束时，系统 SHALL 把这一遍记为一次失败尝试（计入既有的 2 次上限）后让出。两种情况的让出理由均为 `call_deadline`。
+澄清阶段的一次解决检查以 `CALL_DEADLINE_EXCEEDED` 结束时，系统 SHALL 把该条记为「未解决」（与既有调用失败的保守方向相同）后让出；Analyst 两遍中任一遍以 `CALL_DEADLINE_EXCEEDED` 结束时，系统 SHALL 把这一遍记为一次失败尝试（计入既有的 2 次上限）后让出。两种情况都 SHALL 先写检查点再让出，让出理由均为 `call_deadline`。
 
 #### Scenario: 澄清检查撞上截止
 - **WHEN** 澄清检查的主模型请求在阶段上限（60 秒）到时被中止、距调用截止还剩 15 秒，备用模型请求又在调用截止时被中止

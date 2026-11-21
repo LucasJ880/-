@@ -527,6 +527,10 @@ async function main() {
       `SD-05 截止后以 call_deadline 让出（实际 ${reason}）`,
     );
     ok(r.endedAt === 225_000, `SD-05 t+225s 让出（实际 ${S(r.endedAt)}）`);
+    ok(
+      r.checkpoints.length > 0 && r.checkpoints[r.checkpoints.length - 1] === r.endedAt,
+      "SD-05 让出之前先写了检查点（最后一次检查点就在让出时刻）",
+    );
     const resolved = Object.values(cursor.clarify.resolutions);
     ok(resolved.length === 1 && resolved[0] === null, "SD-05 该条按既有保守方向记为未解决");
   }
@@ -560,6 +564,10 @@ async function main() {
       `SD-06 以 call_deadline 让出（实际 ${reason}）`,
     );
     ok(r.endedAt <= 225_000, `SD-06 不晚于调用截止 t+225s 让出（实际 ${S(r.endedAt)}）`);
+    ok(
+      r.checkpoints.length > 0 && r.checkpoints[r.checkpoints.length - 1] === r.endedAt,
+      "SD-06 让出之前先写了检查点（最后一次检查点就在让出时刻）",
+    );
   }
 
   /* ---------------- SD-07 中文化每批请求带截止时间 ---------------- */
@@ -680,6 +688,10 @@ async function main() {
     ok(
       r.outcome.status === "YIELD" && r.outcome.phase === "ANALYST_B" && r.outcome.reason === "call_deadline" && r.endedAt <= 225_000,
       `SD-11 以 call_deadline 让出、不晚于 t+225s（实际 ${reason} ${S(r.endedAt)}）`,
+    );
+    ok(
+      r.checkpoints.length > 0 && r.checkpoints[r.checkpoints.length - 1] === r.endedAt,
+      "SD-11 让出之前先写了检查点（最后一次检查点就在让出时刻）",
     );
   }
 
