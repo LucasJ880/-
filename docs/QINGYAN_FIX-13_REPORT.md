@@ -2,7 +2,8 @@
 
 | 项 | 值 |
 |---|---|
-| change | `document-parse-nul-and-reason`（新能力 `projects/document-text-extraction` 4 条要求、`tender/analysis-package-coverage` 3 条要求） |
+| change | `document-parse-nul-and-reason`（新能力 `projects/document-text-extraction` 4 条要求、`tender/analysis-package-coverage` 4 条要求；第三轮审查后补了「还没纳入」那一条） |
+| PR | #546，2026-11-22 合并（合并提交 `13c7ed33`）；归档 `openspec/changes/archive/2026-11-22-document-parse-nul-and-reason/` |
 | TASKFLOW | FIX-13（Phase F（续）表末，生产实测修复，2026-11-20） |
 | 来源 | Lucas 2026-11-20 生产实测「12-3 Indoor Canadian Flag」：上传 6 个文件、纳入分析 4 个，`2026004-Appendix-B-RFP-e(PDF).pdf` / `-f(PDF).pdf` 被标成「文件解析失败」，界面不显示原因 |
 | 拍板 | 修法（写库前清掉 U+0000 与落单代理字符、不解密）Lucas 已定；界面显示 `parseError` 原文是 Lucas 的要求；四件套经产品侧审过（任务书 `QINGYAN_FIX-12-13_LANDING_TASKBRIEF` T2，**未入库**，在 Claude Project「青砚-Sunny」里）；Evan 2026-11-21 定：本会话负责 FIX-13 的实现与 PR，另一个并行会话（「青砚招投标线 T1–T6」）做独立交叉审计后合并 |
