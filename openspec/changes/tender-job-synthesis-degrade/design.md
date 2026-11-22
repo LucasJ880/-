@@ -201,6 +201,7 @@
 识别的字面量：
 - `insufficient_quota`：OpenAI 的错误 `code` / `type`，代理或别的链路可能把它带进文本。
 - `exceeded your current quota`：OpenAI 余额不足时的消息，SDK 会拼进 `err.message`（`error.js:21-34`）。
+- `no credits remaining`：2026-11-22 生产 Vercel 日志里 OpenAI 429 的原话（多伦多时间 16:40:31 起，Lucas 提供；实施时补入）。确切原文以 FIX-15 分支 `docs/acceptance/fix-15/prod-check.sql` A 段的结果为准，结果回来若不同再补。
 - 「月 AI 费用已达 hard limit」：本组织月度费用预检（`ai/client.ts:183`；已有先例按「配额限制」前缀判定费用超限，`sales/period/narrative-pure.ts:402-405`）。
 - 生产的确切文本以附录 SQL 为准，见上面「四种结果」第 2 条与 G1。
 

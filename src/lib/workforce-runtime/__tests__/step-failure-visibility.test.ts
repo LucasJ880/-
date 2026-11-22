@@ -83,6 +83,9 @@ section("归类规则（写入时）", () => {
   ok(classify({ errorText: QUOTA_TEXT, isSynthesis: true }) === "model_quota_exhausted", "OpenAI 余额不足原文 → model_quota_exhausted");
   ok(classify({ errorText: "Error: 429 insufficient_quota", isSynthesis: false }) === "model_quota_exhausted", "工具步骤里带 insufficient_quota → model_quota_exhausted");
   ok(classify({ errorText: "YOU EXCEEDED YOUR CURRENT QUOTA", isSynthesis: true }) === "model_quota_exhausted", "不分大小写");
+  // 2026-11-22 生产 Vercel 日志里 OpenAI 429 的原话（16:40:31 多伦多时间起）
+  ok(classify({ errorText: "SYNTHESIS_MODEL_FAILED: 429 no credits remaining", isSynthesis: true }) === "model_quota_exhausted", "生产原话「429 no credits remaining」→ model_quota_exhausted");
+  ok(classify({ errorText: "TOOL_FAILED: 429 No Credits Remaining", isSynthesis: false }) === "model_quota_exhausted", "「No Credits Remaining」不分大小写，工具步骤同样认出");
   ok(classify({ errorText: "SYNTHESIS_MODEL_FAILED: 配额限制：月 AI 费用已达 hard limit", isSynthesis: true }) === "org_ai_budget_exhausted", "本组织月度费用预检 → org_ai_budget_exhausted");
   ok(classify({ errorText: "400 Invalid request", isSynthesis: true }) === "synthesis_failed", "「400 Invalid request」综合汇总 → synthesis_failed");
   ok(classify({ errorText: "429 Rate limit reached for requests", isSynthesis: true }) === "synthesis_failed", "「429 Rate limit reached」不误认为余额不足（综合汇总）");

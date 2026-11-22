@@ -10,7 +10,7 @@
 
 数字员工 Job 的步骤执行失败时，无论还会不会再试，系统 SHALL 在这一步上记下错误码。错误码按以下顺序判定：
 
-1. 错误里含 `insufficient_quota` 或 `exceeded your current quota`（不分大小写）：记 `model_quota_exhausted`（AI 账户余额不足）。
+1. 错误里含 `insufficient_quota`、`exceeded your current quota` 或 `no credits remaining`（不分大小写）：记 `model_quota_exhausted`（AI 账户余额不足）。
 2. 错误里含「月 AI 费用已达 hard limit」：记 `org_ai_budget_exhausted`（本组织本月 AI 费用已达上限）。
 3. 其余：综合汇总步骤记 `synthesis_failed`，其它步骤记 `tool_failed`。
 
@@ -19,6 +19,10 @@
 #### Scenario: 余额不足
 - **WHEN** 综合汇总步骤的模型调用报「429 You exceeded your current quota, please check your plan and billing details」
 - **THEN** 这一步的错误码为 `model_quota_exhausted`，`tool.failed` 事件的错误码相同（`npx tsx src/lib/workforce-runtime/__tests__/step-failure-visibility.test.ts`）
+
+#### Scenario: 生产日志里的余额不足原话
+- **WHEN** 模型调用报「429 no credits remaining」（2026-11-22 生产 Vercel 日志的原话，不分大小写）
+- **THEN** 错误码为 `model_quota_exhausted`（`npx tsx src/lib/workforce-runtime/__tests__/step-failure-visibility.test.ts`）
 
 #### Scenario: 还会重试的那次失败也有错误码
 - **WHEN** 一步第一次失败，还剩一次尝试

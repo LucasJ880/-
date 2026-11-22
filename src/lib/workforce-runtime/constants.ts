@@ -65,12 +65,15 @@ export const STEP_ERROR_STALE_RUNNING_RECOVERED = "stale_running_recovered";
 /**
  * 余额不足的识别字面量（不分大小写）。
  * - insufficient_quota：OpenAI 错误的 code / type，代理或别的链路可能带进文本；
- * - exceeded your current quota：OpenAI SDK 拼进 err.message 的原话。
- * 生产确切文本待 FIX-20 design 附录 SQL 核对（G1），核对后只在这里补字面量。
+ * - exceeded your current quota：OpenAI SDK 拼进 err.message 的原话；
+ * - no credits remaining：2026-11-22 生产 Vercel 日志里 OpenAI 429 的原话（多伦多时间 16:40:31 起）。
+ * 生产确切文本以 FIX-15 分支 docs/acceptance/fix-15/prod-check.sql A 段与 FIX-20 design 附录 SQL 的
+ * 结果为准（G1），结果回来若原文不同，只在这里补字面量。
  */
 export const MODEL_QUOTA_EXHAUSTED_LITERALS: readonly string[] = [
   "insufficient_quota",
   "exceeded your current quota",
+  "no credits remaining",
 ];
 /** 本组织月度费用预检失败时的原话（ai/client.ts「配额限制：月 AI 费用已达 hard limit」） */
 export const ORG_AI_BUDGET_EXHAUSTED_LITERAL = "月 AI 费用已达 hard limit";
