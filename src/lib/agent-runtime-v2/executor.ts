@@ -20,7 +20,10 @@ import { emitRuntimeV2Event } from "./events";
 import { getRuntimeV2Limits } from "./flags";
 import { buildStepOperationKey } from "./idempotency";
 import { refreshReadySteps } from "./persist";
-import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
+import {
+  WORKFORCE_JOB_RUN_TYPE,
+  classifyStepFailureErrorCode,
+} from "@/lib/workforce-runtime/constants";
 import { isWorkforceProcessingEnabled } from "@/lib/workforce-runtime/flags";
 import {
   buildParallelBatch,
@@ -1609,6 +1612,10 @@ async function executeClaimedWorkforceStep(input: {
     throw new LostLeaseError(runId);
   }
 
+  // FIX-20 D8：这次认领本身是重试（认领后 attemptCount ≥ 2）时，让出保留上一次失败的
+  // 错误码，让出之后仍显示「正在第 N 次重试」；第一次执行让出照旧清掉。
+  // 值在让出分支之外算好，块内只写短变量名（P11-CONT-06 的 600 字符窗口不变）。
+  const yieldErrorCode = row.attemptCount >= 2 ? row.errorCode : null;
   // ── T5-P1.1 §15：并行批路径同样先处理正常让出 ──
   const batchContinuation = (result as { continuation?: ToolContinuation })
     .continuation;
@@ -1625,9 +1632,9 @@ async function executeClaimedWorkforceStep(input: {
           // 单步路径（上方）的 `step` 是认领**前**的行，所以那里写 step.attemptCount
           // 才是正确回滚，两处语义相同、取值来源不同。
           attemptCount: Math.max(0, row.attemptCount - 1),
-          errorCode: null,
           errorMessage: null,
           completedAt: null,
+          errorCode: yieldErrorCode,
           evidenceJson: jsonValue({
             continuation: {
               reason: batchContinuation.reason,
@@ -1660,15 +1667,21 @@ async function executeClaimedWorkforceStep(input: {
 
   if (!result.ok) {
     const canRetry = attempt < row.maxAttempts;
+    // FIX-20 D5：还会重试与最终失败都按确定性规则写错误码（余额不足 / 本组织费用上限 /
+    // 笼统码；#94 §20 synthesis 的笼统码仍是 synthesis_failed），tool.failed 事件同码。
+    // 归类只决定显示什么话，不改重试次数（D7）。
+    const failureErrorCode = classifyStepFailureErrorCode({
+      errorText: result.error,
+      isSynthesis: isNativeSynthesis,
+    });
     await fenceGuardedWrite(fence, (c) =>
       c.agentRunStep.update({
         where: { id: row.id },
         data: canRetry
-          ? { status: "ready", errorMessage: result.error }
+          ? { status: "ready", errorCode: failureErrorCode, errorMessage: result.error }
           : {
               status: "failed",
-              // #94 §20：synthesis 失败使用独立 durable errorCode
-              errorCode: isNativeSynthesis ? "synthesis_failed" : "tool_failed",
+              errorCode: failureErrorCode,
               errorMessage: result.error,
               completedAt: new Date(),
             },
@@ -1684,7 +1697,7 @@ async function executeClaimedWorkforceStep(input: {
         error: result.error,
         attempt,
         toolCallId: `${stepKey}:${attempt}`,
-        errorCode: isNativeSynthesis ? "synthesis_failed" : "tool_failed",
+        errorCode: failureErrorCode,
       },
     });
     return { kind: "continued" };

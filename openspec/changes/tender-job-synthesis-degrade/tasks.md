@@ -11,7 +11,7 @@
 
 ## 2. 实现
 
-- [ ] 2.1 写入侧的归类与痕迹。
+- [x] 2.1 写入侧的归类与痕迹。
   - `src/lib/workforce-runtime/constants.ts`：加错误码常量、归类规则（design D5）、降级判定（D3），保持零依赖（D6）。G1 的结果若显示余额不足的原文不是现有写法，把那段原文加进规则。
   - `executor.ts` 批量路径的失败分支（`:1661-1690`）：还会重试与最终失败两种情况都写归类后的错误码，`tool.failed` 事件同码。
   - `executor.ts` 批量路径的让出分支（`:1615-1650`）：重试那次认领让出时保留错误码，`if (batchContinuation)` 到 `completedAt: null` 之间不加字符（D8）。

@@ -39,6 +39,7 @@ import {
   WORKFORCE_JOB_RUN_TYPE,
   WORKFORCE_ACTIVE_STATUSES,
   AGENT_RUNS_INVOCATION_BUDGET_MS,
+  STEP_ERROR_STALE_RUNNING_RECOVERED,
 } from "./constants";
 import type { RuntimeExecutionBudget } from "@/lib/agent-runtime-v2/adapters";
 import { isWorkforceProcessingEnabled } from "./flags";
@@ -249,15 +250,31 @@ export async function processWorkforceJobSlice(
       (s) => s.attemptCount >= s.maxAttempts,
     );
     if (recoverable.length > 0) {
+      // FIX-20 D8：回收留痕——错误码记「上一次执行时间过长被中断」（被强制结束的那次已计过
+      // attemptCount，这里不动），再写一条不对用户显示的 step.ready 事件
       await fence.guard((tx) =>
         tx.agentRunStep.updateMany({
           where: {
             id: { in: recoverable.map((s) => s.id) },
             status: "running",
           },
-          data: { status: "ready" },
+          data: { status: "ready", errorCode: STEP_ERROR_STALE_RUNNING_RECOVERED },
         }),
       );
+      for (const s of recoverable) {
+        await appendAgentRunEvent({
+          orgId,
+          runId,
+          eventType: "step.ready",
+          title: s.title,
+          payload: {
+            stepKey: s.stepKey,
+            recoveredFrom: "stale_running",
+            attempt: s.attemptCount,
+          },
+          visibleToUser: false,
+        });
+      }
     }
     for (const s of exhausted) {
       await fence.guard((tx) =>
