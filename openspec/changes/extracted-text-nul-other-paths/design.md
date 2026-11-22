@@ -4,7 +4,7 @@
 
 动机见 proposal.md「Why」。FIX-13（#546）已于 2026-11-22 合并（main `13c7ed33`，FIX-13 最终提交 `f8cc2bdb`），新增 `src/lib/files/extracted-text.ts`：`toStorableText`（`:48`，U+0000 → 空格、落单代理字符 → U+FFFD，没有这两类字符时原样返回）、`toStorableParseError`（`:64`，先截 500 字再清理）；并让 `extractPdfPagesFromBuffer` 返回清理过的页面文字（`page-parse.ts:124`），项目文件 Excel 的工作表名与单元标签也已清理（`page-parse.ts:166`、`:198`）。本 change 复用这两个函数，不另立字符规则。
 
-下面的行号以 main `13c7ed33` 为准。FIX-13 不碰本 change 要改或引用的文件：`git diff --stat 2ef4f9c8 13c7ed33` 对 `src/app`、`src/lib/tender-rfq`、`procurement-records`、`chat-attachments`、`market-intelligence`、`product-content`、`quote-engine`、`assistant`、`inquiry`、`audit`、`vercel.json` 与 `docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 为空。FIX-13 报告 §7.1 的行号是旧 main `91d928e4` 的，§7.1 涉及的文件在 `91d928e4` 与 `13c7ed33` 之间也没有改动（`git diff --stat` 为空），行号仍对；任务书里「`attachments.ts:186-190` 写单元」实际是 `:188–193`。
+下面的行号以 main `13c7ed33` 为准。FIX-13 不碰本 change 要改或引用的文件：`git diff --stat 2ef4f9c8 13c7ed33` 对 `src/app`、`src/lib/tender-rfq`、`procurement-records`、`chat-attachments`、`market-intelligence`、`product-content`、`quote-engine`、`assistant`、`inquiry`、`audit`、`vercel.json` 与 `docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 为空。FIX-13 报告 §7.1 的行号是旧 main `91d928e4` 的，§7.1 涉及的文件在 `91d928e4` 与 `13c7ed33` 之间也没有改动（`git diff --stat` 为空），行号仍对；任务书里「`attachments.ts:186-190` 写单元」实际是 `:188–193`。开工前 FIX-17、FIX-21、FIX-19 先合并（见「相邻改动」），把 main 合入本分支后按新的 main 复核本文的行号。
 
 ### 数据库与 Prisma 实际怎么报错（2026-11-22 本机实测）
 
@@ -117,7 +117,7 @@
 
 1. `inbound-parse.ts` 抽附件时：文字与文件名先清理，再按去首尾空白后是否为空判断「附件无可提取文本（可能是扫描件）」（与 FIX-13「先清理再判断近乎空白」同理；只有 U+0000 的附件以前被记成「已解析」）。同时记下这个附件被换掉的 U+0000 个数。
 2. 拼好、截到 16000 字之后再清理一遍：这份就是送模型的、核对证据的、判断币种与起订量的 `text`。
-3. `inbound-apply.ts` 生成这次追加的备注之后清理一遍（兜住半个表情符号的证据）；附件被换掉过 U+0000、仍记为已解析的，在附件一栏它的「已解析」后注明「（有 N 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）」（见 G5）。
+3. `inbound-apply.ts` 生成这次追加的备注之后清理一遍（兜住半个表情符号的证据）；附件被换掉过 U+0000、仍记为已解析的，在附件一栏它的「已解析」后注明「（有 N 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）」（G5 已定 B）。
 4. 个数怎么传到写备注那一步：`parseInboundQuote` 返回的 `attachmentsSeen` 本来就由代码的处理结果生成、覆盖模型自报的那份（`inbound-parse.ts:430`、`:457`），`inbound-sync.ts` 把整个 `parsed` 交给 `planInquiryItemUpdate`（`:233–237`）。所以只在 `inbound-parse.ts` 的校验后类型（`ParsedQuote`，`:61–66`）里给 `attachmentsSeen` 每一项加一个可选的个数字段，`inbound-apply.ts` 读它；模型输出契约（`inbound-contract.ts:51`）不改，`inbound-sync.ts` 不改。送进模型的附件清单（`inbound-parse.ts:285–290`）照旧只用文件名与是否解析，个数不进提示。后果：审计摘要原样记下 `attachmentsSeen`（`inbound-sync.ts:149`），这封回信的审计里每个附件多一个数字字段。
 5. 附件一栏不被比价回读：`notes-parse.ts:68–99` 只认缺字段、起订量、贸易条款、单价 / 总价、其它档、强制项，附件段按「；」切开后落不进任何一支，这句话里没有「；」。本机用 `parseAutoNotes` 对比带与不带这句话的同一段备注（含单价、起订量、贸易条款、强制项、缺字段），结果相同；`notes-parse.test.ts` 17 项通过。`inbound-apply.ts:11–12` 要求改备注措辞时跑这个往返测试，写进 tasks 1.1。
 
@@ -130,7 +130,7 @@
 
 PDF 每页先清理再调 `pageNeedsOcr`（与 FIX-13 D2 相同）；工作表文字、单元标签、`sheetRangesJson` 里的工作表名在写之前清理；明细在 `extractLinesFromUnits` 之后、`createMany` 之前整条过遍历函数（截断在 `extract-pure.ts` 里，清理放在写库边界，不改那里的截断）。CSV / TXT 的读法与「含 U+0000 即文件损坏」不变（见 G3）。
 
-- 否决：把 `:188–243` 包进 try，写库失败改记 `FAILED`。`FAILED` 不会被定时任务再认领（`:171`、`:256` 只认 PENDING / PARSING），数据库一时连不上这种暂时性错误会变成永久失败，而 `FAILED` 的标签写的是「解析失败（稍后重试）」（`labels.ts:203`），说了假话。字符原因清理之后已经消失，暂时性错误保留现在的「过期后重试、最多 5 次」更合适；5 次之后停在「解析中」、没有原因，是另一个问题（Out of scope，已停住的附件见 G1）。
+- 否决：把 `:188–243` 包进 try，写库失败改记 `FAILED`。`FAILED` 不会被定时任务再认领（`:171`、`:256` 只认 PENDING / PARSING），数据库一时连不上这种暂时性错误会变成永久失败，而 `FAILED` 的标签写的是「解析失败（稍后重试）」（`labels.ts:203`），说了假话。字符原因清理之后已经消失，暂时性错误保留现在的「过期后重试、最多 5 次」更合适；5 次之后停在「解析中」、没有原因，是另一个问题（Out of scope，另开任务，tasks 7.1 登记；已经停住的附件按 G1 已定的 A 处理）。
 - 否决：在 `extract-pure.ts` 里把截断改成不劈开代理对。要改的截断点散在各处，以后新增的截断还会漏；写库边界只有一处。
 
 ### D5 AI 对话附件：在服务端校验附件的那一处清理；截断生成的标题在截断之后清理
@@ -138,13 +138,13 @@ PDF 每页先清理再调 `pageNeedsOcr`（与 FIX-13 D2 相同）；工作表�
 1. 新方式（`parseAttachmentsInput`，`core.ts:94–139`）：先清理每个附件的文件名与正文，再做「有没有可分析的文本」与长度校验。这条路不截断、只拒绝，替换一个换一个，长度校验的结果不变。正文清理后只剩空白的，按既有的「附件「…」没有可分析的文本内容」以 400 拒绝。
 2. 旧方式（`attachmentsFromLegacyFile`，`core.ts:142–154`）：照旧截断（文件名 200 字 `:148`、正文 15 万字 `:151`），截断之后再清理文件名与正文，清理之后再判一次空——先清后截会在截断处留下新的落单代理字符；只有 U+0000 的文字现有的判空（`:144`）拦不住，清理后才变成空白。清理后正文只剩空白的按既有的「空文字视为没有附件」处理。
 3. 两个对话路由与跟进任务拿到的都是这一份附件，写附件的四处（`route.ts:421–423`、`:443–445`，`followup-task.ts:211–219`，外贸 `route.ts:69–76`）、送模型、拼市场证据都不用再各自处理。市场证据在 `research-runtime.ts:211` 截到 2 万字之后再清理一遍（`queueMarketResearchRequest` 是共用入口，别的调用方传进来的市场证据也一样经过）。
-4. 对话标题：在 `core.ts` 加一个「截断到 N 字再清理」的纯函数，5 处生成标题的地方（`api/ai/threads/[threadId]/messages/route.ts:431`、`:720`、`:1241`，`api/trade/chat/[sessionId]/messages/route.ts:123`，`assistant/followup-task.ts:235`）改用它；外贸对话的「...」在清理之后拼。标题不论来自打的字还是附件名都清理（G6）。
+4. 对话标题：在 `core.ts` 加一个「截断到 N 字再清理」的纯函数，5 处生成标题的地方（`api/ai/threads/[threadId]/messages/route.ts:431`、`:720`、`:1241`，`api/trade/chat/[sessionId]/messages/route.ts:123`，`assistant/followup-task.ts:235`）改用它；外贸对话的「...」在清理之后拼。标题不论来自打的字还是附件名都清理（G6 已定 A）。
 
 - 否决：在 `parse-buffer.ts` 统一清理。浏览器提交的附件不可信（旧客户端、缓存的页面、手工构造的请求都能带 U+0000），服务端仍要再清；产品资料的网页与语音来源也不经过它。
 - 否决：在写附件的四处分别清。四处里漏一处就失败；校验只有一处，而且是「浏览器来的数据不可信」的既有边界（`core.ts:93` 的注释）。
 - 否决：在 `attachmentsTitleSource`（`core.ts:299–306`）里清理标题。截断在它之后由调用方做，落单代理字符是截断产生的。
 - 否决：只清来自附件名的标题。同一行代码要按来源分两支；打的字在截断处劈开表情符号同样写标题失败（见 G6）。
-- 不改：附件的 `blobPath`（只认既有前缀、不含 `..`）与 `mime`（正则校验）不是抽取出的文字。正常上传的 `blobPath` 由服务端生成（`chat-attachments/upload-image.ts:56`），手工构造带 U+0000 的路径仍会写库失败返回 500，不在本次范围。
+- 不改：附件的 `blobPath`（只认既有前缀、不含 `..`）与 `mime`（正则校验）不是抽取出的文字。正常上传的 `blobPath` 由服务端生成（`chat-attachments/upload-image.ts:56`），手工构造带 U+0000 的路径仍会写库失败返回 500，不在本次范围，另开任务（tasks 7.1 登记）。
 
 ### D6 产品资料录入：在事实抽取的入口清理
 
@@ -175,9 +175,9 @@ PDF 每页先清理再调 `pageNeedsOcr`（与 FIX-13 D2 相同）；工作表�
 ## 上线顺序
 
 1. FIX-13（#546）已于 2026-11-22 合并（main `13c7ed33`），本 change 依赖的 `toStorableText` / `toStorableParseError` 与测试夹具已在 main 上。
-2. FIX-14 合并并部署到生产（没有开关，部署即生效）。
+2. FIX-14 合并并部署到生产（没有开关，合并即在生产生效）。
 3. 实现 PR 里同时改三处开关前提（tasks 7.1）：`docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 的「填写顺序」（`:8`）与第 7 行建议值（`:19`）、TASKFLOW 的 CHAIN-0 行（`:284`），都改成「CHAIN-4b 合并且 FIX-14 部署之后」再开三个询价开关（`TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED`、`TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`）。开关打开的日期由有生产权限的人填进核查表第 7 行，那一天必须晚于本 PR 的部署日期；CHAIN-4b 行「staging 真实标包实测做完之前不开 CHAIN-0 第 7 项」的既有前提照旧。
-4. 若开关要在整个 FIX-14 合并之前打开，按 G2 选 B：询价回信拆成 FIX-14a 先合，三处前提改写成「FIX-14a 部署之后」。
+4. G2 已定 A（不拆）：三个询价开关要等整个 FIX-14 合并部署之后才开，没有「询价回信先合」的捷径。若有人要在 FIX-14 合并之前开开关，先回 GATE 重新定 G2，不能直接开。
 
 入站这条路对人工发出的询价今天已经在跑（第 2 节），所以第 2 步越早越好，不只是为了开关。
 
@@ -201,6 +201,11 @@ PDF 每页先清理再调 `pageNeedsOcr`（与 FIX-13 D2 相同）；工作表�
 - `npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-ci-unit.sh`（末行 `CI unit subset PASS`）、`bash scripts/test-runtime-architecture.sh`、`npm test`（对照既有失败清单）、`openspec validate extracted-text-nul-other-paths --strict`、`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空。
 - 开关前提：`grep -n "FIX-14 部署之后" docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 命中「填写顺序」与第 7 行两处；`grep -n "^| CHAIN-0 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 那一行含「FIX-14 部署之后」。
 
+## 相邻改动
+
+- 开工顺序 FIX-17 → FIX-21 → FIX-19 → FIX-14。这三个 change 的四件套都不改本 change 要改的代码文件：FIX-17 只改 `src/app/api/projects/[id]/files/**` 的两个路由并加守卫测试；FIX-21 只改 `src/app/api/projects/[id]/intelligence/**` 与 `ai-bid-package/**`，另加覆盖整个 `src/app/api/projects/[id]/` 的目录守卫测试（本 change 不碰这个目录）；FIX-19 的 Non-Goals 写明 `src/lib/quote-engine/import/import-service.ts` 不动。但三者都改 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 与 TASKFLOW，所以 **FIX-19 合并后把 main 合入本分支再开工**（tasks 开工前提）；合入后按新的 main 复核本文行号、TASKFLOW 里 CHAIN-0 与 FIX-13 两行的位置和「| 待定 |」的原有条数。
+- 另一个并行会话（BIDPAGE）只读 `src/lib/quote-engine/import/import-service.ts` 与 `src/lib/tender-rfq/inbound-apply.ts` 的结果、不会改这两个文件，两边不会在这两个文件上冲突。本 change 合并后它读到的结果有两处不同：成本表导入记录里的 U+0000 变成空格、落单代理字符变成 U+FFFD，其余逐字不变；询价条目报价备注的附件一栏可能多一句「（有 N 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）」（G5-B）。它若要从报价备注里取字段，应经 `notes-parse.ts`（附件一栏不进任何回读字段，D3 第 5 点）。
+
 ## Risks / Trade-offs
 
 - [U+0000 原本代表的字形（勾选框等）在文字里看不出来] → 与 FIX-13 相同；与「整份失败」相比是净改进。
@@ -208,46 +213,55 @@ PDF 每页先清理再调 `pageNeedsOcr`（与 FIX-13 D2 相同）；工作表�
 - [采购附件里有效文字不足 20 个、但加上 U+0000 够 20 个的页改判「需要 OCR」] → 这类页以前写库失败，没有「可读」的历史结果可比。
 - [AI 对话：正文只有 U+0000 的附件由 500 变成 400 并带原因] → 修正；旧客户端的这类附件被当作没有附件（与旧客户端传空文字时相同）：有消息正文时照常发出，没有正文时按既有规则返回「消息不能为空」。
 - [对话标题：截断处的表情符号显示成 U+FFFD（�）] → 只影响标题最后一个字；以前这一轮对话报错。
-- [已经失败的历史数据不会自己恢复] → 采购附件重试次数没用完的，下一个整点 25 分自动重试成功；用完的、已解析却没有明细的见 G1；询价回信已记失败的不会再处理（幂等），仍需人工录入，证据被悄悄作废的也不会补；产品资料与成本表重新点一次分析 / 重新导入即可；对话消息重新发送。上线后怎么查见下节，报告写明。
+- [已经失败的历史数据不会自己恢复] → 采购附件重试次数没用完的，下一个整点 25 分自动重试成功；用完的、已解析却没有明细的按 G1（已定 A）人工处理；询价回信已记失败的不会再处理（幂等），仍需人工录入，证据被悄悄作废的也不会补；产品资料与成本表重新点一次分析 / 重新导入即可；对话消息重新发送。上线后怎么查见下节，报告写明。
 
 ## Migration Plan
 
-无数据迁移、无开关。合并部署即生效；回滚 = 回退本 PR。上线后：
+无数据迁移。**没有开关，合并即在生产生效**；回滚 = 回退本 PR。合并后要人做的事（按顺序，报告「合并后要人做的事」一节照写并附只读 SQL）：
 
-1. 采购附件（按 G1 处理）：查两类——(a) `parseStatus = 'PARSING' AND "parseAttempts" >= 5`；(b) `kind = 'DISCLOSURE_FILE' AND parseStatus = 'PARSED'`、没有任何 `ProcurementLineItem`，且该申请在这份附件 `parsedAt` 之后没有 `ProcurementAnalysis`（写明细失败时分析没有跑，`attachments.ts:244–248`；真的没有明细的文件分析照常跑过）。
-2. 询价回信：列出本 PR 部署前 90 天内（入站只盯 90 天内发出的条目，`inbound-sync.ts:30`、`:479`）全部 `action = 'rfq_inbound:failed'` 的回信，不按报错文字筛——失败原因只留前 300 字（`:260`），Prisma 报错开头若带调用位置与代码行，22021 可能被截掉；交项目负责人确认是否都已人工录入。另列出同一时段 `action = 'rfq_inbound:applied'`、`afterData` 的 `rejected` 里有 `EVIDENCE_NOT_IN_TEXT`、`attachmentsSeen` 里有已解析 PDF 的回信：这些回信的价格或交期当时被悄悄作废、没有通知（备注写「回信涉及报价但未提取到可核验字段」，缺价格的可能已起草过追问卡，`chase-pure.ts:327–341`），由负责人对照原件补录。
-3. 「分析输入」一步停在进行中的产品资料任务、「失败」的成本表导入，由使用人重新点一次。
-4. 然后才按「上线顺序」第 3 步打开询价开关。
+1. 采购附件（G1 已定 A：不写补救代码）。有生产数据库权限的人跑只读查询，查两类：(a) `parseStatus = 'PARSING' AND "parseAttempts" >= 5`；(b) `kind = 'DISCLOSURE_FILE' AND parseStatus = 'PARSED'`、没有任何 `ProcurementLineItem`，且该申请在这份附件 `parsedAt` 之后没有 `ProcurementAnalysis`（写明细失败时分析没有跑，`attachments.ts:244–248`；真的没有明细的文件分析照常跑过）。两类都为零就结束；有就按 G1-A 写的字段改法走 Owner Gate（Evan 拍板）做一次生产写操作，之后由 `tender-watch` 自动重新认领，不用人点。
+2. 询价回信。同一个人跑只读查询，列出本 PR 部署前 90 天内（入站只盯 90 天内发出的条目，`inbound-sync.ts:30`、`:479`）全部 `action = 'rfq_inbound:failed'` 的回信，不按报错文字筛——失败原因只留前 300 字（`:260`），Prisma 报错开头若带调用位置与代码行，22021 可能被截掉。另列出同一时段 `action = 'rfq_inbound:applied'`、`afterData` 的 `rejected` 里有 `EVIDENCE_NOT_IN_TEXT`、`attachmentsSeen` 里有已解析 PDF 的回信：这些回信的价格或交期当时被悄悄作废、没有通知（备注写「回信涉及报价但未提取到可核验字段」，缺价格的可能已起草过追问卡，`chase-pure.ts:327–341`）。两份名单按 `AuditLog.projectId` 分组交项目负责人：前一份确认是否都已人工录入，后一份对照原件补录。
+3. 产品资料与成本表。同一个人跑只读查询：`ProductContentStep` 里 `stepKey = 'analyze_inputs'`、`status = 'running'`、`startedAt` 早于部署时间的任务（连 `ProductContentJob` 取 `title`、`createdById`）；`QuoteCostImport` 里 `status = 'FAILED'`、`createdAt` 早于部署时间的导入（取 `projectId`、`sourceFilename`、`createdById`、`errorMessage`；不按报错文字筛，原因只留前 500 字）。名单交给各自的创建人，由创建人重新跑一次分析 / 重新导入一次。
+4. AI 对话：改动前写库失败的消息没有存下，查不出名单，不用做；用户重发即可。
+5. 做完上面几步，才按「上线顺序」第 3 步打开询价开关（核查表第 7 行的日期晚于本 PR 的部署日期）。
 
 ## 留给 GATE
 
+六条已由 Lucas 2026-11-22 定下：G1 A、G2 A、G3 A、G4 A、G5 B、G6 A，都与原推荐相同。
+
 **G1 采购附件的两类历史失败怎么补**
+**已定（Lucas 2026-11-22）：A**——不写补救代码；上线后按「Migration Plan」第 1 步由人查，有就走 Owner Gate。
 - A：不写补救代码。上线后由有生产权限的人按「Migration Plan」第 1 步查两类的条数；都为零就结束；有就按既有的生产操作流程（Owner Gate）处理：(a) 类把 `parseAttempts` 改成 0（`parseStartedAt` 已经超过 10 分钟），下一个整点 25 分的 `tender-watch` 重新认领；(b) 类把 `parseStatus` 改回 `PENDING`、`parseAttempts` 改成 0，同一个定时任务认领（`attachments.ts:256` 认上传超过 1 分钟的 PENDING），解析单元已存在的按 `(attachmentId, unitIndex)` 跳过、明细按 `(attachmentId, dedupeKey)` 跳过（`skipDuplicates`），分析重跑一次、多一个分析版本。后果：零代码；需要一次人工生产操作；(b) 类的查法可能混进少数真的没有明细、又没跑过分析的文件，重跑对它们无害。
 - B：本 change 加一个「重新解析」接口与按钮。后果：新增对外行为与权限判断，tasks 超过 8 条，要拆 change。
 - 推荐 A：生产上是否开了 `PROCUREMENT_RECORDS_SCHEMA_READY`、有没有这样的附件都没核对，为零时 A 没有任何成本；B 是新功能，不该夹在修复里。
 
 **G2 询价回信要不要拆成独立 change 先合**
+**已定（Lucas 2026-11-22）：A**——不拆，一个 change 一个 PR；三个询价开关要等整个 FIX-14 合并部署之后才开（「上线顺序」第 4 点）。
 - A：不拆。7 条 tasks，询价回信排第一，一个 PR 审一次。后果：开关要等整个 FIX-14 合并部署。
 - B：拆。本 change 只留询价回信：规格增量只留询价的 4 条要求与两条通用要求（「清理规则」「清理不扩大对外内容」），proposal / design / tasks 删掉其余四个入口（tasks 留 1.1、6.1、7.1）；另建一个 change 目录（FIX-14b）承接采购附件、AI 对话附件与对话标题、市场证据、产品资料、成本表导入的 8 条要求与 tasks 2.1–5.1，自己的 proposal / design / 验收与报告。后果：开关可以在 FIX-14a 部署后就开（核查表三处前提写「FIX-14a」）；多一个 change、一个 PR、一次多维审查、一次归档、TASKFLOW 两行、两份报告；拆分本身要重写四件套，大约半天。
 - 推荐 A，附条件：如果 Evan / Lucas 计划在 FIX-14 整体能合并之前就打开开关，改选 B。CHAIN-4b 行写明 staging 实测做完之前不开第 7 项，目前开关也还要等这一步。
 
 **G3 采购附件的 CSV / 纯文本要不要改用 FIX-13 的解码方式**
+**已定（Lucas 2026-11-22）：A**——CSV / 纯文本不改读法；带字节序标记的 UTF-16 CSV 被判「文件损坏」这一条登记为后续任务，等有真实样本再定（tasks 7.1）。
 - A：不改。仍按 UTF-8 读，含 U+0000 一律「文件损坏 · 文本文件含二进制内容」。后果：带字节序标记的 UTF-16 CSV（Excel「Unicode 文本」导出的就是）继续被判损坏，但失败是看得见的，不是写库失败。
 - B：改用 `decodeTextFile`。后果：带字节序标记的 UTF-16 能读；去掉末尾 U+0000 后 U+0000 与无法解码的字符合计不超过 10% 的文件不再判损坏，U+0000 换成空格；采购侧的行为变化要有人确认。
 - 推荐 A：本次修的是「写库失败 / 卡住」，这一条现在不卡；政府披露文件常见什么编码没有数据，等有真实样本再定。
 
 **G4 FIX-13 §7.1 只扫到的四处导入（外贸客户线索、展会名片、客户 CSV、三个知识库导入）要不要另开任务**
+**已定（Lucas 2026-11-22）：A**——四处导入不另开任务，只写进 FIX-14 报告「没做的」；tasks 7.1 登记的后续任务不含这四处。
 - A：不另开，写进 FIX-14 报告「没做的」。后果：这几处遇到带 U+0000 的文件时当场报错（外贸客户线索整个请求 500；知识库导入一个坏文件让后面的都不导入），导入人可以改文件重传。
 - B：登记一个新任务，按本 change 的做法逐个清理。后果：多一个 change；目前没有遇到过的案例。
 - 推荐 A：失败当场可见、可以重来、不在任何自动化路径上；等出现真实案例再开。
 
 **G5 询价回信的附件里有 U+0000 被换掉时，要不要在报价备注里注明**
+**已定（Lucas 2026-11-22）：B**——与本稿推荐相同：规格「询价回信附件里有被换掉的 U+0000 时在报价备注里注明」、D3 第 1 / 3 / 4 / 5 点、D8 与 tasks 1.1 已按 B 写，不用改。B 的后果：① 这类回信的报价备注附件一栏多一句话，询价页面上看得到；② `inbound-parse.ts` 校验后类型里 `attachmentsSeen` 每项多一个可选的个数字段，这封回信的审计每个附件多一个数字（`inbound-sync.ts:149` 原样记下）；③ 改了备注措辞，实现时必须跑 `notes-parse.test.ts` 往返测试，并加「带 / 不带这句话经 `parseAutoNotes` 结果相同」的用例（tasks 1.1）；④ 整段字形都被抽成 U+0000 时 N 会很大，这句话照写，该附件仍记已解析；⑤ 它只是提示，不改入表、证据核对与比价回读的结果——勾选框式选项表上模型挑出的选项仍可能没有依据，要靠人看到这句话去翻原件；⑥ 不进通知、Muse 事件与模型提示；BIDPAGE 若读报价备注会看到这句话（见「相邻改动」）。
 - A：不注明。后果：勾选框式选项表上，模型挑出的选项可能没有依据，人只有翻原件才会发现。
 - B：注明（本稿已按 B 写进规格与 tasks 1.1）：附件一栏在「已解析」后写「（有 N 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）」，只进报价备注与审计里的个数，不进通知、Muse 与模型提示，不改入表、核对与比价回读的结果。后果：这类回信的备注多一句话，审计每个附件多一个数字字段。
 - C：附件里有 U+0000 时，跨过它的证据一律不采信。后果：回到改动前的作废行为（更严），正是本次要修的问题之一。
 - 推荐 B：回信是五个入口里唯一不经人复核就自动入表的，一句确定性的提示成本最低；「或无法识别的字形」覆盖整段字形都抽成 U+0000、N 很大的情况。选 A 则删掉规格里「询价回信附件里有被换掉的 U+0000 时在报价备注里注明」这条要求、D3 第 3–5 点里对应的部分与 tasks 1.1 里对应的一句。
 
 **G6 对话标题截断后清理的范围**
+**已定（Lucas 2026-11-22）：A**——5 处标题都清理（含 `assistant/followup-task.ts`）；5 处以外把用户打的字截断后写库的地方登记为后续任务（tasks 7.1）。
 - A（本稿）：凡由消息文字或附件名生成、按字数截断后写库的对话标题都清理——主助手 / 项目「问青砚」3 处（`route.ts:431`、`:720`、`:1241`）、外贸对话 1 处（`:123`）、助手跟进任务 1 处（`followup-task.ts:235`，标题只来自打的字）。后果：用户打的字在这 5 处截断劈开表情符号、写标题失败的问题顺带修掉（同一行代码，不分来源）；多改一个文件 `assistant/followup-task.ts`。这 5 处以外把打的字截断后写库的地方不在本次，报告「没做的」记下，另开任务。
 - B：只清标题可能来自附件名的 4 处，而且只在标题来自附件名时清理。后果：同一列标题、同一行代码要按来源分两支，测试多一组；打的字截断（比附件名更常见）照旧失败，留给另开的任务。
 - 推荐 A：落单代理字符是截断产生的，与文字来源无关；按来源区分多一个分支，修得反而更少。选 B 则规格「对话标题截断后入库前清理」改成只管来自附件名的标题，tasks 3.1 去掉跟进任务那一处。

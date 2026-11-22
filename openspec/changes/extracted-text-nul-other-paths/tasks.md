@@ -1,6 +1,11 @@
 # Tasks：其它文字抽取入口入库前清理 U+0000 / 落单代理字符（FIX-14）
 
-前提：FIX-13（#546）已于 2026-11-22 合并（main `13c7ed33`）——`src/lib/files/extracted-text.ts` 与夹具 `src/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf.ts` 在 main 上。开工前按 `openspec/config.yaml` 先跑一遍将要触碰模块的已注册测试，记下通过数。
+开工前提：
+
+- 开工顺序 FIX-17 → FIX-21 → FIX-19 → FIX-14：**FIX-19 合并后把 main 合入本分支再开工**（`git merge origin/main`）。三者都改过 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 与 TASKFLOW（见 design「相邻改动」），合入后按新的 main 复核 design 与本文引用的行号，并记下 `grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的条数，作为 7.1 的「原有」条数。
+- FIX-13（#546）已于 2026-11-22 合并（main `13c7ed33`）——`src/lib/files/extracted-text.ts` 与夹具 `src/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf.ts` 在 main 上。
+- 按 `openspec/config.yaml` 先跑一遍将要触碰模块的已注册测试，记下通过数。
+- GATE 已定（Lucas 2026-11-22）：G1 = A、G2 = A（不拆，一个 change 一个 PR）、G3 = A、G4 = A、G5 = B、G6 = A，各条见 design「留给 GATE」。
 
 ## 1. 询价回信（排第一：询价自动化三个开关打开之前必须已上线，见 design「上线顺序」）
 
@@ -28,10 +33,28 @@
 
 ## 7. 报告、开关前提与 TASKFLOW
 
-- [ ] 7.1 写 `docs/QINGYAN_FIX-14_REPORT.md`（五个入口各自的写库点与改动前 / 改动后、改动前失败的测试输出、上线顺序、上线后操作（design「Migration Plan」四步）、多维审查结论、没做的（四处导入接口、对话标题 5 处以外把用户打的字截断后写库的地方，写明另开任务、手工构造的 `blobPath`））；在本实现 PR 里改三处询价开关前提：`docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 的「填写顺序」（`:8`）与第 7 行「建议值」（`:19`）、`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的 CHAIN-0 行（`:284`），都改成「CHAIN-4b 合并且 FIX-14 部署之后」再开三个询价开关（核查表「原值 / 新值 / 日期」三列不填）；更新 TASKFLOW 状态列（「Phase F（续）— 情报串联」表 FIX-13 之后新增 FIX-14 一行，依赖 FIX-13，`[~]`）；verify：报告存在；`grep -c "FIX-14 部署之后" docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 为 2；`grep -n "^| CHAIN-0 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 那一行含「FIX-14 部署之后」；`grep -n "^| FIX-14 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行且行号大于 FIX-13 那一行
+- [ ] 7.1 写 `docs/QINGYAN_FIX-14_REPORT.md`、改三处询价开关前提、更新 TASKFLOW。
+  - 报告内容：
+    - 五个入口各自的写库点与改动前 / 改动后；改动前失败的测试输出；
+    - 「留给 GATE」六条的结论（Lucas 2026-11-22：G1 A、G2 A、G3 A、G4 A、G5 B、G6 A）；
+    - **没有开关，合并即在生产生效**；回滚 = 回退本 PR；
+    - 上线顺序：三个询价开关要等本 PR 部署之后才开（G2 已定 A，不拆，没有先合询价回信的捷径）；
+    - 合并后要人做的事（design「Migration Plan」五步）：要跑的只读查询，附 SQL——采购附件 (a) / (b) 两类、部署前 90 天的 `rfq_inbound:failed` 与带 `EVIDENCE_NOT_IN_TEXT` 的 `rfq_inbound:applied`、停在 running 的「分析输入」、`FAILED` 的成本表导入；名单就从这几条查询来，询价回信按项目分组、产品资料与成本表按创建人分组；谁来做——有生产数据库权限的人跑查询，采购附件两类的写操作走 Owner Gate（Evan 拍板）、之后由定时任务自动重新认领，询价回信由项目负责人核对与补录，产品资料与成本表由创建人重新跑一次，AI 对话查不出名单、用户重发即可；这些做完才开询价开关；
+    - 多维审查结论；
+    - 没做的：四处导入接口（G4 已定 A：只写在这里，不登记后续任务）、对话标题 5 处以外把用户打的字截断后写库的地方、手工构造的 `blobPath`，以及下面登记的其余后续任务。
+  - 三处询价开关前提（本实现 PR 里改）：`docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 的「填写顺序」（`:8`）与第 7 行「建议值」（`:19`）、`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的 CHAIN-0 行（main `13c7ed33` 上是 `:284`，合入新 main 后用 grep 定位），都改成「CHAIN-4b 合并且 FIX-14 部署之后」再开三个询价开关；核查表「原值 / 新值 / 日期」三列不填。
+  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：「Phase F（续）— 情报串联」表 FIX-13 之后新增 FIX-14 一行，依赖 FIX-13，状态 `[~]`。同时登记 7 条后续任务，各一行，编号写「待定」，状态 `[ ]`：
+    1. 对话标题 5 处以外，把用户打的字按字数截断后写入文本列的地方没有逐处排查，截断劈开表情符号会写库失败（全仓 `.slice(0, N)` 之后写库的地方）；
+    2. AI 对话附件的 `blobPath`：手工构造带 U+0000 的路径写库报 22P05、接口返回 500（`src/lib/chat-attachments/core.ts:122` 只去首尾空白与查前缀）；
+    3. 采购记录附件认领满 5 次后一直停在「解析中」、不记原因，界面上没有出路（`src/lib/procurement-records/attachments.ts:172`、`:256`）；
+    4. 采购记录附件 `FAILED`（如「存储读取失败，稍后重试」）不被定时任务再认领，标签却写「解析失败（稍后重试）」（`attachments.ts:184`、`:256`，`src/lib/procurement-records/labels.ts:203`）；
+    5. 采购记录附件 CSV / 纯文本按 UTF-8 读，带字节序标记的 UTF-16 CSV（Excel「Unicode 文本」导出）被判「文件损坏」，等有真实样本再定是否改用 `decodeTextFile`（G3 已定 A；`attachments.ts:122–124`）；
+    6. 询价回信写库失败时不回滚：条目已被改成「已回复」，走「已回复」的还已推「收到回复」Muse 事件；失败后也不重试，只通知人工录入（`src/lib/tender-rfq/inbound-sync.ts:258–272`、`:390`、`:412–414`）；
+    7. 产品资料录入的解析报错（`parseResultJson.error`）与「分析输入」一步的 `parseNotes`（含文件名、网址、异常原文）写 jsonb 前没有清理与收口（`src/lib/product-content/intake/analyze.ts:217–221`、`:301`、`:343`）。
+  - verify：报告存在，含「没有开关，合并即在生产生效」与「合并后要人做的事」两节；`grep -c "FIX-14 部署之后" docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 为 2；`grep -n "^| CHAIN-0 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 那一行含「FIX-14 部署之后」；`grep -n "^| FIX-14 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行且行号大于 FIX-13 那一行；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于（原有 + 7），原有为开工前提里记下的条数（main `13c7ed33` 上为 0）。
 
 ## Workflow follow-up
 
 - 开 PR 前按 `openspec/config.yaml`「多维审查」并行派子 agent（正确性与回归、安全 / 隐私与硬纪律、规格—代码—测试一致性、使用流畅与文案，另加「测试质量与门禁」），逐条核实后修，重跑测试；PR 正文写「多维审查」一节，并写明「询价自动化开关须在本 PR 部署之后才开（核查表与 TASKFLOW 的前提已在本 PR 改好）」。
-- 若 GATE 对 G2 选 B：先按 design G2-B 拆四件套——本 change 只留询价回信（1.1、6.1、7.1），另建 FIX-14b 的 change 承接 2.1–5.1；三处开关前提写「FIX-14a 部署之后」。
+- G2 已定 A：不拆，五个入口一个 PR、一次多维审查、一次归档；PR 正文写明「没有开关，合并即在生产生效」。
 - PR 合并后 `/opsx:archive extracted-text-nul-other-paths --yes`（独立小 PR，至少一个子 agent 核对主规格与 delta、TASKFLOW 状态）。
