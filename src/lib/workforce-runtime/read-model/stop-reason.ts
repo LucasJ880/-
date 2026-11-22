@@ -40,7 +40,17 @@ export const STOP_REASON_BY_ERROR_CODE: Readonly<Record<string, string>> = {
   approval_rejected: "审批被驳回",
   approval_expired: "审批已过期",
   db_error: "保存数据时出错",
+  // FIX-20：执行器在步骤失败时按确定性规则归类出的码（workforce-runtime/constants）
+  synthesis_failed: "综合汇总生成失败",
+  model_quota_exhausted: "AI 账户余额不足，请联系平台管理员充值",
+  org_ai_budget_exhausted: "本组织本月 AI 费用已达上限，请组织管理员调高月度上限",
+  stale_running_recovered: "上一次执行时间过长被中断",
 };
+
+/** 单个错误码的白话；认不出（或没有）一律「执行出错」，绝不显示原码 */
+export function stopReasonForErrorCode(code: string | null | undefined): string {
+  return (code && STOP_REASON_BY_ERROR_CODE[code]) || STOP_REASON_UNKNOWN_ZH;
+}
 
 const DONE_STEP_STATUSES: ReadonlySet<string> = new Set(["completed", "skipped", "partially_executed"]);
 

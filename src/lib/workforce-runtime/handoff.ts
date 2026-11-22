@@ -22,6 +22,7 @@ import {
   type WorkforceTaskSpecV1,
 } from "./task-contract";
 import type { WorkforceTaskKind } from "./workers";
+import { stopReasonForErrorCode } from "./read-model/stop-reason";
 
 export const WORKFORCE_HANDOFF_CONTRACT_VERSION = "workforce-handoff/v1";
 
@@ -362,8 +363,31 @@ export type BuildWorkforceHandoffInput = {
   upstreamHandoffs?: UpstreamHandoff[];
 };
 
+/**
+ * FIX-20：执行失败后被降级为「已跳过」的综合汇总（产出带 synthesisNotGenerated）。
+ * 返回原因码；不是这种跳过时返回 undefined（其它跳过——审批被拒 / 无可写对象——保持原话）。
+ */
+function synthesisNotGeneratedReasonCode(
+  input: BuildWorkforceHandoffInput,
+): string | null | undefined {
+  if (input.stepStatus !== "skipped" || input.taskKind !== "synthesis") {
+    return undefined;
+  }
+  const record =
+    input.businessOutput &&
+    typeof input.businessOutput === "object" &&
+    !Array.isArray(input.businessOutput)
+      ? (input.businessOutput as Record<string, unknown>)
+      : {};
+  if (record.synthesisNotGenerated !== true) return undefined;
+  return typeof record.reasonCode === "string" ? record.reasonCode : null;
+}
+
 function deriveSummary(input: BuildWorkforceHandoffInput): string {
   const objective = input.taskObjective;
+  if (synthesisNotGeneratedReasonCode(input) !== undefined) {
+    return "综合汇总未生成";
+  }
   if (input.stepStatus === "skipped") {
     return truncate(
       `任务未执行（skipped）：${objective}`,
@@ -457,7 +481,11 @@ export function buildWorkforceHandoffV1(
   }
 
   const warnings: string[] = [];
-  if (input.stepStatus === "skipped") {
+  const notGeneratedReason = synthesisNotGeneratedReasonCode(input);
+  if (notGeneratedReason !== undefined) {
+    // 原因按错误码查停止原因白话表（不复述错误原文）
+    warnings.push(`综合汇总未生成：${stopReasonForErrorCode(notGeneratedReason)}`);
+  } else if (input.stepStatus === "skipped") {
     warnings.push("该任务未产生业务写入（审批拒绝或无可写对象）");
   }
   if (input.stepStatus === "partially_executed") {

@@ -358,6 +358,19 @@ function findSynthesisEvidence(
 }
 
 /**
+ * FIX-20 D4：声明依赖里的综合汇总带「未生成」的跳过标记（执行器把执行失败的综合汇总
+ * 降级为已跳过时写进它的产出）。与上面同一纪律：只认声明依赖里的产出形状，不读 stepKey 字面量。
+ */
+function hasSynthesisNotGeneratedEvidence(prior: Record<string, unknown>): boolean {
+  return evidenceValues(prior).some(
+    (v) =>
+      !!v &&
+      typeof v === "object" &&
+      (v as Record<string, unknown>).synthesisNotGenerated === true,
+  );
+}
+
+/**
  * Manifest 回声（§16）：每个 tender handler 的输出都携带分析清单，
  * 使 manifest 沿 handoff 链传播——下游只要声明了任一 tender 上游即可
  * 取得清单（模型规划的 dependsOn 组合具有方差，不能假设人人直依 s1；
@@ -1050,8 +1063,19 @@ async function handleFinalizeAnalysis(
   if (!mf.ok) return { ok: false, error: mf.error };
   const runId = mf.manifest.analysisRunId;
 
+  // ── canonical V2 模式：只做状态终态化，绝不覆盖 canonical 语义 ──
+  // 模式由**声明依赖里的 canonical V2 执行证据**决定（§18），
+  // 不靠"summaryJson 里有没有 submissionChecklist"猜。
+  // FIX-20 D4：先判模式，再查综合结果——canonical V2 模式下综合结果可选：
+  // 依赖里的综合汇总带「未生成」跳过标记即照常终态化；V1 兼容模式照旧必需
+  // （它要用综合摘要写 projectSummary）。两样都没有时照旧「输入缺失」。
+  const canonicalV2 = findCanonicalV2Evidence(ctx.priorEvidence);
   const synthesis = findSynthesisEvidence(ctx.priorEvidence);
-  if (!synthesis) {
+  const synthesisNotGenerated =
+    !synthesis &&
+    canonicalV2 !== null &&
+    hasSynthesisNotGeneratedEvidence(ctx.priorEvidence);
+  if (!synthesis && !synthesisNotGenerated) {
     return {
       ok: false,
       error:
@@ -1059,10 +1083,6 @@ async function handleFinalizeAnalysis(
     };
   }
 
-  // ── canonical V2 模式：只做状态终态化，绝不覆盖 canonical 语义 ──
-  // 模式由**声明依赖里的 canonical V2 执行证据**决定（§18），
-  // 不靠"summaryJson 里有没有 submissionChecklist"猜。
-  const canonicalV2 = findCanonicalV2Evidence(ctx.priorEvidence);
   if (canonicalV2) {
     if (canonicalV2.analysisRunId !== runId) {
       return {
@@ -1113,9 +1133,21 @@ async function handleFinalizeAnalysis(
         requirementCount: aggregateV2.total,
         // §19：Job 级综合结论可以随 tool result 返回（供 Job Center 展示），
         // 但**绝不**写回 Tender canonical 记录——canonical 语义只有一个来源。
-        jobSummary: synthesis.summary.slice(0, 480),
-        summary: `canonical V2 分析已终态化（${aggregateV2.total} 条要求），进入待人工审核；V2 结果与摘要原样保留`,
+        // FIX-20：综合汇总未生成时不带 Job 级汇总，只写明未生成。
+        ...(synthesis
+          ? { jobSummary: synthesis.summary.slice(0, 480) }
+          : { synthesisNotGenerated: true }),
+        summary: `canonical V2 分析已终态化（${aggregateV2.total} 条要求），进入待人工审核；V2 结果与摘要原样保留${synthesis ? "" : "；综合汇总未生成"}`,
       },
+    };
+  }
+
+  // V1 兼容模式照旧要求综合结果（上面的判断已保证；这里只为类型收窄）
+  if (!synthesis) {
+    return {
+      ok: false,
+      error:
+        "INPUT_MISSING: 未在声明依赖中找到综合汇总结果（该任务必须依赖 synthesis 任务）",
     };
   }
 

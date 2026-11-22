@@ -23,6 +23,8 @@ import { refreshReadySteps } from "./persist";
 import {
   WORKFORCE_JOB_RUN_TYPE,
   classifyStepFailureErrorCode,
+  isTenderServerAuthoredPlan,
+  shouldDegradeFailedSynthesisStep,
 } from "@/lib/workforce-runtime/constants";
 import { isWorkforceProcessingEnabled } from "@/lib/workforce-runtime/flags";
 import {
@@ -247,6 +249,12 @@ async function executeRoundGuarded(input: {
       }),
     );
     return { status: "failed", error: "no_membership" };
+  }
+
+  // FIX-20 D2：每轮开头、依赖推进之前，把招投标确定性计划里执行失败的原生综合汇总
+  // 降级为「已跳过」——同一轮随后的依赖推进就会把第 9 步提成待开始并执行它
+  if (isDurableWorkforceJob) {
+    await degradeFailedNativeSynthesisSteps({ orgId, runId, fence, runMetadata: meta });
   }
 
   await refreshReadySteps(orgId, runId, fence);
@@ -1010,6 +1018,94 @@ function evaluateWorkforceTaskGate(input: {
       upstreamHandoffs: upstream.upstream,
     },
   };
+}
+
+/**
+ * FIX-20 D1/D2/D3 —— 综合汇总没做出来不扣住招标分析结果。
+ *
+ * 只作用于招投标域、服务端确定性计划里的原生综合汇总（taskKind=synthesis ∧ 无
+ * preferredTool），且失败码属于执行失败集合（判定在 workforce-runtime/constants）。
+ * 降级 = 改成「已跳过」并写入有效交接数据（依赖推进、交接收集、验证器都认 skipped）：
+ * - 先按执行前同一道任务校验收齐上游交接数据；收不齐 / 交接数据构建失败 → 保持失败；
+ * - 条件更新（仍为 failed 才改），命中一行才写一条用户可见的 step.completed——
+ *   同一步至多降级一次、至多一条事件；
+ * - 原 errorCode / errorMessage 保留；产出不带 degraded（验证器不能判 PASS）。
+ * 不调用任何模型、不改最多尝试次数；所有写入经 RunFence。
+ */
+async function degradeFailedNativeSynthesisSteps(input: {
+  orgId: string;
+  runId: string;
+  fence?: RunFence;
+  runMetadata: Record<string, unknown>;
+}): Promise<void> {
+  const { orgId, runId, fence, runMetadata } = input;
+  // 先看两个服务端保留键：非招投标确定性计划的 Job 一次查询都不多做
+  if (!isTenderServerAuthoredPlan(runMetadata.workDomain, runMetadata.planSource)) {
+    return;
+  }
+  const steps = await db.agentRunStep.findMany({ where: { orgId, runId } });
+  for (const step of steps) {
+    if (step.status !== "failed") continue;
+    const spec = readWorkforceTaskSpec(step.inputJson);
+    const isNativeSynthesis =
+      spec.kind === "valid" &&
+      spec.spec.taskKind === "synthesis" &&
+      !step.preferredTool;
+    if (
+      !shouldDegradeFailedSynthesisStep({
+        workDomain: runMetadata.workDomain,
+        planSource: runMetadata.planSource,
+        isNativeSynthesis,
+        errorCode: step.errorCode,
+      })
+    ) {
+      continue;
+    }
+    const gate = evaluateWorkforceTaskGate({ runId, step, steps });
+    if (!gate.ok || !gate.context) continue;
+    const skippedAt = new Date();
+    const businessOutput = {
+      synthesisNotGenerated: true,
+      reasonCode: step.errorCode,
+    };
+    const handoff = buildWorkforceHandoffV1({
+      runId,
+      stepKey: step.stepKey,
+      workerKey: gate.context.workerKey,
+      taskKind: gate.context.taskKind,
+      stepStatus: "skipped",
+      taskObjective: gate.context.objective,
+      businessOutput,
+      completedAt: skippedAt,
+      upstreamHandoffs: gate.context.upstreamHandoffs,
+    });
+    if (!handoff.ok) continue;
+    const written = await fenceGuardedWrite(fence, (c) =>
+      c.agentRunStep.updateMany({
+        where: { id: step.id, status: "failed" },
+        data: {
+          status: "skipped",
+          completedAt: skippedAt,
+          outputJson: jsonValue({
+            ...businessOutput,
+            workforceHandoff: handoff.payload,
+          }),
+        },
+      }),
+    );
+    if (written.count !== 1) continue;
+    await emitRuntimeV2Event({
+      orgId,
+      runId,
+      eventType: "step.completed",
+      title: `${step.title}（综合汇总未生成，已跳过）`,
+      payload: {
+        stepKey: step.stepKey,
+        skipped: true,
+        synthesisNotGenerated: true,
+      },
+    });
+  }
 }
 
 /**

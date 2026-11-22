@@ -17,7 +17,7 @@
   - `executor.ts` 批量路径的让出分支（`:1615-1650`）：重试那次认领让出时保留错误码，`if (batchContinuation)` 到 `completedAt: null` 之间不加字符（D8）。
   - `processor.ts` 回收段（`:251-261`）：写 `stale_running_recovered` 与不对用户显示的 `step.ready` 事件。
   - verify：`step-failure-visibility.test.ts` 的归类、回收、让出用例通过；`npx tsx src/lib/tender-workforce/__tests__/t5-p11-resumability.test.ts` 通过数不变；`phase2b2-final-gate.test.ts`、`phase2a-stale-worker.test.ts` 通过数不变。
-- [ ] 2.2 综合汇总降级与第 9 步。
+- [x] 2.2 综合汇总降级与第 9 步。
   - `executor.ts` 每轮开头（`:234-249` 之间）按 D2 降级：条件更新、命中才写 `step.completed` 事件；交接数据收不齐时保持失败。
   - `handoff.ts` 跳过综合汇总时的摘要与警告（`:367-370`、`:460-462`）。
   - `tools.ts` 第 9 步按 D4：先判 canonical V2，再处理综合结果可选。
