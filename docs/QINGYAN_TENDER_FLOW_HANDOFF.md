@@ -529,22 +529,26 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 - **补充（同日）**：情报串联线的待答问题已全部回答，解除「不要碰会话 A 的 7 个 PR 与 CHAIN-2e」。排在第 1–3 步之后：七个 PR 按 #533 → #532 → #535 → #534 → #536 → #539 → #538 处理（每个先合入最新 main、重跑门禁；有实质冲突或行为变化的补派子 agent 复审；每个合并后开归档小 PR）；CHAIN-2e 先核对四件套里的三条意外发现、写进 design 再实现，排在 #532 合并之后，开 Draft。GATE 回答：CHAIN-2e ① 接受「不是项目负责人的投标同事不能新建、编辑、批准报价」（前提：谁做报价谁就是该项目负责人；没权限的人打开报价入口要看到一句白话说明，不能停在加载中）；② 同意单个报价页的完整成本视图只给有财务查看权的人；③ 可以，没权限的人仍能看到排序和「最便宜」标记，看不到金额与差额；#536 ④ 同意，挂不上既有记录时新记录标为疑似重复，由组织管理员确认。#532、#538、#539 合并前先给 Evan 两三句白话（已给，Evan 已通知同事并同意合并）。
 - **新 change（同日陆续给出，都是「四件套先给我看」）**：FIX-18 招标分析只留一个入口；FIX-19 系统生成的文件不进招标文件包；FIX-20 t8 综合汇总失败降级、受阻显示、失败通知写那一步自己的原因（本次应为「AI 账户余额不足」）、从失败的这一步继续；FIX-21 项目下另外 4 个只查登录的接口补项目权限（本会话发现，Evan 批准开）；FIX-22「招标要求」页签收口（要求只在投标合规矩阵显示、中文自动补翻等）。
 - **授权**：第 1、2、3 步与七个情报串联 PR 经多维审查无阻断后本会话可以自己合并；第 4、5 步与新 change 的实现 PR 开 Draft 等 Evan 看；CHAIN-2e 开 Draft。**边界不变**：不动生产环境变量；不发对外邮件；不点真实供应商询价卡的「批准发送」；不买付费数据；#544 不碰。任务书没覆盖又会改变范围的事停下来问。
+- **授权更新（Lucas，2026-11-22 约 23:20 UTC）**：「现在起，这个项目交给你全权负责，都按照你的推荐来，合并也交给你做，PR 的审查需要用子agent多方面交叉审查，记得做好hand off」。所以：GATE 未拍板的按本会话推荐定；所有 PR（含新 change 的实现 PR、CHAIN-2e）由本会话在多维交叉审查无阻断后合并。**本会话仍不做**：改生产 / 预发环境变量、对外发邮件、点真实供应商询价卡的「批准发送」、买付费数据、动 #544、写生产库（生产只读查询交给有权限的人跑）。
+- **五份四件套审过（Lucas，同日约 23:00 UTC）**：FIX-14 / 15 / 16 / 19 / 21 方向都批。顺序：#548（FIX-17）→ FIX-21（最优先）→ FIX-19 → FIX-14 → FIX-18 → FIX-22 → FIX-16；FIX-15 排在 FIX-19 之后。GATE：FIX-21 1C / 2A / 3A；FIX-14 G1A G2A（不拆）G3A G4A G5B G6A；FIX-15 G1A G2A G4C，G3=A 但合并前要拿到生产上 t8（及风险旧分支、规划）的真实耗时分布写进报告再确认 180 / 60 秒；FIX-16 按推荐，FIX-18 / FIX-22 合并后再按开工前提复核一遍。另：五个都没有开关、合并即生效；每个「另开任务 / 不在本次」都要在 TASKFLOW 登记一行（编号待定、未开始），至少四条：重新生成情报不能清掉人工审核结论（FIX-21）；只有生成文件时「下一步」与分析入口互相矛盾、文件抽屉把生成文件归到「外部链接」（FIX-19）；指纹回到旧值时旧流程入队撞唯一键（FIX-19）；其它仍可能超过 300 秒的路径（FIX-15 Out of scope）。合并后要人做的事（查询、重新分析名单）写进各自报告。
+- **生产只读查询（等人跑，结果回来再继续）**：`FIX-19-prod-check.sql`（四条，第 1、2 条决定 FIX-19 能否合并；proposal 里原来写的「第 1、2 条已跑过」是错的，没人跑过）与 `FIX-15-prod-check.sql`（A 段确认 12-3 的 t8 失败是 OpenAI 429 no credits——归 FIX-20 不归 FIX-15；B 段是 t8 / t5 旧分支 / 规划的耗时分布），2026-11-22 23:30 UTC 发给 Lucas。两份都进了仓库：`docs/acceptance/fix-19/prod-check.sql`（分支 `claude/zen-turing-azudvx-fix19`）、`docs/acceptance/fix-15/prod-check.sql`（分支 `claude/zen-turing-azudvx-fix15`），结果回来后写进各自报告。
+- **BIDPAGE（标书与报价页改版，八个 change）不归本会话**：另一个会话「标书报价页改版 BIDPAGE」（`session_01RmngaCXvkqTgXq8xGa2jdf`，2026-11-22 23:04 UTC 开）在做；本会话 23:30 UTC 给它发过一次协调消息（FIX-21 守卫写法、FIX-19 夹具 `source: "upload"`、FIX-14 改的两个文件、#533 / #532 的合并顺序、本文件的索引条目等 #543 合并后再加）。
 
 **开工核对（2026-11-22 约 21:30 UTC）**：远端各分支最新提交都不晚于 2026-11-21 04:09:20 UTC（`claude/modest-einstein-4ovbd2` `490d786a`）；`list_sessions` 里本账号没有别的会话在跑；原来的会话「青砚招投标线 T1–T6」（`session_01S6TUMQWjut1btSm1teBx21`）不在本账号的列表里，按 Evan 的说法已停。
 
-**进度（以本节最后一次更新为准）**
+**进度（以本节最后一次更新为准；最后更新 2026-11-22 23:35 UTC）**
 
 | 项 | 状态 | 在哪 |
 |---|---|---|
-| 第 1 步 #546（FIX-13） | 第三轮独立交叉审计（五个维度各一个子 agent，都没有阻断项）+ 一轮只看修订的复核，逐条核实后已修（`fad35ae2` → `d273cce4` → `f8cc2bdb`）；全量 `705/715`，10 项与 main 基线逐条相同；CI 子集、typecheck、lint 过；已转 Ready，等 GitHub CI | PR #546；报告 `docs/QINGYAN_FIX-13_REPORT.md` §4 / §6 |
-| 第 2 步 FIX-17 | **正本是 `claude/blissful-mendel-o8h9yr`**（另一个会话 2026-11-21 约 04:00 UTC 推的完整实现，交接文档第四十八次不知道它），本会话以它为底续做（分支 `claude/zen-turing-azudvx-fix17`），本会话自己起草的 `project-file-routes-access` 已作废（没推送）。五个维度审查都没有阻断项，修订已推送；等 #546 合并后合入 main 再跑全量、开 PR | 分支 `claude/zen-turing-azudvx-fix17`；change `project-files-access-guard`；报告 `docs/QINGYAN_FIX-17_REPORT.md` |
+| 第 1 步 #546（FIX-13） | **已合并**（main `13c7ed33`）；归档小 PR #547（`claude/zen-turing-azudvx-archive-fix13`，归档核对子 agent 五项全过），等 GitHub CI 绿后合并 | PR #546、#547 |
+| 第 2 步 FIX-17 | Draft PR #548（分支 `claude/zen-turing-azudvx-fix17`，已合入 main `13c7ed33`）；全量 `707/717`，10 项失败与 main 基线逐条相同；CI 子集 / typecheck / lint 在跑；过了就补 PR 正文门禁、转 Ready、合并、开归档小 PR | PR #548；change `project-files-access-guard`；报告 `docs/QINGYAN_FIX-17_REPORT.md` |
 | 第 3 步 #545 / #543 | 未开始（按顺序在 FIX-17 之后）；#545 已由本会话复核：主规格与 delta 逐条一致、`openspec list` 无进行中的 change | PR #545、#543 |
-| 第 4 步 FIX-15 / FIX-16 四件套 | 已定稿、已推送，**等 Evan 审**；各派一个子 agent 独立审中 | `claude/zen-turing-azudvx-fix15`、`-fix16` |
-| 第 5 步 FIX-14 四件套 | 已写、已推送，**等 Evan 审**；独立审中 | `claude/zen-turing-azudvx-fix14` |
+| 第 4 步 FIX-15 / FIX-16 四件套 | 已审过（见上「五份四件套审过」）；FIX-15 待按 G1A G2A G4C、排队头阻塞最坏情况、t8 原因改写修订，合并前要生产耗时分布；FIX-16 按推荐 | `claude/zen-turing-azudvx-fix15`、`-fix16` |
+| 第 5 步 FIX-14 四件套 | 已审过；待按 GATE 修订后实现 | `claude/zen-turing-azudvx-fix14` |
 | 七个情报串联 PR | GATE 回答已写进 #532、#534、#536、#539 的 PR 正文与 #532、#536 的报告 / TASKFLOW 行（`chain-2b`、`chain-1b` 分支）；合并按顺序排在第 1–3 步之后 | 分支 `claude/inspiring-johnson-o54xbt-chain-*` |
 | CHAIN-2e | 未开始（排在 #532 合并之后） | `claude/inspiring-johnson-o54xbt-chain-2e` |
-| FIX-18 / 19 / 20（+20b）/ 21 四件套 | 已写、已推送，**等 Evan 审**；FIX-20 已发给 Evan；各派一个子 agent 独立审中 | `claude/zen-turing-azudvx-fix18`、`-fix19`、`-fix20`、`-fix21` |
-| FIX-22 四件套 | 起草中 | `claude/zen-turing-azudvx-fix22` |
+| FIX-18 / 19 / 20（+20b）/ 21 | FIX-21 已批，下一个实现；FIX-19 已批，等生产查询第 1、2 条（先写代码、结果回来前不合并）；FIX-20 已批（GATE 按推荐），实现子 agent 在跑（Draft）；FIX-20b 在 FIX-18 之后；FIX-18 四件套已发给 Lucas，按推荐定 | `claude/zen-turing-azudvx-fix18`、`-fix19`、`-fix20`、`-fix21` |
+| FIX-22 四件套 | 已写、独立审查后修订中（子 agent 在跑），按推荐定 | `claude/zen-turing-azudvx-fix22` |
 
 **接手要知道的**
 
