@@ -15,7 +15,7 @@
 
 ## 3. 验收
 
-- [ ] 3.1 全部门禁；verify：`npm test` 与既有失败清单（`docs/QINGYAN_CHAIN-3_REPORT.md` §4）对照无新增失败；CI 环境变量下 `bash scripts/test-ci-unit.sh` 末行 `CI unit subset PASS`；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`openspec validate document-parse-nul-and-reason --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空
+- [x] 3.1 全部门禁；verify：`npm test` 与既有失败清单（`docs/QINGYAN_CHAIN-3_REPORT.md` §4）对照无新增失败；CI 环境变量下 `bash scripts/test-ci-unit.sh` 末行 `CI unit subset PASS`；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`openspec validate document-parse-nul-and-reason --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空
 - [x] 3.2 写 `docs/QINGYAN_FIX-13_REPORT.md`（原因与复现、改前 / 改后测试输出、上线后操作、多维审查结论）+ 更新 TASKFLOW 状态列（新增 FIX-13 一行，`[~]`）；verify：报告存在，`grep -n "FIX-13" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行
 
 ## Workflow follow-up

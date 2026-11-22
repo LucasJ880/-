@@ -100,10 +100,10 @@ FIX-13 page-parse NUL DB: 33 passed, 0 failed
 |---|---|
 | `npm test`（本机，带隔离库）第一轮，初版实现 | `704/714 通过, 10 失败`；10 项全在既有失败清单里（`docs/QINGYAN_CHAIN-3_REPORT.md` §4 / `docs/QINGYAN_FIX-12_REPORT.md` §4：来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB） |
 | `npm test` 第二轮，多维审查修复之后（同一个库上的第二次全量，期间本机还在并行跑别的测试与开发服务器） | `702/714 通过, 12 失败`：上面 10 项 + 2 项。① Mention Gateway M2-A Identity DB——既有清单里的一项，只在全新的库上能过（CHAIN-3 报告已记）。② 进口线索 DB 端到端 33 / 34——**与本次改动无关**（`tender-import-leads` 模块本次没有碰）：失败的那条断言取「第一条信号」，而这几条信号是同一时刻写入的，谁排第一不固定；单独重跑 3 次都是 34 / 34（两个隔离库各一次、main 的代码一次）。是既有的不稳定测试，另开任务 |
-| `npm test` 第三轮，第二轮复核修复之后（全新的隔离库） | 正在跑，结果补在本 PR 的后续提交里 |
-| CI 环境变量下 `bash scripts/test-ci-unit.sh`（两轮修复之后；现在含 `page-parse.test.ts` 里不用数据库的 FIX-13 断言） | `CI unit subset PASS` |
-| `npm run typecheck`（两轮修复之后） | 通过（退出码 0） |
-| `npm run lint:baseline` | PASS（无新增指纹） |
+| `npm test` 第三轮，2026-11-22 接手会话的独立交叉审计与复核修订之后（`d273cce4`，全新的隔离库 `qy_full_fix13`） | `705/715 通过, 10 失败`；10 项与同一台机器上 main `2ef4f9c8` 的基线（`703/713`，10 项失败）**逐条相同**：来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB；Mention Gateway M2-A 在新库上通过；没有新增失败 |
+| CI 环境变量下 `npm run test:ci`（第三轮修订之后，`d273cce4`；含 `page-parse.test.ts` 与 `package-coverage.test.ts` 的接线断言） | `CI unit subset PASS` |
+| `npm run typecheck`（`d273cce4`） | 通过（退出码 0） |
+| `npm run lint:baseline`（`d273cce4`） | PASS（无新增指纹；相对基线少 15 处 error） |
 | `bash scripts/test-runtime-architecture.sh` | PASS |
 | `bash scripts/check-test-registry.sh` | 已注册 682 个（合并 main 之后），历史欠账 66 条 |
 | `openspec validate document-parse-nul-and-reason --strict` | valid |
