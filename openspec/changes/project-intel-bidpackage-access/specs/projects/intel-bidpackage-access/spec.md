@@ -20,11 +20,11 @@
 - **THEN** 返回 200，正文里有这个任务的 `taskId` 与各步骤，每一步的 `data` 是空对象
 
 #### Scenario: 只读成员读与改情报审核结论
-- **WHEN** 项目的 active 成员（项目角色 `viewer`）先调用 `GET …/intelligence/review`，再调用 `PATCH …/intelligence/review`，正文 `reportStatus` 为 `in_review`
-- **THEN** 两次都返回 200；`PATCH` 之后该项目情报的审核状态是 `in_review`
+- **WHEN** 项目的 active 成员（项目角色 `viewer`）先调用 `GET …/intelligence/review`，再调用 `PATCH …/intelligence/review`，正文 `reportStatus` 为 `approved`
+- **THEN** 两次都返回 200；`PATCH` 之后该项目情报的审核状态是 `approved`，审核人记的是这个只读成员
 
-#### Scenario: 成员重新生成情报
-- **WHEN** 项目的 active 成员对一个没有可用文档内容的项目调用 `POST …/intelligence/regenerate`
+#### Scenario: 只读成员重新生成情报
+- **WHEN** 项目的 active 成员（项目角色 `viewer`）对一个没有可用文档内容的项目调用 `POST …/intelligence/regenerate`
 - **THEN** 返回 200，正文 `success` 为 `true`
 
 #### Scenario: 负责人、组织管理员、super_admin

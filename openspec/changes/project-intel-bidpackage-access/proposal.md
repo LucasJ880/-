@@ -2,7 +2,7 @@
 
 TASKFLOW：FIX-21（Evan 2026-11-22 批准开这个 change：「FIX-21 开吧，先给我四件套」）
 来源：2026-11-22 审查 FIX-17（`project-files-access-guard`）时逐个核对了 `src/app/api/projects/[id]/` 下 176 个路由文件，发现除 FIX-17 那两个接口以外，还有 4 个文件、6 个处理函数只检查「已登录」。FIX-17 的 Out of scope 已经点了这四个文件的名。
-依赖：FIX-17 先合并（它补的是 `files/` 下的两个处理函数；本 change 的目录守卫测试要求整个目录都已过检查）。
+依赖：FIX-17（#548）先合并（它补的是 `files/` 下的两个处理函数；本 change 的目录守卫测试要求整个目录都已过检查）。本 change 排在 FIX-17 之后马上实现：FIX-17（#548）合并后把 main 合入本分支再开工（tasks 开头的开工前提）。
 
 ## Why
 
@@ -16,7 +16,7 @@ TASKFLOW：FIX-21（Evan 2026-11-22 批准开这个 change：「FIX-21 开吧，
 - 给 `GET` 与 `PATCH /api/projects/:id/intelligence/review` 加上项目读权限检查。
 - 把每处检查放在处理函数的第一步，先于任何数据库读写、建任务、模型调用、改写情报与相似项目、发通知、读请求体。
 - 让被拒的请求一律不改任何任务、步骤、情报、项目、相似项目记录，不调模型，不发通知。被拒的响应只带 `error`，不带任务 ID、步骤输出、报价草稿、邮件草稿、审核结论。
-- 让 `GET …/ai-bid-package` 与 `POST …/ai-bid-package/run-step` 对非平台管理员只返回安全视图：每一步的 `data` 为空对象，失败步骤的 `error` 换成固定提示「处理失败，请稍后重试或联系管理员」；平台管理员照旧拿到全部内容（「留给 GATE」第 1 条的选项 C，本 change 默认按它实现）。
+- 让 `GET …/ai-bid-package` 与 `POST …/ai-bid-package/run-step` 对非平台管理员只返回安全视图：每一步的 `data` 为空对象，失败步骤的 `error` 换成固定提示「处理失败，请稍后重试或联系管理员」；平台管理员照旧拿到全部内容（「留给 GATE」第 1 条已定 C，Lucas 2026-11-22）。
 - 新增目录守卫测试（不用数据库，进 CI 子集），覆盖整个 `src/app/api/projects/[id]/` 下的 `route.ts` 与 `route.tsx`：每个处理函数都必须在第一步、不带条件地调用名单里的一个项目级守卫，紧接着检查结果，检查的就是地址里的那个项目；否则测试失败并点名文件与方法。名单写在测试里，并注明每个守卫的出处。已下线、固定返回 410 的 `inquiries/batch-followup` 列入例外，由测试校验它仍然不读写任何数据。
 - 新增隔离库 + HTTP 测试，覆盖下面这些情况：
   - 被拒的调用者：别的组织的用户、同组织但不是项目成员的用户、项目成员身份 inactive 的用户、组织成员身份 inactive 的原组织管理员、未登录、已停用账号。
@@ -35,10 +35,10 @@ TASKFLOW：FIX-21（Evan 2026-11-22 批准开这个 change：「FIX-21 开吧，
 | `intelligence/review/route.ts` | `GET` | 读情报审核状态、备注、评分、审核人、推荐、风险、匹配分、报告元数据 | 没有界面调用 | 读 | 项目详情 `GET`（读）本来就整行返回情报 |
 | `intelligence/review/route.ts` | `PATCH` | 改审核状态（含「已通过」「已交付」）、备注、评分，记下审核人 | 情报卡审核面板，所有能打开情报页签的成员 | 读 | `progress-summary/review` `PATCH`（读；审核状态相同，只少「草稿」「已交付」两个） |
 
-三条要拍板的事放在 design 的「留给 GATE」：
-- 第 1 条：`GET …/ai-bid-package`（以及 `run-step` 的响应）里的步骤原始输出、报价草稿价格与原始报错给谁看。推荐 C：非平台管理员只拿安全视图，本 change 默认按 C 实现。
-- 第 2 条：`PATCH …/intelligence/review` 用读还是写。推荐读。
-- 第 3 条：`POST …/intelligence/regenerate` 用读还是写。推荐读；代价是只读成员能经「重新分析」清空审核结论。
+design「留给 GATE」三条已定（Lucas 2026-11-22），本 change 按结论实现：
+- 第 1 条：`GET …/ai-bid-package`（以及 `run-step` 的响应）里的步骤原始输出、报价草稿价格与原始报错给谁看。**已定 C**：非平台管理员只拿安全视图，平台管理员照旧全看。
+- 第 2 条：`PATCH …/intelligence/review` 用读还是写。**已定 A**：读权限，界面不改。
+- 第 3 条：`POST …/intelligence/regenerate` 用读还是写。**已定 A**：读权限，界面不改；代价是只读成员能经「重新分析」清空审核结论，修法另开任务（tasks 3.2 后续任务第 1 条）。
 
 ## 受影响的 Muse 意图
 
@@ -46,15 +46,16 @@ TASKFLOW：FIX-21（Evan 2026-11-22 批准开这个 change：「FIX-21 开吧，
 
 ## Out of scope
 
-- 按财务查看权裁掉报价草稿价格（GATE 1 选项 B）；把三个 ai-bid-package 接口改成只给平台管理员（GATE 1 选项 D）：本次不做。
-- 重新生成情报时重置审核结论、按调用者的可见范围重建相似项目：都是既有行为（`src/lib/files/intelligence-extractor.ts:346-369`、`src/lib/projects/similarity.ts:35-49`、`:204-217`），本次不改；谁能触发由 GATE 3 定。
-- `run-step` 调技能时传组织：不传（design D8）。技能里的模型调用不带组织，所以月度 AI 费用预检对这条路径不生效（`src/lib/ai/client.ts:173-184`）；情报生成也一样。这个问题涉及 `src/lib/agent/skills/**` 与 `src/lib/files/intelligence-extractor.ts`，另开任务。
-- 已离开组织、但项目成员关系仍是 active 的人（或仍是项目负责人）；没有所属组织的项目里，项目管理员不过写权限：都是 `src/lib/projects/access.ts` 的既有判定（`:81-107`），影响全部项目接口；本次不改。
-- 情报审核结论的修改不写审计记录：现状如此，本次不加。
+- 按财务查看权裁掉报价草稿价格（GATE 1 选项 B）；把三个 ai-bid-package 接口改成只给平台管理员（GATE 1 选项 D）：GATE 1 已定 C，两项都不做。能读项目的人仍能从询价与报价接口读到价格与内部成本，另开任务（tasks 3.2 后续任务第 8 条）。
+- 重新生成情报时重置审核结论、按调用者的可见范围重建相似项目：都是既有行为（`src/lib/files/intelligence-extractor.ts:346-369`、`src/lib/projects/similarity.ts:35-49`、`:204-217`），本次不改；GATE 3 已定读权限，项目成员都能触发。两项都另开任务（tasks 3.2 后续任务第 1、3 条）。
+- `run-step` 调技能时传组织：不传（design D8）。技能里的模型调用不带组织，所以月度 AI 费用预检对这条路径不生效（`src/lib/ai/client.ts:173-184`）；情报生成也一样。这个问题涉及 `src/lib/agent/skills/**` 与 `src/lib/files/intelligence-extractor.ts`，另开任务（tasks 3.2 后续任务第 2 条）。
+- 已离开组织、但项目成员关系仍是 active 的人（或仍是项目负责人）；没有所属组织的项目里，项目管理员不过写权限：都是 `src/lib/projects/access.ts` 的既有判定（`:81-107`），影响全部项目接口；本次不改，各另开任务（tasks 3.2 后续任务第 4、5 条）。
+- 情报审核结论的修改不写审计记录：现状如此，本次不加，另开任务（tasks 3.2 后续任务第 6 条）。
+- `POST …/ai-bid-package` 守卫之后不会再命中的「项目不存在」查询：本次不删，另开小改动（tasks 3.2 后续任务第 7 条）。
 - 界面：不改。界面上看到的不变：两个返回步骤内容的接口，界面只对平台管理员挂载，平台管理员照旧拿全部内容，也本来就过写权限。
 - FIX-17 的 `src/lib/projects/__tests__/files-route-guard.test.ts`：保留不改，与新的目录守卫测试并存（design D9）。
 - `src/app/api/projects/[id]/` 以外的路由（如 `/api/agent/tasks/**`、`/api/supplier-intel/**`）：不查不改。
-- schema 变更、新的队列 / 调度、新的模型调用、新开关：没有。**没有开关，合并即生效。**
+- schema 变更、新的队列 / 调度、新的模型调用、新开关：没有。**没有开关，合并即在生产生效。**
 
 ## Capabilities
 
