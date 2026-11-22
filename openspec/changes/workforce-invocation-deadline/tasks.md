@@ -2,21 +2,56 @@
 
 ## 1. 测试先行
 
-- [ ] 1.1 新测试 `src/lib/workforce-runtime/__tests__/invocation-deadline.test.ts`（注入时钟与慢模型，覆盖规格全部场景），同一步注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；verify：在改动前的代码上运行失败（第二个任务被认领、综合请求不带超时），输出贴进报告；`bash scripts/check-test-registry.sh` 输出 OK
+- [ ] 1.1 新增两个测试并在同一步注册：
+  - `src/lib/workforce-runtime/__tests__/invocation-deadline.test.ts`：不连库，包括纯函数、直接调用综合、源码断言，以 t8 综合被截止为主例；注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
+  - `src/lib/workforce-runtime/__tests__/invocation-deadline-db.isolated.test.ts`：隔离库，包括认领与开轮门槛、t8 截止交还与接续、累计上限、规划截止；只注册进 `scripts/test-all.sh`。
+
+  verify：`bash scripts/check-test-registry.sh` 输出 OK；改动前的代码上运行 CI 单测失败（纯函数不存在、综合请求不带超时），输出贴进报告。
 
 ## 2. 实现
 
-- [ ] 2.1 `processor.ts`：认领前检查（不足 60 秒停止循环，返回未认领数量）与每轮前检查（不足 60 秒结束时间片，走既有交还队列）；verify：1.1 里「不再认领」「不开新一轮」两组场景通过，`phase2a-*.test.ts` 通过数不变
-- [ ] 2.2 把 `executionBudget` 传到规划与核验（`process.ts` / `executor.ts`），四处模型调用加超时（min(上限, 剩余 − 15 秒)，最短 10 秒；不带预算时不变）；verify：1.1 里「模型调用不越过截止」两组场景通过，`npm run typecheck` 退出码 0
-- [ ] 2.3 四处调用被本次的计时器中止时走交还队列（不计失败、不消耗尝试次数），其它错误走既有分支；verify：1.1 里「被截断交还队列」「模型返回 400」两组场景通过
-- [ ] 2.4 `api/cron/agent-runs/route.ts`：自触发条件加上「有未认领」；verify：1.1 里「有未认领、没有让出」场景通过，`obs-p1-latency-self-trigger.test.ts` 通过数不变
+- [ ] 2.1 在 `src/lib/agent-runtime-v2/flags.ts` 加门槛常量与两个纯函数（剩余时间够不够、单次模型请求发不发 / 超时多少 / 截止是否起作用，含预算不足时退为 10 秒）。verify：CI 单测「门槛与超时」组通过；`npm run typecheck` 退出码 0。
+- [ ] 2.2 t8 综合（首要）：
+  - `synthesis.ts`：接收预算、带超时、被截止中止或没发出时返回 continuation；结果类型加 continuation；调用日志类别 `workforce-synthesis`；注入口参数加 `timeoutMs`。
+  - `adapters.ts`：理由加 `INVOCATION_DEADLINE`。
+  - `executor.ts`：批路径把预算传给综合；在 `if (batchContinuation)` 之前算累计次数，满 3 次转入既有失败分支。
+
+  verify：CI 单测「综合」组与隔离库「t8」组通过；`t5-p11-resumability.test.ts`、隔离库上的 `p0-execution-alignment.test.ts` 与 `phase2b2-final-gate.test.ts` 通过数不变。
+- [ ] 2.3 规划、风险旧分支、核验：
+  - `processor.ts`：把预算传给规划；规划被截止中止或没发出时走既有交还队列，次数记在任务 `metadata.plannerDeadlineCuts`。
+  - `planner.ts`：带超时，加仅测试用的注入口。
+  - `tools.ts`：风险旧分支用 `ctx.executionBudget`，被截止时返回 continuation，调用日志类别 `tender-risk-legacy`。
+  - `verifier.ts` 与 `process.ts`：两处核验调用传预算，复核带超时、时间不够不发、出错仍退回确定性结论；调用日志类别 `runtime-v2-verifier`；加仅测试用的注入口。
+
+  verify：CI 单测「规划 / 风险 / 核验」组与隔离库「规划」组通过；隔离库上的 `t1b-integration.test.ts` 通过数不变；`npm run typecheck` 退出码 0。
+- [ ] 2.4 `processor.ts`：
+  - 认领前的 80 秒门槛（不足就停止循环，计 `skippedForBudget`，不写状态与事件）。
+  - 每轮前的 60 秒门槛（结束时间片，走既有交还队列，事件 payload 加 `invocationDeadline: true`）。
+  - 返回 `skippedForBudget` 与 `deadlineContinuations`。
+
+  verify：隔离库「认领 / 开轮」组通过；隔离库上 `phase2a-*.test.ts` 通过数不变；`obs-p1-latency-self-trigger.test.ts` 通过数不变。
+- [ ] 2.5 路由与自触发：
+  - `api/cron/agent-runs/route.ts`：两个计数进元数据，交给自触发判定。
+  - `self-trigger.ts`：判定多一个可选输入，改写注释里第 1 层的含义。
+  - G2 若不接受，只做计数与元数据。
+
+  verify：CI 单测「自触发」组通过；`obs-p1-latency-self-trigger.test.ts` 通过数不变。
 
 ## 3. 验收
 
-- [ ] 3.1 全部门禁；verify：`npm test` 与既有失败清单对照无新增失败；CI 环境变量下 `bash scripts/test-ci-unit.sh` 末行 `CI unit subset PASS`；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`openspec validate workforce-invocation-deadline --strict` valid；`git diff origin/main -- prisma/ vercel.json` 为空
-- [ ] 3.2 写 `docs/QINGYAN_FIX-15_REPORT.md`（改前 / 改后测试输出、四处超时上限的依据、上线后观察什么、多维审查结论）+ 更新 TASKFLOW 状态列（新增 FIX-15 一行，`[~]`）；verify：报告存在，`grep -n "FIX-15" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行
+- [ ] 3.1 全部门禁。verify：
+  - `npm test` 与既有失败清单对照，无新增失败；
+  - CI 环境变量下 `bash scripts/test-ci-unit.sh` 末行 `CI unit subset PASS`；
+  - `npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS（不新增冻结区文件、不新增被禁止方向的引用）；
+  - `openspec validate workforce-invocation-deadline --strict` valid；
+  - `git diff origin/main -- prisma/ vercel.json` 为空。
+- [ ] 3.2 写 `docs/QINGYAN_FIX-15_REPORT.md`，并更新 TASKFLOW 状态列。
+  - 报告写：改前 / 改后测试输出；四类调用上限与开工门槛的依据及上线后怎样复核；G1–G3 的拍板结果；上线后观察什么；FIX-12 报告 §6「两个项目一个一个地重新分析」不再需要；多维审查结论。
+  - TASKFLOW：在「Phase F（续）— 情报串联」表新增 FIX-15 一行，状态 `[~]`，排在 FIX-12 之后，FIX-13 / FIX-17 若先合并就排在它们之后。
+
+  verify：报告存在；`grep -n "FIX-15" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行。
 
 ## Workflow follow-up
 
-- 开 PR 前按 `openspec/config.yaml`「多维审查」并行派子 agent（正确性与回归、安全 / 隐私与硬纪律、规格—代码—测试一致性、使用流畅与文案，另加时序），逐条核实后修，重跑测试；PR 正文写「多维审查」一节。
+- 开 PR 前按 `openspec/config.yaml`「多维审查」并行派子 agent，各审一个维度：正确性与回归、安全 / 隐私与硬纪律、规格—代码—测试一致性、使用流畅与文案，另加时序、运行时架构守卫。逐条核实后再修，重跑测试；PR 正文写「多维审查」一节。
 - 合并后 `/opsx:archive workforce-invocation-deadline --yes`（独立小 PR）。
