@@ -7,8 +7,11 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   EXTRACTION_METHOD_UNPDF,
   NEAR_EMPTY_PAGE_CHARS,
+  extractNonPdfUnits,
   extractPdfPagesFromBuffer,
 } from "../page-parse";
+import { NOT_UTF8_TEXT_ERROR } from "@/lib/files/extracted-text";
+import { LINE_A, LINE_B, buildCheckboxPdf } from "./fixtures/nul-pdf";
 
 let pass = 0;
 let fail = 0;
@@ -97,6 +100,73 @@ async function main() {
     page4.contentText.toLowerCase().includes("closing date"),
     "末页包含合成文本",
   );
+
+
+  // —— FIX-13：unpdf 抽出 U+0000 的页面（不用数据库；CI 也跑这一段） ——
+  {
+    const nul = "\u0000";
+    const extracted = await extractPdfPagesFromBuffer(buildCheckboxPdf());
+    ok(extracted.totalPages === 2 && extracted.pages.length === 2, "FIX-13：现拼的两页 PDF 读出 2 页");
+    ok(
+      extracted.pages[1]?.contentText === `${LINE_A}\n  ${LINE_B}` && extracted.pages[1]?.parseStatus === "done",
+      "FIX-13：勾选框那一页的 U+0000 换成空格，两句正文都在",
+    );
+    ok(
+      extracted.pages[0]?.parseStatus === "OCR_REQUIRED" && extracted.pages[0]?.contentText === "" && extracted.pages[0]?.charCount === 0,
+      "FIX-13：整页都是 U+0000 的那一页按近乎空白处理（需要 OCR）",
+    );
+    ok(extracted.pages.every((p) => !p.contentText.includes(nul)), "FIX-13：页面文字里没有 U+0000");
+
+    const csv = await extractNonPdfUnits(Buffer.from(`Item,Unit price\nFlag${nul}indoor,12.50`, "utf-8"), "csv");
+    ok(
+      "units" in csv && csv.units.length === 1 && csv.units[0]!.contentText.includes("Flag indoor,12.50") && !csv.units[0]!.contentText.includes(nul),
+      "FIX-13：CSV 单元格里的 U+0000 换成空格",
+    );
+    const utf16NoBom = await extractNonPdfUnits(Buffer.from("Item,Qty,Unit price\nFlag,10,12.50", "utf16le"), "csv");
+    ok(
+      "error" in utf16NoBom && utf16NoBom.error === NOT_UTF8_TEXT_ERROR,
+      "FIX-13：没有字节序标记的 UTF-16 CSV → 返回「不是 UTF-8 文本」的原因，不产出单元",
+    );
+    const utf16Bom = await extractNonPdfUnits(
+      Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("投标须知 Mandatory: bid bond 10% of the total price.", "utf16le")]),
+      "txt",
+    );
+    ok(
+      "units" in utf16Bom && utf16Bom.units.length === 1 && utf16Bom.units[0]!.contentText === "投标须知 Mandatory: bid bond 10% of the total price.",
+      "FIX-13：带字节序标记的 UTF-16 纯文本按 UTF-16 读出，文字逐字正确",
+    );
+  }
+
+  // FIX-13 接线守卫（读源码，去掉注释、压平空白后再比；CI 子集里也跑）：写库的每一处都经过清理 / 收口
+  {
+    const { readFileSync } = await import("node:fs");
+    const norm = (src: string) =>
+      src
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "")
+        .replace(/\s+/g, " ")
+        .replace(/,\s*([)}\]])/g, "$1");
+    const pp = norm(readFileSync("src/lib/tender-auto-analysis/page-parse.ts", "utf8"));
+    const pc = norm(readFileSync("src/lib/files/parse-content.ts", "utf8"));
+    // 失败原因：每一处写 parseError 的值要么是 null、变量 error，要么经 toStorableParseError；不许用简写把别的变量带进去
+    const writes = (src: string) => [...src.matchAll(/parseError: ([^,}]+)/g)].map((m) => m[1].trim());
+    const okValue = (v: string) => v === "null" || v === "error" || v.startsWith("toStorableParseError(");
+    const ppWrites = writes(pp);
+    const pcWrites = writes(pc);
+    ok(ppWrites.length >= 6 && ppWrites.every(okValue), `接线：页级解析写 parseError 的 ${ppWrites.length} 处都是 null / error / toStorableParseError(…)`);
+    ok(pcWrites.length >= 4 && pcWrites.every(okValue), `接线：整份文字解析写 parseError 的 ${pcWrites.length} 处都是 null / toStorableParseError(…)`);
+    ok(!/[{,] ?parseError ?[,}]/.test(pp) && !/[{,] ?parseError ?[,}]/.test(pc), "接线：没有用简写 { parseError } 写失败原因");
+    // 写进 parseError 的变量 error，来源只能是固定文字、模板文字或 sanitizeParseError(…)
+    const errorDefs = [...pp.matchAll(/(?:const|let) error = ([^;]+);/g)].map((m) => m[1].trim());
+    ok(
+      errorDefs.length >= 1 && errorDefs.every((v) => /^["'`]/.test(v) || v.startsWith("sanitizeParseError(")),
+      `接线：页级解析里 ${errorDefs.length} 处 const error = … 都是固定文字或 sanitizeParseError(…)（外部异常原文都经收口）`,
+    );
+    ok(/function sanitizeParseError\([^)]*\)[^{]*\{[^}]*return toStorableParseError\(/.test(pp), "接线：页级解析的 sanitizeParseError 经 toStorableParseError 收口（截 500 字 + 清理）");
+    ok(/data: \{(?=[^}]*parseStatus: "parsing")(?=[^}]*parseError: null)[^}]*\}/.test(pc), "接线：整份文字解析开始时清掉上一次的失败原因");
+    ok(/type === "docx"[^]{0,400}storableUnits\( ?buildBlockUnits\( ?toStorableText\(/.test(pp), "接线：docx 分支先清理原文、切块之后再清理每个单元（storableUnits）");
+    ok(/toStorableText\( ?toStorableText\( ?result\.text ?\) ?\.trim\(\) ?\.slice\( ?0, ?MAX_TEXT_LENGTH ?\) ?\)/.test(pc), "接线：整份文字解析「清理 → 去首尾空白 → 截断 → 再清理」");
+  }
 
   console.log(`\npage-parse: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
