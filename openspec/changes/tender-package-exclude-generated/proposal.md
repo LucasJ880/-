@@ -77,7 +77,7 @@ TASKFLOW：FIX-19（`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`「Phase F（续）—
     - `src/lib/tender-workforce/__tests__/t1b-integration.test.ts`
 - 零 schema；无新开关、无新队列、无新模型调用。没有开关，合并即在生产生效。已经纳入生成文件的旧分析不会自动改写，要人重新分析：部署后跑 `docs/acceptance/fix-19/prod-check.sql` 第 3 条拿名单，旧流程组织点面板「重新分析当前投标文件包」，一键分析组织点卡片的「重新分析」（见 design D6）。
 - 相邻 change：
-  - 顺序定为 FIX-13（已合并）→ FIX-17 → FIX-21 → FIX-19 → FIX-18 → FIX-22。FIX-21 合并后把 main 合入本分支再开工。
+  - 合并顺序定为 #548 FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-20 → FIX-15 → FIX-18 → FIX-20b → FIX-22 → FIX-16（FIX-13 #546 已合并）。FIX-21 合并后把 main 合入本分支再开工。
   - FIX-19 先合并时，FIX-18、FIX-22 与并行会话 BIDPAGE 新写的隔离库夹具必须写 `source: "upload"`，否则它们建的文件不会进文件包（见 design「相邻改动与合并顺序」）。
 
 ## 受影响的 Muse 意图
@@ -121,3 +121,4 @@ TASKFLOW：FIX-19（`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`「Phase F（续）—
 - 不改 `enqueue-package.ts`、`enqueue.ts`、`trigger-service.ts`：入队、幂等、取代的逻辑都不动，这三个文件由 FIX-18 改。
   - 不修旧流程幂等键的既有缺陷。之前有同指纹的分析时，不强制新建的入队会撞唯一键，详见 design D6。写进报告「没做的」，另开任务。
 - 不补救已有分析：不自动改写旧分析的文档清单与结果，不自动重跑。上线后由人在受影响的项目里重新分析（design D6）。
+  - 旧分析上的要求确认与矩阵标注要人重做：合规记忆的候选排除本项目（`bid-fit/route.ts:71`、`:197`），经「采纳全部历史建议」带不回来。点「重新分析」之前先记下（design D6 恢复步骤第 2、4 条）。
