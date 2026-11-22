@@ -85,6 +85,11 @@ export type WorkforceTaskView = {
   workerKey?: string;
   startedAt?: string;
   completedAt?: string;
+  /**
+   * FIX-20：这一步正在重试时的重试信息（待开始且已失败过 / 执行中且是第二次以上的尝试，
+   * 并且有错误码）。只由状态、尝试次数、最多尝试次数与错误码算出；不含错误码原文。
+   */
+  retry?: { attempt: number; maxRetries: number; reasonZh: string };
 };
 
 /** 用户 timeline 类别（设计 §23 冻结映射的输出词汇） */
@@ -160,6 +165,11 @@ export type WorkforceJobViewModel = {
    * 不读任何错误原文）。算不出（没有步骤）时不出现，界面写「系统未记录原因」。
    */
   stopReason?: { stepIndex: number; stepTitle: string; reasonZh: string; sentenceZh: string };
+  /**
+   * FIX-20：招投标服务端确定性计划里综合汇总步骤为「已跳过」时（执行失败被降级），
+   * 写明「AI 数字员工的综合汇总未生成」用的数据：步骤序号、步骤名、原因白话（按错误码查表）。
+   */
+  synthesisNotGenerated?: { stepIndex: number; stepTitle: string; reasonZh: string };
   /** 用户层 timeline（visibleToUser ∩ 事件白名单，sequence ASC） */
   timeline: WorkforceTimelineItem[];
   businessRefs?: WorkforceBusinessRef[];
@@ -243,6 +253,9 @@ export type WorkforceStepSnapshot = {
   status: string;
   /** CHAIN-0c：只用于停止原因查表（错误码 → 中文），永不透出；errorMessage 不进读模型 */
   errorCode?: string | null;
+  /** FIX-20：只用于「正在第 N 次重试」的判定，永不原样透出 */
+  attemptCount?: number;
+  maxAttempts?: number;
   inputJson: unknown;
   startedAt: Date | null;
   completedAt: Date | null;

@@ -49,10 +49,20 @@ console.log("stop-reason");
   ok(findStoppedStep([]) === null, "没有步骤 → null");
   const done = projectStopReason([step(1, "校验输入", "completed"), step(2, "汇总", "completed")], { status: "needs_human", errorCode: "verification_failed" });
   ok(done?.stepIndex === 2 && done.reasonZh === "结果没有通过校验", "每一步都完成 → 算在最后一步、原因取 Job 错误码", done);
-  ok(stopReasonFromCodes({ stepErrorCode: "tool_failed", jobErrorCode: "model_failed", jobStatus: "failed" }) === "工具执行失败", "步骤错误码优先");
-  ok(stopReasonFromCodes({ stepErrorCode: null, jobErrorCode: "external_timeout", jobStatus: "failed" }) === "长时间没有进展", "其次 Job 错误码");
-  ok(stopReasonFromCodes({ stepErrorCode: "weird_code", jobErrorCode: null, jobStatus: "failed" }) === "执行出错", "不认识 → 执行出错（不显示原码）");
-  ok(stopReasonFromCodes({ stepErrorCode: null, jobErrorCode: null, jobStatus: "needs_human" }) === "需要人工处理", "需要人工处理兜底");
+  // FIX-20 D9：失败步骤只用它自己的码；不是失败步骤只用 Job 的码（stepFailed 标明是哪一种）
+  ok(stopReasonFromCodes({ stepFailed: true, stepErrorCode: "tool_failed", jobErrorCode: "model_failed", jobStatus: "failed" }) === "工具执行失败", "失败步骤：用它自己的错误码");
+  ok(stopReasonFromCodes({ stepFailed: false, stepErrorCode: null, jobErrorCode: "external_timeout", jobStatus: "failed" }) === "长时间没有进展", "不是失败步骤：用 Job 错误码");
+  ok(stopReasonFromCodes({ stepFailed: true, stepErrorCode: "weird_code", jobErrorCode: null, jobStatus: "failed" }) === "执行出错", "不认识 → 执行出错（不显示原码）");
+  ok(stopReasonFromCodes({ stepFailed: false, stepErrorCode: null, jobErrorCode: null, jobStatus: "needs_human" }) === "需要人工处理", "需要人工处理兜底");
+  // FIX-20 新码与新规则
+  ok(stopReasonFromCodes({ stepFailed: true, stepErrorCode: "synthesis_failed", jobErrorCode: "blocked_graph", jobStatus: "needs_human" }) === "综合汇总生成失败", "新码 synthesis_failed；失败步骤不回落到 Job 的 blocked_graph");
+  ok(stopReasonFromCodes({ stepFailed: true, stepErrorCode: "model_quota_exhausted", jobErrorCode: "blocked_graph", jobStatus: "needs_human" }) === "AI 账户余额不足，请联系平台管理员充值", "新码 model_quota_exhausted");
+  ok(stopReasonFromCodes({ stepFailed: true, stepErrorCode: "org_ai_budget_exhausted", jobErrorCode: null, jobStatus: "failed" }) === "本组织本月 AI 费用已达上限，请组织管理员调高月度上限", "新码 org_ai_budget_exhausted");
+  ok(stopReasonFromCodes({ stepFailed: false, stepErrorCode: "stale_running_recovered", jobErrorCode: "INITIATOR_MISSING", jobStatus: "needs_human" }) === "需要人工处理", "不是失败步骤：不读它留下的 stale_running_recovered");
+  ok(stopReasonFromCodes({ stepFailed: true, stepErrorCode: "stale_running_recovered", jobErrorCode: null, jobStatus: "failed" }) === "上一次执行时间过长被中断", "新码 stale_running_recovered 有白话");
+  ok(stopReasonFromCodes({ stepFailed: true, stepErrorCode: null, jobErrorCode: "model_failed", jobStatus: "failed" }) === "执行出错", "失败步骤没有码 → 执行出错（不回落 Job 的码）");
+  const leftover = projectStopReason([step(1, "校验输入", "completed"), step(2, "Canonical V2 状态终态化", "completed", "model_quota_exhausted")], { status: "needs_human", errorCode: "verification_failed" });
+  ok(leftover?.stepIndex === 2 && leftover.reasonZh === "结果没有通过校验", "每步都完成、最后一步留着旧码 → 只按 Job 的码（结果没有通过校验）", leftover);
   ok(stopReasonSentenceZh(null) === STOP_REASON_UNRECORDED_ZH, "没有原因 → 系统未记录原因");
   const long = stopReasonSentenceZh({ stepIndex: 1, stepTitle: "长".repeat(400), reasonZh: "x" });
   ok([...long].length === 300, "整句不超过 300 字");
@@ -93,6 +103,18 @@ console.log("stop-reason");
   ok(completed.stopReason === undefined, "已完成的 Job 不带停止原因");
   const approval = buildWorkforceJobViewModel({ run: run({ status: "awaiting_approval" }), steps: STEPS, events: [], pendingActions: [] });
   ok(approval.stopReason === undefined, "等待审批不算停下");
+
+  // FIX-20 D10：进行中（含两轮之间回到排队）而有失败步骤 → 也带停止原因
+  const quotaSteps = [step(1, "校验输入", "completed"), step(2, "解析投标文件", "completed"), step(3, "Canonical V2 包级分析", "failed", "model_quota_exhausted"), step(4, "要求抽取", "pending")];
+  const working = buildWorkforceJobViewModel({ run: run({ status: "executing" }), steps: quotaSteps, events: [], pendingActions: [] });
+  ok(working.status === "WORKING" && working.stopReason?.sentenceZh === "卡在第 3 步〈Canonical V2 包级分析〉：AI 账户余额不足，请联系平台管理员充值", "进行中的 Job 有失败步骤 → 带停止原因", working.stopReason);
+  const requeued = buildWorkforceJobViewModel({ run: run({ status: "queued" }), steps: quotaSteps, events: [], pendingActions: [] });
+  ok(requeued.status === "WORKING" && requeued.stopReason?.stepIndex === 3, "两轮之间回到排队 → 也带停止原因", requeued.stopReason);
+  for (const status of ["partially_executed", "cancelled"]) {
+    ok(buildWorkforceJobViewModel({ run: run({ status }), steps: quotaSteps, events: [], pendingActions: [] }).stopReason === undefined, `${status} 不带停止原因`);
+  }
+  const workingNoFail = buildWorkforceJobViewModel({ run: run({ status: "executing" }), steps: [step(1, "校验输入", "completed"), step(2, "解析投标文件", "running")], events: [], pendingActions: [] });
+  ok(workingNoFail.stopReason === undefined, "进行中、没有失败步骤 → 不带停止原因");
 }
 
 // ── 源码断言：停止原因的计算不读 errorMessage ──
@@ -106,6 +128,9 @@ console.log("stop-reason");
   const at = svc.indexOf("db.agentRunStep.findMany({");
   const stepSelect = svc.slice(at, svc.indexOf("db.agentRunEvent.findMany", at)).replace(/\/\/.*$/gm, "");
   ok(/errorCode: true/.test(stepSelect) && !/errorMessage/.test(stepSelect), "详情查询只多取步骤的 errorCode，不取 errorMessage");
+  // FIX-20：步骤查询多取的只有 attemptCount、maxAttempts（列出全部选中的列逐一核对）
+  const selected = [...stepSelect.matchAll(/(\w+): true/g)].map((m) => m[1]).sort();
+  ok(JSON.stringify(selected) === JSON.stringify(["attemptCount", "completedAt", "createdAt", "errorCode", "id", "inputJson", "maxAttempts", "startedAt", "status", "stepKey", "title"]), "详情查询的步骤列：CHAIN-0c 的列 + attemptCount、maxAttempts", selected);
   const page = readFileSync(path.join(root, "src/app/(main)/workforce/[id]/page.tsx"), "utf8");
   ok(/job\.status === "FAILED" \? <StoppedCard/.test(page) && /系统未记录原因/.test(page), "详情页：失败时显示「任务未能完成」卡，算不出写「系统未记录原因」");
 }

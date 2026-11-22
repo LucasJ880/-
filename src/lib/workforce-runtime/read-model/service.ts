@@ -178,6 +178,9 @@ export async function getWorkforceJobView(
         status: true,
         // CHAIN-0c：停止原因查表用（errorMessage 刻意不选）
         errorCode: true,
+        // FIX-20：「正在第 N 次重试」用（只多取这两列）
+        attemptCount: true,
+        maxAttempts: true,
         inputJson: true,
         startedAt: true,
         completedAt: true,

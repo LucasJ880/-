@@ -22,7 +22,7 @@
   - `handoff.ts` 跳过综合汇总时的摘要与警告（`:367-370`、`:460-462`）。
   - `tools.ts` 第 9 步按 D4：先判 canonical V2，再处理综合结果可选。
   - verify：隔离库测试的余额不足、中断回收、第 3 步失败、契约损坏、canonical 摘要逐字节不变、依赖里什么都没有，这六组全过；`t5-seg3-v2-convergence.test.ts`、`p0-execution-alignment.test.ts`、`phase2b1-task-handoff.test.ts` 通过数不变。
-- [ ] 2.3 读模型。
+- [x] 2.3 读模型。
   - `stop-reason.ts`：新码；失败步骤只用自己的码，非失败步骤只用 Job 的码（D9）。
   - `projection.ts`：按 D10 的条件算停止原因，加重试投影与 `synthesisNotGenerated`（D8、D11，后者只对招投标服务端计划）。
   - `types.ts`；`service.ts` 步骤查询多取 `attemptCount`、`maxAttempts`。

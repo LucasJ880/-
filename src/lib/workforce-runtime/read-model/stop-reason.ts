@@ -70,11 +70,30 @@ export function findStoppedStepOrLast<T extends StopReasonStep>(steps: readonly 
   return findStoppedStep(steps) ?? (steps.length > 0 ? [steps.length, steps[steps.length - 1]] : null);
 }
 
-/** 按错误码查表（步骤的优先，其次 Job 的）；Job 停在需要人工处理时兜底「需要人工处理」 */
-export function stopReasonFromCodes(input: { stepErrorCode: string | null; jobErrorCode: string | null; jobStatus: string }): string {
-  for (const code of [input.stepErrorCode, input.jobErrorCode]) {
-    if (code && STOP_REASON_BY_ERROR_CODE[code]) return STOP_REASON_BY_ERROR_CODE[code];
-  }
+/**
+ * 具体原因码（FIX-20）：AI 账户余额不足、本组织本月 AI 费用已达上限、重试次数用尽、长时间没有进展。
+ * 失败步骤是这些码时，作业页、项目卡片、失败通知三处一字不差（招投标的已知标记不能盖过它们）。
+ */
+export const STOP_REASON_SPECIFIC_ERROR_CODES: ReadonlySet<string> = new Set([
+  "model_quota_exhausted",
+  "org_ai_budget_exhausted",
+  "step_attempts_exhausted",
+  "model_failed",
+  "stale_running_exhausted",
+  "external_timeout",
+]);
+
+/**
+ * 按错误码查表（FIX-20 D9）：
+ * - 所取的是失败步骤：只用它自己的错误码，查不到写「执行出错」（不回落 Job 的码）；
+ * - 不是失败步骤（停在第一个没完成的、或每步都完成）：只用 Job 的错误码，不读该步骤上
+ *   留下的码（重试 / 回收后的待开始、已完成步骤上也会留着码）；Job 的码也查不到时，
+ *   需要人工处理写「需要人工处理」，否则写「执行出错」。
+ */
+export function stopReasonFromCodes(input: { stepFailed: boolean; stepErrorCode: string | null; jobErrorCode: string | null; jobStatus: string }): string {
+  if (input.stepFailed) return stopReasonForErrorCode(input.stepErrorCode);
+  const code = input.jobErrorCode;
+  if (code && STOP_REASON_BY_ERROR_CODE[code]) return STOP_REASON_BY_ERROR_CODE[code];
   return input.jobStatus === "needs_human" ? "需要人工处理" : STOP_REASON_UNKNOWN_ZH;
 }
 
@@ -89,8 +108,57 @@ export function projectStopReason(
   return {
     stepIndex,
     stepTitle: step.title,
-    reasonZh: stopReasonFromCodes({ stepErrorCode: step.errorCode, jobErrorCode: run.errorCode, jobStatus: run.status }),
+    reasonZh: stopReasonFromCodes({ stepFailed: step.status === "failed", stepErrorCode: step.errorCode, jobErrorCode: run.errorCode, jobStatus: run.status }),
   };
+}
+
+/** FIX-20：一步的重试信息（只由状态、尝试次数、最多尝试次数与错误码算出） */
+export type StepRetryInfo = {
+  /** 第几次重试 */
+  attempt: number;
+  /** 最多可重试几次（= 最多尝试次数 − 1） */
+  maxRetries: number;
+  /** 上一次失败原因的白话（按错误码查表） */
+  reasonZh: string;
+};
+
+/**
+ * 重试判定（FIX-20 D8）：「待开始」且尝试次数 ≥ 1，或「执行中」且尝试次数 ≥ 2，并且错误码不为空。
+ * 第几次重试：待开始时 = 尝试次数，执行中时 = 尝试次数 − 1。其余返回 null。
+ */
+export function projectStepRetry(step: {
+  status: string;
+  errorCode: string | null | undefined;
+  attemptCount: number | null | undefined;
+  maxAttempts: number | null | undefined;
+}): StepRetryInfo | null {
+  const attempts = step.attemptCount ?? 0;
+  if (!step.errorCode) return null;
+  let attempt: number;
+  if (step.status === "ready" || step.status === "pending") {
+    if (attempts < 1) return null;
+    attempt = attempts;
+  } else if (step.status === "running") {
+    if (attempts < 2) return null;
+    attempt = attempts - 1;
+  } else {
+    return null;
+  }
+  const maxRetries = Math.max(0, (step.maxAttempts ?? 0) - 1);
+  return { attempt, maxRetries, reasonZh: stopReasonForErrorCode(step.errorCode) };
+}
+
+/** 「第 k 步〈步骤名〉正在第 N 次重试（最多重试 M 次）。上一次没成功：〈原因〉」 */
+export function retrySentenceZh(input: StepRetryInfo & { stepIndex: number; stepTitle: string }): string {
+  return `第 ${input.stepIndex} 步〈${input.stepTitle}〉正在第 ${input.attempt} 次重试（最多重试 ${input.maxRetries} 次）。上一次没成功：${input.reasonZh}`;
+}
+
+/** FIX-20：招投标确定性计划里综合汇总已跳过时的说明（不用「解读」二字，见 FIX-16 的分界） */
+export const SYNTHESIS_NOT_GENERATED_ZH = "AI 数字员工的综合汇总未生成";
+
+/** 「AI 数字员工的综合汇总未生成：〈原因〉」 */
+export function synthesisNotGeneratedSentenceZh(reasonZh: string): string {
+  return `${SYNTHESIS_NOT_GENERATED_ZH}：${reasonZh}`;
 }
 
 /** 「卡在第 N 步〈步骤名〉：〈原因〉」；没有 → 「系统未记录原因」；截到 300 字 */

@@ -15,7 +15,14 @@
  */
 
 import { readWorkforceTaskSpec } from "../task-contract";
-import { projectStopReason, stopReasonSentenceZh, STOP_REASON_UNRECORDED_ZH } from "./stop-reason";
+import { isTenderServerAuthoredPlan } from "../constants";
+import {
+  projectStepRetry,
+  projectStopReason,
+  stopReasonForErrorCode,
+  stopReasonSentenceZh,
+  STOP_REASON_UNRECORDED_ZH,
+} from "./stop-reason";
 import type {
   WorkforceBusinessRef,
   WorkforceBusinessRefType,
@@ -175,7 +182,10 @@ export function projectTaskView(
   step: Pick<
     WorkforceStepSnapshot,
     "stepKey" | "title" | "status" | "inputJson" | "startedAt" | "completedAt"
-  >,
+  > &
+    Partial<
+      Pick<WorkforceStepSnapshot, "errorCode" | "attemptCount" | "maxAttempts">
+    >,
 ): WorkforceTaskView {
   const view: WorkforceTaskView = {
     stepKey: step.stepKey,
@@ -199,6 +209,14 @@ export function projectTaskView(
 
   if (step.startedAt) view.startedAt = iso(step.startedAt);
   if (step.completedAt) view.completedAt = iso(step.completedAt);
+  // FIX-20 D8：「正在第 N 次重试」——只由状态 / 尝试次数 / 最多尝试次数 / 错误码算出
+  const retry = projectStepRetry({
+    status: step.status,
+    errorCode: step.errorCode ?? null,
+    attemptCount: step.attemptCount,
+    maxAttempts: step.maxAttempts,
+  });
+  if (retry) view.retry = retry;
   return view;
 }
 
@@ -558,6 +576,37 @@ export function projectBusinessRefs(
 }
 
 /* ------------------------------------------------------------------ */
+/* FIX-20 综合汇总未生成（只对招投标服务端确定性计划）                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 招投标域 + 服务端确定性计划里，综合汇总步骤（taskKind = synthesis）为「已跳过」时，
+ * 写明「AI 数字员工的综合汇总未生成」及原因（按该步错误码查表）。这个范围里综合汇总不需要
+ * 审批，只会因执行失败被降级而跳过；销售等模型规划的计划里审批被拒而跳过的不算。
+ */
+export function projectSynthesisNotGenerated(
+  metadata: unknown,
+  orderedSteps: ReadonlyArray<
+    Pick<WorkforceStepSnapshot, "title" | "status" | "inputJson" | "errorCode">
+  >,
+): WorkforceJobViewModel["synthesisNotGenerated"] {
+  const meta = asRecord(metadata);
+  if (!isTenderServerAuthoredPlan(meta.workDomain, meta.planSource)) return undefined;
+  const at = orderedSteps.findIndex((s) => {
+    if (s.status !== "skipped") return false;
+    const spec = readWorkforceTaskSpec(s.inputJson);
+    return spec.kind === "valid" && spec.spec.taskKind === "synthesis";
+  });
+  if (at < 0) return undefined;
+  const step = orderedSteps[at];
+  return {
+    stepIndex: at + 1,
+    stepTitle: step.title,
+    reasonZh: stopReasonForErrorCode(step.errorCode ?? null),
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* §4 汇总                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -597,8 +646,13 @@ export function buildWorkforceJobViewModel(input: {
   if (run.startedAt) view.startedAt = iso(run.startedAt);
   if (run.completedAt) view.completedAt = iso(run.completedAt);
 
-  // CHAIN-0c：停在哪一步、为什么（只看步骤标题 / 顺序 / 错误码，不读错误原文）
-  if (run.status === "failed" || run.status === "needs_human") {
+  // CHAIN-0c：停在哪一步、为什么（只看步骤标题 / 顺序 / 错误码，不读错误原文）。
+  // FIX-20 D10：Job 还在进行中（含两轮之间回到排队）而有失败的步骤时也算；
+  // 已完成 / 部分完成 / 已取消 / 等待审批照旧不算。
+  const stillRunningWithFailure =
+    (view.status === "WORKING" || view.status === "QUEUED") &&
+    orderedSteps.some((s) => s.status === "failed");
+  if (run.status === "failed" || run.status === "needs_human" || stillRunningWithFailure) {
     const reason = projectStopReason(
       orderedSteps.map((s) => ({ title: s.title, status: s.status, errorCode: s.errorCode ?? null })),
       { status: run.status, errorCode: run.errorCode },
@@ -618,6 +672,9 @@ export function buildWorkforceJobViewModel(input: {
 
   const finalSummary = projectFinalSummary(events);
   if (finalSummary) view.finalSummary = finalSummary;
+
+  const synthesisNotGenerated = projectSynthesisNotGenerated(run.metadata, orderedSteps);
+  if (synthesisNotGenerated) view.synthesisNotGenerated = synthesisNotGenerated;
 
   const businessRefs = projectBusinessRefs(run.metadata);
   if (businessRefs) view.businessRefs = businessRefs;
