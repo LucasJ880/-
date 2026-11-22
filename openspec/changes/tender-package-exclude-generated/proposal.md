@@ -4,7 +4,11 @@ TASKFLOW：FIX-19（`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`「Phase F（续）—
 
 > 开工前提：
 > - FIX-13（#546）已于 2026-11-22 合并，main 为 `13c7ed33`。本 change 的行号都按 `13c7ed33` 写；没被 FIX-13 改过的文件，行号与 `2ef4f9c8` 相同。
-> - design「生产只读核对」第 1、2 条已跑过（见 tasks 开头）。
+> - 开工顺序 FIX-17 → FIX-21 → FIX-19：FIX-21 合并后把 main 合入本分支再开工（见 tasks 开头）。
+>
+> 合并前提：
+> - design「生产只读核对」第 1、2 条**还没有跑**：本会话的容器连不到生产库。2026-11-22 23:30 UTC 已把可直接执行的 `docs/acceptance/fix-19/prod-check.sql` 交给 Lucas。
+> - 结果回来之前**不合并**。Lucas 把项目全权交给本会话之后，本会话的做法是：代码先写到可合并；第 1、2 条结果回来、且第 2 条为 0 之前不合并；第 2 条不为 0 就停，回 design「留给 GATE」第 2 条（见 tasks 开头「合并前提」）。
 
 ## Why
 
@@ -71,10 +75,10 @@ TASKFLOW：FIX-19（`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`「Phase F（续）—
     - `package-coverage.test.ts`
     - `src/lib/tender-understanding/__tests__/input-completeness.test.ts`
     - `src/lib/tender-workforce/__tests__/t1b-integration.test.ts`
-- 零 schema；无新开关、无新队列、无新模型调用。合并即生效。已经纳入生成文件的旧分析不会自动改写，要人重新分析：旧流程点「重新分析当前投标文件包」，一键分析组织点卡片的「重新分析」（见 design D6）。
+- 零 schema；无新开关、无新队列、无新模型调用。没有开关，合并即在生产生效。已经纳入生成文件的旧分析不会自动改写，要人重新分析：部署后跑 `docs/acceptance/fix-19/prod-check.sql` 第 3 条拿名单，旧流程组织点面板「重新分析当前投标文件包」，一键分析组织点卡片的「重新分析」（见 design D6）。
 - 相邻 change：
-  - 合并顺序定为 FIX-13（已合并）→ FIX-17 → FIX-19 → FIX-18 → FIX-22。
-  - FIX-19 先合并时，FIX-18、FIX-22 新写的隔离库夹具必须写 `source: "upload"`，否则它们建的文件不会进文件包（见 design「相邻改动与合并顺序」）。
+  - 顺序定为 FIX-13（已合并）→ FIX-17 → FIX-21 → FIX-19 → FIX-18 → FIX-22。FIX-21 合并后把 main 合入本分支再开工。
+  - FIX-19 先合并时，FIX-18、FIX-22 与并行会话 BIDPAGE 新写的隔离库夹具必须写 `source: "upload"`，否则它们建的文件不会进文件包（见 design「相邻改动与合并顺序」）。
 
 ## 受影响的 Muse 意图
 
@@ -86,6 +90,8 @@ TASKFLOW：FIX-19（`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`「Phase F（续）—
 `status` 只读最新分析的状态值（`router.ts:267`）。`compare`、`chase`、`price_scenario` 不读文件包。
 
 ## Out of scope
+
+下面写「另开」的各条，在 tasks 7.1 逐条登记成 TASKFLOW 的后续任务（编号待定）。
 
 - 不删、不改任何已有的 `ProjectDocument` 行：生成文件照旧出现在项目文件列表和「一键生成文档」卡片里。已经被页级解析过的生成文件，页面行和 `contentText` 保留。
 - 不改文件抽屉的分组：生成文件仍归在「外部链接」下、带外链图标（`src/components/project-files/project-file-manager.tsx:374-377,643,663`）。

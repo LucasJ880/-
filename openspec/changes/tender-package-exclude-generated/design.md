@@ -162,7 +162,7 @@
   - 对可见历史里所有增删 `projectDocument.create/createMany` 的提交，抽出 `source:` 字面量，只有 `upload`、`generated`、`generated_customer_quotation`、`quote_import`。`ai_checklist` 经常量写入。
 - `external_link` 默认值从 2026-04-16 的基线迁移起就在（`prisma/migrations_legacy_pre_greenfield_baseline/20260416120000_baseline_before_launch/migration.sql:983`）。
 - 2026-08-25 之前上传接口写什么来源，仓库里查不到。如果当年上传没写来源，真上传的文件会是 `external_link`，白名单会把它排除。
-- 所以开工前要用下面「生产只读核对」的第 1、2 条 SQL 确认；结果不干净就不开工，进「留给 GATE」第 2 条。
+- 所以合并前要用下面「生产只读核对」的第 1、2 条 SQL 确认（可执行文件 `docs/acceptance/fix-19/prod-check.sql`，已交 Lucas，还没有结果）；第 2 条不为 0 就停、不合并，回「留给 GATE」第 2 条。
 
 ### D2 判定放在一个不依赖库的小模块里，上传接口改写它的常量
 
@@ -245,7 +245,7 @@
 4. 已经被页级解析过的生成文件，页面行与正文都保留。但选包、agent 技能、项目情报、备忘录都不再读它们（D3、D5）。
 
 **恢复步骤**（写进报告）
-1. FIX-19 部署之后，用第 3 条 SQL 列出受影响的项目。
+1. FIX-19 部署之后，跑 `docs/acceptance/fix-19/prod-check.sql` 的第 3 条（只读），列出受影响的项目。
    - 12-3 应在名单里。
    - 不在时，说明它最新的一份分析没有纳入生成文件，再单独查它较早那份待审分析的文件清单。
 2. 逐个打开项目页，按组织走的流程点「重新分析」：
@@ -347,7 +347,9 @@
 
 ## 相邻改动与合并顺序
 
-定的顺序：**FIX-13（已合并）→ FIX-17 → FIX-19 → FIX-18 → FIX-22**。FIX-16 按 FIX-22 四件套定的放在 FIX-22 之后。
+定的顺序：**FIX-13（已合并）→ FIX-17 → FIX-21 → FIX-19 → FIX-18 → FIX-22**。FIX-16 按 FIX-22 四件套定的放在 FIX-22 之后。
+- 开工顺序 FIX-17 → FIX-21 → FIX-19：FIX-21 合并后把 main 合入本分支再开工（tasks 开头）。
+- FIX-19 合并之后，FIX-18、FIX-22 与并行会话 BIDPAGE 的隔离库夹具，凡建 `ProjectDocument`，都要写 `source: "upload"`；没写的落成 `external_link`，不进文件包、覆盖清单也不计。由协调人转告。
 
 **FIX-13**（#546，已合并，main `13c7ed33`）
 - 它改的 `package-coverage.ts` 本 change 只换一行判定（`:76-77`）。
@@ -383,6 +385,7 @@
 
 **FIX-21**（`project-intel-bidpackage-access`）
 - 不改 `intelligence-extractor.ts`（它的 Non-Goals）。本 change 只改同文件的一行查询条件，行数不变，它引用的行号（`:184-194`）不受影响。
+- 它新增的目录守卫测试 `src/lib/projects/__tests__/project-routes-guard.test.ts` 覆盖整个 `src/app/api/projects/[id]/`，本 change 改的 `files/route.ts` 与 `tender-analysis/runs/[runId]/route.ts` 都在里面。本 change 只在守卫之后改常量、查询字段和标签，不动守卫；FIX-21 先合并，合入后跑这个测试确认（tasks 4.1）。
 
 ## 与八条硬纪律的关系
 
@@ -435,7 +438,10 @@
 
 ## 生产只读核对（由有生产只读权限的人执行；只有 SELECT）
 
-第 1、2 条在开工前跑（tasks 开头）；第 4 条在开 PR 前跑；第 3 条在部署后跑。
+可直接执行的版本：`docs/acceptance/fix-19/prod-check.sql`。下面四条包在 `BEGIN READ ONLY; … ROLLBACK;` 里，`psql -f` 即可；文件里的第 4 条多输出项目名（下面已同步）。2026-11-22 23:30 UTC 已交给 Lucas，**第 1、2 条还没有跑**（本会话的容器连不到生产库）。
+- 第 1、2 条在**合并前**跑：代码先写到可合并；结果回来、且第 2 条为 0 之前不合并；第 2 条不为 0 就停，回「留给 GATE」第 2 条（tasks 开头「合并前提」）。
+- 第 4 条同在这个文件里，结果一并写进报告，合并前要有。
+- 第 3 条在部署后再跑一次，拿重新分析的名单。部署前先跑一次也无害，得到的是现在受影响的项目，部署后对照。
 
 ```sql
 -- 1. 来源值分布：确认没有白名单之外、实为上传的来源值
@@ -448,7 +454,7 @@ GROUP BY source, "fileType"
 ORDER BY source, "fileType";
 
 -- 2. 来源不是 upload、却有存储内容或内容指纹、又不在生成 / 报价导入目录下的行
---    （应为 0；不为 0 就不开工，进「留给 GATE」第 2 条）
+--    （应为 0；不为 0 就停、不合并，回「留给 GATE」第 2 条）
 SELECT id, "projectId", title, "fileType", source, "createdAt",
        "blobUrl" IS NOT NULL AS has_blob, "contentHash" IS NOT NULL AS has_hash
 FROM "ProjectDocument"
@@ -478,22 +484,24 @@ ORDER BY l."createdAt" DESC;
 
 -- 4. 现在被可分析类型的外部链接挡住分析的项目（上线后这些项目有上传文件就能手动分析）
 --    类型列表与 enqueue-helpers.ts:45-58 一致，并去掉前导的点
-SELECT "projectId", count(*) AS n
-FROM "ProjectDocument"
-WHERE source = 'external_link'
-  AND lower(ltrim(trim("fileType"), '.')) IN (
+SELECT d."projectId", p.name, count(*) AS n
+FROM "ProjectDocument" d
+JOIN "Project" p ON p.id = d."projectId"
+WHERE d.source = 'external_link'
+  AND lower(ltrim(trim(d."fileType"), '.')) IN (
     'pdf','application/pdf',
     'docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'xls','application/vnd.ms-excel',
     'csv','text/csv','txt','text/plain')
-  AND "contentHash" IS NULL AND "blobUrl" IS NULL
-GROUP BY "projectId";
+  AND d."contentHash" IS NULL AND d."blobUrl" IS NULL
+GROUP BY d."projectId", p.name
+ORDER BY n DESC;
 ```
 
 ## Risks / Trade-offs
 
-- **2026-08-25 之前的真上传文件可能是 `external_link`，会被排除** → 开工前跑第 1、2 条 SQL；第 2 条不为 0 就不开工，按「留给 GATE」第 2 条处理。
+- **2026-08-25 之前的真上传文件可能是 `external_link`，会被排除** → 合并前跑第 1、2 条 SQL（`docs/acceptance/fix-19/prod-check.sql`，已交 Lucas，还没有结果）；第 2 条不为 0 就停、不合并，按「留给 GATE」第 2 条处理。代码先写，结果不干净时可能要返工。
 - **报价导入的文件不进分析后，有人习惯把招标文件经报价工具导入** → 报价导入只收供应商报价（xlsx / xls / csv / pdf），产物进报价引擎的成本行，不是招标文件的入口；招标文件只能从项目文件上传。报告里写明。
 - **用户把下载下来的生成 PDF 再上传回项目** → 它的来源是 `upload`，会进文件包。按来源判定挡不住这种情况。报告里写明「生成文件不要再上传」。
 - **受影响的旧分析显示过期**（最新一份处在等待审核或已批准时）→ 这正是要的提示；数量由第 3 条 SQL 给出。
@@ -506,17 +514,20 @@ GROUP BY "projectId";
 ## 留给 GATE
 
 1. **判定口径**
+   - **已定（按推荐，Lucas 2026-11-22 授权）：A 白名单 `upload`。** D1 照此写，不用改。
    - A 白名单 `upload`（推荐）：
      - 生成文件、客户报价 PDF、投标准备清单、报价导入、外部链接、今后的新入口都不进包；
      - 外部链接不再挡住手动发起的分析。
    - B 黑名单 {generated, generated_customer_quotation, ai_checklist, quote_import}：外部链接照旧挡住分析；以后每加一种系统写入都要回来加名单。
    - 推荐 A，理由见 D1。
-2. **开工前的生产只读核对结果不干净时怎么办**（第 2 条 SQL 不为 0）
+2. **合并前的生产只读核对结果不干净时怎么办**（第 2 条 SQL 不为 0）
+   - **已定（按推荐，Lucas 2026-11-22 授权）：A 先停。** 核对改在合并前做：代码先写到可合并；`docs/acceptance/fix-19/prod-check.sql` 第 1、2 条结果回来、且第 2 条为 0 之前不合并；第 2 条不为 0 就停，看清是哪些行再在 B、C 或别的办法里定。
    - A 先停，看清是哪些行，再决定（推荐）。
    - B 在判定里额外放行「`external_link` 且有存储地址、不在生成 / 报价导入目录下」：规则变复杂，且按存储路径判来源。
    - C 照白名单上线，让人重新上传这些文件：要人手工补，补之前这些文件不进分析。
-   - 推荐 A：先看数据。可见历史里上传接口一直写 `upload`，文件抽屉与覆盖计数也一直只认 `upload`，预计为 0。这一步挪到开工前，结果不干净时不会白写代码。
+   - 推荐 A：先看数据。可见历史里上传接口一直写 `upload`，文件抽屉与覆盖计数也一直只认 `upload`，预计为 0。本会话连不到生产库，结果要等 Lucas 跑；为不空等，代码先写，代价是结果不干净时代码可能按 B 或 C 返工。
 3. **受影响旧分析的恢复**
+   - **已定（按推荐，Lucas 2026-11-22 授权）：A 人逐个点「重新分析」。** 名单来自部署后跑的 `docs/acceptance/fix-19/prod-check.sql` 第 3 条；D6 恢复步骤照此写，不用改。
    - A 人逐个点「重新分析」，名单来自第 3 条 SQL（推荐）：
      - 一键分析组织点卡片的「重新分析」；
      - 旧流程组织点面板的「重新分析当前投标文件包」；
@@ -525,18 +536,19 @@ GROUP BY "projectId";
    - C 不处理，只靠标签和过期提示：旧分析里的生成文件内容仍留在事实与要求里，直到有人重跑；最新一份失败的项目（如 12-3）连过期提示都没有。
    - 推荐 A。同时要接受 D6 第 3 条：没改派、旧流程自动开关开着的组织，受影响项目可能自动多起一轮。另一个选项是在入队里压住这一轮，但那要改 `enqueue-package.ts`，与 FIX-18 冲突，而且这一轮本来就是需要的恢复。
 4. **报价导入的供应商报价不进招标文件包**
+   - **已定（按推荐，Lucas 2026-11-22 授权）：A 排除。** D1 表与规格「报价导入的供应商报价不进文件包」照此写，不用改。
    - A 排除（推荐）：它是供应商对我方的报价，不是采购方的招标要求；纳入会把供应商价格当成招标事实抽取。
    - B 纳入：要在白名单里加 `quote_import`。
    - 推荐 A。
 5. **外部链接（BidToGo 建项带的链接）不进招标文件包**
+   - **已定（按推荐，Lucas 2026-11-22 授权）：A 排除。** D1 表与规格「外部链接文件不再让整次分析失败」照此写，不用改。
    - A 排除（推荐）：青砚没有它的内容，本来就分析不了；现在可分析类型的外部链接会让整个项目的分析失败。
    - B 保留现状：要在判定里加例外，项目继续被挡住。
    - BidToGo 现在还推不推标，仓库里查不到（`docs/QINGYAN_TENDER_FLOW_BASELINE.md:174`）。推荐 A。
 
 ## Migration Plan
 
-- 开工前：跑「生产只读核对」第 1、2 条，结果写进报告草稿；第 2 条不为 0 时不开工，回 GATE 第 2 条。
-- 开 PR 前：跑第 4 条，结果写进报告。
-- 合并即生效：没有开关，也没有数据迁移。
-- 合并部署后：跑第 3 条拿到受影响项目名单，按 D6 的恢复步骤逐个重新分析。
+- 合并前：「生产只读核对」第 1、2 条（`docs/acceptance/fix-19/prod-check.sql`，2026-11-22 23:30 UTC 已交 Lucas，还没有结果）。代码先写到可合并；结果回来、且第 2 条为 0 之前不合并；第 2 条不为 0 就停，回 GATE 第 2 条。第 4 条同在这个文件里，结果一并写进报告。
+- 没有开关，合并即在生产生效；也没有数据迁移。
+- 合并部署后：跑同一文件的第 3 条拿到受影响项目名单，按 D6 的恢复步骤逐个点「重新分析」：一键分析组织点卡片「重新分析」，旧流程组织点面板「重新分析当前投标文件包」。
 - 回退：revert 本 PR 即可。没有写任何数据；回退后生成文件重新进包，旧行为全部恢复。
