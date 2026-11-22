@@ -11,7 +11,7 @@
 - [x] 2.3 `package-coverage.ts` 排除明细加 `parseError`（只对解析失败有值，取数多选 `parseError`）；存进综合解读的快照显式只取六项（`package-coverage.ts` 的纯函数，`v2-persist.ts` 的 `loadCoverageForRun` 调它）；投标简报用的清单去掉原文；`package-coverage.test.ts` 补用例；verify：`npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts` 全过，`analyst-synthesis.test.ts` 照旧通过
 - [x] 2.4 界面：`analysis-panel.tsx` 逐文件明细「未纳入：文件解析失败（原因：…）」并把「文件名 → 原文」交给 `analyst-synthesis-view.tsx` 的展开列表；`project-file-manager.tsx` 行下方显示全文；verify：`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出码 0；真实应用截图存 `docs/acceptance/fix-13/`
 
-- [x] 2.5 多维审查后补的三项：纯文本 / CSV 按实际编码读（`decodeTextFile`，读不了的写明原因）；失败原因写入收口（≤ 500 字 + 清理）；文案收进 `exclusion-text.ts`（面板的下一步提示、展开列表的「上次分析时的记录」、文件列表的「原因：系统未记录原因」）；第二轮复核后再补：没有字节序标记的中文 UTF-16 与 UTF-32、失败原因收口的纯函数、三处取数的接线断言、不用数据库的页面抽取断言（`page-parse.test.ts` 进 CI 子集）；verify：四个测试文件全过（隔离库 33、纯函数 34、覆盖清单 50、`page-parse.test.ts` 21），`npm run typecheck` 退出码 0
+- [x] 2.5 多维审查后补的三项：纯文本 / CSV 按实际编码读（`decodeTextFile`，读不了的写明原因）；失败原因写入收口（≤ 500 字 + 清理）；文案收进 `exclusion-text.ts`（面板的下一步提示、展开列表的「上次分析时的记录」、文件列表的「原因：系统未记录原因」）；第二轮复核后再补：没有字节序标记的中文 UTF-16 与 UTF-32、失败原因收口的纯函数、三处取数的接线断言、不用数据库的页面抽取断言（`page-parse.test.ts` 进 CI 子集）；第三轮交叉审计后再补：「读不了」只看开头 20 万字、读不了的原因改写成照着做得成的一句、面板「还没纳入」的提醒（`notYetAnalyzedHint`）、下一步提示与「上次分析时的情况」改写、两条解析路径写库点与三个组件的接线断言；verify：四个测试文件全过（隔离库 33、纯函数 39、覆盖清单 62、`page-parse.test.ts` 27），`npm run typecheck` 退出码 0
 
 ## 3. 验收
 

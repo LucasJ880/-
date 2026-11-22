@@ -6,6 +6,7 @@ import {
   NOT_UTF8_TEXT_ERROR,
   PARSE_ERROR_MAX_CHARS,
   TEXT_FILE_MAX_NUL_RATIO,
+  TEXT_FILE_UNREADABLE_SAMPLE_CHARS,
   decodeTextFile,
   hasUnstorableChars,
   toStorableParseError,
@@ -81,6 +82,11 @@ ok(textOf(decodeTextFile(Buffer.concat([Buffer.from([0xfe, 0xff]), utf16(SENTENC
   const r = decodeTextFile(utf16("Item,Qty,Unit price")); // 没有字节序标记的 UTF-16：按 UTF-8 读出来一半是 U+0000
   ok("error" in r && r.error === NOT_UTF8_TEXT_ERROR, "decodeTextFile：没有字节序标记的 UTF-16（满是 U+0000）→ 判为不可读，给出原因");
   ok(NOT_UTF8_TEXT_ERROR.length <= 500 && !hasUnstorableChars(NOT_UTF8_TEXT_ERROR), "这句原因本身不超过 500 字、能入库");
+  ok(
+    NOT_UTF8_TEXT_ERROR === "文本文件不是 UTF-8 编码或含二进制内容，无法读取。请用记事本或 Excel 打开，另存为时编码选 UTF-8，Excel 里选「CSV UTF-8」格式；重新上传后删掉这一份" &&
+      !/[（）()]/.test(NOT_UTF8_TEXT_ERROR),
+    "这句原因写明怎么另存、重新上传后删掉旧的这一份；不带括号（面板上会拼进「（原因：…）」）",
+  );
 }
 ok(textOf(decodeTextFile(Buffer.from(`check the box.\n${NUL} The Bidder declares`, "utf-8"))) === `check the box.\n${NUL} The Bidder declares`, "decodeTextFile：零星的 U+0000 不算不可读，原样交给 toStorableText 去换");
 {
@@ -104,6 +110,9 @@ ok(textOf(decodeTextFile(Buffer.alloc(0))) === "" && textOf(decodeTextFile(Buffe
 
 // —— 失败原因写库前的收口 ——
 {
+  const longNul = `${"E".repeat(300)}${NUL}${"F".repeat(399)}`;
+  const longNulOut = toStorableParseError(longNul);
+  ok(longNul.length === 700 && longNulOut.length === 500 && longNulOut[300] === " " && !hasUnstorableChars(longNulOut), "toStorableParseError：一段 700 字、带 U+0000 的报错 → 截到 500 字、U+0000 换成空格、能入库");
   const long = "E".repeat(700);
   ok(PARSE_ERROR_MAX_CHARS === 500 && toStorableParseError(long).length === 500, "toStorableParseError：700 字的报错截到 500 字");
   ok(toStorableParseError(`Unrecognized tag: bad${NUL}tag`) === "Unrecognized tag: bad tag", "toStorableParseError：报错文字里的 U+0000 换成空格");
@@ -111,6 +120,17 @@ ok(textOf(decodeTextFile(Buffer.alloc(0))) === "" && textOf(decodeTextFile(Buffe
   const cut = toStorableParseError(split);
   ok(cut.length === 500 && cut.endsWith(FFFD) && !hasUnstorableChars(cut), "toStorableParseError：截断劈开一对代理字符 → 末尾是 U+FFFD，长度仍是 500，能入库");
   ok(toStorableParseError("下载的文件内容为空") === "下载的文件内容为空" && toStorableParseError("") === "", "toStorableParseError：普通的短报错原样返回");
+}
+
+// 「读不了」只看开头：尾部才有一大串 U+0000 的大文本照样能读（改动前它能解析，存进去的那一段不含 U+0000）
+{
+  const body = "Mandatory requirement: bid bond 10% of the total price.\n".repeat(6000); // 约 33 万字
+  const tailNul = Buffer.concat([Buffer.from(body, "utf-8"), Buffer.alloc(50_000)]);
+  const r = decodeTextFile(tailNul);
+  ok(TEXT_FILE_UNREADABLE_SAMPLE_CHARS === 200_000 && body.length > TEXT_FILE_UNREADABLE_SAMPLE_CHARS && "text" in r, "decodeTextFile：30 多万字的正常文本、尾部 5 万个 U+0000 → 仍可读（只看开头 20 万字）");
+  ok("text" in r && toStorableText(r.text).slice(0, body.length) === body && !hasUnstorableChars(toStorableText(r.text)), "这样的文本清理后正文不变、尾部的 U+0000 变成空格、能入库");
+  const headNul = Buffer.concat([Buffer.alloc(50_000), Buffer.from(body, "utf-8")]);
+  ok("error" in decodeTextFile(headNul), "decodeTextFile：开头就是一大串 U+0000 → 仍判为不可读");
 }
 
 console.log(`\nfiles extracted-text: ${pass} passed, ${fail} failed`);

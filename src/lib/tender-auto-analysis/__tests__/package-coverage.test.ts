@@ -3,6 +3,7 @@
  * 运行：npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts
  */
 
+import { readFileSync } from "node:fs";
 import {
   summarizePackageCoverage,
   toAnalystCoverage,
@@ -14,6 +15,7 @@ import {
   exclusionReasonWithParseError,
   fileListParseErrorLine,
   hasParseFailedExclusion,
+  notYetAnalyzedHint,
   parseErrorsByFilename,
   snapshotExclusionText,
 } from "../exclusion-text";
@@ -220,10 +222,10 @@ console.log("tender-auto-analysis package-coverage");
   ok(text("B-e.pdf", current) === `文件解析失败（原因：${ERR}）`, "展开列表：解析失败的文件按同样的写法带原文，原文取当前的记录");
   ok(text("B-f.pdf", current) === "文件解析失败（原因：系统未记录原因）", "展开列表：当前没有记录原因 → 系统未记录原因");
   ok(text("big.pdf", current) === snap.find((x) => x.filename === "big.pdf")!.exclusionReason, "展开列表：其它原因照旧");
-  ok(text("B-e.pdf", {}) === "文件解析失败（上次分析时的记录，文件状态之后已变，重新分析后更新）", "展开列表：快照里解析失败、现在已经不在解析失败之列（重新处理成功了）→ 注明这是上次分析时的记录，不带原因");
+  ok(text("B-e.pdf", {}) === "文件解析失败（这是上次分析时的情况；文件之后已重新处理或已删除，重新分析后这里会更新）", "展开列表：快照里解析失败、现在已经不在解析失败之列（重新处理成功了）→ 注明这是上次分析时的记录，不带原因");
   ok(text("big.pdf", {}) === snap.find((x) => x.filename === "big.pdf")!.exclusionReason, "展开列表：其它原因的记录不加这句说明");
   ok(text("B-e.pdf", undefined) === "文件解析失败", "展开列表：拿不到当前清单时只显示标签");
-  ok(snapshotExclusionText("文件解析失败", "constructor", current) === "文件解析失败（上次分析时的记录，文件状态之后已变，重新分析后更新）", "对照表按自有属性取值：文件名叫 constructor 也不会取到原型上的东西");
+  ok(snapshotExclusionText("文件解析失败", "constructor", current) === "文件解析失败（这是上次分析时的情况；文件之后已重新处理或已删除，重新分析后这里会更新）", "对照表按自有属性取值：文件名叫 constructor 也不会取到原型上的东西");
   const odd = parseErrorsByFilename([
     { filename: "__proto__", exclusionReason: "文件解析失败", parseError: "proto 的原因" },
     { filename: "dup.pdf", exclusionReason: "文件解析失败", parseError: "第一个" },
@@ -233,8 +235,44 @@ console.log("tender-auto-analysis package-coverage");
   ok(snapshotExclusionText("文件解析失败", "dup.pdf", odd) === "文件解析失败（原因：第二个）", "两个同名的失败文件：共用后一个的原因（快照里没有文件 id，只能按文件名对）");
 
   // 面板清单下面那句「下一步怎么办」：只在有解析失败的文件时出现
-  ok(hasParseFailedExclusion(c.excludedFiles) && PARSE_FAILED_NEXT_STEP_HINT === "解析失败的文件 AI 没有读到。请到右上角「项目文件」里重新处理，再回到这里重新分析；仍然失败请把上面的原因发给管理员。" && PARSE_FAILED_NEXT_STEP_HINT.includes("「项目文件」") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新处理") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新分析"), "面板：有解析失败的文件时给出下一步（去「项目文件」重新处理，再重新分析）");
+  ok(hasParseFailedExclusion(c.excludedFiles) && PARSE_FAILED_NEXT_STEP_HINT === "解析失败的文件 AI 没有读到。原因里写了怎么处理的，先照着做；没写的，请到右上角「项目文件」里重新处理，再回到这里重新分析；仍然失败请把上面的原因发给管理员。" && PARSE_FAILED_NEXT_STEP_HINT.includes("「项目文件」") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新处理") && PARSE_FAILED_NEXT_STEP_HINT.includes("重新分析"), "面板：有解析失败的文件时给出下一步（先照原因里的提示做；没有提示的去「项目文件」重新处理，再重新分析）");
   ok(!hasParseFailedExclusion(c.excludedFiles.filter((f) => f.exclusionReason !== "文件解析失败")) && !hasParseFailedExclusion([]), "面板：只有其它原因的排除（或没有排除）时不出现这句话");
+}
+
+// FIX-13：能读的文件比纳入的多（例如按提示重新处理成功之后）时，清单下面提醒重新分析
+{
+  ok(notYetAnalyzedHint(6, 4) === "有 2 个能读的文件还没纳入这次分析，重新分析后会一起纳入。", "面板：能读 6 个、纳入 4 个 → 提醒有 2 个还没纳入、重新分析后会一起纳入");
+  ok(notYetAnalyzedHint(4, 4) === null && notYetAnalyzedHint(3, 4) === null && notYetAnalyzedHint(Number.NaN, 4) === null, "面板：能读的不比纳入的多时不出现这句");
+  const reparsed = summarizePackageCoverage([
+    ...Array.from({ length: 4 }, (_, i) => row({ title: `in-${i}.pdf` })),
+    row({ title: "B-e.pdf", analyzed: false }),
+    row({ title: "B-f.pdf", analyzed: false }),
+  ]);
+  ok(reparsed.excludedFiles.length === 0 && notYetAnalyzedHint(reparsed.eligible, reparsed.analyzed) === "有 2 个能读的文件还没纳入这次分析，重新分析后会一起纳入。", "两份附录 B 重新解析成功、还没重新分析：没有排除文件，提醒还有 2 个没纳入");
+  const mixed = summarizePackageCoverage([
+    row({ title: "in.pdf" }),
+    row({ title: "new.pdf", analyzed: false }),
+    row({ title: "bad.pdf", parseStatus: "failed", analyzed: false }),
+  ]);
+  ok(mixed.excludedFiles.length === 1 && notYetAnalyzedHint(mixed.eligible, mixed.analyzed) === "有 1 个能读的文件还没纳入这次分析，重新分析后会一起纳入。", "同时有解析失败的排除时也按计数提醒（覆盖清单的 note 这时只说排除原因）");
+}
+
+// FIX-13：界面与取数的接线（读源码；去掉接线这里会变红，CI 子集里也跑）
+{
+  const src = (p: string) => readFileSync(p, "utf8");
+  const panel = src("src/components/tender-analysis/analysis-panel.tsx");
+  ok(/exclusionReasonWithParseError\(f\.exclusionReason,\s*f\.parseError\)/.test(panel), "接线：分析面板逐文件明细用 exclusionReasonWithParseError 带上原文");
+  ok(/hasParseFailedExclusion\(data\.coverage\.excludedFiles\)[\s\S]{0,200}PARSE_FAILED_NEXT_STEP_HINT/.test(panel), "接线：分析面板有解析失败的文件时显示下一步提示");
+  ok(/notYetAnalyzedHint\(data\.coverage\.eligible,\s*data\.coverage\.analyzed\)/.test(panel), "接线：分析面板按计数显示「还没纳入」的提醒");
+  ok(/parseErrorsByFilename\(data\.coverage\.excludedFiles\)/.test(panel), "接线：分析面板把现算的「文件名 → 原文」交给综合解读视图");
+  const synth = src("src/components/tender-analysis/analyst-synthesis-view.tsx");
+  ok(/snapshotExclusionText\(/.test(synth) && /currentParseErrors/.test(synth), "接线：综合解读「排除 K（原因）」展开列表用 snapshotExclusionText 与当前原文");
+  const files = src("src/components/project-files/project-file-manager.tsx");
+  ok(/fileListParseErrorLine\(/.test(files), "接线：项目文件列表用 fileListParseErrorLine 显示失败原因");
+  const brief = src("src/lib/tender-auto-analysis/executive-brief.ts");
+  ok(/withoutParseErrors\(/.test(brief), "接线：投标简报 / 工作台汇总的覆盖清单经 withoutParseErrors 去掉原文");
+  const persist = src("src/lib/tender-auto-analysis/v2-persist.ts");
+  ok(/toAnalystCoverage\(/.test(persist), "接线：存进综合解读的覆盖快照经 toAnalystCoverage 只取六项");
 }
 
 // FIX-13：项目文件列表里失败文件行下方的那一行

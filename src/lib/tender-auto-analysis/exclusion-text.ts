@@ -9,16 +9,26 @@
 /** 解析失败这一种排除原因的标签（package-coverage 的 parse_failed） */
 export const PARSE_FAILED_REASON_LABEL = "文件解析失败";
 
-/** 解析失败但系统没有记下原因时的说法 */
+/** 解析失败但系统没有记下原因时的说法（与 AI 任务详情页 STOP_REASON_UNRECORDED_ZH 同一句，全站一致） */
 export const PARSE_ERROR_MISSING_TEXT = "系统未记录原因";
 
 /** 分析面板上，有解析失败的文件时加在清单下面的一句「下一步怎么办」 */
 export const PARSE_FAILED_NEXT_STEP_HINT =
-  "解析失败的文件 AI 没有读到。请到右上角「项目文件」里重新处理，再回到这里重新分析；仍然失败请把上面的原因发给管理员。";
+  "解析失败的文件 AI 没有读到。原因里写了怎么处理的，先照着做；没写的，请到右上角「项目文件」里重新处理，再回到这里重新分析；仍然失败请把上面的原因发给管理员。";
 
 /** 快照里记着解析失败、而文件现在已经不在「解析失败」之列时，加在标签后面的说明 */
 export const SNAPSHOT_STALE_NOTE =
-  "（上次分析时的记录，文件状态之后已变，重新分析后更新）";
+  "（这是上次分析时的情况；文件之后已重新处理或已删除，重新分析后这里会更新）";
+
+/**
+ * 能读的文件比这次纳入分析的多时（例如按提示重新处理成功之后），加在清单下面的一句；不多时为 null。
+ * 覆盖清单的 note 只在没有被排除的文件时才说这件事，所以面板按计数自己拼。
+ */
+export function notYetAnalyzedHint(eligible: number, analyzed: number): string | null {
+  const n = eligible - analyzed;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return `有 ${n} 个能读的文件还没纳入这次分析，重新分析后会一起纳入。`;
+}
 
 /** 这条排除原因是不是「解析失败」 */
 export function isParseFailedReason(exclusionReason: string): boolean {

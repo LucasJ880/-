@@ -137,6 +137,25 @@ async function main() {
     );
   }
 
+  // FIX-13 接线守卫（读源码，CI 子集里也跑）：写库的每一处都经过清理 / 收口
+  {
+    const { readFileSync } = await import("node:fs");
+    const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const pp = strip(readFileSync("src/lib/tender-auto-analysis/page-parse.ts", "utf8"));
+    const pc = strip(readFileSync("src/lib/files/parse-content.ts", "utf8"));
+    // 失败原因：每一处写 parseError 的值要么是 null、固定短句变量 error（来自 sanitizeParseError 或固定文字），要么经 toStorableParseError
+    const writes = (src: string) => [...src.matchAll(/parseError:\s*([^,}\n]+)/g)].map((m) => m[1].trim());
+    const okValue = (v: string) => v === "null" || v === "error" || v.startsWith("toStorableParseError(");
+    const ppWrites = writes(pp);
+    const pcWrites = writes(pc);
+    ok(ppWrites.length >= 6 && ppWrites.every(okValue), `接线：页级解析写 parseError 的 ${ppWrites.length} 处都是 null / 已收口的 error / toStorableParseError(…)`);
+    ok(pcWrites.length >= 4 && pcWrites.every(okValue), `接线：整份文字解析写 parseError 的 ${pcWrites.length} 处都是 null / toStorableParseError(…)`);
+    ok(/function sanitizeParseError[\s\S]{0,200}return toStorableParseError\(/.test(pp), "接线：页级解析的 sanitizeParseError 经 toStorableParseError 收口（截 500 字 + 清理）");
+    ok(/data:\s*\{\s*parseStatus:\s*"parsing",\s*parseError:\s*null\s*\}/.test(pc), "接线：整份文字解析开始时清掉上一次的失败原因");
+    ok(/type === "docx"[\s\S]{0,300}storableUnits\(buildBlockUnits\(toStorableText\(/.test(pp), "接线：docx 分支先清理原文、切块之后再清理每个单元（storableUnits）");
+    ok(/toStorableText\(\s*toStorableText\(result\.text\)\.trim\(\)\.slice\(0, MAX_TEXT_LENGTH\),?\s*\)/.test(pc), "接线：整份文字解析「清理 → 去首尾空白 → 截断 → 再清理」");
+  }
+
   console.log(`\npage-parse: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

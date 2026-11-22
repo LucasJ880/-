@@ -72,28 +72,40 @@ export function toStorableParseError(message: string): string {
  */
 export const TEXT_FILE_MAX_NUL_RATIO = 0.1;
 
-/** 不是 UTF-8 文本时记下的失败原因 */
+/**
+ * 判断「读不了」时只看开头这么多个字（与整份文字解析入库的上限相同）。
+ * 文件尾部才有一大串 U+0000（例如程序预分配后没写完）的大文本，前面的正文照样能读：
+ * 按全文算比例会把这种文件整份判失败，而改动前它能解析（存进去的那一段不含 U+0000）。
+ */
+export const TEXT_FILE_UNREADABLE_SAMPLE_CHARS = 200_000;
+
+/**
+ * 不是 UTF-8 文本时记下的失败原因。面板上会拼成「文件解析失败（原因：…）」，所以这里不用括号；
+ * 重新上传是新建一份，旧的这份要删掉，否则它仍以失败的状态留在清单里。
+ */
 export const NOT_UTF8_TEXT_ERROR =
-  "文本文件不是 UTF-8 编码或含二进制内容，无法读取（请另存为 UTF-8 后重新上传）";
+  "文本文件不是 UTF-8 编码或含二进制内容，无法读取。请用记事本或 Excel 打开，另存为时编码选 UTF-8，Excel 里选「CSV UTF-8」格式；重新上传后删掉这一份";
 
 function looksUnreadable(text: string): boolean {
+  const sampleLength = Math.min(text.length, TEXT_FILE_UNREADABLE_SAMPLE_CHARS);
   let nulCount = 0;
   let replacementCount = 0;
-  for (let i = 0; i < text.length; i++) {
+  for (let i = 0; i < sampleLength; i++) {
     const code = text.charCodeAt(i);
     if (code === 0) nulCount++;
     else if (code === 0xfffd) replacementCount++;
   }
   return (
     nulCount > 0 &&
-    (nulCount + replacementCount) / text.length > TEXT_FILE_MAX_NUL_RATIO
+    (nulCount + replacementCount) / sampleLength > TEXT_FILE_MAX_NUL_RATIO
   );
 }
 
 /**
  * 把纯文本 / CSV 文件的字节解码成文字。
  * - 开头是 UTF-16 的字节序标记（FF FE / FE FF）→ 按 UTF-16 解码；否则按 UTF-8；
- * - 解出来的文字有 U+0000，且「U+0000 + U+FFFD」超过 TEXT_FILE_MAX_NUL_RATIO → 判为不可读（返回 error）。
+ * - 解出来的文字开头 TEXT_FILE_UNREADABLE_SAMPLE_CHARS 个字里有 U+0000，且「U+0000 + U+FFFD」超过
+ *   TEXT_FILE_MAX_NUL_RATIO → 判为不可读（返回 error）。
  *   这一条对两种解码都查：UTF-32 小端的字节序标记（FF FE 00 00）也以 FF FE 开头，按 UTF-16 读出来一半是 U+0000；
  * - 零星的 U+0000 留给 toStorableText 换成空格；不含 U+0000 的其它编码（如 GBK）照旧按 UTF-8 读，本函数不识别。
  */

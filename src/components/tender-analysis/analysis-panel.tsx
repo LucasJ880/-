@@ -26,6 +26,7 @@ import {
   PARSE_FAILED_NEXT_STEP_HINT,
   exclusionReasonWithParseError,
   hasParseFailedExclusion,
+  notYetAnalyzedHint,
   parseErrorsByFilename,
 } from "@/lib/tender-auto-analysis/exclusion-text";
 
@@ -507,6 +508,11 @@ export function TenderAnalysisPanel({
               {hasParseFailedExclusion(data.coverage.excludedFiles) ? (
                 <p className="text-amber-700" data-testid="parse-failed-next-step">
                   {PARSE_FAILED_NEXT_STEP_HINT}
+                </p>
+              ) : null}
+              {notYetAnalyzedHint(data.coverage.eligible, data.coverage.analyzed) ? (
+                <p className="text-amber-700" data-testid="not-yet-analyzed-hint">
+                  {notYetAnalyzedHint(data.coverage.eligible, data.coverage.analyzed)}
                 </p>
               ) : null}
             </div>
