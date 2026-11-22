@@ -61,10 +61,16 @@ export {
   TENDER_PRIMARY_WHEN_ENABLED,
   TENDER_FALLBACK_MODEL,
   tenderEntitlementLogFields,
+  TenderCallDeadlineError,
+  isTenderCallDeadlineError,
+  TENDER_CALL_DEADLINE_CODE,
+  TENDER_CALL_MIN_BUDGET_MS,
+  TENDER_RETRY_MIN_BUDGET_MS,
 } from "./tender";
 export type {
   TenderCompletionResult,
   TenderModelPin,
   PinnedTenderInvoker,
   TenderSupervisorStage,
+  TenderCompletionFn,
 } from "./tender";

@@ -15,7 +15,11 @@
 
 import { db } from "@/lib/db";
 import { computePackageFingerprint, getTenderPackageDocuments } from "./package";
-import { getPackageCoverage, type PackageCoverage } from "./package-coverage";
+import {
+  getPackageCoverage,
+  withoutParseErrors,
+  type PackageCoverage,
+} from "./package-coverage";
 
 export type BriefFieldState =
   | "READY"
@@ -436,7 +440,10 @@ export async function getExecutiveBrief(
     docStatedIncumbent: readDocStatedIncumbent(run?.summaryJson ?? null),
   });
 
-  const coverage = await getPackageCoverage(projectId, run?.id ?? null);
+  // 简报只用覆盖清单的计数与说明，不显示解析失败原文 → 不带出去（FIX-13）
+  const coverage = withoutParseErrors(
+    await getPackageCoverage(projectId, run?.id ?? null),
+  );
 
   return { ...brief, runId: run?.id ?? null, packageChanges, coverage };
 }
