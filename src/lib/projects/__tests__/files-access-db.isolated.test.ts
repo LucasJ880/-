@@ -87,6 +87,7 @@ async function main() {
   const uInactiveMember = await mkUser("f17_inactive_member"); // 项目成员身份 inactive
   const uSuspended = await mkUser("f17_suspended", { status: "suspended" }); // 账号已停用（曾是项目成员）
   const uOutsider = await mkUser("f17_outsider"); // 另一个组织的用户
+  const uExOrgAdmin = await mkUser("f17_ex_org_admin"); // 曾是组织管理员，组织成员身份已 inactive，不是项目成员
   const uSuper = await mkUser("f17_super", { role: "super_admin" }); // 不属于任何一个组织
 
   const orgA = await db.organization.create({
@@ -104,6 +105,7 @@ async function main() {
       { orgId: orgA.id, userId: uInactiveMember.id, role: "org_member", status: "active" },
       { orgId: orgA.id, userId: uSuspended.id, role: "org_member", status: "active" },
       { orgId: orgB.id, userId: uOutsider.id, role: "org_admin", status: "active" },
+      { orgId: orgA.id, userId: uExOrgAdmin.id, role: "org_admin", status: "inactive" },
     ],
   });
 
@@ -248,6 +250,8 @@ async function main() {
 
     // ───────────────────────── 别的组织的用户 403 ─────────────────────────
     console.log("与项目无关的登录用户返回 403：别的组织的用户");
+    const projectRow = async (id: string) => JSON.stringify(await db.project.findUnique({ where: { id } }));
+    const beforeProjA = await projectRow(projA.id);
     {
       const failed = await mkFailedDoc(projA.id);
       const beforeFailed = await snapshot(failed.id);
@@ -300,6 +304,7 @@ async function main() {
         db.tenderAnalysisRun.count({ where: { projectId: { in: [projA.id, projProbe.id] } } }),
       ]);
       ok(intel === 0 && runs === 0, "被拒的请求没有生成项目情报、没有把招标分析入队", { intel, runs });
+      ok((await projectRow(projA.id)) === beforeProjA, "被拒的请求没有改项目本身的记录（不按文件补全项目字段）");
     }
 
     // ───────────────────────── 同组织但不是项目成员 / inactive 成员 403 ─────────────────────────
@@ -318,9 +323,12 @@ async function main() {
       ok(r3.status === 403, "项目成员身份为 inactive 的用户调 process-next?retry=1 → 403", r3);
       const r4 = await deleteFile(uInactiveMember, projA.id, blob.doc.id);
       ok(r4.status === 403, "项目成员身份为 inactive 的用户调 DELETE → 403", r4);
+      const r5 = await processNext(uExOrgAdmin, projA.id, true);
+      const r6 = await deleteFile(uExOrgAdmin, projA.id, blob.doc.id);
+      ok(r5.status === 403 && r6.status === 403, "组织成员身份已 inactive 的组织管理员调 process-next?retry=1 与 DELETE → 403", [r5, r6]);
       ok((await snapshot(failed.id)) === beforeFailed, "这几次被拒的重试都没有重置失败的文件");
       ok((await snapshot(blob.doc.id)) === beforeBlob && fs.existsSync(blob.absPath), "这几次被拒的删除都没有删文件记录与原文件");
-      ok([r1, r2, r3, r4].every(noFileInfo), "响应都不带文件信息");
+      ok([r1, r2, r3, r4, r5, r6].every(noFileInfo), "响应都不带文件信息");
     }
 
     // ───────────────────────── 项目不存在或未分发 404 ─────────────────────────
@@ -401,7 +409,7 @@ async function main() {
     // ───────────────────────── 清理 ─────────────────────────
     const projectIds = [projA.id, projProbe.id, projPending.id, projB.id];
     const orgIds = [orgA.id, orgB.id];
-    const userIds = [uOwner, uOrgAdmin, uMember, uSameOrg, uInactiveMember, uSuspended, uOutsider, uSuper].map((u) => u.id);
+    const userIds = [uOwner, uOrgAdmin, uMember, uSameOrg, uInactiveMember, uSuspended, uOutsider, uExOrgAdmin, uSuper].map((u) => u.id);
     const quiet = async (label: string, fn: () => Promise<unknown>) => {
       try {
         await fn();

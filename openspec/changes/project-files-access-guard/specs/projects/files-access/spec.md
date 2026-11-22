@@ -41,7 +41,7 @@
 - **THEN** 返回 401
 
 ### Requirement: 与项目无关的登录用户返回 403
-已登录、但不属于上面四类的调用者调用四个项目文件接口中的任何一个，系统 SHALL 返回 403，正文 `error` 为「无权查看该项目」。「与项目无关」SHALL 包括：别的组织的用户；同一组织里不是该项目成员、也不是组织管理员的用户；成员身份已停用的原项目成员。
+已登录、但不属于上面四类的调用者调用四个项目文件接口中的任何一个，系统 SHALL 返回 403，正文 `error` 为「无权查看该项目」。「与项目无关」SHALL 包括：别的组织的用户；同一组织里不是该项目成员、也不是组织管理员的用户；成员身份已停用的原项目成员；组织成员身份已停用、又不是该项目成员的原组织管理员。
 
 #### Scenario: 别的组织的用户逐步处理
 - **WHEN** 另一个组织的 active 用户调用 `POST …/files/process-next` 与 `POST …/files/process-next?retry=1`
@@ -58,6 +58,10 @@
 #### Scenario: 已停用的项目成员
 - **WHEN** 项目成员身份为 inactive 的用户调用 `POST …/files/process-next?retry=1`
 - **THEN** 返回 403
+
+#### Scenario: 已停用的组织管理员
+- **WHEN** 组织成员身份为 inactive 的原组织管理员（不是该项目成员）调用 `POST …/files/process-next?retry=1` 与 `DELETE …/files/:fileId`
+- **THEN** 两次都返回 403
 
 #### Scenario: 别的组织的用户看列表与上传
 - **WHEN** 另一个组织的 active 用户调用 `GET …/files` 与 `POST …/files`
@@ -82,7 +86,7 @@
 - **THEN** 返回 404，正文 `error` 为「文件不存在」，项目乙的这份文件记录与原文件都还在
 
 ### Requirement: 被拒绝的请求不产生任何改动
-四个项目文件接口返回 401、403 或「项目不存在」的 404 时，系统 SHALL NOT 修改或删除任何项目文件记录，SHALL NOT 删除存储里的原文件，SHALL NOT 启动文件解析、AI 摘要、项目情报分析或招标分析的自动入队。
+四个项目文件接口返回 401、403 或「项目不存在」的 404 时，系统 SHALL NOT 修改或删除任何项目文件记录，SHALL NOT 删除存储里的原文件，SHALL NOT 修改项目本身的记录（按文件补全项目字段），SHALL NOT 启动文件解析、AI 摘要、项目情报分析或招标分析的自动入队。
 
 #### Scenario: 被拒的重试不重置文件
 - **WHEN** 另一个组织的用户调用 `POST …/files/process-next?retry=1`，项目里有一份解析失败、带解析报错与已抽取文字的文件

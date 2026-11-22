@@ -43,7 +43,8 @@ TASKFLOW：FIX-17（FIX-12 在未合并的 #540；FIX-13 `document-parse-nul-and
 - 守卫用的错误文案（删除被拒时也是「无权查看该项目」）：守卫是全站共用的，不为这两个接口改。
 - `process-next` 成功响应里的 `parseError` 原文：对有权限的成员照旧返回；报错原文的清理归 FIX-13 / FIX-16。
 - 界面：不改。有权限的人看到的行为不变；没权限的人本来就打不开项目页。
-- `src/app/api/projects/[id]/files/**` 之外的路由：不查不改（上面两处只是顺带读到）。
+- `src/app/api/projects/[id]/files/**` 之外的路由：不改。2026-11-22 接手核对时发现同类缺口（只有 `withAuth`、没有项目权限检查）还有四个文件：`src/app/api/projects/[id]/intelligence/regenerate/route.ts`（`POST`，会调用模型重算项目情报）、`src/app/api/projects/[id]/intelligence/review/route.ts`（`GET` / `PATCH`，读写项目情报的审核结论）、`src/app/api/projects/[id]/ai-bid-package/route.ts`（`POST` / `GET`）、`src/app/api/projects/[id]/ai-bid-package/run-step/route.ts`（`POST`，执行任务步骤）；超出本 change 的任务书，另开 change，由 Evan 定。
+- 已离开组织、但项目成员关系仍是 active 的人（或仍是项目负责人）：项目读权限的判定不看组织成员状态，这是 `src/lib/projects/access.ts` 的既有行为，影响全部项目读接口；本次不改，另开任务评估。
 - 数字员工工具把解析报错原文拼进 `error` 字符串（见下一节）：本次只写结论，不改代码。
 - schema 变更、新的队列 / 调度、新的模型调用、新开关：没有。**没有开关，合并即生效。**
 
