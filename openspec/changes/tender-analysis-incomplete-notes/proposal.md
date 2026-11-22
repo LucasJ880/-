@@ -2,21 +2,21 @@
 
 TASKFLOW：FIX-16（Phase F（续）— 生产实测修复）
 
-> 开工前提与合并顺序：**FIX-13 → FIX-18 → FIX-22 → FIX-16**。FIX-16 rebase 到 FIX-22 合并后的 main 再开工。
-> - 三者都改分析面板：FIX-13 是 #546 `document-parse-nul-and-reason`；FIX-18 是 `tender-analysis-single-entry`；FIX-22 是 `tender-requirements-tab-converge`。
+> 开工顺序（2026-11-22 定）：**FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-18 → FIX-22 → FIX-16**。FIX-13（#546）已合并、已归档（#547）。
+> - FIX-18（`tender-analysis-single-entry`）与 FIX-22（`tender-requirements-tab-converge`）都合并后，把 main 合入本分支，按 tasks 开工前提逐条复核，复核结果写进报告草稿再动代码。
+> - 三者都改分析面板：FIX-13 是 #546 `document-parse-nul-and-reason`；FIX-18、FIX-22 见上。
 > - 本稿凡与它们相邻的地方，按以下版本写：FIX-13 合并前最后一版代码（`/home/user/wt/fix13` 的 `d273cce4`）；FIX-18、FIX-22 的四件套（`/home/user/wt/fix18`、`/home/user/wt/fix22`）。
-> - rebase 时再核一遍。行号未注明的是 main `2ef4f9c8`。
+> - 合入 main 时再核一遍。行号未注明的是 main `2ef4f9c8`。
 >
-> 范围：下面「What Changes」是现在就做的核心。design「留给 GATE」里各条的处理是：
-> - G1、G3 本次不做：G1 是澄清问题重查还是逐条标注，G3 是 Muse 要不要一起改。
-> - G2、G4 本次按 A 实施：G2 是只有澄清没核对时通知的优先级，G4 是位置只写文字。2026-11-22 生产实测（项目 12-3）之后若选 B，只改查表模块和一条测试。
-> - G10 本次按 A 实施：G10 是投标合规矩阵顶部的「可能不全」，跟随 FIX-22 的 G6。
-> - G5–G9 现在就能定，按推荐写。
+> 范围：下面「What Changes」是本次要做的全部。design「留给 GATE」G1–G10 已定（Lucas 2026-11-22，全部按推荐）：
+> - 本次按 A 实施：G2（只有澄清没核对时通知不标高）、G4（位置只写文字）、G5（句子不说原因）、G7（不加「可以重新分析一次」）、G8（「批准分析」前不加确认）、G10（投标合规矩阵顶部写「可能不全」）。这几条与本稿原来的写法相同，Decision、规格、tasks 不用改。以后要改 G2、G4、G5 的 B，只改查表模块和对应测试。
+> - G1 本次只做 A（那一块里说条数）；提门槛还是逐条标注，合并后数生产里「没核对成」的条数再定，登记为后续任务（task 4.2）。
+> - 本次不做、登记为后续任务（task 4.2）：G3（Muse 拆后续小 change）、G6（项目聊天与 Muse `ask` 上下文，下一个小 change）、G9（删「详见 QA 记录 N 条」，另开小 change）。
 
 受影响的 Muse 意图：无。
 - 本次不改 `src/lib/muse-bridge/**`。`status` / `ask` / `rfq` / `compare` / `chase` / `price_scenario` / `next_step` 等意图与 `analysis.ready` 事件的文字都不变。
 - Muse 只拉 `muse_bridge` 类别的通知（`muse-bridge/events.ts:149`），本次改的站内完成通知不会流进 Muse。
-- Muse 要不要跟着改见 design「留给 GATE」G3、G6，两条都登记为后续任务。
+- Muse 要不要跟着改：GATE 已定 G3、G6 都拆成后续任务（task 4.2 登记），本 change 不碰 Muse。
 
 ## Why
 
@@ -95,25 +95,26 @@ FIX-12 之后，文件多、模型慢时分析不再整个失败，而是「做�
   |---|---|---|
   | FIX-13 | 覆盖清单与两句提示、`analyst-synthesis-view.tsx` 的排除列表 | 不改它的句子；MODIFIED 只约束「还没纳入」那一句 |
   | FIX-18 | 运行头部按钮栏里「重新分析当前投标文件包」按卡片回报显示 | 规格不再列按钮，只写「分析状态那一栏（标题、分析状态与文件纳入情况）」 |
-  | FIX-19 | 同一个分析详情接口的文档查询与标签函数（它的 design 第 249 行） | 只在响应里加 `incompleteNotes`，段落不同，后合并的一方手工合并 |
+  | FIX-19 | 同一个分析详情接口的文档查询与标签函数（它的 design 第 249 行） | 只在响应里加 `incompleteNotes`，段落不同；按开工顺序 FIX-19 先合，本 change 合入 main 时手工合并 |
   | FIX-20 | 一键分析卡片上「AI 数字员工的综合汇总未生成」 | 见下面「与 FIX-20 的分界」 |
   | FIX-22 | 面板只留进度、矩阵插槽、「批准分析」移到矩阵顶部、其余分栏收在矩阵下方 | 那一块留在进度部分里；矩阵那一句经插槽交给矩阵；复核横幅随「项目解读」页走 |
-- 归档顺序：本 change 对 `tender/analysis-package-coverage` 是 MODIFIED，FIX-13 归档之后才能归档本 change。
+- 归档顺序：本 change 对 `tender/analysis-package-coverage` 是 MODIFIED，FIX-13 归档之后才能归档本 change。FIX-13 已于 #547 归档（main `01e444b9`），这一条已满足。
 - 与 FIX-20 的分界：两边各管各的，三条约定。
   - 范围：FIX-20 管数字员工 Job 的 t8「Job 级综合汇总」失败降级与受阻显示，显示在一键分析卡片与 AI 任务详情页。本 change 管分析记录里四件事的白话说明：「项目解读」页没生成、复核没做完、内容段没读完、澄清没核对。
   - 约定一，叫法：本 change 的句子一律用「「项目解读」页」，不出现「综合」二字，与 AI 任务详情页上的「综合汇总」（`src/app/(main)/workforce/presentation.ts:111`、`:116`）分开；FIX-20 的四件套提到本 change 时也用「「项目解读」页」。
   - 约定二，谁说「分析完整不完整」：只有这一块（与矩阵顶部那一句）说。FIX-20 卡片上那句不写「可照常审阅」，也不判断分析结果完整不完整。
   - 约定三，Muse：本 change 只管站内完成通知。Muse `analysis.ready` 与 `next_step` 的说法登记为后续 TASKFLOW 行（G3，编号待定），不归 FIX-20，也不在本 change 里。
-  - 后两条要 FIX-20 改它的四件套，由协调方转交。
+  - 后两条要 FIX-20 改它的四件套：FIX-20 已照此改（`tender-job-synthesis-degrade` design D12：卡片只写「招标分析结果见下方」，不写「不影响」「可照常审阅」；提到本 change 时用「「项目解读」页」）。
 
 ## Out of scope
 
 - 不改分析行为：重试几次、各阶段门槛、何时让出、没核对成的澄清问题不再重查，都不动。切片之外的超时路径归 FIX-15（`workforce-invocation-deadline`）。
+- 不改空分析判定：内容段全部没读完、而「项目解读」第一遍写成的分析照样落库（design「Risks」），由 task 4.2 登记为后续 TASKFLOW 行。
 - 不改已存的复核状态与「需人工复核」标志（`src/lib/tender-analyst/**` 零改动），也不改 `qa.issues` 里那条内部说明。
 - 不给已存的旧分析补未完成记录，不解析旧分析里带英文码的字符串去猜哪里没做完。
 - 不改局限说明的其它几句：证据验证拒收的原因码、近乎无文本的页、回退模型说明、文件包不完整说明。
 - 不改 Muse 通道：`analysis.ready` 的第一行与 `next_step` 的查表都不动。由 task 4.2 登记为后续 TASKFLOW 行（G3）。
-- 不逐条标注没核对成的澄清问题，随「重查还是标注」一起定（G1）。本次只在那一块里说条数。下面这些都不加标注：
+- 不逐条标注没核对成的澄清问题。G1 已定：本次只在那一块里说条数，合并后数生产里的条数再定提门槛还是逐条标注，由 task 4.2 登记为后续 TASKFLOW 行。下面这些都不加标注：
   - 「澄清问题」「澄清 / RFI」两个列表：FIX-22 之后在矩阵下方收起的分区里；
   - 「正式澄清（RFI）」里「向业主提问」对话框的推荐问题与它起草的邮件（`src/app/api/projects/[id]/questions/route.ts:30–35`、`:149–155`）；
   - RFI 导出（`src/lib/projects/generate/generate-docs.ts:381–400`）。
@@ -124,9 +125,9 @@ FIX-12 之后，文件多、模型慢时分析不再整个失败，而是「做�
 - 不改一键分析卡片（`src/components/tender-analysis/agent-card.tsx`）与 AI 任务详情页：归 FIX-18、FIX-20。
 - 不改 FIX-22 的矩阵逻辑：「已完成」的判定、「本次分析未完成，以下可能不全」那几句、标注与确认、「批准分析」、自动补翻（`src/lib/tender-auto-analysis/requirement-matrix.ts`、`requirement-matrix-write.ts`、`zh-backfill.ts`、`src/app/api/projects/[id]/bid-fit/**`）都不改。本次只在矩阵顶部多渲染一句。
 - 不改「招标要求」页签的排列（`src/components/project-detail/tabs/requirements-tab.tsx`，归 FIX-22）。
-- 不拦截「批准分析」（G8）。
+- 不拦截「批准分析」（G8 已定：不加确认）。
 - 不改覆盖清单本身（FIX-13）。情报页覆盖说明里拼出来的「N 个文件文件解析失败」不在本次，由 task 4.2 登记为后续 TASKFLOW 行。它来自 FIX-13 后 `package-coverage.ts:126`：「N 个文件」后面直接接标签「文件解析失败」。
 - 不改真的「未通过 AI 质检」时横幅里的「详见 QA 记录 N 条」，由 task 4.2 登记为后续 TASKFLOW 行（G9）。
-- 不改没开投标包 AI 体验的组织在复核没做完时通知里的「AI 审校标记了需要人工复核的地方」：既有行为，理由见 design「Risks」。
+- 不改没开投标包 AI 体验的组织在复核没做完时通知里的「AI 审校标记了需要人工复核的地方」：既有行为，理由见 design「Risks」；由 task 4.2 登记为后续 TASKFLOW 行。
 - 不改一键分析结果卡片自己的那套局限说明（`tender-workforce/tools.ts:1161–1174`）。
 - 不改写「项目解读」的提示词与版本号（只是它读到的那一句局限说明换了写法）。

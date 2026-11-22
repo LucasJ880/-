@@ -1,23 +1,28 @@
 # Tasks：招标分析「没做完的地方」用白话说清楚（FIX-16）
 
 > 开工前提：
-> 1. 合并顺序 **FIX-13 → FIX-18 → FIX-22 → FIX-16**。FIX-13（#546，`document-parse-nul-and-reason`）、FIX-18（`tender-analysis-single-entry`）、FIX-22（`tender-requirements-tab-converge`）都合并后，把本分支 rebase 到合并后的 main 再开工。然后核对两件事：
->    - FIX-13 规格里「分析面板提醒还没纳入的能读文件」一条的原文，与本 change `specs/tender/analysis-package-coverage/spec.md` 那一条的第一段与第一个场景逐字相同。不同就先改本 change 的规格，并跑 `openspec validate --strict`。
->    - design 里标「FIX-13 后」的行号。
+> 1. 开工顺序（2026-11-22 定）：**FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-18 → FIX-22 → FIX-16**。FIX-13（#546，`document-parse-nul-and-reason`）已合并、已归档（#547）。
+>    - FIX-18（`tender-analysis-single-entry`）与 FIX-22（`tender-requirements-tab-converge`）都合并后，把 main 合入本分支，按本节第 1–4 条逐条复核一遍。复核结果写进报告草稿 `docs/QINGYAN_FIX-16_REPORT.md`「开工前复核」一节，再动代码。复核三类：
+>      - 文件:行号：四件套里引用的每一处（含标「FIX-13 后」的）在合入后的代码里还对不对；
+>      - 组件名与函数名：分析状态那一栏与 `showRunControls`、`data-testid="package-coverage"`、矩阵插槽、`bid-fit-matrix-card.tsx`、`analyst-synthesis-view.tsx` 的复核横幅、`AnalysisProgressBanner`、`readAnalystSynthesis`、FIX-22 的「已完成」判定函数，有没有被这两个 change 改名、挪走或换了参数；
+>      - 文案出处：规格里引用的既有句子（「招标文件自动分析」「投标合规矩阵」「部分结论未通过 AI 质检…」「AI 审校标记了需要人工复核的地方」「可以开始确认招标要求」「招标分析已完成，待确认」「本次分析未完成，以下可能不全」）还在不在原处，有没有被这两个 change 改写。
+>    - 这时 main 上也已有 FIX-17、FIX-21、FIX-19、FIX-14：FIX-19 改了同一个详情接口的文档查询与标签函数（本 change 合入时手工合并），FIX-21 的路由守卫测试覆盖这个接口，一并核。
+>    - 对不上的地方先改四件套，跑 `openspec validate tender-analysis-incomplete-notes --strict`，再实现。
+>    - FIX-13 主规格里「分析面板提醒还没纳入的能读文件」一条的原文，与本 change `specs/tender/analysis-package-coverage/spec.md` 那一条的第一段与第一个场景逐字相同（2026-11-22 在 main `01e444b9` 上核过）。合入后再核一次，不同就先改本 change 的规格。
 > 2. 核对 FIX-22 已合并后的面板结构，对不上的地方先改四件套（`openspec validate --strict`）再实现。要核的六项：
 >    - 进度部分的组成：一键分析卡片、分析状态那一栏、覆盖清单、增量变更、出错提示；
 >    - 矩阵插槽的位置，以及交给矩阵的参数；
 >    - 矩阵判定「已完成」的函数，以及「本次分析未完成，以下可能不全」那几句；
 >    - 「项目解读」页是否在矩阵下方收起的分区里；
->    - FIX-22 的 GATE 对它的 G6 怎么定，选 B 时删掉矩阵那一句（本 change 的 G10）；
+>    - 矩阵插槽能不能不改 `requirements-tab.tsx` 就把 `matrixLine` 交到卡片（FIX-22 的 G6 已按推荐定，本 change 的 G10 定为 A）；不能时先改四件套；
 >    - FIX-18 合并后运行头部按钮栏的样子。
-> 3. design「留给 GATE」里各条怎么处理：
->    - G1、G3 本次不做；
->    - G2、G4、G10 按 A 实施；
->    - GATE 若改了任何一条的推荐，先改四件套再动代码。
+> 3. design「留给 GATE」G1–G10 已定（Lucas 2026-11-22，全部按推荐）：
+>    - G2、G4、G5、G7、G8、G10 按 A 实施，就是本 tasks 写的做法；
+>    - G1 本次只做 A；G3、G6、G9 不在本次；这四条在 4.2 登记为后续任务。
 > 4. 开工前跑一遍将要触碰模块的已注册测试，记下通过数：
 >    - 本模块：`v2-resumable.test.ts`（42）、`v2-slice-deadline.test.ts`（46）、`alerts.test.ts`（30）、`v2-map.test.ts`、`analyst-synthesis.test.ts`、`input-completeness.test.ts`、`addendum-disposition.test.ts`；
 >    - 相邻 change：`package-coverage.test.ts`（FIX-13）、`single-entry.test.ts`（FIX-18）、`requirements-tab-converge.test.ts`（FIX-22）。
+>    - 同时记下 `grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的值（main `01e444b9` 上为 0，前面几个 change 合并后会变），写进报告草稿，4.2 的 verify 用它。
 
 ## 1. 句子查表先行
 
@@ -93,17 +98,29 @@
   - verify：`git diff origin/main` 对下面这些路径为空：`prisma/`、`vercel.json`、`openspec/specs`、`src/lib/muse-bridge`、`src/lib/tender-auto-analysis/chat-context.ts`、`src/lib/tender-auto-analysis/requirement-matrix.ts`、`src/components/tender-analysis/agent-card.tsx`、`src/components/project-detail/tabs/requirements-tab.tsx`。
 - [ ] 4.2 写 `docs/QINGYAN_FIX-16_REPORT.md` + 更新 TASKFLOW 状态列。
   - 报告内容：
+    - 开工前复核：开工前提第 1 条逐条复核的结果，对不上的地方与四件套怎么改的；
     - 四种情况的改前 / 改后句子与截图，以及矩阵那一句；
     - 通知的改前 / 改后；
     - 已核对的现状；
-    - 「留给 GATE」各条的状态，以及 2026-11-22 生产实测（项目 12-3）的结论；
+    - 「留给 GATE」G1–G10 的结论（Lucas 2026-11-22，全部按推荐），本次做了哪几条、哪几条登记为后续；
+    - 没有开关，合并即在生产生效：此后落库、有事可记的分析（含上线时正在跑的）在页面与通知里按新句子说；上线前落库的分析显示不变；
+    - 合并后要人做的事：
+      - 只读查询：写进 `docs/acceptance/fix-16/prod-check.sql`（`BEGIN READ ONLY`，只有 SELECT），Evan 在生产库跑，结果原样贴回。分两段：
+        - A 段：合并部署之后落库、`summaryJson` 带 `incompleteSteps` 的分析，按项目列四项各几条。看四种情况出现得多不多，后续第 5 条的条数就从这里数；
+        - B 段：上线前落库、状态为等待审核或已批准（`REVIEW_REQUIRED` / `APPROVED`）的分析里，可能有没做完的地方的：局限说明（`summaryJson.limitations`）含「窗口 LLM 抽取失败」，或 `analystSynthesis.qa.issues` 含「QA reviewer 调用失败」，或没有 `analystSynthesis`（只对开着投标包 AI 体验的组织算数）。这批分析页面上仍是旧说法。
+      - 要重新分析的项目名单：就是 B 段的结果按项目去重；
+      - 谁来点：Evan 定名单里哪些重新分析（整份重做，会再调用模型）；项目负责人或 Evan 在项目「招标要求」页用一键分析卡片发起（没开一键分析的组织用「重新分析当前投标文件包」）。重新分析后再跑 A 段，核对新分析带上了记录。
     - 测试输出、多维审查结论。
-  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：新增 FIX-16 一行，状态 `[~]`。同时登记四条后续任务，各一行，编号写「待定」，状态 `[ ]`：
-    1. Muse `analysis.ready` 第一行与 `next_step` 的「有地方没做完」说法（G3）；
-    2. 项目聊天与 Muse `ask` 上下文加「有内容没读完」（G6）；
-    3. 删掉复核横幅里点不开的「详见 QA 记录 N 条」（G9）；
-    4. 情报页覆盖说明「N 个文件文件解析失败」的拼接。
-  - verify：报告存在；`grep -n "FIX-16" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于 4。
+  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：新增 FIX-16 一行，状态 `[~]`。同时登记 7 条后续任务，各一行，编号写「待定」，状态 `[ ]`：
+    1. Muse `analysis.ready` 第一行与 `next_step` 的「有地方没做完」说法（G3）：今天没有「项目解读」页或有内容没读完时，Muse 发的是一句干净的「「项目」分析完成」，`next_step` 多半给「起草询价」（`muse-bridge/events-pure.ts:62`、`muse-bridge/next-step.ts`）；
+    2. 项目聊天与 Muse `ask` 上下文加「有内容没读完」（G6）：`tender-auto-analysis/chat-context.ts` 不带没读完的内容段，模型被问到这些页时可能答「文件里没有提到」；
+    3. 删掉复核横幅里点不开的「详见 QA 记录 N 条」（G9）：真的「未通过 AI 质检」时，这半句指向的记录在页面上无处可看（`analyst-synthesis-view.tsx` 的复核横幅）；
+    4. 情报页覆盖说明「N 个文件文件解析失败」的拼接：「N 个文件」后面直接接了标签「文件解析失败」（`tender-auto-analysis/package-coverage.ts`，FIX-13 后 `:126`）；
+    5. 没核对成的澄清问题按条数定下一步（G1）：用 A 段数生产里每份分析 `incompleteSteps.uncheckedQuestions` 的条数，每份 1 条以上就另开 change 把澄清开工门槛从 30 秒提到 75 秒（`tender-auto-analysis/v2-cursor.ts:218`），提门槛后仍常见再做逐条标注；很少就不做；
+    6. 没开投标包 AI 体验的组织，复核没做完时完成通知仍写「AI 审校标记了需要人工复核的地方，请优先查看」：通知的条数与这个标志读的是原始 `analystSynthesis`、不看开关（`tender-auto-analysis/alerts.ts:201–219`），这类组织又看不到「项目解读」页；
+    7. 空分析判定拦不住「内容段全部没读完」：`isEmptyAnalysisOutcome` 把「项目解读」第一遍的模型调用也算作成功（`tender-auto-analysis/v2-persist.ts:271–279`、`v2-resumable.ts:513–514`），这样的分析照样落库成「等待审核」。
+  - verify：报告存在，含「开工前复核」「没有开关，合并即在生产生效」「合并后要人做的事」三节；`docs/acceptance/fix-16/prod-check.sql` 存在，除 `BEGIN READ ONLY` / `ROLLBACK` 外只有 SELECT。
+  - verify：`grep -n "^| FIX-16 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于（开工前提第 4 条记下的值 + 7）。
 
 ## Workflow follow-up
 
