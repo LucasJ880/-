@@ -33,6 +33,7 @@ async function main() {
   const { TENDER_JOB_FAILED_SURFACED_AUDIT_ACTION } = await import("../job-failure-surfacing");
   const { buildWorkforceTenderIdempotencyKey, TENDER_WORKFORCE_ANALYSIS_VERSION } = await import("../analysis-run-service");
   const { getTenderWorkforceAnalysisStatus } = await import("../trigger-service");
+  const { getWorkforceJobView } = await import("@/lib/workforce-runtime/read-model/service");
 
   console.log("CHAIN-0c job failure surfacing — isolated DB");
   const fx = await seedWorkforceFixture("cf");
@@ -169,6 +170,38 @@ async function main() {
     await db.tenderAnalysisRun.update({ where: { id: r7.id }, data: { status: "AGENT_FAILED", errorCode: "cancelled", errorMessageSanitized: "用户重新发起" } });
     const status7 = await getTenderWorkforceAnalysisStatus({ orgId: ORG, projectId: p7 });
     ok(status7.latestAnalysisRun?.failureReason === undefined, "用户主动取消的分析不给原因");
+
+    // —— 8. FIX-20：第 3 步余额不足、Job 被写成 needs_human / blocked_graph → 错误码取那一步的，三处一字不差 ——
+    const p8 = await mkProject();
+    const j8 = await mkJob(p8);
+    const r8 = await mkRun(p8, j8);
+    await mkSteps(j8, [
+      { title: "校验输入", status: "completed" },
+      { title: "解析投标文件", status: "completed" },
+      { title: "Canonical V2 包级分析", status: "failed", errorCode: "model_quota_exhausted", errorMessage: "TOOL_FAILED: 429 You exceeded your current quota, please check your plan and billing details" },
+      { title: "要求抽取", status: "pending" },
+    ]);
+    await db.agentRun.update({ where: { id: j8 }, data: { status: "needs_human", errorCode: "blocked_graph", errorMessage: "步骤依赖无法推进" } });
+    const logged: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); origLog(...args); };
+    try {
+      await onWorkforceJobStopped({ runId: j8 });
+    } finally {
+      console.log = origLog;
+    }
+    const expected8 = "卡在第 3 步〈Canonical V2 包级分析〉：AI 账户余额不足，请联系平台管理员充值";
+    const run8 = await runOf(r8.id);
+    ok(run8.status === "AGENT_FAILED" && run8.errorCode === "model_quota_exhausted" && run8.errorMessageSanitized === expected8, "分析记录：错误码取第 3 步的 model_quota_exhausted，原因写余额不足", run8);
+    ok(logged.some((l) => l.includes(`[tender-alert] run=${r8.id}`) && l.includes("code=model_quota_exhausted")), "[tender-alert] 日志写 code=model_quota_exhausted", logged.filter((l) => l.includes("tender-alert")));
+    const n8 = await db.notification.findMany({ where: { orgId: ORG, entityType: "tender_analysis_run", entityId: r8.id }, select: { summary: true, metadata: true } });
+    // Notification.metadata 存的是 JSON 字符串
+    const meta8 = (m: unknown) => (typeof m === "string" ? (JSON.parse(m) as { errorCode?: string }) : (m as { errorCode?: string } | null));
+    ok(n8.length === 2 && n8.every((n) => meta8(n.metadata)?.errorCode === "model_quota_exhausted"), "失败通知元数据里的错误码相同", n8.map((n) => n.metadata));
+    ok(n8.every((n) => (n.summary ?? "").includes(expected8) && !(n.summary ?? "").includes("quota") && !(n.summary ?? "").includes("前置步骤没有完成")), "通知摘要写那一步自己的原因，不含 quota 与「前置步骤没有完成」", n8.map((n) => n.summary));
+    const view8 = await getWorkforceJobView({ orgId: ORG, jobId: j8 });
+    const card8 = await getTenderWorkforceAnalysisStatus({ orgId: ORG, projectId: p8 });
+    ok(view8.ok && view8.view.stopReason?.sentenceZh === expected8 && card8.latestAnalysisRun?.failureReason === expected8, "三处一字不差：作业详情视图的停止原因 = 项目卡片接口的原因 = 通知摘要里的原因", { view: view8.ok ? view8.view.stopReason : null, card: card8.latestAnalysisRun?.failureReason });
   } finally {
     await db.organizationMember.updateMany({ where: { orgId: ORG, userId: OWNER }, data: { status: "active" } }).catch(() => undefined);
     await db.notification.deleteMany({ where: { orgId: ORG } }).catch(() => undefined);

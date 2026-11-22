@@ -53,6 +53,37 @@ console.log("job-failure-surfacing");
   ok(exhausted.endsWith("：重试次数用尽"), "按错误码查表", exhausted);
 }
 
+// ── FIX-20：原因顺序 具体码 → 已知标记（余额不足排第一）→ 笼统码 → 执行出错 ──
+{
+  const QUOTA_ZH = "AI 账户余额不足，请联系平台管理员充值";
+  const six = [...base, s("Canonical V2 包级分析", "completed"), s("证据与合规覆盖", "completed"), s("风险分析", "completed"), s("澄清问题草稿", "completed"), s("Grounded 交付物物化", "completed")];
+  const t8quota = tenderJobStopMessageZh({
+    steps: [...six, s("Workforce 执行汇总", "failed", "model_quota_exhausted", "SYNTHESIS_MODEL_FAILED: 429 You exceeded your current quota"), s("Canonical V2 状态终态化", "pending")],
+    jobStatus: "needs_human", jobErrorCode: "blocked_graph", jobErrorMessage: "步骤依赖无法推进",
+  });
+  ok(t8quota === `卡在第 8 步〈Workforce 执行汇总〉：${QUOTA_ZH}`, "第 8 步余额不足（步骤码 model_quota_exhausted、Job 码 blocked_graph）→ 余额不足", t8quota);
+  ok(!t8quota.includes("前置步骤没有完成") && !t8quota.includes("quota"), "不写「前置步骤没有完成」，不含 quota");
+  const text429 = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "HTTP 429 insufficient_quota")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
+  ok(text429.endsWith(`：${QUOTA_ZH}`), "笼统码 tool_failed、文本「HTTP 429 insufficient_quota」→ 余额不足（排在限流之前）", text429);
+  const sdk = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "TOOL_FAILED: 429 You exceeded your current quota, please check your plan and billing details")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
+  ok(sdk.endsWith(`：${QUOTA_ZH}`), "SDK 拼出的「429 You exceeded your current quota…」也认得（旧数据没有新码时）", sdk);
+  const specificFirst = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "stale_running_exhausted", "request timed out after 180000ms")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
+  ok(specificFirst.endsWith("：长时间没有进展"), "具体原因码优先于已知标记（不写「单次调用超时」）", specificFirst);
+  const budget = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "org_ai_budget_exhausted", "配额限制：月 AI 费用已达 hard limit")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
+  ok(budget.endsWith("：本组织本月 AI 费用已达上限，请组织管理员调高月度上限"), "具体原因码 org_ai_budget_exhausted", budget);
+  const generic = tenderJobStopMessageZh({ steps: [...six, s("Workforce 执行汇总", "failed", "synthesis_failed", "SYNTHESIS_INVALID_OUTPUT: 模型未返回 JSON 结构化综合结果")], jobStatus: "needs_human", jobErrorCode: "blocked_graph", jobErrorMessage: null });
+  ok(generic === "卡在第 8 步〈Workforce 执行汇总〉：综合汇总生成失败", "笼统码 synthesis_failed 不回落 Job 的 blocked_graph", generic);
+  const leftover = tenderJobStopMessageZh({ steps: [...six, s("Workforce 执行汇总", "completed"), s("Canonical V2 状态终态化", "completed", "model_quota_exhausted", "429 You exceeded your current quota")], jobStatus: "needs_human", jobErrorCode: "verification_failed", jobErrorMessage: null });
+  ok(leftover === "卡在第 9 步〈Canonical V2 状态终态化〉：结果没有通过校验", "已完成步骤上的旧错误码与旧原文不算数 → 结果没有通过校验", leftover);
+  const contract = tenderJobStopMessageZh({ steps: [...six, s("Workforce 执行汇总", "failed", "HANDOFF_VERSION_UNSUPPORTED", "t5_risk_analysis: 不支持的 handoff contractVersion: x")], jobStatus: "needs_human", jobErrorCode: "HANDOFF_VERSION_UNSUPPORTED", jobErrorMessage: null });
+  ok(contract === "卡在第 8 步〈Workforce 执行汇总〉：执行出错", "契约损坏（码不在表里）→ 执行出错（不再是「需要人工处理」）", contract);
+  const recovered = tenderJobStopReason({ steps: [...base, s("Canonical V2 包级分析", "ready", "stale_running_recovered", null)], jobStatus: "needs_human", jobErrorCode: "INITIATOR_MISSING", jobErrorMessage: null });
+  ok(recovered?.stepIndex === 3 && recovered.reasonZh === "需要人工处理", "停在待开始的步骤（留着回收码）→ 只按 Job 的码，不写「上一次执行时间过长被中断」", recovered);
+  const mod = readFileSync(path.join(process.cwd(), "src/lib/tender-workforce/job-failure-surfacing.ts"), "utf8");
+  ok(/import \{ isModelQuotaExhaustedText[^}]*\} from "@\/lib\/workforce-runtime\/constants"/.test(mod), "余额不足的识别从 workforce-runtime/constants 取同一份规则");
+  ok(/const failedStepCode = steps\.find\(\(s\) => s\.status === "failed"\)\?\.errorCode;\s*const errorCode = failedStepCode \|\| job\.errorCode \|\|/.test(mod), "写进分析记录的错误码取第一个失败步骤的，没有才取 Job 的");
+}
+
 // ── 失败通知摘要 ──
 {
   const withStop = tenderFailureSummary({ projectName: "12-01 21C31-254242", errorCode: "tool_failed", attemptCount: 0, stopReason: "卡在第 3 步〈Canonical V2 包级分析〉：模型调用全部失败，未产出有效分析" });
