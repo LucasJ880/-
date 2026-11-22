@@ -87,6 +87,7 @@ async function main() {
   const uInactiveMember = await mkUser("f17_inactive_member"); // 项目成员身份 inactive
   const uSuspended = await mkUser("f17_suspended", { status: "suspended" }); // 账号已停用（曾是项目成员）
   const uOutsider = await mkUser("f17_outsider"); // 另一个组织的用户
+  const uOrgOwner = await mkUser("f17_org_owner"); // 组织所有者，不是项目成员
   const uExOrgAdmin = await mkUser("f17_ex_org_admin"); // 曾是组织管理员，组织成员身份已 inactive，不是项目成员
   const uSuper = await mkUser("f17_super", { role: "super_admin" }); // 不属于任何一个组织
 
@@ -106,6 +107,7 @@ async function main() {
       { orgId: orgA.id, userId: uSuspended.id, role: "org_member", status: "active" },
       { orgId: orgB.id, userId: uOutsider.id, role: "org_admin", status: "active" },
       { orgId: orgA.id, userId: uExOrgAdmin.id, role: "org_admin", status: "inactive" },
+      { orgId: orgA.id, userId: uOrgOwner.id, role: "org_owner", status: "active" },
     ],
   });
 
@@ -245,7 +247,7 @@ async function main() {
       ok((await snapshot(blob.doc.id)) === beforeBlob && fs.existsSync(blob.absPath), "已停用的账号没有删掉文件记录与原文件");
       const r4 = await listFiles(null, projA.id);
       const r5 = await uploadFiles(null, projA.id);
-      ok(r4.status === 401 && r5.status === 401, "未登录调列表与上传 → 401", [r4.status, r5.status]);
+      ok(r4.status === 401 && r5.status === 401 && r4.body.error === "未登录" && r5.body.error === "未登录", "未登录调列表与上传 → 401「未登录」", [r4.body, r5.body]);
     }
 
     // ───────────────────────── 别的组织的用户 403 ─────────────────────────
@@ -273,19 +275,23 @@ async function main() {
 
       const r4 = await listFiles(uOutsider, projA.id);
       const r5 = await uploadFiles(uOutsider, projA.id);
-      ok(r4.status === 403 && r5.status === 403, "别的组织的用户调列表与上传 → 403", [r4.status, r5.status]);
+      ok(r4.status === 403 && r5.status === 403 && r4.body.error === "无权查看该项目" && r5.body.error === "无权查看该项目", "别的组织的用户调列表与上传 → 403「无权查看该项目」", [r4.body, r5.body]);
       ok(noFileInfo(r4) && noFileInfo(r5), "被拒的列表与上传响应不带文件信息", [r4.body, r5.body]);
     }
 
     // ───────────────────────── 被拒的逐步处理不回文件标题与报错、不启动解析 ─────────────────────────
     console.log("被拒的逐步处理：有待解析文件的项目");
     {
+      // 放一个真实的 txt 原文件：没有守卫时这份文件会被解析成 done（改动前的代码上这条断言失败）
+      const pendingPath = `projects/${projProbe.id}/${tag}_pending.txt`;
+      const pendingBlob = await putPrivateBlob({ pathname: pendingPath, body: Buffer.from(`Mandatory: bid bond 10% (${tag})`), contentType: "text/plain" });
       const pending = await db.projectDocument.create({
         data: {
           projectId: projProbe.id,
-          title: `${SECRET_TITLE}.pending.pdf`,
-          url: `https://example.invalid/${tag}/pending.pdf`,
-          fileType: "pdf",
+          title: `${SECRET_TITLE}.pending.txt`,
+          url: pendingBlob.proxyUrl,
+          blobUrl: pendingBlob.proxyUrl,
+          fileType: "txt",
           source: "upload",
           parseStatus: "pending",
         },
@@ -321,13 +327,23 @@ async function main() {
       ok(r2.status === 403, "同组织但不是项目成员调 process-next?retry=1 → 403", r2);
       const r3 = await processNext(uInactiveMember, projA.id, true);
       ok(r3.status === 403, "项目成员身份为 inactive 的用户调 process-next?retry=1 → 403", r3);
-      const r4 = await deleteFile(uInactiveMember, projA.id, blob.doc.id);
+      // 每个被拒的人各删一份新文件：改动前它们都能删掉（200），不会因为前一步已经删了而得到 404
+      const blobInactive = await mkBlobDoc(projA.id);
+      const blobExAdmin = await mkBlobDoc(projA.id);
+      const beforeInactive = await snapshot(blobInactive.doc.id);
+      const beforeExAdmin = await snapshot(blobExAdmin.doc.id);
+      const r4 = await deleteFile(uInactiveMember, projA.id, blobInactive.doc.id);
       ok(r4.status === 403, "项目成员身份为 inactive 的用户调 DELETE → 403", r4);
       const r5 = await processNext(uExOrgAdmin, projA.id, true);
-      const r6 = await deleteFile(uExOrgAdmin, projA.id, blob.doc.id);
+      const r6 = await deleteFile(uExOrgAdmin, projA.id, blobExAdmin.doc.id);
       ok(r5.status === 403 && r6.status === 403, "组织成员身份已 inactive 的组织管理员调 process-next?retry=1 与 DELETE → 403", [r5, r6]);
       ok((await snapshot(failed.id)) === beforeFailed, "这几次被拒的重试都没有重置失败的文件");
       ok((await snapshot(blob.doc.id)) === beforeBlob && fs.existsSync(blob.absPath), "这几次被拒的删除都没有删文件记录与原文件");
+      ok(
+        (await snapshot(blobInactive.doc.id)) === beforeInactive && fs.existsSync(blobInactive.absPath) &&
+          (await snapshot(blobExAdmin.doc.id)) === beforeExAdmin && fs.existsSync(blobExAdmin.absPath),
+        "inactive 成员与原组织管理员各自要删的那份文件，记录与原文件都还在",
+      );
       ok([r1, r2, r3, r4, r5, r6].every(noFileInfo), "响应都不带文件信息");
     }
 
@@ -365,6 +381,7 @@ async function main() {
       ok((await snapshot(other.doc.id)) === before && fs.existsSync(other.absPath), "项目乙的这份文件记录与原文件都还在");
       const r2 = await deleteFile(uMember, projA.id, `no_such_file_${tag}`);
       ok(r2.status === 404 && r2.body.error === "文件不存在", "不存在的文件 ID → 404「文件不存在」", r2);
+      ok(noFileInfo(r1) && noFileInfo(r2) && !r1.text.includes(other.doc.id), "「文件不存在」的响应不带文件信息（也不回显请求里的文件 ID）", [r1.body, r2.body]);
     }
 
     // ───────────────────────── 有权限的人照常可用 ─────────────────────────
@@ -404,12 +421,20 @@ async function main() {
       const blob2 = await mkBlobDoc(projA.id);
       const r8 = await deleteFile(uOwner, projA.id, blob2.doc.id);
       ok(r8.status === 200 && !fs.existsSync(blob2.absPath), "项目负责人调 DELETE → 200，原文件也删了", r8);
+      const blob3 = await mkBlobDoc(projA.id);
+      const r9 = await deleteFile(uOrgAdmin, projA.id, blob3.doc.id);
+      ok(r9.status === 200 && !fs.existsSync(blob3.absPath), "项目所在组织的管理员（不是项目成员）调 DELETE → 200，原文件也删了", r9);
+      const blob4 = await mkBlobDoc(projA.id);
+      const r10 = await deleteFile(uSuper, projA.id, blob4.doc.id);
+      ok(r10.status === 200 && !fs.existsSync(blob4.absPath), "平台 super_admin（不属于该组织）调 DELETE → 200，原文件也删了", r10);
+      const r11 = await processNext(uOrgOwner, projA.id, false);
+      ok(r11.status === 200, "组织所有者（org_owner，不是项目成员）调 process-next → 200", r11);
     }
   } finally {
     // ───────────────────────── 清理 ─────────────────────────
     const projectIds = [projA.id, projProbe.id, projPending.id, projB.id];
     const orgIds = [orgA.id, orgB.id];
-    const userIds = [uOwner, uOrgAdmin, uMember, uSameOrg, uInactiveMember, uSuspended, uOutsider, uExOrgAdmin, uSuper].map((u) => u.id);
+    const userIds = [uOwner, uOrgAdmin, uMember, uSameOrg, uInactiveMember, uSuspended, uOutsider, uExOrgAdmin, uOrgOwner, uSuper].map((u) => u.id);
     const quiet = async (label: string, fn: () => Promise<unknown>) => {
       try {
         await fn();

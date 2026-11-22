@@ -9,7 +9,7 @@ import { requireProjectReadAccess } from "@/lib/projects/access";
  * 删除项目文件（同时清理 Blob 存储）
  *
  * 需项目读权限（成员/owner/admin），与上传同级。先过权限再查文件：
- * 与项目无关的人永远得到 403，不能靠 404 / 403 的差别探测文件 ID。
+ * 被拒的响应与文件 ID 是否存在无关，探测不到文件 ID。
  */
 export const DELETE = withAuth(async (request, ctx) => {
   const { id: projectId, fileId } = await ctx.params;

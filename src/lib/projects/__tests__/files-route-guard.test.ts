@@ -43,6 +43,9 @@ export type HandlerFinding = { method: string; problem: string | null };
 /** 逐个处理函数检查：有守卫、检查了守卫结果、守卫在第一次碰数据之前 */
 export function checkRouteSource(source: string): HandlerFinding[] {
   const src = stripComments(source);
+  // 这两种导出写法的处理函数本检查器找不到，一律判失败，改成 export async function / export const
+  const reexport = /^export\s*(?:\{|\*)/m.exec(src);
+  if (reexport) return [{ method: "(export)", problem: `用了 ${reexport[0].trim()} … 的导出写法，守卫测试认不出其中的处理函数` }];
   const starts: Array<{ method: string; index: number }> = [];
   for (const m of src.matchAll(HANDLER_EXPORT)) starts.push({ method: m[1], index: m.index });
   return starts.map((h, i) => {
@@ -56,7 +59,12 @@ export function checkRouteSource(source: string): HandlerFinding[] {
     const body = src.slice(h.index, end);
     const guard = GUARD_CALL.exec(body);
     if (!guard) return { method: h.method, problem: "没有调用项目权限守卫" };
-    if (!GUARD_RESULT_RETURNED.test(body.slice(guard.index))) {
+    // 被检查的必须是守卫的返回值本身
+    const assigned = /\b(?:const|let)\s+(\w+)\s*=\s*await\s+requireProject(?:Read|Write|Manage)Access\s*\(/.exec(body);
+    const checked = assigned
+      ? new RegExp(`\\b${assigned[1]}\\s+instanceof\\s+NextResponse\\s*\\)\\s*(?:\\{\\s*)?return\\s+${assigned[1]}\\b`).test(body.slice(guard.index))
+      : false;
+    if (!checked || !GUARD_RESULT_RETURNED.test(body.slice(guard.index))) {
       return { method: h.method, problem: "调用了守卫，但没有在它返回响应时原样返回" };
     }
     for (const [re, label] of TOUCH) {
@@ -64,6 +72,11 @@ export function checkRouteSource(source: string): HandlerFinding[] {
       if (t && t.index < guard.index) {
         return { method: h.method, problem: `在项目权限守卫之前就碰了${label}（${t[0].trim()}）` };
       }
+    }
+    // 守卫必须是取路由参数之后的第一个 await：之前再 await 别的（例如一个里面写库的本地函数）就认不出它碰了什么
+    const awaits = [...body.matchAll(/\bawait\s+([^;\n]*)/g)].filter((a) => !/^\w+\s*\.\s*params\b/.test(a[1]));
+    if (awaits.length === 0 || !GUARD_CALL.test(awaits[0][1])) {
+      return { method: h.method, problem: "取路由参数之后的第一个 await 不是项目权限守卫" };
     }
     return { method: h.method, problem: null };
   });
@@ -119,6 +132,42 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 }`);
 ok(commentedOut.length === 1 && /没有调用项目权限守卫/.test(commentedOut[0].problem ?? ""),
   "检查器：被注释掉的守卫不算数", commentedOut);
+
+const helperFirst = checkRouteSource(`
+async function resetAll(id: string) { return db.projectDocument.updateMany({ where: { projectId: id }, data: {} }); }
+export async function POST(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  await resetAll(id);
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({ ok: true });
+}`);
+ok(helperFirst.length === 1 && /第一个 await 不是项目权限守卫/.test(helperFirst[0].problem ?? ""),
+  "检查器：守卫之前先 await 一个本地函数（里面写库）也被指出", helperFirst);
+
+const reexported = checkRouteSource(`
+async function del(request: NextRequest) { await db.projectDocument.deleteMany({}); return NextResponse.json({}); }
+export async function GET(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({});
+}
+export { del as DELETE };`);
+ok(reexported.length === 1 && /导出写法/.test(reexported[0].problem ?? ""),
+  "检查器：用 export { … as DELETE } 导出的处理函数判失败", reexported);
+
+const wrongVar = checkRouteSource(`
+export async function DELETE(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  const r = NextResponse.json({});
+  if (r instanceof NextResponse) return r;
+  await db.projectDocument.deleteMany({ where: { projectId: id } });
+  return NextResponse.json({ ok: !!access });
+}`);
+ok(wrongVar.length === 1 && /没有在它返回响应时原样返回/.test(wrongVar[0].problem ?? ""),
+  "检查器：检查的不是守卫的返回值（另一个变量）被指出", wrongVar);
 
 const good = checkRouteSource(`
 /** 这里的注释提到 db.projectDocument 不算碰数据 */

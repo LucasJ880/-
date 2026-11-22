@@ -7,7 +7,7 @@
 ## ADDED Requirements
 
 ### Requirement: 项目文件接口只对与项目有关的人开放
-项目文件的四个接口——`GET /api/projects/:id/files`、`POST /api/projects/:id/files`、`DELETE /api/projects/:id/files/:fileId`、`POST /api/projects/:id/files/process-next`（含 `?retry=1`）——SHALL 只对下面四类调用者执行：平台 super_admin、项目负责人、项目所在组织的管理员、该项目的 active 成员（不论项目角色）。对这四类调用者，四个接口的请求、返回与副作用 SHALL 与加检查之前一致。
+项目文件的四个接口——`GET /api/projects/:id/files`、`POST /api/projects/:id/files`、`DELETE /api/projects/:id/files/:fileId`、`POST /api/projects/:id/files/process-next`（含 `?retry=1`）——SHALL 只对下面四类调用者执行：平台 super_admin、项目负责人、项目所在组织的所有者或管理员（组织成员身份 active）、该项目的 active 成员（不论项目角色）。对这四类调用者，已分发项目上四个接口的请求、返回与副作用 SHALL 与加检查之前一致（未分发项目见「项目不存在或未分发返回 404」）。
 
 #### Scenario: 成员逐步处理
 - **WHEN** 项目的 active 成员（项目角色 `viewer`）对一个没有待处理文件的项目调用 `POST …/files/process-next`
