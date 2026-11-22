@@ -24,6 +24,11 @@
 - **WHEN** 综合汇总的模型请求返回 400
 - **THEN** 按既有失败规则计一次尝试，与没有时间预算时相同
 
+#### Scenario: 模型账户余额不足
+- **WHEN** 整次调用还剩 100 秒时开始综合，模型请求因模型账户余额不足返回 429（2026-11-22「12-3」那次的情形）
+- **THEN** 按既有失败规则计一次尝试，与没有时间预算时相同；不算被截止中止，不写理由为 `INVOCATION_DEADLINE` 的让出事件
+- **AND** 测试 `NODE_ENV=test npx tsx src/lib/workforce-runtime/__tests__/invocation-deadline.test.ts` 通过（综合返回错误、不返回 continuation）
+
 ### Requirement: 综合汇总被截止中止或没有发出时交还队列
 
 综合汇总的请求因可用时间（而不是 180 秒上限）到点被中止、或因可用时间不足开工门槛没有发出时，系统 SHALL 把这一步放回待执行，SHALL NOT 增加这一步的尝试次数，SHALL NOT 把它记为失败或写失败事件，SHALL 写一条理由为 `INVOCATION_DEADLINE` 的工具让出事件（阶段为 `deadline_cut` 表示被中止、`deadline_skip` 表示没有发出），SHALL 把任务交还队列（任务尝试次数置 0）；下一次调用 SHALL 从这一步继续。「被中止」SHALL 只按错误的类型判定（模型 SDK 的中止错误，或读响应时被中止抛出的中止错误），SHALL NOT 按错误文案判定。
