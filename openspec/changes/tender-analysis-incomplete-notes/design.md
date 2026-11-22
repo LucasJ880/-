@@ -2,9 +2,18 @@
 
 ## Context
 
-动机见 proposal.md「Why」与「已核对的现状」。本稿以两份独立初稿合并后的正本为底（初稿 B `tender-degraded-result-notice` 只作参照），按逐条对代码的核对结论定稿：改正了几处不属实的事实（`v2-slice-deadline` 现为 46 项；「问题与澄清」页并不存在；`tender/analysis-package-coverage` 由 FIX-13 新建；「内容段全部没读完必判空分析」不成立），补上了漏掉的显示面，把依赖生产实测的部分拆进「留给 GATE」。
+动机见 proposal.md「Why」与「已核对的现状」。
 
-行号：未注明的为 main `2ef4f9c8`（已含 FIX-12 #540）；分析面板两个组件与 `package-coverage.ts` 同时给出 FIX-13 合并前最后一版（`d273cce4`）的行号，本 change 在 FIX-13 合并后 rebase 再开工。
+本稿的来历：
+- 以两份独立初稿合并后的正本为底；初稿 B `tender-degraded-result-notice` 只作参照。
+- 第一次定稿时，按逐条对代码的核对结论做了这些事：
+  - 改正了几处不属实的事实：`v2-slice-deadline` 现为 46 项；「问题与澄清」页并不存在；`tender/analysis-package-coverage` 由 FIX-13 新建；「内容段全部没读完必判空分析」不成立。
+  - 补上漏掉的显示面，把依赖生产实测的部分拆进「留给 GATE」。
+- 第二次修订按独立审查意见改，并按 FIX-22 四件套（`/home/user/wt/fix22/openspec/changes/tender-requirements-tab-converge/`）的实际结构重写了与它相邻的部分。
+
+行号：未注明的为 main `2ef4f9c8`（已含 FIX-12 #540）。分析面板两个组件与 `package-coverage.ts` 同时给出 FIX-13 合并前最后一版（`d273cce4`）的行号。
+
+合并顺序为 FIX-13 → FIX-18 → FIX-22 → FIX-16（理由见 D15）。本 change 在 FIX-22 合并后 rebase 再开工，与 FIX-18、FIX-22 相邻的地方按它们的四件套写。
 
 FIX-12 让四种情况从「整个分析被硬杀」变成「能走到落库」，它们各自留下的数据与文字是这样的：
 
@@ -17,46 +26,106 @@ FIX-12 让四种情况从「整个分析被硬杀」变成「能走到落库」�
 
 与实现有关的事实：
 
-- **内容段的文件名与位置拿得到**：内容段对象带文件名、每页页码与单元标签（`tender-understanding/manifest.ts:56–68`），落库时切片推进器手里就有全部内容段（`v2-resumable.ts:136`）；文件名是文档标题（`v2-persist.ts:117`）。相邻两段默认重叠 1 页（`manifest.ts:79`）。单次编排按完成顺序记失败段（`analyzer.ts:102`），不是包内顺序。
-- **哪几条澄清问题没核对成，今天就算得出**：`null` 有两个来源——找不到相关页所以没问模型（`clarify.ts:175–177`），或问了但调用失败（`:199–202`）。找相关页是纯函数（`:54–86`、`:143–159`），落库时本来就重算工作单（`v2-resumable.ts:435`）。编号 `CL-00n` 只在组装时按顺序给（`clarify.ts:250`），落库的行没有编号列（`v2-map.ts:227–233`）。问题文字：落库的是全角冒号「主题：未知项」（`clarify.ts:251`），工作单条目里是英文冒号加空格（`:153`）。
-- **复核状态这个值没有读者，也没有测试守着**：`grep -rnE "qa\??\.status" src` 只命中 `analyst-synthesis.test.ts:414`；RESUME-09 的文件头注释写了 `NEEDS_HUMAN_REVIEW`（`v2-resumable.test.ts:14`），断言只看 `needsHumanReview`（`:561–564`）。
-- **记录只能在切片推进器里组装**：结果映射 `mapV2Result(result, { unitLabelOf })` 拿不到检查点；`buildInference`（`v2-resumable.ts:471–516`）手里有检查点，也知道「项目解读」最后有没有并进摘要（`:480–505`）。
-- **两条入口共用落库与通知**：一键分析的 `advanceV2ForWorkforce` 与旧管线的 `advanceAndPersistV2` 都经 `advanceV2Analysis` 的 `buildInference` 得到 `mapped.summaryJson`，再经同一个 `persistV2CanonicalTx` 写入（`v2-persist-core.ts:233–240`）。一键分析 V2 模式的收尾不碰 `summaryJson`（`analysis-run-service.ts:323–343`），完成通知在 `:353–356`；旧管线在 `worker.ts:647`。
-- **读「项目解读」的口径不一**：详情接口先看投标包 AI 体验开关（`auto-flags.ts:77–94`）再用 `readAnalystSynthesis`（`tender-analyst/contract.ts:201–210`，版本对不上当作没有，`runs/[runId]/route.ts:144–147`）；完成通知直接读原始的 `sj.analystSynthesis`（`alerts.ts:201–211`），不看开关。
-- **空分析判定拦不住「全部没读完」**：`isEmptyAnalysisOutcome`（`v2-persist.ts:271–279`）要求零次成功的模型调用，而「项目解读」第一遍无条件会跑（`v2-resumable.ts:262–303`），它的调用也计入（`:513–514`）；第一遍成功时，内容段全部没读完的分析照样落库。
-- **FIX-13 合并后的覆盖清单只讲文件**：投标包 AI 体验开启时（`analysis-panel.tsx:487`）显示上传 / 纳入 / 排除与逐文件原因，下面两句提示「解析失败的文件 AI 没有读到。…」（`exclusion-text.ts:16–17`）、「有 N 个能读的文件还没纳入这次分析，重新分析后会一起纳入。」（`:27–31`），在 `analysis-panel.tsx:511–520`；运行头部是 `:477–570`，之后依次是增量变更横幅（`:572`）、自动起草提示、错误提示、分栏导航（`:653`）。FIX-13 的接线断言读这两个组件的源码（`package-coverage.test.ts:260–288`，去掉注释、压平空白后按正则比）。
-- **今天其它说「分析完成」或用到澄清问题的地方**：「向业主提问」对话框的推荐问题与它起草的邮件（`questions/route.ts:30–35`、`:149–155`）、RFI 导出（`generate-docs.ts:381–400`）都取「项目解读」里的澄清问题；项目聊天与 Muse `ask` 的上下文（`chat-context.ts:57–138`）不含局限说明；Muse `analysis.ready` 第一行（`events-pure.ts:62`），它的按钮 `next_step` 在待审阅时多半落到「还没问过供应商 → 起草询价」（`muse-bridge/next-step.ts`）；工作台（`tender/workbench-state.ts:127`、`:206–211`）与网页「下一步」（`tender-next-step/web-next-step.ts:213`）写「分析完了」，按钮带到分析面板（`targets.ts:22`）；一键分析卡片写「AI 分析完成，结果已生成」（`agent-card.tsx:174`）。
-- **与 FIX-20 的用词冲突点**：AI 任务详情页把 t8 步骤标为「综合汇总」（`src/app/(main)/workforce/presentation.ts:111`、`:116`），FIX-20 会在那里说它失败或受阻。分析记录里的 Analyst 层在界面上叫「项目解读」（`analysis-panel.tsx:55` 分栏名），代码里叫 synthesis / 综合解读。
+- **内容段的文件名与位置拿得到**
+  - 内容段对象带文件名、每页页码与单元标签（`tender-understanding/manifest.ts:56–68`）。
+  - 落库时切片推进器手里就有全部内容段（`v2-resumable.ts:136`）；文件名是文档标题（`v2-persist.ts:117`）。
+  - 相邻两段默认重叠 1 页（`manifest.ts:79`）。
+  - 单次编排按完成顺序记失败段（`analyzer.ts:102`），不是包内顺序。
+- **哪几条澄清问题没核对成，今天就算得出**
+  - `null` 有两个来源：找不到相关页所以没问模型（`clarify.ts:175–177`）；问了但调用失败（`:199–202`）。
+  - 组装时缺键也按未解决处理（`:222` 的 `?? null`）。
+  - 找相关页是纯函数（`:54–86`、`:143–159`），落库时本来就重算工作单（`v2-resumable.ts:435`）。
+  - 编号 `CL-00n` 只在组装时按顺序给（`clarify.ts:250`），落库的行没有编号列（`v2-map.ts:227–233`）。「项目解读」里的澄清问题带 `clarificationIds`，指向这些编号（`tender-analyst/contract.ts:91`）。
+  - 问题文字：落库的是全角冒号「主题：未知项」（`clarify.ts:251`），工作单条目里是英文冒号加空格（`:153`）；落库原样写 `c.question`（`v2-persist-core.ts:166–176`）。
+- **复核状态这个值没有读者，也没有测试守着**
+  - `grep -rnE "qa\??\.status" src` 只命中 `analyst-synthesis.test.ts:414`。
+  - RESUME-09 的文件头注释写了 `NEEDS_HUMAN_REVIEW`（`v2-resumable.test.ts:14`），断言只看 `needsHumanReview`（`:561–564`）。
+- **记录只能在切片推进器里组装**
+  - 结果映射 `mapV2Result(result, { unitLabelOf })` 拿不到检查点。
+  - `buildInference`（`v2-resumable.ts:471–516`）手里有检查点，也知道「项目解读」最后有没有并进摘要（`:480–505`）。
+- **两条入口共用落库与通知**
+  - 一键分析的 `advanceV2ForWorkforce` 与旧管线的 `advanceAndPersistV2`，都经 `advanceV2Analysis` 的 `buildInference` 得到 `mapped.summaryJson`，再经同一个 `persistV2CanonicalTx` 写入（`v2-persist-core.ts:233–240`）。
+  - 一键分析 V2 模式的收尾不碰 `summaryJson`（`analysis-run-service.ts:323–343`），完成通知在 `:353–356`；旧管线的完成通知在 `worker.ts:647`。
+- **落库之后的写入方都保留别的键**：展开旧值、只改自己的键，`incompleteSteps` 不会被冲掉。
+  - 例子：`bid-fit/route.ts:170–173`、`:211–214`；`bid-fit/translate/route.ts:76–85`；`tender-benchmark/route.ts:163–170`；`reply-resolution.ts:219–222`。
+  - FIX-22 把前两处改成「锁行 → 重读 → 只改自己的键」（FIX-22 design D17），仍只改自己的键。
+- **读「项目解读」的口径不一**
+  - 详情接口先看投标包 AI 体验开关（`auto-flags.ts:77–94`），再用 `readAnalystSynthesis`（`tender-analyst/contract.ts:201–210`，版本对不上当作没有，`runs/[runId]/route.ts:144–147`）。
+  - 完成通知直接读原始的 `sj.analystSynthesis`（`alerts.ts:201–211`），不看开关。
+- **空分析判定拦不住「全部没读完」**
+  - `isEmptyAnalysisOutcome`（`v2-persist.ts:271–279`）要求零次成功的模型调用。
+  - 可「项目解读」第一遍无条件会跑（`v2-resumable.ts:262–303`），它的调用也计入（`:513–514`）。
+  - 所以第一遍成功时，内容段全部没读完的分析照样落库。
+- **「分片跑 == 单次跑」只比 mapped 的六项**：RESUME-03 的 `norm` 只取 `facts / requirements / clarifications / sections / changeCandidates / summaryText`（`v2-resumable.test.ts:381–389`），不比 `summaryJson`。全库测试也没有对 `summaryJson` 做逐字段比较。
+- **「招标要求」页签今天的排列**（`requirements-tab.tsx`）：
+  - 进度条 `AnalysisProgressBanner`（`:28`）；
+  - 投标合规矩阵（`:31`，卡片标题「投标合规矩阵」，`bid-fit-matrix-card.tsx:286`）；
+  - 分析面板（`:34–38`）。
+  - 进度条在「等待审核」「已批准」「已由新分析替代」时不渲染（`analysis-progress-banner.tsx:79–83`）。
+  - 矩阵只挂在这一处。
+- **FIX-22 之后的排列**（FIX-22 design D2、D13；规格「要求只在矩阵一处列出」「其余分区收在矩阵下方」）：
+  - 进度条 → 分析面板的进度部分（一键分析卡片、分析状态与文件纳入情况、增量变更待确认、出错提示）→ 面板的矩阵插槽（投标合规矩阵，「批准分析」在矩阵顶部）→ 默认收起的分区 → 正式澄清（RFI）。
+  - 收起的分区：带「项目解读」时是「项目解读」「风险与缺口」「澄清 / RFI」「来源」，展开后默认停在「项目解读」；不带时是「风险」「澄清问题」「中文分析」「来源」。
+  - 插槽在进度部分之后、收起的分区之前，面板把这次加载到的分析的 id、状态与「重新加载」交给它（FIX-22 design D2）。
+  - 矩阵未完成时顶部写「本次分析未完成，以下可能不全」（FIX-22 规格「分析未完成时写明可能不全」）。「已完成」是状态为等待审核或已批准，判定在 FIX-22 新增的纯函数模块 `requirement-matrix.ts` 里。
+  - FIX-22 的 G6 推荐：FIX-16 合并后，「已纳入的文件里有内容段没读完」也让矩阵写「可能不全」，由 FIX-16 加。
+- **FIX-18 之后的运行头部**：「重新分析当前投标文件包」只在不能用卡片发起时显示（FIX-18 proposal「What Changes」第 1 条）。
+- **今天其它说「分析完成」或用到澄清问题的地方**：
+  - 「向业主提问」对话框的推荐问题与它起草的邮件（`questions/route.ts:30–35`、`:149–155`），以及 RFI 导出（`generate-docs.ts:381–400`），都取「项目解读」里的澄清问题。
+  - 项目聊天与 Muse `ask` 的上下文（`chat-context.ts:57–138`）不含局限说明。
+  - Muse `analysis.ready` 的第一行在 `events-pure.ts:62`；它的按钮 `next_step` 在待审阅时多半落到「还没问过供应商 → 起草询价」（`muse-bridge/next-step.ts`）。
+  - 工作台（`tender/workbench-state.ts:127`、`:206–211`）与网页「下一步」（`tender-next-step/web-next-step.ts:213`）写「分析完了」，按钮带到分析面板（`targets.ts:22`）。
+  - 一键分析卡片写「AI 分析完成，结果已生成」（`agent-card.tsx:174`）。
+- **「项目解读」有两个意思**：
+  - 它是分析面板的分栏名（`analysis-panel.tsx:55`，FIX-13 后 `:62`），也是项目阶段名（`tender/stage.ts:7`、`domain/labels.ts:16`；工作台按钮「开始项目解读」，`workbench-state.ts:155`、`:226`）。
+  - 代码里 Analyst 层叫 synthesis / 综合解读，用户界面上不出现「综合」。
+- **与 FIX-20 的用词冲突点**
+  - AI 任务详情页把 t8 步骤标为「综合汇总」（`src/app/(main)/workforce/presentation.ts:111`、`:116`），FIX-20 会在那里说它失败或受阻，也会在一键分析卡片上写「本次 AI 数字员工的综合汇总未生成：〈原因〉。不影响下方的招标分析结果，可照常审阅。」（FIX-20 design D10）。
+  - 一键分析的第 3 步「Canonical V2 包级分析」里含「项目解读」两遍（`tender-workforce/deterministic-plan.ts:122–130`），第 8 步是综合汇总（`:184–201`）。AI 账户余额不足时两步会一起失败，卡片上那句与本 change 的那一块会在同一屏出现。
+- **评测适配器不读局限说明**：`runV2Lane` 只把结果对象原样交回评测输出（`tender-eval/v2-adapter.ts:174–203`）。
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 四种情况各有一份落库的结构化记录；面板与完成通知只凭它选句子，两处说的是同一批事项。
-- 每一句都是固定模板，能用纯函数测试逐字断言；用词上「纳入」只说文件、「读完」说内容段、一律用「项目解读」不用「综合」。
-- 没有记录的旧分析，面板与横幅一个字都不变。
+- 四种情况各有一份落库的结构化记录。面板、投标合规矩阵与完成通知只凭它选句子，三处说的是同一批事项。
+- 每一句都是固定模板，能用纯函数测试逐字断言。用词定死：
+  - 「纳入」只说文件，「读完」说内容段；
+  - Analyst 层一律写「「项目解读」页」，不用「综合」；
+  - 句子里不用方位词。
+- 没有记录的旧分析，面板、矩阵与横幅一个字都不变。
 - 重测后要改措辞时只改查表模块，不用重跑任何分析。
 
 **Non-Goals（不动的模块 / 文件）:**
-- `src/lib/tender-auto-analysis/v2-cursor.ts`：整个文件不改（检查点结构、版本、指纹、`MAX_WINDOW_ATTEMPTS`、`MAX_ANALYST_ATTEMPTS`、`V2_PHASE_MIN_MS`、`PHASE_SAFETY_MS`、`canStartPhase`、`callTimeoutFor`）。
+- `src/lib/tender-auto-analysis/v2-cursor.ts`：整个文件不改，包括检查点结构、版本、指纹、`MAX_WINDOW_ATTEMPTS`、`MAX_ANALYST_ATTEMPTS`、`V2_PHASE_MIN_MS`、`PHASE_SAFETY_MS`、`canStartPhase`、`callTimeoutFor`。
 - `src/lib/tender-auto-analysis/v2-resumable.ts` 的阶段推进、让出条件、`CALL_DEADLINE_YIELD_REASON`、澄清「键已存在就不再重查」：不改。
 - `src/lib/ai/model-policy/**`、`src/lib/tender-understanding/llm.ts`、`src/lib/tender-understanding/prompts.ts`：不改。
 - `src/lib/tender-analyst/**`（`synthesize.ts`、`contract.ts`、`prompts.ts`、`validate.ts`、`hydrate.ts`、`context.ts`）：不改。
-- `src/lib/tender-understanding/analyzer.ts` 里局限说明的其它三句与 `package-input.ts` 的文件包不完整说明：不改。
-- `src/lib/tender-auto-analysis/v2-map.ts`、`v2-persist-core.ts`、`v2-persist.ts`、`package-coverage.ts`、`exclusion-text.ts`（FIX-13）、`chat-context.ts`、`executive-brief.ts`；`src/lib/tender-workforce/**`：不改。
+- `src/lib/tender-understanding/analyzer.ts` 里局限说明的其它三句，以及 `package-input.ts` 的文件包不完整说明：不改。
+- 以下文件不改：
+  - `src/lib/tender-auto-analysis/` 下的 `v2-map.ts`、`v2-persist-core.ts`、`v2-persist.ts`、`package-coverage.ts`、`exclusion-text.ts`（FIX-13）、`chat-context.ts`、`executive-brief.ts`；
+  - `src/lib/tender-workforce/**`。
+- FIX-22 的矩阵逻辑：不改。
+  - 不动的文件：`src/lib/tender-auto-analysis/requirement-matrix.ts`、`requirement-matrix-write.ts`、`zh-backfill.ts`，以及 `src/app/api/projects/[id]/bid-fit/**`。
+  - `requirement-matrix.ts` 只被调用（「已完成」判定），不改。
+  - `bid-fit-matrix-card.tsx` 只在顶部多渲染面板交来的一句，标注、确认、批准、补翻的代码都不碰。
+- `src/components/project-detail/tabs/requirements-tab.tsx`（页签排列归 FIX-22）、`src/components/tender-analysis/agent-card.tsx`（归 FIX-18、FIX-20）、`analysis-progress-banner.tsx`：不改。
 - `src/lib/muse-bridge/**`：整个目录不改。
 - `src/app/api/projects/[id]/questions/route.ts`、`src/lib/projects/generate/**`、`src/lib/tender-bid-draft/**`：不改。
 - `src/lib/tender/workbench-state.ts`、`src/lib/tender-next-step/**`：不改。
-- `src/components/tender-analysis/agent-card.tsx`、`analysis-progress-banner.tsx`、`bid-fit-matrix-card.tsx`、`src/components/bid-workflow/project-intel-sections.tsx`、`src/components/project-question/**`、`src/app/(main)/workforce/**`：不改。
-- 「批准分析」的权限与流程：不改，不加拦截。
+- `src/components/bid-workflow/project-intel-sections.tsx`、`src/components/project-question/**`、`src/app/(main)/workforce/**`：不改。
+- 「批准分析」的权限、流程与位置：不改，不加拦截。
 - `prisma/**`、`vercel.json`、`openspec/specs/**`：不改。
 
 ## Decisions
 
-本次核心是 D1 / D2 / D6 / D7 / D8 / D9 / D10；D3 是 D2 的一部分，D4 是 D1 的一部分；D5、D11 是「本次不做」的决定（留给 GATE）；D12、D13 是与 FIX-13、FIX-20 的分界。
+本次核心是 D1 / D2 / D6 / D7 / D8 / D9 / D10 / D14。其余几条的关系：
+- D3 是 D2 的一部分，D4 是 D1 的一部分。
+- D5、D11 是「本次不做」的决定（留给 GATE）。
+- D12、D13、D15 是与 FIX-13、FIX-20、FIX-18 / FIX-22 的分界。
 
 ### D1 记录放在分析记录的摘要 JSON 里一个新键，只在有事可记时写
 
-落库前由纯函数从检查点、内容段清单、澄清工作单与「项目解读」有没有并进摘要，组装出未完成记录，放进 `mapped.summaryJson.incompleteSteps`：
+落库前，由纯函数从四样东西组装出未完成记录：检查点、内容段清单、澄清工作单、「项目解读」有没有并进摘要。记录放进 `mapped.summaryJson.incompleteSteps`：
 
 ```
 incompleteSteps: {
@@ -68,198 +137,421 @@ incompleteSteps: {
 }
 ```
 
-四项都空就不加这个键。`cause` 的判定只有一条：最后一次失败的错误码等于 `CALL_DEADLINE_EXCEEDED` → `TIME`，否则（包括没有错误码）→ `ERROR`（数据来源：`windows.failures[*].lastErrorCode`、`analyst.passAErrorCode`、`analyst.passBErrorCode`）。`synthesis` 在 `buildInference` 并完「项目解读」之后判：摘要里没有 `analystSynthesis` 就记（覆盖「第一遍写成了但组装出错」，这时 `passAErrorCode` 为空，记 `ERROR`）。两个列表不封顶：一份文件包几十到一百来段，每条一百来字节；封顶会让句子里的段数与实际不符。`uncheckedQuestions` 本次只用条数，编号与全文留给 G1 的逐条标注，现在就存，免得以后上线前落库的分析标不出来。
+- 四项都空就不加这个键。
+- `cause` 的判定只有一条：最后一次失败的错误码等于 `CALL_DEADLINE_EXCEEDED` → `TIME`；其余（包括没有错误码）→ `ERROR`。数据来源是 `windows.failures[*].lastErrorCode`、`analyst.passAErrorCode`、`analyst.passBErrorCode`。
+- `synthesis` 在 `buildInference` 并完「项目解读」之后判：摘要里没有 `analystSynthesis` 就记。这覆盖了「第一遍写成了但组装出错」：这时 `passAErrorCode` 为空，记 `ERROR`。
+- 两个列表不封顶：一份文件包几十到一百来段，每条一百来字节；封顶会让句子里的段数与实际不符。
+- `uncheckedQuestions` 本次只用条数，编号与全文留给 G1 的逐条标注。现在就存，免得以后上线前落库的分析标不出来。「项目解读」的澄清问题带 `clarificationIds`（`contract.ts:91`），所以编号够用来对上。
 
-- 否决：界面 / 接口直接读 `workerCursor`。它是续跑的内部状态，指纹或版本一变就整体判废（`v2-cursor.ts:129–139`）；拿它当展示数据，等于给检查点加了一个不能动的对外契约。
-- 否决：解析已存的字符串（`qa.issues[0]`、局限说明）里的英文码来判断。文案一改就错，「旧分析显示不变」也要求不这么做。
-- 否决：新增表或字段。硬纪律 1。
-- 否决：没有事可记时也写一个空记录。每一份正常分析的 `summaryJson` 都会变，既有「分片跑 == 单次跑」逐字段断言要跟着改，没有收益。
-- 否决（初稿 B）：在结果映射（`v2-map.ts`）里组装。它拿不到检查点。
-- 否决：`synthesis` 只看 `passA` 是否为空。组装出错时 `passA` 有值而摘要里没有「项目解读」，会漏记。
+被否决的备选：
+- **界面 / 接口直接读 `workerCursor`**：它是续跑的内部状态，指纹或版本一变就整体判废（`v2-cursor.ts:129–139`）。拿它当展示数据，等于给检查点加了一个不能动的对外契约。
+- **解析已存字符串里的英文码来判断**（`qa.issues[0]`、局限说明）：文案一改就错，「旧分析显示不变」也要求不这么做。
+- **新增表或字段**：违反硬纪律 1。
+- **没有事可记时也写一个空记录**：读取侧就分不出「上线后、确实没事」与「上线前、根本没记」。两种情况今天都该显示得和今天一样，可写了空记录，以后要对上线后的分析加任何默认提示（G1 的逐条标注、G3 的 Muse 第一行）时，就得先排除上线前的分析，多一个判断。只在有事时写，「有这个键」就等于「有事要说」，三处读者都只判一次。
+- **在结果映射里组装**（初稿 B，`v2-map.ts`）：它拿不到检查点。
+- **`synthesis` 只看 `passA` 是否为空**：组装出错时 `passA` 有值、而摘要里没有「项目解读」，会漏记。
 
 ### D2 存结构化数据，读取时查表出句子；用词固定
 
-记录里只有文件名、位置、次数、原因枚举、问题编号与全文；句子由 `src/lib/tender-understanding/incomplete-notes.ts` 的纯函数在读取时（接口、通知、局限说明组装）生成。用词规则：「纳入」只用来说文件（与 FIX-13 覆盖清单的「纳入这次分析」一致），内容段说「没读完」并以「已纳入的文件里」开头；Analyst 层一律叫「项目解读」（界面上的分栏名），不出现「综合」；「这次分析」与 FIX-13 的提示用同一个说法。
+- 记录里只有文件名、位置、次数、原因枚举、问题编号与全文。句子由 `src/lib/tender-understanding/incomplete-notes.ts` 的纯函数在读取时生成：接口、矩阵那一句、通知、局限说明组装。
+- 用词规则：
+  - 「纳入」只用来说文件，与 FIX-13 覆盖清单的「纳入这次分析」「未纳入：」一致。
+  - 内容段说「没读完」，并以「已纳入的文件里」开头；不用「没纳入」「未纳入」，也不用 FIX-13 说解析失败文件的「没有读到」。
+  - Analyst 层一律写「「项目解读」页」，不出现「综合」。
+  - 「这次分析」与 FIX-13 的提示用同一个说法。
+  - 句子里不用「上面」「下面」「上方」「下方」：要指去处时写那一块或那张卡片的名字（「这次分析有几处没做完」「投标合规矩阵」）。
 
-- 否决：落库时把中文句子写进 JSON。措辞（G4、G5）一改，已存的分析就改不了，只能重跑。
-- 否决：沿用初稿的「中文综合解读」。FIX-20 会在 AI 任务详情页说 t8「综合汇总」失败，两处都带「综合」，人会以为是同一件事；用户在面板上看到的名字本来就是「项目解读」。
-- 否决：内容段沿用「没有纳入这份分析」。与 FIX-13「有 N 个能读的文件还没纳入这次分析」同一个词，文件没纳入与内容段没读完会被读成一回事。
-- 局限说明是例外：它本身就是一组落库的字符串，那一句在组装时用同一个模板生成并照旧存成字符串；它只给模型读，存成句子不影响以后改界面措辞。
+被否决的备选：
+- **落库时把中文句子写进 JSON**：措辞（G4、G5）一改，已存的分析就改不了，只能重跑。
+- **沿用初稿的「中文综合解读」**：FIX-20 会在 AI 任务详情页说 t8「综合汇总」失败，两处都带「综合」，人会以为是同一件事。用户在面板上看到的名字本来就是「项目解读」。
+- **只写「项目解读」不带「页」**：「项目解读」也是项目阶段名（`tender/stage.ts:7`；工作台按钮「开始项目解读」）。完成通知没有分栏的语境，「没有生成「项目解读」」会被读成「项目解读这个阶段没做」。加「页」说的就是分析里那一页。
+- **内容段沿用「没有纳入这份分析」**：与 FIX-13「有 N 个能读的文件还没纳入这次分析」同一个词，文件没纳入与内容段没读完会被读成一回事。
+- **句子里写「下面是从文件里逐条摘出的要求」**：FIX-22 之后要求在投标合规矩阵里，相对那一块的位置随页签排列变；写名字不随排列变。
+
+局限说明是例外：它本身就是一组落库的字符串。那一句在组装时用同一个模板生成，照旧存成字符串；它只给模型读，存成句子不影响以后改界面措辞。
 
 ### D3 句子不说原因（D2 的一部分）
 
-全部句子对「时间不够」与「出错」用同一种说法，也不写尝试次数（「这次没有生成『项目解读』」）。原因与次数照 D1 存进记录。
+全部句子对「时间不够」与「出错」用同一种说法，也不写尝试次数（「这次没有生成「项目解读」页」）。原因与次数照 D1 存进记录。这与 FIX-12 报告 §7 第 2 条原文「说明为什么没有中文解读」不一致，交 GATE 确认（G5）。
 
-- 否决：按原因写两种（「没能在规定时间内读完」/「读取时出错」）。系统只存最后一次失败的原因，说不了「每次都超时」；「出错」放在「读取」后面容易被读成文件坏了；人要做的事相同。要分开说时只改查表模块（G5）。
-- 否决：写「AI 试了 2 次，没能写出来」。第一遍写成了但组装出错时这句不属实。
-- 否决：把 `TRANSIENT_MODEL_ERROR`、`INVALID_STRUCTURED_OUTPUT`、`EMPTY_OUTPUT`、`ANALYST_EXCEPTION:*` 各写一句。只是把内部错误码换个说法再露出来。
+被否决的备选：
+- **按原因写两种说法**（「没能在规定时间内读完」/「读取时出错」）：系统只存最后一次失败的原因，说不了「每次都超时」；「出错」放在「读取」后面容易被读成文件坏了；人要做的事相同。要分开说时只改查表模块（G5）。
+- **写「AI 试了 2 次，没能写出来」**：第一遍写成了但组装出错时，这句不属实。
+- **四种错误码各写一句**（`TRANSIENT_MODEL_ERROR`、`INVALID_STRUCTURED_OUTPUT`、`EMPTY_OUTPUT`、`ANALYST_EXCEPTION:*`）：只是把内部错误码换个说法再露出来。
 
 ### D4 没核对成的澄清问题由既有数据算出（D1 的一部分）
 
-判定：这条澄清问题在工作单里有相关页，而检查点里它的结果是 `null`。`assembleClarifications` 多交回一张「编号 → 工作单条目」的表（附加返回值，既有两个字段不变），记录里的问题全文取组装后澄清问题的文字（`clarify.ts:251`，与落库的行逐字相同），不取工作单条目的 `question`（`:153`）。
+- 判定：这条澄清问题在工作单里有相关页，而检查点里它的结果为空，或者没有它的结果。缺键与空结果同样处理，与组装时的 `?? null`（`clarify.ts:222`）一致。
+- `assembleClarifications` 多交回一张「编号 → 工作单条目」的表，作为附加返回值，既有两个字段不变。
+- 记录里的问题全文取组装后澄清问题的文字（`clarify.ts:251`，与落库的行逐字相同），不取工作单条目的 `question`（`:153`）。
 
-- 否决：给检查点的 `clarify` 加字段记错误码。带来的只有「原因」，而 D3 决定不说原因；代价是动续跑引擎的状态与解析（`v2-cursor.ts:129–193` 逐字段重建），且上线前已经失败的核对没有记录。
-- 否决：`V2_CURSOR_VERSION` 加 1。上线那一刻正在跑的分析检查点会全部判废、从头重跑。
-- 否决：从调用日志（`cursor.logs`）反推。发之前就被拒的调用不记日志（FIX-12），日志也不带是哪一条问题。
-- 否决（初稿 B）：只按 `null` 计数。会把「找不到相关页、根本没问」的也算进去。
+被否决的备选：
+- **给检查点的 `clarify` 加字段记错误码**：带来的只有「原因」，而 D3 决定不说原因。代价是动续跑引擎的状态与解析（`v2-cursor.ts:129–193` 逐字段重建），而且上线前已经失败的核对没有记录。
+- **`V2_CURSOR_VERSION` 加 1**：上线那一刻正在跑的分析，检查点会全部判废、从头重跑。
+- **从调用日志 `cursor.logs` 反推**：发之前就被拒的调用不记日志（FIX-12），日志也不带是哪一条问题。
+- **只按 `null` 计数**（初稿 B）：会把「找不到相关页、根本没问」的也算进去。
 
 ### D5 本次不逐条标注没核对成的澄清问题（留给 G1）
 
-本次只在运行头部下面那一块里说「有 N 条澄清问题…没能核对」。逐条标注（每条问题下面一行、接口每条多一个标注字段、「向业主提问」推荐列表与 RFI 导出前的站内提示）等 G1 定。不论将来选哪一种，标注都不写进澄清问题的问题文字或理由文字（理由会进模型输入，综合到「项目解读」的问题又进 RFI 导出与邮件起草），只能在界面上按编号或全文对上。
+- 本次只在那一块里说「有 N 条澄清问题…没能核对」。
+- 逐条标注等 G1 定：每条问题下面一行、接口每条多一个标注字段、「向业主提问」推荐列表与 RFI 导出前的站内提示。
+- 不论将来选哪一种，标注都不写进澄清问题的问题文字或理由文字，只能在界面上按编号或全文对上。原因：理由会进模型输入；综合到「项目解读」的问题又会进 RFI 导出与邮件起草。
 
-- 否决：本次就逐条标注。G1 若选「重查 / 提高门槛」，没核对成的会变少，逐条标注的工作量（接口字段、两个列表、对话框、导出前提示）可能白做；而「有 N 条」这一句不论 G1 选什么都成立。
+被否决的备选：
+- **本次就逐条标注**：G1 若选「重查 / 提高门槛」，没核对成的会变少，逐条标注的工作量就可能白做（接口字段、两个列表、对话框、导出前提示）。而「有 N 条」这一句不论 G1 选什么都成立。
 
 ### D6 局限说明那一句在源头改写，单次编排与分片续跑共用
 
-`assembleAnalysisResult` 的 `failedWindows` 每一项多带位置（文件名、起止页、起止单元标签），两个调用方（`analyzeTender`、`advanceV2Analysis` 的 `exhaustedWindows`）手里都有内容段对象，直接带上；生成句子前按内容段在文件包里的顺序排（单次编排按完成顺序记，`analyzer.ts:102`）。句子用 D2 的同一个模板。
+- `assembleAnalysisResult` 的 `failedWindows` 每一项多带位置：文件名、起止页、起止单元标签。
+- 两个调用方手里都有内容段对象，直接带上：`analyzeTender`，以及 `advanceV2Analysis` 的 `exhaustedWindows`。
+- 生成句子前按内容段在文件包里的顺序排；单次编排原本按完成顺序记（`analyzer.ts:102`）。
+- 句子用 D2 的同一个模板。
+- 读这句话的模型输入有两处：「项目解读」（`tender-analyst/context.ts:165`）、项目聊天「标书分析」技能（`agent/skills/tender-analysis.ts:78`）。评测适配器不读它（`tender-eval/v2-adapter.ts:174–203`）。
 
-- 否决：只在界面上显示新句子，局限说明保持原样。英文码与「窗口」会继续作为输入交给模型，可能被抄进「项目解读」或项目聊天的回复；那是模型生成的文字，界面拦不住。
-- 否决：从局限说明里去掉这一句。模型就不知道有内容缺失，可能把没读到的当成「文件没有这项要求」。
-- 否决：为此把「项目解读」的提示词版本加 1。模板没变，只是输入里一条局限说明换了写法；版本进指纹，加 1 会让在跑的检查点全部作废。
-- 既有断言 `v2-resumable.test.ts` RESUME-05 / RESUME-06 认的是旧句子里的「窗口 LLM 抽取失败」（`:473`、`:497`），同一个 task 里改成认新句子。项目聊天「标书分析」技能（`agent/skills/tender-analysis.ts:111–118`）只读失败段的 `windowId`，多带的字段不影响它。
+被否决的备选：
+- **只在界面上显示新句子，局限说明保持原样**：英文码与「窗口」会继续作为输入交给模型，可能被抄进「项目解读」或项目聊天的回复。那是模型生成的文字，界面拦不住。
+- **从局限说明里去掉这一句**：模型就不知道有内容缺失，可能把没读到的当成「文件没有这项要求」。
+- **为此把「项目解读」的提示词版本加 1**：模板没变，只是输入里一条局限说明换了写法；版本进指纹，加 1 会让在跑的检查点全部作废。
+
+两处既有代码要跟着动：
+- `v2-resumable.test.ts` 的 RESUME-05 / RESUME-06 认的是旧句子里的「窗口 LLM 抽取失败」（`:473`、`:497`），同一个 task 里改成认新句子。
+- 项目聊天「标书分析」技能（`agent/skills/tender-analysis.ts:111–118`）只读失败段的 `windowId`，多带的字段不影响它。
 
 ### D7 句子由接口算好下发，组件只渲染字符串
 
-分析详情接口读 `summaryJson.incompleteSteps`（宽进严出：形状不对当作没有），用已经算好的 `experienceEnabled` 与 `readAnalystSynthesis` 的结果调用查表函数，得到 `incompleteNotes = { heading, lines, reviewBanner }`，组件不含这些句子的任何文字。完成通知用同一个查表函数、同一个读取口径（`readAnalystSynthesis` + 开关）。
+- 分析详情接口读 `summaryJson.incompleteSteps`，宽进严出：形状不对当作没有。
+- 它用已经算好的 `experienceEnabled`、`readAnalystSynthesis` 的结果，加上「这次分析已完成」，调用查表函数。「已完成」用投标合规矩阵同一个判定函数（FIX-22 的 `requirement-matrix.ts`）。
+- 得到 `incompleteNotes = { heading, lines, reviewBanner, matrixLine }`，组件里不含这些句子的任何文字。
+- 完成通知用同一个查表函数、同一个读取口径（`readAnalystSynthesis` + 开关）。
 
-- 否决（初稿 B）：接口把记录原样下发、组件里出句子。句子会分散在服务端（通知、局限说明）与客户端两处，纯函数测试覆盖不到组件里的分支；记录里的原因与问题全文也不该整包给界面。
-- 否决：新开一个接口。面板已经在加载这一个接口。
-- 否决：完成通知沿用它现在读原始 `sj.analystSynthesis` 的口径来判断「有没有『项目解读』」。版本对不上时接口当作没有、通知当作有，第 3 项会两边说法不一。
+被否决的备选：
+- **接口把记录原样下发、组件里出句子**（初稿 B）：句子会分散在服务端（通知、局限说明）与客户端两处，纯函数测试覆盖不到组件里的分支；记录里的原因与问题全文也不该整包给界面。
+- **新开一个接口**：面板已经在加载这一个接口。
+- **完成通知沿用读原始 `sj.analystSynthesis` 的口径来判断有没有「项目解读」**：版本对不上时，接口当作没有、通知当作有，第 3 项会两边说法不一。
 
-### D8 运行头部正下方一块，与覆盖清单的文件提示分开
+### D8 那一块放在「招标文件自动分析」的分析状态那一栏正下方
 
-那一块放在运行头部（含覆盖清单与 FIX-13 的两句提示，FIX-13 后 `analysis-panel.tsx:477–570`）之后、增量变更横幅（`:572`）之前，整宽、提醒色、标题「这次分析有几处没做完」，按固定顺序列出全部要说的事项（规格「面板与通知用同一套判定」）。第 2、3 项只在该组织开着投标包 AI 体验时算数。只在带运行头部的那一处渲染（`showRunControls`），提交分栏等次要挂载点不重复。体验关闭时覆盖清单不显示，这一块照样显示第 1、4 项。
+- 位置：那一块紧跟分析状态那一栏（标题「招标文件自动分析」、分析状态与文件纳入情况，含 FIX-13 的覆盖清单与两句提示，FIX-13 后 `analysis-panel.tsx:477–570`）。
+  - 它在面板的进度部分里，在 FIX-22 的矩阵插槽之前。
+  - FIX-22 之后，进度部分里它之后依次是增量变更待确认、出错提示；再往后是矩阵与收起的分区。
+- 样式：整宽、提醒色，标题「这次分析有几处没做完」，按固定顺序列出全部要说的事项（规格「面板、矩阵与通知用同一套判定」）。
+- 第 2、3 项只在该组织开着投标包 AI 体验时算数。
+- 只在带分析状态那一栏的实例里渲染（`showRunControls`），「提交」页签那个不带的挂载点不显示。
+- 体验关闭时覆盖清单不显示，这一块照样显示第 1、4 项。
+- 第 2 行（没有「项目解读」页）直接指向「投标合规矩阵」，不写方位：FIX-22 之后要求只在矩阵里，FIX-22 之前矩阵也已经在这个页签上（`requirements-tab.tsx:31`）。
+- 源码断言三条（`incomplete-notes.test.ts`）：
+  - 那一块在分析状态那一栏的结束之后、矩阵插槽之前；
+  - 不在 `data-testid="package-coverage"` 那一块里；
+  - 不锚定增量变更横幅与「批准分析」：FIX-22 会挪后者、可能动前者，FIX-18 会改按钮栏。
 
-- 否决：塞进覆盖清单下面、和 FIX-13 的两句挨着。覆盖清单只在体验开启时有，体验关闭的组织就看不到；三四句讲不同层面的事挤在头部左栏的小字里，「文件没纳入」与「内容段没读完」会混在一起。
-- 否决（初稿 A）：顶部只放「内容没读完」与「没有项目解读」，复核只在页底横幅说。横幅在页面最底，完成通知要指给人一个地方看，分散就指不了；横幅照样换句子，所以复核那一句顶部与底部各出现一次。
-- 否决：不看开关，一律显示「没有生成『项目解读』」。没开体验的组织从来看不到「项目解读」，这句话只会让人困惑。
-- 否决：有内容没读完时禁用「批准分析」（G8）。
+被否决的备选：
+- **塞进覆盖清单下面、和 FIX-13 的两句挨着**：覆盖清单只在体验开启时有，体验关闭的组织就看不到。而且三四句讲不同层面的事，挤在左栏的小字里，「文件没纳入」与「内容段没读完」会混在一起。
+- **放进页签顶部的进度条 `AnalysisProgressBanner`**：它在「等待审核」「已批准」「已由新分析替代」时不渲染（`analysis-progress-banner.tsx:79–83`），恰好是要说「有几处没做完」的时候。
+- **放进投标合规矩阵**：矩阵讲要求，其中只有「内容没读完」与它有关；四项全放进去，矩阵就成了第二个说明处。矩阵只放一句指向这一块（D14）。
+- **顶部只放「内容没读完」与「没有项目解读」，复核只在页底横幅说**（初稿 A）：FIX-22 之后横幅在默认收起的分区里，完成通知要指给人一个看得见的地方。横幅照样换句子，所以复核那一句顶部与「项目解读」页页底各出现一次。
+- **不看开关，一律显示「没有生成「项目解读」页」**：没开体验的组织从来看不到「项目解读」页，这句话只会让人困惑。
+- **有内容没读完时禁用「批准分析」**：留给 G8。
 
 ### D9 复核没做完靠记录里的标记区分，已存的复核状态不动
 
-横幅在要说的事项里有「复核没做完」时换句子；`qa.status`、`qa.needsHumanReview`、`qa.issues` 与今天存的完全相同，`src/lib/tender-analyst/**` 零改动。RESUME-09 补一条状态取值的断言，守住「状态不变」。
+- 复核横幅在「项目解读」页页底（`analyst-synthesis-view.tsx` 的项目解读分区，FIX-13 后 `:581–585`）。FIX-22 之后，这一页在矩阵下方默认收起的分区里，展开后默认停在它；横幅随这一页走，位置不另改。
+- 「项目解读」页显示、且要说的事项里有「复核没做完」时，横幅换句子。
+- `qa.status`、`qa.needsHumanReview`、`qa.issues` 与今天存的完全相同，`src/lib/tender-analyst/**` 零改动。RESUME-09 补一条状态取值的断言，守住「状态不变」。
+- 第 3 项本来就要求「这份分析有「项目解读」」，所以有第 3 项时「项目解读」页一定在收起的分区里。若 FIX-22 合并后的结构里这一页不再显示，就只由那一块的第 3 行说明；开工前提第 2 条会核对。
 
-- 否决（初稿 B）：复核失败时把状态存成既有的 `SKIPPED` 并带原因类别，横幅按状态选句子。要改 `synthesize.ts:186`；`qa` 里没有放原因的字段，带原因等于给契约加字段；复核失败与「硬校验删掉了条目」会同时发生（`:177`），一个状态值只能说一件事；状态值今天没有任何读者，改了它还得再改每一个读者。
-- 否决：解析 `qa.issues[0]` 里的「QA reviewer 调用失败」。同 D1 第二条。
+被否决的备选：
+- **复核失败时把状态存成既有的 `SKIPPED` 并带原因类别，横幅按状态选句子**（初稿 B）：
+  - 要改 `synthesize.ts:186`；
+  - `qa` 里没有放原因的字段，带原因等于给契约加字段；
+  - 复核失败与「硬校验删掉了条目」会同时发生（`:177`），一个状态值只能说一件事；
+  - 状态值今天没有任何读者，改了它还得再改每一个读者。
+- **解析 `qa.issues[0]` 里的「QA reviewer 调用失败」**：同 D1 第二条。
+- **FIX-22 之后不再换横幅、只靠那一块**：展开「项目解读」页的人会在页底看到「未通过 AI 质检」，与那一块说的相反。
 
 ### D10 完成通知：把要说的事项列全，按轻重定优先级，文件覆盖那一句不说错原因
 
-`tenderSuccessSummary` 多一个可选输入（要说的事项的短语清单），不为空时收尾句是「这次有地方没做完（…），请先看「招标要求」页里「这次分析有几处没做完」的说明」；`notifyTenderRunSucceeded` 读记录、按 D7 的口径算出清单后传入。有「内容没读完」或「没有生成『项目解读』」时优先级为高；只有「澄清问题没核对」时按既有规则（G2）。清单为空时收尾句与优先级走既有分支。文件覆盖那一句有没纳入的文件时写「已分析 a/u 个文件（其余 k 个文件没纳入这次分析）」——通知只拿得到计数，原因由覆盖清单在面板上说。
+- `tenderSuccessSummary` 多一个可选输入：要说的事项的短语清单。
+- 清单不为空时，收尾句是「这次有地方没做完（…），请先看「招标要求」页里「这次分析有几处没做完」的说明」。
+- `notifyTenderRunSucceeded` 读记录，按 D7 的口径算出清单后传入。
+- 优先级：有「内容没读完」或「没有生成「项目解读」页」时为高；只有「澄清问题没核对」时按既有规则（G2）。
+- 清单为空时，收尾句与优先级走既有分支。
+- 文件覆盖那一句：有没纳入的文件时写「已分析 a/u 个文件（其余 k 个文件未纳入这次分析）」。「未纳入」与 FIX-13 逐文件明细的「未纳入：」同一个词。通知只拿得到计数，原因由覆盖清单在面板上说。
 
-- 否决（初稿 A）：只改复核那一句。没有「项目解读」时通知写「可以开始确认招标要求」、优先级 medium，最该提醒的两种情况看不出来。
-- 否决（初稿 B）：通知只写最重的一项。站内通知摘要没有长度上限，三个短语加起来三十来个字，列全比让人猜「还有没有别的」更省事（第 2、3 项互斥，最多三项）。
-- 否决：通知里列文件名与页码。通知摘要是一行字，页码在面板那一块里。
-- 否决：文件覆盖那一句按排除原因分开写（「其余 2 个解析失败」）。通知读的是「项目解读」里的覆盖快照，没有「项目解读」时没有覆盖数字；原因与下一步由 FIX-13 的覆盖清单在面板上说，通知再说一遍容易两边不一致。
-- 否决：文件覆盖那一句留给另一个 change。12-3 的两份附录 B 是解析失败，通知却说「格式不支持」；本次本来就在改这个函数的同一组句子，ALERT-10 只断言「已分析 3/12 个文件」，不受影响。
+被否决的备选：
+- **只改复核那一句**（初稿 A）：没有「项目解读」时，通知仍写「可以开始确认招标要求」、优先级 medium，最该提醒的两种情况看不出来。
+- **通知只写最重的一项**（初稿 B）：站内通知摘要没有长度上限。三个短语加起来三十来个字（第 2、3 项互斥，最多三项），列全比让人猜「还有没有别的」更省事。
+- **通知里列文件名与页码**：通知摘要是一行字，页码在面板那一块里。
+- **文件覆盖那一句按排除原因分开写**（「其余 2 个解析失败」）：通知读的是「项目解读」里的覆盖快照，没有「项目解读」时没有覆盖数字；原因与下一步由 FIX-13 的覆盖清单在面板上说，通知再说一遍容易两边不一致。
+- **括号里写「还没纳入」**：FIX-13 的「还没纳入」专指能读、下次重新分析会纳入的文件；通知里的 k 个也包括解析失败与超出页数上限的。
+- **文件覆盖那一句留给另一个 change**：12-3 的两份附录 B 是解析失败，通知却说「格式不支持」；本次本来就在改这个函数的同一组句子。ALERT-10 只断言「已分析 3/12 个文件」，不受影响。
 
-### D11 Muse 本次不动（留给 G3）
+### D11 Muse 本次不动（留给 G3，登记为后续任务）
 
-`analysis.ready` 的第一行与 `next_step` 的查表都不改，`src/lib/muse-bridge/**` 零改动。今天没有「项目解读」或有内容没读完时，Muse 发的是一句干净的「「项目」分析完成」，与改后的站内通知说法不一致（G3 写了后果与推荐）。D2 的查表模块是纯函数，G3 定了要改时 `hooks.ts` 可以直接调用同一个判定，不另判。
+- `analysis.ready` 的第一行与 `next_step` 的查表都不改，`src/lib/muse-bridge/**` 零改动。
+- 今天没有「项目解读」或有内容没读完时，Muse 发的是一句干净的「「项目」分析完成」，与改后的站内通知说法不一致（G3 写了后果与推荐）。
+- D2 的查表模块是纯函数，G3 定了要改时，`hooks.ts` 可以直接调用同一个判定，不另判。
+- task 4.2 把它登记成 TASKFLOW 的一行（编号待定）。FIX-20 原先写「Muse `analysis.ready` 的文案归 FIX-16」，按 D13 的约定改为指向这一行。
 
-- 否决：本次一起改。依赖实测里四种情况出现的频率来定 Muse 第一行点哪一项、要不要加 `next_step` 的规则；本次不碰 Muse 通道，硬纪律 4 的触碰面为零。
+被否决的备选：
+- **本次一起改**：Muse 第一行点哪一项、要不要加 `next_step` 的规则，要看实测里四种情况出现的频率。本次不碰 Muse 通道，硬纪律 4 的触碰面为零。
 
-### D12 与 FIX-13 覆盖清单的分界：MODIFIED 一条，FIX-13 的句子不动
+### D12 与 FIX-13 覆盖清单的分界：MODIFIED 一条，只约束它自己那一句
 
-FIX-13 新建了 `tender/analysis-package-coverage`，覆盖清单下面已经有讲文件的两句（含「有 N 个能读的文件还没纳入这次分析」，所以初稿第 11 条「显示 N 个可分析文件尚未纳入」已由 FIX-13 做掉，本 change 去掉）。本 change 对它 MODIFIED「分析面板提醒还没纳入的能读文件」一条：覆盖清单下面的提示只讲文件，已纳入文件里没做完的地方不进覆盖清单；FIX-13 的句子、显示条件、接线断言都不变。情报页的「N 个文件文件解析失败」（FIX-13 后 `package-coverage.ts:126`）不在本次。
+- FIX-13 新建了 `tender/analysis-package-coverage`，覆盖清单下面已经有讲文件的两句，其中含「有 N 个能读的文件还没纳入这次分析」。所以初稿第 11 条「显示 N 个可分析文件尚未纳入」已由 FIX-13 做掉，本 change 去掉。
+- 本 change 对它 MODIFIED「分析面板提醒还没纳入的能读文件」一条：
+  - 原文第一段与原场景逐字保留；
+  - 加一段：这一句只讲能读的文件有没有纳入，已纳入文件里没做完的地方不写进这一句；
+  - 加一个场景。
+- 「解析失败的文件 AI 没有读到」那一句属于 FIX-13 的另一条要求「分析面板显示解析失败原文与下一步」，本 change 不约束它。那一块不进覆盖清单，写在本能力自己的要求里。
+- 情报页的「N 个文件文件解析失败」（FIX-13 后 `package-coverage.ts:126`）不在本次，task 4.2 登记为后续 TASKFLOW 行。
 
-- 否决：把「这次分析有几处没做完」写成 `tender/analysis-package-coverage` 的新要求。两件事的数据来源（`package-coverage.ts` 与未完成记录）、触发条件、读者要做的事都不同；记录与通知也不属于覆盖清单。
-- 否决：改写 FIX-13 的两句来统一用词。它们的用词（文件「纳入这次分析」）本身没有问题，改的是本 change 的句子去对齐它。
-- 否决：本次顺带改「文件文件」。那是情报页覆盖说明的拼接，与未完成记录无关，而且在 FIX-13 刚改过的文件里；另开小 change。
+被否决的备选：
+- **把「这次分析有几处没做完」写成 `tender/analysis-package-coverage` 的新要求**：两件事的数据来源（`package-coverage.ts` 与未完成记录）、触发条件、读者要做的事都不同；记录与通知也不属于覆盖清单。
+- **在这条 MODIFIED 里同时约束「解析失败的文件 AI 没有读到」那一句**：归档后，这条约束会挂在讲「还没纳入」的要求下面，与它约束的句子不在同一条要求里。
+- **写「覆盖清单与两句提示的文字、显示条件保持不变」**：这是相对本次改动的说法，归档进主规格后没有参照。FIX-13 的原文逐字保留，已经说明了它不变。
+- **改写 FIX-13 的两句来统一用词**：它们的用词（文件「纳入这次分析」）本身没有问题，改的是本 change 的句子去对齐它。
+- **本次顺带改「文件文件」**：那是情报页覆盖说明的拼接，与未完成记录无关，而且在 FIX-13 刚改过的文件里；另开小 change。
 
-### D13 与 FIX-20 的分界：「项目解读」与「综合汇总」分开
+### D13 与 FIX-20 的分界：「项目解读」页与「综合汇总」分开，三条约定
 
-FIX-20 管数字员工 Job 的 t8「Job 级综合汇总」失败降级、受阻显示与「从失败的这一步继续」，显示在一键分析卡片与 AI 任务详情页；本 change 管分析记录里 Analyst 层的「项目解读」没生成、复核没做完、内容段没读完、澄清没核对，显示在分析面板与完成通知。规格要求本 change 的句子不含「综合」二字；`agent-card.tsx` 与 `src/app/(main)/workforce/**` 本次零改动。
+- 范围：
+  - FIX-20 管数字员工 Job 的 t8「Job 级综合汇总」：失败降级、受阻显示、「从失败的这一步继续」。显示在一键分析卡片与 AI 任务详情页。
+  - 本 change 管分析记录里 Analyst 层的四件事：「项目解读」页没生成、复核没做完、内容段没读完、澄清没核对。显示在分析面板、投标合规矩阵与完成通知。
+- 规格要求本 change 的句子不含「综合」二字；`agent-card.tsx` 与 `src/app/(main)/workforce/**` 本次零改动。
+- 三条约定（本 change 这边照此写；FIX-20 那边由协调方转交）：
+  1. **叫法**：本 change 一律写「「项目解读」页」。FIX-20 的四件套提到本 change 时，用「「项目解读」页」，不再用「中文综合解读」（FIX-20 proposal 第 20 行，design D11 第 261 行、G3 第 351 行）。FIX-20 自己的句子不用「解读」，这一条不变。
+  2. **谁说「完整不完整」**：分析结果有没有没做完的地方，只由这一块与矩阵顶部那一句说。FIX-20 卡片上那句（FIX-20 design D10）去掉「可照常审阅」，不判断招标分析结果完整不完整，只说综合汇总没生成、不影响分析结果本身。
+     - 理由：余额不足时，第 3 步里的「项目解读」与第 8 步综合汇总会一起失败（`deterministic-plan.ts:122–130`、`:184–201`）。那时卡片写「可照常审阅」，而它正下方的进度部分写「这次没有生成「项目解读」页…请人工逐条核对」。
+  3. **Muse**：本 change 只管站内完成通知。Muse `analysis.ready` 与 `next_step` 的说法登记为后续 TASKFLOW 行（D11、G3），不归 FIX-20，也不在本 change 里。
 
-- 否决：在一键分析卡片上也提示「有几处没做完」。那张卡片讲的是 Job 的执行状态，FIX-20 正在改它；两边同时改同一张卡片会冲突，分析结果的说明放在分析面板一处就够。
+被否决的备选：
+- **在一键分析卡片上也提示「有几处没做完」**：那张卡片讲的是 Job 的执行状态，FIX-18、FIX-20 正在改它；几边同时改同一张卡片会冲突。分析结果的说明放在分析面板一处就够。
+- **本 change 去改 FIX-20 卡片那句**：卡片归 FIX-20；本 change 只写约定，不跨 change 改文件。
+
+### D14 投标合规矩阵顶部一句「以下要求可能不全」（承接 FIX-22 的 G6）
+
+- 条件：分析已完成（等待审核或已批准，用 FIX-22 的同一个判定），且要说的事项里有「内容没读完」。
+- 这时矩阵顶部写「以下要求可能不全：已纳入的文件里有 N 段内容 AI 没读完，位置见「这次分析有几处没做完」。」。
+- 分析未完成时不写这一句：矩阵已写「本次分析未完成，以下可能不全」，两句不同时出现。
+- 只有「项目解读」页没生成、复核没做完、澄清没核对时也不写：这三样不影响矩阵列出的要求。
+- 句子由分析详情接口算好，放进 `incompleteNotes.matrixLine`。面板把它连同 FIX-22 已经交出的分析 id、状态一起交给矩阵插槽，矩阵只渲染字符串。
+- 矩阵读接口 `GET …/bid-fit` 不改。
+
+被否决的备选：
+- **矩阵读接口自己读记录、自己出句子**：
+  - 记录的读取与「要说的事项」的判定会多一处调用，开关与「项目解读」的读取口径要在两个接口里各做一遍；
+  - 还要改 FIX-22 的接口与它的规格「矩阵读接口」。
+  - 面板已经加载了同一次分析的详情（FIX-22 D2 定死两处读同一条），从面板交过去只有一处判定。
+- **不加这一句、只靠那一块**（FIX-22 G6 的 B）：矩阵在那一块的正下方，但人是对着矩阵逐条核对、标注、批准的；漏读了几段时，矩阵本身不提醒，就会把「没读到」当成「文件里没有」。
+- **矩阵顶部列出没读完的位置**：位置只在那一块里列一次，矩阵指过去，免得两处各列一遍。
+- **沿用 FIX-22 的「本次分析未完成，以下可能不全」**：分析其实已经完成、可以标注和批准，说「未完成」不属实。
+
+### D15 与 FIX-18、FIX-22 的分界与合并顺序
+
+- 合并顺序：**FIX-13 → FIX-18 → FIX-22 → FIX-16**，与 FIX-22 design「相邻 change 与合并顺序」和它的 G7 一致。FIX-16 rebase 到 FIX-22 合并后的 main 再开工。
+- 理由：
+  - FIX-22 是面板的整块重排：去掉要求列表与「批准分析」、加矩阵插槽、其余分栏收起。FIX-18 只改按钮栏的条件渲染。本 change 只在进度部分里加一块、在矩阵顶部加一句、在「项目解读」页换横幅句子。
+  - 后合并的一方改动最小，规格也不用对 FIX-22 的新能力写 MODIFIED。
+  - 若本 change 先合，FIX-22 就得对本能力写 MODIFIED，归档还要排在本 change 之后。
+- FIX-22 design 原先写的是让 FIX-16「rebase 时把那半句改成…删掉关于「批准分析」的半句」；本稿已经改好：
+  - 规格只写「分析状态那一栏（标题、分析状态与文件纳入情况）」，不列按钮；
+  - 关于「批准分析」只写「这一块 SHALL NOT 禁用或拦截「批准分析」」，不说它在哪。
+- FIX-22 认为第 2 行「下面是从文件里逐条摘出的要求和要点」在它之后仍成立。本稿仍改成直接写「投标合规矩阵」（D2），不依赖排列。
+- 开工前提（tasks 第 2 条）：核对 FIX-22 合并后的面板结构，对不上的地方先改四件套再实现。要核的有：
+  - 进度部分的组成、矩阵插槽交出的参数；
+  - 「已完成」的判定函数；
+  - 「项目解读」页是否在收起的分区里；
+  - FIX-22 的 GATE 对它的 G6 怎么定。
+
+被否决的备选：
+- **FIX-16 先于 FIX-22 合并**：FIX-22 要在本 change 新加的那一块周围整块重排，还要对本能力写 MODIFIED、排在本 change 之后归档；它的行号与源码断言也要按本 change 改过的面板重写。
+- **等 FIX-22 合并后再起草本 change**：四件套与 GATE 依赖 12-3 实测，今天就要拿去审；按 FIX-22 的四件套写好，rebase 时只核对。
 
 ## 与八条硬纪律的关系
 
-1. 零 schema：遵守——记录写在 `TenderAnalysisRun.summaryJson`（既有 JSON 列；同一列已有先例：答复解决记录 `replyResolutions` 就写在这里，`reply-resolution.ts:221`）；不加模型、字段、迁移；续跑检查点 `workerCursor` 的结构也不动。验收用 `git diff origin/main -- prisma/` 为空。
-2. 出站先审批：不涉及——没有新增任何发送。改的是发给本组织成员的站内完成通知的文字（收件人、触发条件、去重键不变；它进每日汇总邮件也只发到成员本人的青砚账号邮箱，属于站内通知的补位）。规格写明这些句子不进 RFI 导出与「向业主提问」起草的邮件。
-3. 禁止第三套队列：不涉及——不新增 scheduler / queue / lease / worker；只在既有切片推进器落库前多算一个对象。
-4. 脱敏：不涉及——本次不改 `src/lib/muse-bridge/**`，不新增、不改动任何 Muse 事件与意图的文字；站内完成通知不进 Muse（`events.ts:149`）。规格仍写了 SHALL NOT：句子不含毛利率、项目估值、我方最终报价，不进 Muse 通道。G3 若定要改 Muse，那个 change 再按第 4 条写。
+1. 零 schema：遵守。
+   - 记录写在 `TenderAnalysisRun.summaryJson`。这是既有 JSON 列，同一列已有先例：答复解决记录 `replyResolutions`（`reply-resolution.ts:221`）、矩阵标注 `bidFitMatrix`（`bid-fit/route.ts:172`）。
+   - 不加模型、字段、迁移；续跑检查点 `workerCursor` 的结构也不动。
+   - 验收：`git diff origin/main -- prisma/` 为空。
+2. 出站先审批：不涉及。
+   - 没有新增任何发送。改的是发给本组织成员的站内完成通知的文字，收件人、触发条件、去重键都不变。
+   - 它进每日汇总邮件，也只发到成员本人的青砚账号邮箱，属于站内通知的补位。
+   - 规格写明这些句子不进 RFI 导出与「向业主提问」起草的邮件。
+3. 禁止第三套队列：不涉及。不新增 scheduler / queue / lease / worker；只在既有切片推进器落库前多算一个对象。
+4. 脱敏：不涉及。
+   - 本次不改 `src/lib/muse-bridge/**`，不新增、不改动任何 Muse 事件与意图的文字；站内完成通知不进 Muse（`events.ts:149`）。
+   - 规格仍写了 SHALL NOT：句子不含毛利率、项目估值、我方最终报价，不进 Muse 通道。
+   - G3 若定要改 Muse，那个后续 change 再按第 4 条写。
 5. 不爬登录页：不涉及。
 6. 邮箱分离：不涉及。
-7. 确定性优先：遵守——不新增模型调用（规格场景「不增加模型调用」用既有两个测试守住）；全部句子是固定模板查表，「说哪几项」「优先级」都是固定顺序与条件；模型读到的输入只变了一条局限说明的写法（「项目解读」、项目聊天「标书分析」技能、评测适配器三处），提示词与版本号不变。
-8. 测试注册：两个新测试 `src/lib/tender-understanding/__tests__/incomplete-notes.test.ts`、`src/lib/tender-auto-analysis/__tests__/v2-incomplete.test.ts` 在创建它们的 task 里注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`，`bash scripts/check-test-registry.sh` 通过。
+7. 确定性优先：遵守。
+   - 不新增模型调用，规格场景「不增加模型调用」用既有两个测试守住。
+   - 全部句子是固定模板查表；「说哪几项」「优先级」「矩阵那一句出不出」都是固定顺序与条件。
+   - 模型读到的输入只变了一条局限说明的写法，涉及两处：「项目解读」、项目聊天「标书分析」技能。提示词与版本号不变。
+8. 测试注册：两个新测试 `src/lib/tender-understanding/__tests__/incomplete-notes.test.ts`、`src/lib/tender-auto-analysis/__tests__/v2-incomplete.test.ts`，在创建它们的 task 里注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`，`bash scripts/check-test-registry.sh` 通过。
 
 ## 验证方式
 
-- `npx tsx src/lib/tender-understanding/__tests__/incomplete-notes.test.ts`：规格里每一句的逐字断言（那一块的标题与四种行、复核横幅、四个通知短语、收尾句、文件覆盖那一句）；位置写法（单页、页码范围、单元标签、超过 6 段）；两种原因得到相同的句子；「要说的事项」随开关与有无「项目解读」的四种组合；记录缺失 / 形状不对 / 旧分析 → `null`；句子不含内部用词、错误码与「综合」，讲内容段的句子以「已纳入的文件里」开头、不含「纳入这次分析」；源码断言——接口文件调用查表函数且响应里没有 `incompleteSteps` 原文，面板与综合解读视图渲染接口下发的 `incompleteNotes`、自身不含这些句子，那一块在运行头部之后、增量变更横幅之前且不在 `data-testid="package-coverage"` 那一块里。
-- `npx tsx src/lib/tender-auto-analysis/__tests__/v2-incomplete.test.ts`：从构造的检查点组装记录（内容段 × 两种原因、第一遍两次没写成、第一遍写成但组装出错、复核没结果、澄清问题三种情况、四项皆空返回空）；上线前写的检查点照常解析并得到同样的记录；记录里的问题全文与落库的澄清问题逐字相同；落库的澄清问题 `question / reason` 与不记录时逐字相同。
-- `npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts`：RESUME-05 / RESUME-06 认新句子且局限说明不含「窗口」与错误码；单次编排并发失败时位置按包内顺序；无事可记时 `summaryJson` 没有 `incompleteSteps`；补「第一遍两次失败」「复核两次失败」两个从头跑到落库的用例（既有脚本化模型的 `failAnalyst` / `failAnalystQa`）；RESUME-09 补 `qa.status === "NEEDS_HUMAN_REVIEW"`；既有 parity 断言不变。开工前 42 项。
+- `npx tsx src/lib/tender-understanding/__tests__/incomplete-notes.test.ts`：
+  - 逐字断言：规格里的每一句，包括那一块的标题与四种行、复核横幅、矩阵那一句、四个通知短语、收尾句、文件覆盖那一句。
+  - 位置写法：单页、页码范围、单元标签、超过 6 段。
+  - 两种原因得到相同的句子。
+  - 「要说的事项」随开关与有无「项目解读」的四种组合；矩阵那一句随「已完成」与有无「内容没读完」的四种组合。
+  - 记录缺失、形状不对、旧分析 → `null`。
+  - 句子里的禁用词：不含内部用词、错误码、「综合」与方位词（上面 / 下面 / 上方 / 下方）；讲内容段的句子以「已纳入的文件里」开头，不含「纳入这次分析」「未纳入」「没纳入」「没有读到」。
+  - 源码断言：
+    - 接口文件调用查表函数，响应里没有 `incompleteSteps` 原文；
+    - 面板、项目解读视图、矩阵卡片渲染接口下发的字符串，自身不含这些句子；
+    - 那一块在分析状态那一栏之后、矩阵插槽之前，且不在 `data-testid="package-coverage"` 里；
+    - 面板把 `matrixLine` 交给矩阵插槽。
+  - 3.1、3.2 两个 task 往这个文件里补源码断言。
+- `npx tsx src/lib/tender-auto-analysis/__tests__/v2-incomplete.test.ts`：
+  - 从构造的检查点组装记录：内容段 × 两种原因、第一遍两次没写成、第一遍写成但组装出错、复核没结果、澄清问题四种情况（无相关页、有结果、结果为空、缺键）、四项皆空返回空。
+  - 上线前写的检查点照常解析，并得到同样的记录。
+  - 记录里的问题全文与落库的澄清问题逐字相同；落库的澄清问题 `question / reason` 与不记录时逐字相同。
+- `npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts`（开工前 42 项）：
+  - RESUME-05 / RESUME-06 认新句子，且局限说明不含「窗口」与错误码；
+  - 单次编排并发失败时，位置按包内顺序；
+  - 无事可记时 `summaryJson` 里没有 `incompleteSteps`；
+  - 补「第一遍两次失败」「复核两次失败」两个从头跑到落库的用例，用既有脚本化模型的 `failAnalyst` / `failAnalystQa`；
+  - RESUME-09 补 `qa.status === "NEEDS_HUMAN_REVIEW"`；
+  - 既有 parity 断言不变。
 - `npx tsx src/lib/tender-auto-analysis/__tests__/v2-slice-deadline.test.ts`：照旧 46 / 46，一条断言都不改（分析行为没变）。
-- `npx tsx src/lib/tender-auto-analysis/__tests__/alerts.test.ts`：规格八个通知场景的摘要与优先级；既有 ALERT-09 / ALERT-10 不变。开工前 30 项。
-- `npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts`（FIX-13）：照旧全过，它对两个组件的接线断言不受影响。
-- `npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts`、`src/lib/tender-understanding/__tests__/input-completeness.test.ts`、`addendum-disposition.test.ts`、`src/lib/tender-auto-analysis/__tests__/v2-map.test.ts`：照旧通过。
-- `npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、CI 环境变量下 `bash scripts/test-ci-unit.sh`、`npm test`（对照 `docs/QINGYAN_CHAIN-3_REPORT.md` §4 的既有失败清单）、`openspec validate tender-analysis-incomplete-notes --strict`；`git diff origin/main -- prisma/ vercel.json openspec/specs src/lib/tender-auto-analysis/v2-cursor.ts src/lib/tender-analyst src/lib/muse-bridge src/lib/tender-auto-analysis/chat-context.ts src/components/tender-analysis/agent-card.tsx` 为空。
-- 人工：本地用构造的 `summaryJson`（四种情况各一份，另一份同时带 FIX-13 的两份解析失败文件）打开项目页，截图运行头部下面那一块、复核横幅、与覆盖清单并列时的样子，贴进报告。
+- `npx tsx src/lib/tender-auto-analysis/__tests__/alerts.test.ts`（开工前 30 项）：规格八个通知场景的摘要与优先级；既有 ALERT-09 / ALERT-10 不变。
+- 相邻 change 的测试照旧全过，它们对面板、矩阵与卡片的接线断言不受影响：
+  - `package-coverage.test.ts`（FIX-13）；
+  - `src/lib/tender-workforce/__tests__/single-entry.test.ts`（FIX-18）；
+  - `src/lib/tender-auto-analysis/__tests__/requirements-tab-converge.test.ts`（FIX-22）。
+- 以下测试照旧通过：`npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts`、`src/lib/tender-understanding/__tests__/input-completeness.test.ts`、`addendum-disposition.test.ts`、`src/lib/tender-auto-analysis/__tests__/v2-map.test.ts`。
+- 门禁：
+  - `npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`；
+  - CI 环境变量下 `bash scripts/test-ci-unit.sh`；
+  - `npm test`，对照 `docs/QINGYAN_CHAIN-3_REPORT.md` §4 的既有失败清单；
+  - `openspec validate tender-analysis-incomplete-notes --strict`。
+- 以下路径 `git diff origin/main` 为空：`prisma/`、`vercel.json`、`openspec/specs`、`src/lib/tender-auto-analysis/v2-cursor.ts`、`src/lib/tender-analyst`、`src/lib/muse-bridge`、`src/lib/tender-auto-analysis/chat-context.ts`、`src/lib/tender-auto-analysis/requirement-matrix.ts`、`src/app/api/projects/[id]/bid-fit`、`src/components/tender-analysis/agent-card.tsx`、`src/components/project-detail/tabs/requirements-tab.tsx`。
+- 人工检查：
+  - 本地用构造的 `summaryJson` 打开项目页：四种情况各一份；另一份同时带 FIX-13 的两份解析失败文件。
+  - 截图贴进报告：进度部分里那一块、矩阵顶部那一句、展开「项目解读」页后的复核横幅、与覆盖清单并列时的样子。
 
 ## Risks / Trade-offs
 
 - [上线前已落库的分析没有记录，仍显示旧文案] → 规格明确「没有记录的分析显示不变」；重新分析一次即可得到记录。
-- [只说「有 N 条澄清问题没核对」，不说是哪几条] → 人要把澄清问题都查一遍；哪几条的编号与全文已存进记录，G1 定了逐条标注就能标出本次上线后落库的分析。
+- [只说「有 N 条澄清问题没核对」，不说是哪几条] → 人要把澄清问题都查一遍。哪几条的编号与全文已存进记录，G1 定了逐条标注，就能标出本次上线后落库的分析。
 - [句子不说原因、不说次数] → 原因与次数存在记录里；要分开说时只改查表模块（D3、G5）。
 - [相邻内容段有 1 页重叠，页码范围会含 1 页已被前一段读过的页] → 提示是让人去翻原文，多翻 1 页无害（G4 一并看）。
-- [内容段全部没读完、而「项目解读」第一遍成功的分析也会落库] → 句子只列前 6 段加「等 N 处」，那一块与通知都会说；不改空分析判定（分析行为不变）。
+- [内容段全部没读完、而「项目解读」第一遍成功的分析也会落库] → 句子只列前 6 段加「等 N 处」，那一块、矩阵那一句与通知都会说；不改空分析判定（分析行为不变）。
 - [局限说明交给模型时每条截到 200 字，没读完的段多时句尾被截掉] → 只是模型的输入，开头「已纳入的文件里，有 N 段内容 AI 没读完」总在；界面上的句子不经过这个截断。
 - [模型读到的局限说明换了写法，「项目解读」正文会略有不同] → 模板与版本不变、调用次数不变；换写法正是为了不让英文码被抄进正文。
-- [Muse 与站内通知暂时说法不一] → G3。
-- [与 FIX-13 改同两个组件] → 开工前提写明 FIX-13 合并后 rebase；本 change 的改动位置（运行头部之后、复核横幅）与 FIX-13 改的位置（覆盖清单、综合解读视图的排除列表与 props）不重叠，props 只加不改。
-- [真的「未通过 AI 质检」时横幅仍写「详见 QA 记录 N 条」而记录无处可看] → 既有问题，本次不动（G9）。
+- [Muse 与站内通知暂时说法不一] → G3，登记为后续 TASKFLOW 行。
+- [复核那一句在那一块与「项目解读」页页底各出现一次] → 不改。两处不在同一屏：FIX-22 之后「项目解读」页默认收起；展开这一页的人在页底看到的应当与那一块一致，而不是「未通过 AI 质检」。
+- [没开投标包 AI 体验的组织，复核没做完时通知仍写「AI 审校标记了需要人工复核的地方，请优先查看」] → 不改，原因三条：
+  - 这是既有行为：通知的条数与这个标志读的是原始 `analystSynthesis`，不看开关（`alerts.ts:201–219`）。
+  - 改了就要同时去掉这类组织通知里的条数，变动超出本 change。
+  - 本 change 对这类组织只承诺不出现第 2、3 项。
+- [与 FIX-13、FIX-18、FIX-19、FIX-22 改同几个文件] → 合并顺序与开工前提写明（D15、tasks 开工前提）。
+  - 本 change 的改动位置都不与它们重叠：进度部分里加一块、矩阵顶部加一句、横幅句子、接口响应加字段。
+  - 组件 props 只加不改。
+  - FIX-19 改的是同一个接口文件的文档查询与标签函数，段落不同，后合并的一方手工合并。
+- [FIX-22 合并后的结构与它的四件套不一致，或它的 GATE 对 G6 选了 B] → 开工前提第 2 条先核对。选 B 时删掉规格「投标合规矩阵在分析已完成但有内容没读完时写明可能不全」一条，以及 task 3.1 / 3.2 里矩阵那一句的部分（G10）。
+- [真的「未通过 AI 质检」时，横幅仍写「详见 QA 记录 N 条」，而记录无处可看] → 既有问题，本次不动（G9），登记为后续 TASKFLOW 行。
 
 ## Migration Plan
 
-无数据迁移、无开关。合并部署即生效：此后落库的分析在有事可记时带记录（包括上线时正在跑的分析）；此前的分析显示不变。回滚 = 回退本 PR（已写入的 `incompleteSteps` 键会被旧代码忽略，无需清理）。归档：本 change 对 `tender/analysis-package-coverage` 是 MODIFIED，`openspec/specs/tender/analysis-package-coverage/spec.md` 要在 FIX-13 归档后才存在，所以本 change 的归档排在 FIX-13 归档之后（`openspec validate` 对此只给提示，`archive` 会拒）。
+- 无数据迁移、无开关。合并部署即生效：此后落库的分析在有事可记时带记录，包括上线时正在跑的分析；此前的分析显示不变。
+- 回滚 = 回退本 PR。已写入的 `incompleteSteps` 键会被旧代码忽略，无需清理。
+- 合并顺序：FIX-13 → FIX-18 → FIX-22 → FIX-16（D15）。
+- 归档：本 change 对 `tender/analysis-package-coverage` 是 MODIFIED，而 `openspec/specs/tender/analysis-package-coverage/spec.md` 要在 FIX-13 归档后才存在，所以本 change 的归档排在 FIX-13 归档之后。`openspec validate` 对此只给提示，`archive` 会拒。
+- 本 change 不对 FIX-22 的能力写 MODIFIED，归档不依赖 FIX-22 的归档。
 
 ## 留给 GATE
 
-标「依赖重测」的四条（G1–G4）等 2026-11-22 生产实测（项目 12-3）的结果；其余现在就能定，本稿按推荐写，GATE 不同意时只改查表模块或另开 change。
+各条的状态：
+- **依赖重测、本次不做**：G1、G3，等 2026-11-22 生产实测（项目 12-3）的结果。
+- **依赖重测、本次按 A 实施**：G2、G4。选 B 只改查表模块和一条测试。
+- **随 FIX-22 的 G6，本次按 A 实施**：G10。
+- **现在就能定，本稿按推荐写**：G5–G9。GATE 不同意时，只改查表模块或另开 change。
 
-**G1 没核对成的澄清问题：重查，还是逐条标注（依赖重测）**
-- A：只靠运行头部下面那一句「有 N 条澄清问题…」（本次已做）。后果：人知道有几条，不知道是哪几条，发出前要全部查一遍。
-- B：逐条标注。「澄清问题」「澄清 / RFI」两个列表的问题下面加一行；接口每条多一个标注字段；「向业主提问」对话框的推荐问题（`questions/route.ts:30–35`）与 RFI 导出前给一句站内提示；标注不进问题与理由文字、不进起草的邮件与 RFI 正文。后果：一个后续 change，改接口、两个组件、对话框与导出入口；本次存下的编号与全文够用。
-- C：让没核对成的少出现——把澄清开工门槛从 30 秒提到 75 秒（#540 第二轮审计提出的做法，不多发调用），或下一切片重查（同一类调用的重试，像内容段的 3 次上限，会多发调用）。后果：改分析行为，另开 change，与 FIX-12 D8 同类；剩下的仍靠 A。
-- 推荐：看实测里每份分析「没核对成」的条数。经常有（每份 1 条以上）→ 先做 C 的「提门槛」（从源头减少、不多调用），剩下的靠 A；提门槛后仍常见再做 B。很少有 → A 就够，B 不做。
+**G1 没核对成的澄清问题：重查，还是逐条标注（依赖重测，本次不做）**
+- A：只靠那一块里那一句「有 N 条澄清问题…」（本次已做）。
+  - 后果：人知道有几条，不知道是哪几条，发出前要全部查一遍。
+  - 后果：开着体验时，用户在「澄清 / RFI」分栏看到的是「项目解读」改写、合并过的问题（最多 15 条，`contract.ts:123`），条数可能与「N 条」对不上。
+- B：逐条标注。
+  - 范围：「澄清问题」「澄清 / RFI」两个分栏（FIX-22 之后在矩阵下方收起的分区里）的问题下面加一行；接口每条多一个标注字段；「向业主提问」对话框的推荐问题（`questions/route.ts:30–35`）与 RFI 导出前给一句站内提示。标注不进问题与理由文字，不进起草的邮件与 RFI 正文。
+  - 后果：一个后续 change，改接口、两个分栏、对话框与导出入口。本次存下的编号与全文够用，「澄清 / RFI」那边按 `clarificationIds` 对上。
+- C：让没核对成的少出现，两种做法：
+  - 把澄清开工门槛从 30 秒提到 75 秒：#540 第二轮审计提出的做法，不多发调用。
+  - 下一切片重查：同一类调用的重试，像内容段的 3 次上限，会多发调用。
+  - 后果：改分析行为，另开 change，与 FIX-12 D8 同类；剩下的仍靠 A。
+- 推荐：看实测里每份分析「没核对成」的条数。
+  - 经常有（每份 1 条以上）：先做 C 的「提门槛」，从源头减少、不多调用，剩下的靠 A；提门槛后仍常见，再做 B。
+  - 很少有：A 就够，B 不做。
 
-**G2 只有「澄清问题没核对」时，完成通知要不要标高优先级（依赖重测）**
-- A：不标高，按既有规则（本次已做）。后果：澄清被截住若是常事，高优先级仍有分量；那一块里照样说。
-- B：任何一项没做完就标高。后果：改判定里一个条件和一条测试。
-- 推荐：A；实测里若「没核对成」很少、且每次都很要紧，再改 B。
+**G2 只有「澄清问题没核对」时，完成通知要不要标高优先级（依赖重测，本次按 A 实施）**
+- A：不标高，按既有规则（本次已做）。
+  - 后果：只有澄清没核对、复核正常的分析，通知是中优先级，可能被当作普通完成通知略过；那一块里照样说。
+- B：任何一项没做完就标高。
+  - 后果：澄清被截住若是常事，高优先级的通知会变多、分量变轻；改动是判定里一个条件和一条测试。
+- 推荐：A。实测里若「没核对成」很少、且每次都很要紧，再改 B。
 
-**G3 Muse `analysis.ready` 与 `next_step` 要不要跟着改（依赖重测）**
-- A：本 change 补上。改 `muse-bridge/events-pure.ts`、`hooks.ts`：有地方没做完时第一行写「「项目」分析完成，但有 2 段内容没读完，先到青砚「招标要求」页看说明」（只点最要紧的一项、只有项目名、固定用词与条数，不超过 60 字），受影响的 Muse 事件为 `analysis.ready`，意图不变。
-- B：拆成后续小 change：A 的第一行，加 `next_step` 待审阅分支的一条规则（有内容没读完或没有「项目解读」时，下一步是「先到青砚看分析页的说明」，而不是「起草询价」），受影响的意图为 `next_step`。
-- C：不改。后果：没有「项目解读」或有内容没读完时，Muse 发的是一句干净的「分析完成」，点按钮得到的下一步多半是「起草询价」，与站内通知说法相反。
-- 推荐：B。第一行点哪一项、`next_step` 要不要拦，要看实测里各情况的频率；拆开做，本 change 不碰 Muse 通道，那个 change 再按硬纪律 4 写脱敏的 SHALL NOT（文件名、页码、问题文字不进 Muse）。
+**G3 Muse `analysis.ready` 与 `next_step` 要不要跟着改（依赖重测，本次不做）**
+- A：本 change 补上。
+  - 做法：改 `muse-bridge/events-pure.ts`、`hooks.ts`。有地方没做完时，第一行写「「项目」分析完成，但有 2 段内容没读完，先到青砚「招标要求」页看说明」：只点最要紧的一项、只有项目名、固定用词与条数，不超过 60 字。受影响的 Muse 事件为 `analysis.ready`，意图不变。
+  - 后果：本 change 要触碰 Muse 通道、按硬纪律 4 写脱敏的 SHALL NOT。第一行点哪一项，要在实测频率出来之前就定。
+- B：拆成后续小 change，登记为 TASKFLOW 行（编号待定，task 4.2）。
+  - 做法：A 的第一行，加 `next_step` 待审阅分支的一条规则：有内容没读完或没有「项目解读」页时，下一步是「先到青砚看分析页的说明」，而不是「起草询价」。受影响的意图为 `next_step`。
+  - 后果：上线后到那个 change 合并之前，Muse 与站内通知说法不一。
+- C：不改。
+  - 后果：没有「项目解读」页或有内容没读完时，Muse 发的是一句干净的「分析完成」，点按钮得到的下一步多半是「起草询价」，与站内通知说法相反。
+- 推荐：B。第一行点哪一项、`next_step` 要不要拦，要看实测里各情况的频率。拆开做，本 change 不碰 Muse 通道；那个 change 再按硬纪律 4 写脱敏的 SHALL NOT（文件名、页码、问题文字不进 Muse）。FIX-20 原先写「归 FIX-16」，按 D13 改为指向这一行。
 
-**G4 位置写成「《文件名》第 a–b 页」够不够用（依赖重测）**
+**G4 位置写成「《文件名》第 a–b 页」够不够用（依赖重测，本次按 A 实施）**
 - A：只写文字（本次已做）。
-- B：点开能看那几页原文（接分析面板既有的来源抽屉）。后果：接口要多下发文档编号与页码，组件多一个交互。
-- 推荐：A；实测里人确实要来回翻找时再做 B。相邻段 1 页重叠照实写整段的起止页，一并看。
+  - 后果：人要自己去「项目文件」里打开文件翻到那几页；相邻段 1 页重叠照实写整段的起止页。
+- B：点开能看那几页原文。FIX-22 之后矩阵每行都有「来源」抽屉，可以复用同一个抽屉。
+  - 后果：接口要多下发文档编号与页码，那一块多一个交互；改查表模块的位置写法与一条测试。
+- 推荐：A。实测里人确实要来回翻找时再做 B。
 
 **G5 句子要不要说原因（「时间不够」/「出错」）**
+- 先说明：FIX-12 报告 §7 第 2 条原文是「Analyst 两次没完成时说明**为什么**没有中文解读」。本稿推荐不说原因，与原文不一致，请 GATE 确认。
 - A：不说（本次已做，D3）。
-- B：按原因分两种说法。后果：只改查表模块，记录里已有原因，不用重跑。
+  - 后果：人只知道「这次没有生成」，不知道是时间不够还是出错；要做的事都是人工逐条核对，或稍后重新分析一次。
+- B：按原因分两种说法。
+  - 后果：只改查表模块，记录里已有原因，不用重跑。但系统只存最后一次的原因，说不了「每次都超时」；「出错」容易被读成文件坏了。
 - 推荐：A。人要做的事相同；系统只存最后一次的原因。
 
 **G6 项目聊天与 Muse `ask` 的上下文要不要说「有内容没读完」**
-- A：不改（本次）。后果：项目聊天与 Muse `ask` 的模型不知道哪些页没读到，被问到时可能答「文件里没有提到」——与 D6「不让模型把没读到的当成没有」的理由矛盾。
-- B：在 `chat-context.ts` 的上下文里加一行确定性的文字（「这份分析有 N 段内容没读完：…；问到这些页上的内容时要说暂无依据」），不新增模型调用。受影响的 Muse 意图为 `ask`，项目聊天也受影响。
-- 推荐：B，作为本 change 合并后的下一个小 change（不依赖重测）；它改的是两个对话入口的模型输入，单独审。
+- A：不改（本次）。
+  - 后果：项目聊天与 Muse `ask` 的模型不知道哪些页没读到，被问到时可能答「文件里没有提到」。这与 D6「不让模型把没读到的当成没有」的理由矛盾。
+- B：在 `chat-context.ts` 的上下文里加一行确定性的文字（「这份分析有 N 段内容没读完：…；问到这些页上的内容时要说暂无依据」），不新增模型调用。
+  - 后果：受影响的 Muse 意图为 `ask`，项目聊天也受影响；改的是两个对话入口的模型输入，要单独审。
+- 推荐：B，作为本 change 合并后的下一个小 change（不依赖重测），登记为 TASKFLOW 行（编号待定，task 4.2）。
 
 **G7 那一块要不要加一句「可以重新分析一次」**
-- A：不加（本次）。理由：重新分析是整份重做，同样的文件、同样慢的模型会再跳过一次；FIX-13 的提示说「重新分析」是针对文件（重新处理成功后再分析就能纳入），原因不同。
+- A：不加（本次）。
+  - 后果：人不会被引导去整份重做。但内容段没读完是一时慢造成的情况下，人也不知道重新分析可能补上。
 - B：加。
+  - 后果：重新分析是整份重做，同样的文件、同样慢的模型可能再跳过一次，人会反复点。FIX-13 的提示说「重新分析」是针对文件（重新处理成功后再分析就能纳入），原因不同，两句挨着会被读成同一种办法。
 - 推荐：A。
 
 **G8 有内容没读完时，「批准分析」前要不要加一步确认**
-- A：不加，只提示（本次）。理由：没读完的可能只是一段附录，影响由人判断。
+- A：不加，只提示（本次）。FIX-22 之后「批准分析」在矩阵顶部，矩阵那一句就在它旁边。
+  - 后果：人可以在没读完的情况下批准；没读完的可能只是一段附录，影响由人判断。
 - B：加确认框，另开 change。
+  - 后果：每次批准多一步；要改 FIX-22 的矩阵顶部与它的规格。
 - 推荐：A。
 
 **G9 真的「未通过 AI 质检」时，横幅里「详见 QA 记录 N 条」点不开、也没地方看**
 - A：不动（本次）。
-- B：删掉这半句。后果：改既有横幅的一句话，另开小 change。
-- C：另开任务把记录显示出来。后果：记录多是模型写的英文与内部说明，要单独设计。
-- 推荐：B，另开小 change；本 change 承诺「真的没通过时横幅原样」，不混在一起。
+  - 后果：人看到「详见 QA 记录」却找不到记录。
+- B：删掉这半句。
+  - 后果：改既有横幅的一句话，另开小 change。
+- C：另开任务把记录显示出来。
+  - 后果：记录多是模型写的英文与内部说明，要单独设计。
+- 推荐：B，另开小 change，登记为 TASKFLOW 行（编号待定，task 4.2）。本 change 承诺「真的没通过时横幅原样」，不混在一起。
+
+**G10 投标合规矩阵顶部要不要也说「以下要求可能不全」（承接 FIX-22 的 G6，本次按 A 实施）**
+- A：要（本次已做，D14）。分析已完成、有内容没读完时，矩阵顶部写「以下要求可能不全：已纳入的文件里有 N 段内容 AI 没读完，位置见「这次分析有几处没做完」。」。
+  - 后果：多改矩阵卡片一处渲染，与面板交给插槽的参数多一项；矩阵读接口不改。
+- B：不要，矩阵的「可能不全」只看状态。
+  - 后果：分析完成但漏读了几段时，矩阵不提醒，人对着矩阵标注、批准时可能把「没读到」当成「文件里没有」。
+- 推荐：A，与 FIX-22 G6 的推荐一致。FIX-22 的 GATE 若选 B，删掉规格那一条，以及 task 3.1 / 3.2 里矩阵那一句的部分。
