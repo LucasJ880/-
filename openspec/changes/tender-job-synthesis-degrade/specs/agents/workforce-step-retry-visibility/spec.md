@@ -28,6 +28,10 @@
 - **WHEN** 模型调用前的费用预检报「配额限制：月 AI 费用已达 hard limit」
 - **THEN** 错误码为 `org_ai_budget_exhausted`（`step-failure-visibility.test.ts`）
 
+#### Scenario: 普通错误不误认
+- **WHEN** 错误是「400 Invalid request」或「429 Rate limit reached」
+- **THEN** 综合汇总步骤记 `synthesis_failed`，工具步骤记 `tool_failed`（同一测试）
+
 ### Requirement: 余额不足照常按既有次数重试
 
 识别为余额不足或费用上限的失败，系统 SHALL 按该步既有的最多尝试次数照常重试。系统 SHALL NOT 因为错误码而跳过重试，SHALL NOT 改变最多尝试次数。
@@ -38,11 +42,23 @@
 
 ### Requirement: 中断回收留下痕迹
 
-处理器重新认领一个 Job 时，会把前一个执行者遗留的「执行中」步骤改回「待开始」，前提是该步尝试次数还没用尽。这样做时，系统 SHALL 给这一步记错误码 `stale_running_recovered`，并写一条不对用户显示的 `step.ready` 事件，事件里注明这一步是从中断里回收的。尝试次数已用尽、因此被终止的步骤，SHALL 照旧记 `stale_running_exhausted`。
+处理器重新认领一个 Job、把前一个执行者遗留的「执行中」步骤改回「待开始」（该步尝试次数还没用尽）时，系统 SHALL 给这一步记错误码 `stale_running_recovered`，并写一条不对用户显示的 `step.ready` 事件，事件里注明这一步是从中断里回收的。尝试次数已用尽、因此被终止的步骤，SHALL 照旧记 `stale_running_exhausted`。
 
 #### Scenario: 被强制结束后回收
 - **WHEN** 一步执行中被平台强制结束（尝试次数 1、最多 2），租约过期后另一次处理认领了这个 Job
 - **THEN** 这一步为「待开始」，尝试次数仍为 1，错误码为 `stale_running_recovered`，有一条用户不可见的 `step.ready` 事件（`synthesis-degrade-db.isolated.test.ts`）
+
+### Requirement: 重试那次执行中途让出时保留重试痕迹
+
+一步在重试那次执行中途让出（交还队列、不算失败）时，系统 SHALL 保留这一步的错误码，使它在让出之后仍按「正在第 N 次重试」显示。这次执行本身不是重试（第一次执行）时，让出 SHALL 照旧清掉错误码。让出 SHALL NOT 消耗尝试次数（既有规则不变）。
+
+#### Scenario: 第 3 步重试中途让出
+- **WHEN** 第 3 步第一次失败后开始第二次尝试，执行中途让出
+- **THEN** 这一步回到「待开始」，尝试次数为 1，错误码不为空，视图里这一步的重试信息为第 1 次（`npx tsx src/lib/workforce-runtime/__tests__/step-failure-visibility.test.ts` 投影用例与源码断言；`npx tsx src/lib/tender-workforce/__tests__/t5-p11-resumability.test.ts` 通过数不变）
+
+#### Scenario: 第一次执行中途让出
+- **WHEN** 第 3 步第一次执行中途让出
+- **THEN** 错误码为空，视图里这一步没有重试信息（同上两个测试）
 
 ### Requirement: 作业页写明「正在第 N 次重试」
 
@@ -62,15 +78,21 @@
 
 #### Scenario: 没失败过的步骤
 - **WHEN** 一步「待开始」、尝试次数 0
-- **THEN** 视图里这一步没有重试信息
+- **THEN** 视图里这一步没有重试信息（同一测试）
 
 ### Requirement: 有失败的步骤就写明受阻原因
 
-只要 Job 里有失败的步骤，作业详情视图 SHALL 带停止原因「卡在第 N 步〈步骤名〉：〈原因〉」，无论 Job 本身是什么状态。作业页 SHALL 在「N 项受阻」旁边写出这句话，SHALL NOT 只显示「N 项受阻」。
+Job 为「失败」或「需要人工处理」时，或者 Job 还在进行中（含两轮之间回到排队）而有失败的步骤时，作业详情视图 SHALL 带停止原因「卡在第 N 步〈步骤名〉：〈原因〉」。作业页 SHALL 在「N 项受阻」旁边写出这句话，SHALL NOT 只显示「N 项受阻」。
+
+Job 已完成、部分完成、已取消或等待审批时，视图 SHALL NOT 带停止原因。
 
 #### Scenario: Job 还在进行中
 - **WHEN** Job 状态为「进行中」（两轮之间），第 3 步已失败
 - **THEN** 视图带停止原因，作业页进度一节「1 项受阻」后面跟着「卡在第 3 步〈Canonical V2 包级分析〉：…」（`step-failure-visibility.test.ts`）
+
+#### Scenario: 等待审批与已完成不算停下
+- **WHEN** Job 等待审批、或已完成，步骤里有一个失败的
+- **THEN** 视图不带停止原因（`npx tsx src/lib/workforce-runtime/read-model/__tests__/stop-reason.test.ts`）
 
 ### Requirement: 项目卡片写明重试与受阻原因
 
@@ -83,15 +105,15 @@
 
 #### Scenario: 卡片上的重试
 - **WHEN** 第 8 步第一次因余额不足失败，Job 进行中
-- **THEN** 卡片接口带这一步的重试信息，卡片在「AI 分析中」那一行写出「第 8 步〈Workforce 执行汇总〉正在第 1 次重试（最多重试 1 次）。上一次没成功：AI 账户余额不足，请联系平台管理员充值」（`synthesis-degrade-db.isolated.test.ts` 读接口；渲染见 `npx tsx src/lib/tender-workforce/__tests__/job-failure-surfacing.test.ts` 源码断言）
+- **THEN** 卡片接口带这一步的重试信息，卡片在「AI 分析中」那一行写出「第 8 步〈Workforce 执行汇总〉正在第 1 次重试（最多重试 1 次）。上一次没成功：AI 账户余额不足，请联系平台管理员充值」（`synthesis-degrade-db.isolated.test.ts` 读接口；渲染见 `npx tsx src/lib/tender-workforce/__tests__/job-failure-surfacing.test.ts`）
 
 ### Requirement: 读取侧不读错误原文，不外露内部字段
 
-重试信息与受阻原因的计算 SHALL 只用步骤的状态、序号、标题、尝试次数、最多尝试次数与错误码。读模型的投影与停止原因模块、作业详情查询，SHALL NOT 读取步骤或运行记录的错误原文。作业接口与卡片接口新增的字段 SHALL NOT 含错误原文、错误码原文、模型或供应商名称。
+重试信息与受阻原因 SHALL 只由步骤的状态、序号、标题、尝试次数、最多尝试次数与错误码算出。作业详情视图在计算时 SHALL NOT 读取步骤或运行记录的错误原文。作业接口与卡片接口新增的字段 SHALL NOT 含错误原文、错误码原文、模型或供应商名称。
 
 #### Scenario: 源码断言
-- **WHEN** 读读模型的投影、停止原因与详情查询的源码
-- **THEN** 不引用 `errorMessage`；详情查询多取的只有尝试次数与最多尝试次数（`npx tsx src/lib/workforce-runtime/read-model/__tests__/stop-reason.test.ts`）
+- **WHEN** 读作业详情视图的计算与查询源码
+- **THEN** 不引用 `errorMessage`；步骤查询多取的只有尝试次数与最多尝试次数（`npx tsx src/lib/workforce-runtime/read-model/__tests__/stop-reason.test.ts`）
 
 #### Scenario: 接口不带错误码原文
 - **WHEN** 读一个第 8 步因余额不足在重试的 Job 的作业接口与卡片接口
