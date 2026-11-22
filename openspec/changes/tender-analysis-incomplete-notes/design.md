@@ -13,7 +13,7 @@
 
 行号：未注明的为 main `2ef4f9c8`（已含 FIX-12 #540）。分析面板两个组件与 `package-coverage.ts` 同时给出 FIX-13 合并前最后一版（`d273cce4`）的行号。
 
-开工顺序为 FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-18 → FIX-22 → FIX-16（2026-11-22 定；FIX-13 已合并 #546、已归档 #547；理由见 D15）。FIX-18 与 FIX-22 都合并后，把 main 合入本分支，按 tasks 开工前提逐条复核再开工；与 FIX-18、FIX-22 相邻的地方按它们的四件套写。
+开工顺序为 #548 FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-20 → FIX-15 → FIX-18 → FIX-20b → FIX-22 → FIX-16（2026-11-22 定；FIX-13 已合并 #546、已归档 #547；理由见 D15）。FIX-18 与 FIX-22 都合并后，把 main 合入本分支，按 tasks 开工前提逐条复核再开工；与 FIX-18、FIX-22 相邻的地方按它们的四件套写。
 
 FIX-12 让四种情况从「整个分析被硬杀」变成「能走到落库」，它们各自留下的数据与文字是这样的：
 
@@ -348,7 +348,7 @@ incompleteSteps: {
 
 ### D15 与 FIX-18、FIX-22 的分界与合并顺序
 
-- 开工顺序（2026-11-22 定）：**FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-18 → FIX-22 → FIX-16**（FIX-13 已合并）。与本 change 相关的末尾 FIX-18 → FIX-22 → FIX-16，与 FIX-22 design「相邻 change 与合并顺序」和它的 G7 一致。FIX-18 与 FIX-22 都合并后，把 main 合入本分支，按 tasks 开工前提第 1 条逐条复核再开工。
+- 开工顺序（2026-11-22 定）：**#548 FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-20 → FIX-15 → FIX-18 → FIX-20b → FIX-22 → FIX-16**（FIX-13 已合并）。与本 change 相关的末尾 FIX-18 → FIX-20b → FIX-22 → FIX-16，与 FIX-22 design「相邻 change 与合并顺序」和它的 G7 一致。FIX-18 与 FIX-22 都合并后，把 main 合入本分支，按 tasks 开工前提第 1 条逐条复核再开工。
 - 理由：
   - FIX-22 是面板的整块重排：去掉要求列表与「批准分析」、加矩阵插槽、其余分栏收起。FIX-18 只改按钮栏的条件渲染。本 change 只在进度部分里加一块、在矩阵顶部加一句、在「项目解读」页换横幅句子。
   - 后合并的一方改动最小，规格也不用对 FIX-22 的新能力写 MODIFIED。
@@ -461,7 +461,7 @@ incompleteSteps: {
 - 无数据迁移、无开关，合并即在生产生效：此后落库的分析在有事可记时带记录，包括上线时正在跑的分析；此前的分析显示不变。
 - 合并后要人做的事（跑哪段只读查询、要重新分析的项目名单从哪来、谁来点）写进报告，见 task 4.2。
 - 回滚 = 回退本 PR。已写入的 `incompleteSteps` 键会被旧代码忽略，无需清理。
-- 开工顺序：FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-18 → FIX-22 → FIX-16（D15）。
+- 开工顺序：#548 FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-20 → FIX-15 → FIX-18 → FIX-20b → FIX-22 → FIX-16（D15）。
 - 归档：本 change 对 `tender/analysis-package-coverage` 是 MODIFIED，而 `openspec/specs/tender/analysis-package-coverage/spec.md` 要在 FIX-13 归档后才存在，所以本 change 的归档排在 FIX-13 归档之后。`openspec validate` 对此只给提示，`archive` 会拒。FIX-13 已于 #547 归档（2026-11-22），这一条已满足。
 - 本 change 不对 FIX-22 的能力写 MODIFIED，归档不依赖 FIX-22 的归档。
 

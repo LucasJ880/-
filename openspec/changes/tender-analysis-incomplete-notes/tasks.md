@@ -1,12 +1,12 @@
 # Tasks：招标分析「没做完的地方」用白话说清楚（FIX-16）
 
 > 开工前提：
-> 1. 开工顺序（2026-11-22 定）：**FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-18 → FIX-22 → FIX-16**。FIX-13（#546，`document-parse-nul-and-reason`）已合并、已归档（#547）。
+> 1. 开工顺序（2026-11-22 定）：**#548 FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-20 → FIX-15 → FIX-18 → FIX-20b → FIX-22 → FIX-16**。FIX-13（#546，`document-parse-nul-and-reason`）已合并、已归档（#547）。
 >    - FIX-18（`tender-analysis-single-entry`）与 FIX-22（`tender-requirements-tab-converge`）都合并后，把 main 合入本分支，按本节第 1–4 条逐条复核一遍。复核结果写进报告草稿 `docs/QINGYAN_FIX-16_REPORT.md`「开工前复核」一节，再动代码。复核三类：
 >      - 文件:行号：四件套里引用的每一处（含标「FIX-13 后」的）在合入后的代码里还对不对；
 >      - 组件名与函数名：分析状态那一栏与 `showRunControls`、`data-testid="package-coverage"`、矩阵插槽、`bid-fit-matrix-card.tsx`、`analyst-synthesis-view.tsx` 的复核横幅、`AnalysisProgressBanner`、`readAnalystSynthesis`、FIX-22 的「已完成」判定函数，有没有被这两个 change 改名、挪走或换了参数；
 >      - 文案出处：规格里引用的既有句子（「招标文件自动分析」「投标合规矩阵」「部分结论未通过 AI 质检…」「AI 审校标记了需要人工复核的地方」「可以开始确认招标要求」「招标分析已完成，待确认」「本次分析未完成，以下可能不全」）还在不在原处，有没有被这两个 change 改写。
->    - 这时 main 上也已有 FIX-17、FIX-21、FIX-19、FIX-14：FIX-19 改了同一个详情接口的文档查询与标签函数（本 change 合入时手工合并），FIX-21 的路由守卫测试覆盖这个接口，一并核。
+>    - 这时 main 上也已有 FIX-17、FIX-21、FIX-19、FIX-14、FIX-20、FIX-15、FIX-20b：FIX-19 改了同一个详情接口的文档查询与标签函数（本 change 合入时手工合并），FIX-21 的路由守卫测试覆盖这个接口，一并核。
 >    - 对不上的地方先改四件套，跑 `openspec validate tender-analysis-incomplete-notes --strict`，再实现。
 >    - FIX-13 主规格里「分析面板提醒还没纳入的能读文件」一条的原文，与本 change `specs/tender/analysis-package-coverage/spec.md` 那一条的第一段与第一个场景逐字相同（2026-11-22 在 main `01e444b9` 上核过）。合入后再核一次，不同就先改本 change 的规格。
 > 2. 核对 FIX-22 已合并后的面板结构，对不上的地方先改四件套（`openspec validate --strict`）再实现。要核的六项：

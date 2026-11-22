@@ -2,7 +2,7 @@
 
 TASKFLOW：FIX-16（Phase F（续）— 生产实测修复）
 
-> 开工顺序（2026-11-22 定）：**FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-18 → FIX-22 → FIX-16**。FIX-13（#546）已合并、已归档（#547）。
+> 开工顺序（2026-11-22 定）：**#548 FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-20 → FIX-15 → FIX-18 → FIX-20b → FIX-22 → FIX-16**。FIX-13（#546）已合并、已归档（#547）。
 > - FIX-18（`tender-analysis-single-entry`）与 FIX-22（`tender-requirements-tab-converge`）都合并后，把 main 合入本分支，按 tasks 开工前提逐条复核，复核结果写进报告草稿再动代码。
 > - 三者都改分析面板：FIX-13 是 #546 `document-parse-nul-and-reason`；FIX-18、FIX-22 见上。
 > - 本稿凡与它们相邻的地方，按以下版本写：FIX-13 合并前最后一版代码（`/home/user/wt/fix13` 的 `d273cce4`）；FIX-18、FIX-22 的四件套（`/home/user/wt/fix18`、`/home/user/wt/fix22`）。
