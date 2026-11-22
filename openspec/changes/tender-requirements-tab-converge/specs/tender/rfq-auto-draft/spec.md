@@ -25,3 +25,14 @@
 #### Scenario: 界面显示
 - **WHEN** 在投标合规矩阵顶部批准分析并自动起草成功
 - **THEN** 矩阵顶部显示「已为你起草第 1 轮询价：N 家常用供应商……还没有发出，批准后才发」，点「去批准」到项目页的这一轮；轮次上有「自动起草」标记，审批卡上方有那句说明（截图 `docs/acceptance/fix-22/04-matrix-auto-draft.png`、`docs/acceptance/rfq-auto-2/round-auto-drafted.png`）
+
+### Requirement: 按分组起草时写明分组与依据
+自动起草用了供应商分组时，审批卡的摘要、投标合规矩阵上的结果、轮次上的那句说明 SHALL 写明用的是谁的哪一个分组、凭项目名称里的哪个关键词。没起草的原因是分组确定不了时，结果 SHALL 说明是没有一组对上还是对上了哪几组，并给出去询价入口的链接；这类结果 SHALL NOT 标为 `quiet`。分组的名字与关键词 SHALL 只出现在这些给内部人看的地方。
+
+#### Scenario: 卡上写明分组
+- **WHEN** 按分组「窗饰」（凭关键词 `blind`）自动起草成功
+- **THEN** 卡的摘要与矩阵上的结果都含「分组『窗饰』」与「blind」；卡里发给供应商的邮件标题与正文，与不用分组、手动选同样几家时逐字相同（`supplier-groups-db.isolated.test.ts`；矩阵上的结果见 `npx tsx src/lib/tender-auto-analysis/__tests__/requirements-tab-converge.test.ts` 的接线断言：矩阵渲染的是批准响应里 `rfqAutoDraft` 的说明原文）
+
+#### Scenario: 对上不止一组
+- **WHEN** 项目名称同时对上「窗饰」与「家具」，操作者批准招标分析
+- **THEN** 不起草；结果写明对上了「窗饰」「家具」两组、请到询价入口选一组，`quiet` 为 false（`auto-draft-pure.test.ts`；`supplier-groups-db.isolated.test.ts`）
