@@ -257,16 +257,28 @@ console.log("tender-auto-analysis package-coverage");
   ok(mixed.excludedFiles.length === 1 && notYetAnalyzedHint(mixed.eligible, mixed.analyzed) === "有 1 个能读的文件还没纳入这次分析，重新分析后会一起纳入。", "同时有解析失败的排除时也按计数提醒（覆盖清单的 note 这时只说排除原因）");
 }
 
-// FIX-13：界面与取数的接线（读源码；去掉接线这里会变红，CI 子集里也跑）
+// FIX-13：界面与取数的接线（读源码，去掉注释、压平空白后再比；去掉接线这里会变红，CI 子集里也跑）
 {
-  const src = (p: string) => readFileSync(p, "utf8");
+  const src = (p: string) =>
+    readFileSync(p, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/,\s*([)}\]])/g, "$1");
   const panel = src("src/components/tender-analysis/analysis-panel.tsx");
-  ok(/exclusionReasonWithParseError\(f\.exclusionReason,\s*f\.parseError\)/.test(panel), "接线：分析面板逐文件明细用 exclusionReasonWithParseError 带上原文");
-  ok(/hasParseFailedExclusion\(data\.coverage\.excludedFiles\)[\s\S]{0,200}PARSE_FAILED_NEXT_STEP_HINT/.test(panel), "接线：分析面板有解析失败的文件时显示下一步提示");
-  ok(/notYetAnalyzedHint\(data\.coverage\.eligible,\s*data\.coverage\.analyzed\)/.test(panel), "接线：分析面板按计数显示「还没纳入」的提醒");
-  ok(/parseErrorsByFilename\(data\.coverage\.excludedFiles\)/.test(panel), "接线：分析面板把现算的「文件名 → 原文」交给综合解读视图");
+  ok(/exclusionReasonWithParseError\( ?f\.exclusionReason, ?f\.parseError ?\)/.test(panel), "接线：分析面板逐文件明细用 exclusionReasonWithParseError 带上原文");
+  ok(/hasParseFailedExclusion\( ?data\.coverage\.excludedFiles ?\)[^]{0,300}PARSE_FAILED_NEXT_STEP_HINT/.test(panel), "接线：分析面板有解析失败的文件时显示下一步提示");
+  const hintCalls = panel.match(/notYetAnalyzedHint\(/g) ?? [];
+  ok(
+    hintCalls.length === 1 &&
+      /const notYetHint = data\.coverage \? notYetAnalyzedHint\( ?data\.coverage\.eligible, ?data\.coverage\.analyzed ?\)/.test(panel) &&
+      /\{ ?notYetHint \? \(?[^]{0,200}\{ ?notYetHint ?\}/.test(panel),
+    "接线：分析面板只算一次「还没纳入」的提醒（能读的、纳入的两个参数不颠倒），有就显示这一句",
+  );
+  ok(/currentParseErrors=\{ ?data\.coverage \? parseErrorsByFilename\( ?data\.coverage\.excludedFiles ?\)/.test(panel), "接线：分析面板把现算的「文件名 → 原文」交给综合解读视图");
   const synth = src("src/components/tender-analysis/analyst-synthesis-view.tsx");
-  ok(/snapshotExclusionText\(/.test(synth) && /currentParseErrors/.test(synth), "接线：综合解读「排除 K（原因）」展开列表用 snapshotExclusionText 与当前原文");
+  ok(/snapshotExclusionText\( ?f\.exclusionReason, ?f\.filename, ?currentParseErrors ?\)/.test(synth), "接线：综合解读「排除 K（原因）」展开列表用 snapshotExclusionText 与当前原文");
   const files = src("src/components/project-files/project-file-manager.tsx");
   ok(/fileListParseErrorLine\(/.test(files), "接线：项目文件列表用 fileListParseErrorLine 显示失败原因");
   const brief = src("src/lib/tender-auto-analysis/executive-brief.ts");

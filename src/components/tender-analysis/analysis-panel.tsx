@@ -451,6 +451,9 @@ export function TenderAnalysisPanel({
   }
 
   const packageDocs = data.documents ?? [];
+  const notYetHint = data.coverage
+    ? notYetAnalyzedHint(data.coverage.eligible, data.coverage.analyzed)
+    : null;
 
   const riskFacts = data.facts.filter(
     (f) =>
@@ -510,9 +513,9 @@ export function TenderAnalysisPanel({
                   {PARSE_FAILED_NEXT_STEP_HINT}
                 </p>
               ) : null}
-              {notYetAnalyzedHint(data.coverage.eligible, data.coverage.analyzed) ? (
+              {notYetHint ? (
                 <p className="text-amber-700" data-testid="not-yet-analyzed-hint">
-                  {notYetAnalyzedHint(data.coverage.eligible, data.coverage.analyzed)}
+                  {notYetHint}
                 </p>
               ) : null}
             </div>

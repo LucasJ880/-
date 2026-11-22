@@ -6,7 +6,6 @@ import {
   NOT_UTF8_TEXT_ERROR,
   PARSE_ERROR_MAX_CHARS,
   TEXT_FILE_MAX_NUL_RATIO,
-  TEXT_FILE_UNREADABLE_SAMPLE_CHARS,
   decodeTextFile,
   hasUnstorableChars,
   toStorableParseError,
@@ -122,15 +121,23 @@ ok(textOf(decodeTextFile(Buffer.alloc(0))) === "" && textOf(decodeTextFile(Buffe
   ok(toStorableParseError("下载的文件内容为空") === "下载的文件内容为空" && toStorableParseError("") === "", "toStorableParseError：普通的短报错原样返回");
 }
 
-// 「读不了」只看开头：尾部才有一大串 U+0000 的大文本照样能读（改动前它能解析，存进去的那一段不含 U+0000）
+// 「读不了」先去掉末尾连续的 U+0000 再按全文算：尾部才有一大串 U+0000 的大文本照样能读（改动前它能解析）
 {
   const body = "Mandatory requirement: bid bond 10% of the total price.\n".repeat(6000); // 约 33 万字
   const tailNul = Buffer.concat([Buffer.from(body, "utf-8"), Buffer.alloc(50_000)]);
   const r = decodeTextFile(tailNul);
-  ok(TEXT_FILE_UNREADABLE_SAMPLE_CHARS === 200_000 && body.length > TEXT_FILE_UNREADABLE_SAMPLE_CHARS && "text" in r, "decodeTextFile：30 多万字的正常文本、尾部 5 万个 U+0000 → 仍可读（只看开头 20 万字）");
+  ok("text" in r, "decodeTextFile：30 多万字的正常文本、尾部 5 万个 U+0000 → 仍可读（末尾连续的 U+0000 不算）");
   ok("text" in r && toStorableText(r.text).slice(0, body.length) === body && !hasUnstorableChars(toStorableText(r.text)), "这样的文本清理后正文不变、尾部的 U+0000 变成空格、能入库");
   const headNul = Buffer.concat([Buffer.alloc(50_000), Buffer.from(body, "utf-8")]);
   ok("error" in decodeTextFile(headNul), "decodeTextFile：开头就是一大串 U+0000 → 仍判为不可读");
+  // 开头正常、后面接一段没有字节序标记的 UTF-16：不能因为只看开头就放行（页级解析会把全文切成单元）
+  const utf8Head = "Section 1 General requirements.\n".repeat(4000); // 约 13 万字
+  const utf16Tail = Buffer.from("All bidders must be registered.\n".repeat(3000), "utf16le");
+  ok("error" in decodeTextFile(Buffer.concat([Buffer.from(utf8Head, "utf-8"), utf16Tail])), "decodeTextFile：开头是正常 UTF-8、后面是没有字节序标记的 UTF-16 → 判为不可读");
+  // 比例的分母是去掉尾部之后的长度：中间 15% 是 U+0000、尾部另有一大串 U+0000 → 不可读
+  const interior = Array.from({ length: 1000 }, (_, i) => (i % 20 < 3 ? NUL : "a")).join("");
+  ok("error" in decodeTextFile(Buffer.concat([Buffer.from(interior, "utf-8"), Buffer.alloc(10_000)])), "decodeTextFile：比例按去掉尾部 U+0000 之后的长度算（中间 15% 是 U+0000 → 不可读，不被尾部稀释）");
+  ok("error" in decodeTextFile(Buffer.alloc(64)), "decodeTextFile：全是 U+0000 → 不可读");
 }
 
 console.log(`\nfiles extracted-text: ${pass} passed, ${fail} failed`);
