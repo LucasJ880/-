@@ -156,7 +156,7 @@ export type WindowExtractionResult =
 export async function runExtractionWindow(
   invoker: LlmInvoker,
   window: SectionWindow,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; deadlineAt?: number } = {},
 ): Promise<WindowExtractionResult> {
   const call = await callStructured(
     invoker,
@@ -169,6 +169,7 @@ export async function runExtractionWindow(
       timeoutMs: Math.max(1_000, Math.min(opts.timeoutMs ?? EXTRACT_TIMEOUT_MS, EXTRACT_TIMEOUT_MS)),
       tenderStage:
         window.sourceRole === "ADDENDUM" ? "addendum" : "understanding",
+      ...(opts.deadlineAt != null ? { deadlineAt: opts.deadlineAt } : {}),
     },
     extractionOutputSchema,
   );
