@@ -535,6 +535,7 @@ run_test "外贸通道入站标识按组织判重（纯逻辑）" "npx tsx src/l
 run_test "外贸通道入站标识跨组织唯一 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/trade/__tests__/channel-inbound-id-db.isolated.test.ts"
 run_test "招标 V2 持久化 lease fence" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts"
 run_test "招标 V2 分片续跑（检查点/parity/重试/fence）" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts"
+run_test "招标 V2 切片截止（重试与换模型不越过截止 / 截止即让出 / 窗口门槛）" "npx tsx src/lib/tender-auto-analysis/__tests__/v2-slice-deadline.test.ts"
 run_test "招标非 PDF 可引用单元切分（sheet/block）" "npx tsx src/lib/tender-auto-analysis/__tests__/document-units.test.ts"
 run_test "招标分析失败告警（文案/收件人/幂等）" "npx tsx src/lib/tender-auto-analysis/__tests__/alerts.test.ts"
 run_test "发布漂移检查（代码 vs 生产库迁移）" "npx tsx src/lib/release/__tests__/drift.test.ts"
