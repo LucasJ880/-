@@ -116,7 +116,7 @@ FIX-17 project files route guard: 12 passed, 2 failed
 
 本机 Postgres 16（`127.0.0.1:5433`，41 个迁移全部应用），`NODE_ENV=test DATABASE_ENVIRONMENT=isolated`。
 
-改动前（2026-11-22 接手后补了用例重跑：退出码 1，59 项里 27 项失败；两个路由文件换回 origin/main 版本，测试不变。响应正文只留状态码）：
+改动前（2026-11-22 接手后补了用例重跑：退出码 1，59 项里 27 项失败——2026-11-22 交叉验证后又补一条「不存在的文件 ID 与真实文件同一个 403」，60 项里 28 项失败；两个路由文件换回 origin/main 版本，测试不变。响应正文只留状态码）：
 
 ```
   ✗ 别的组织的用户调 process-next → 403「无权查看该项目」 — {"status":200,…}
@@ -147,17 +147,34 @@ FIX-17 project files route guard: 12 passed, 2 failed
   ✗ 未分发项目的文件记录与原文件都还在
   ✗ 404 响应都不带文件信息
 FIX-17 project files access (DB + HTTP): 32 passed, 27 failed
+（补那一条之后：32 passed, 28 failed）
 ```
 
 读法：「不存在的项目 ID 调 DELETE → 404」改动前拿到的是「文件不存在」而不是「项目不存在」。改动前就通过的 32 项：未登录与已停用账号的 401、列表与上传的 401 / 403、跨项目文件 ID 的 404、有权限的人的全部用例、super_admin 对未分发项目 200，以及几条兜底断言——「被拒的请求没有生成项目情报、没有入队、没有改项目本身的记录」在夹具下改动前也不会发生（没有摘要、自动入队开关关着、没有可补全的字段），它们只是兜底，真正能区分改动前后的是 403 / 404 本身、文件快照与「待解析的文件没有被解析」（那份待解析文件是一个真实的 txt 原文件，改动前会被解析成 done）。
 
-改动后（退出码 0，连跑 3 次结果相同）：`FIX-17 project files access (DB + HTTP): 59 passed, 0 failed`
+改动后（退出码 0，连跑 3 次结果相同）：`FIX-17 project files access (DB + HTTP): 59 passed, 0 failed`；补那一条之后 `60 passed, 0 failed`（连跑 2 次，2026-11-22，main `01e444b9` 合入之后）
 
 有权限的路径没有触发解析与模型：成员调 `process-next` 走到 `step: "none"`，日志里自动入队的结果是 `auto_disabled`；测试环境没有配任何模型密钥。
 
 ### 5.3 门禁
 
-（全量测试与 CI 子集跑完后补在这里。）
+分支 `claude/zen-turing-azudvx-fix17`。代码提交以合入 main `13c7ed33` 后的 `8ec427d0` 为准跑全量；合入 main `01e444b9`（#547，只动 OpenSpec 与文档）之后重跑 CI 子集与各项校验。
+
+| 门禁 | 结果 |
+|---|---|
+| `npm test`（本机，全新隔离库 `qy_full_fix17`，约 22 分钟） | **`707/717 通过, 10 失败`**；10 项与本机 main `2ef4f9c8` 基线（`703/713`）逐条相同：来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB；没有新增 |
+| CI 环境变量下 `npm run test:ci` | PASS（`8ec427d0`，以及合入 `01e444b9` 后的 `b228342f` 再跑一次） |
+| `npm run typecheck` | 退出码 0 |
+| `npm run lint:baseline` | PASS（无新增 error fingerprint，相对基线少 15 处） |
+| `bash scripts/check-test-registry.sh` | OK，已注册 684 个，历史欠账基线剩余 66 条 |
+| `bash scripts/test-runtime-architecture.sh` | PASS |
+| `openspec validate project-files-access-guard --strict` | valid |
+| 守卫测试 / 隔离库测试（单跑） | 17 / 17；60 / 60 |
+| `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
+
+已知限制（交叉验证提出、不改）：
+- 隔离库里「没有生成项目情报、没有把招标分析入队」「没有改项目本身的记录」两条断言在夹具下改不改都通过（夹具没有摘要、自动入队开关关着、没有可补全的字段），它们只是兜底；能区分改动前后的是 401 / 403 / 404、文件快照、待解析的 txt 没被解析。
+- 守卫测试是静态检查：守卫之前调一个不 await 的本地写库函数会漏报；守卫传错 ID 认不出（现有两个路由由隔离库测试兜着）。它只扫 `files/` 目录，其它目录的接口由 FIX-21 的目录守卫管。
 
 ## 6. 顺带核对：数字员工工具的 `DOCUMENT_PARSE_FAILED` 字符串
 
@@ -195,3 +212,27 @@ FIX-17 project files access (DB + HTTP): 32 passed, 27 failed
   建议另开一个 change 尽快修（同一种修法），由 Evan 定。
 - 已离开组织的人：组织成员身份被停用、项目成员身份还是 active 的人（或仍是项目负责人）照样能处理、**不可恢复地删除**这些文件——项目读权限的判定不看组织成员状态（`src/lib/projects/access.ts` 的既有行为，影响全部项目读接口；移出组织时也不会停掉项目成员身份）。本次不改，另开任务评估。
 - §6 的 `unparsedDocuments`：只写了结论。
+
+## 8. 多维审查与交叉验证
+
+两轮，都只给需求、四件套与 diff，不给结论；每条意见核实后处理。
+
+**第一轮（2026-11-22，五个维度各一个子 agent，都没有阻断项）**
+
+| 维度 | 主要发现 | 处理 |
+|---|---|---|
+| 正确性与回归 | 改前 / 改后 27 行观测一致（解析、摘要、跳过、情报、无事可做、重试、删除四种）；守卫测试漏报三种写法（守卫前调本地写库函数、`export { x as DELETE }`、检查的不是守卫返回值） | **已补**：守卫测试要求守卫是取参数后第一个 `await`、`export {` / `export *` 判失败、检查的变量必须是守卫返回值（自测三条） |
+| 安全 / 隐私与硬纪律 | 10 项绕过实验都挡住；报告 §7 与 proposal 的「没有查」矛盾；注释写「永远 403」不准确 | **已改**：§7 与 proposal 同一份清单并写后果；注释与报告改为「探测不到文件 ID」 |
+| 规格—代码—测试一致性 | 项数与改前失败数写错；Req1「与加检查之前一致」没限定已分发项目；Req6 四条断言改前也过；tasks 1.1 基线没做 | **已改 / 已补**：数字、Req1 限定、待解析文件改为真实 txt 存储（没守卫就会被解析）、1.1 基线；「不改项目记录」那条写明是兜底 |
+| 权限口径 | design 说「上传人本人或管理者能删没有先例」不对（`finance/expenses/[expenseId]`）；删除会级联删页与分析文档关联、`TenderAnalysisSourceRef.documentId` 无外键会悬空 | **已改** design D3 事实；级别由 Evan 2026-11-21 定为读权限（「留给 GATE」A） |
+| 使用流畅与文案 | 报告开头与 TASKFLOW 行缺白话；「FIX-12 在未合并的 #540」过时 | **已改** |
+
+**第二轮：交叉验证（2026-11-22，一个没参与实现与第一轮的子 agent，只看需求、四件套、diff，亲自跑验证）**
+
+- 结论：代码层面没有不能合并的问题；当时唯一的阻断是 §5.3 门禁还是占位、tasks 3.1 没勾 → **已补**（§5.3）。
+- 它亲自跑的：守卫测试 17 / 17；隔离库测试 59 / 59（3 次）；两个路由换回 main 版本后 15 / 2 失败、32 / 27 失败；6 个变异（注释掉守卫、挪到写库或查文件之后）守卫测试全部失败，隔离库测试 5 个失败、1 个通过（DELETE 守卫挪到查文件之后、404 判断之前——被拒时行为等价）；`openspec validate --strict` valid；窄范围 tsc 与 eslint 退出码 0。
+- 权限口径：调用方只有文件抽屉与新建项目的导入横幅，都挂在项目详情页上，而项目详情页要先过同一个 `requireProjectReadAccess`——能看到这两个界面的人不会被误挡。
+- 「探测不到文件 ID」没有直接测 → **已补**一条断言（别的组织的用户用不存在的文件 ID 与用真实文件拿到同一个 403），换回旧路由时失败；隔离库测试现在 60 项。
+- 两条兜底断言在夹具下改不改都通过、守卫测试是静态检查有漏报 / 误报 → 不改，写进 §5.3「已知限制」。
+- TASKFLOW 的 FIX-12 行仍是 `[~]` → 不是本 PR 引入，由 #545（FIX-12 归档）修。
+

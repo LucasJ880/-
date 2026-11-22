@@ -13,7 +13,7 @@
 
 ## 3. 验收
 
-- [ ] 3.1 全部门禁；verify：`npm test` 对照既有失败清单无新增、`npm run test:ci` PASS、`npm run typecheck` 退出码 0、`npm run lint:baseline` PASS、`bash scripts/check-test-registry.sh` OK、`OPENSPEC_TELEMETRY=0 openspec validate project-files-access-guard --strict` valid；1.1 记下的模块测试通过数不减
+- [x] 3.1 全部门禁（结果见报告 §5.3）；verify：`npm test` 对照既有失败清单无新增、`npm run test:ci` PASS、`npm run typecheck` 退出码 0、`npm run lint:baseline` PASS、`bash scripts/check-test-registry.sh` OK、`OPENSPEC_TELEMETRY=0 openspec validate project-files-access-guard --strict` valid；1.1 记下的模块测试通过数不减
 - [x] 3.2 写 `docs/QINGYAN_FIX-17_REPORT.md`（目录下每个路由的守卫清单、改动前 / 改动后的测试输出、门禁结果、`DOCUMENT_PARSE_FAILED` 字符串去向的结论）+ `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 在 FIX 序列末尾加 FIX-17 一行；verify：报告文件存在，TASKFLOW 里 FIX-17 状态为 `[~]`
 
 ## Workflow follow-up

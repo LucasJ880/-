@@ -272,6 +272,9 @@ async function main() {
       ok((await snapshot(blob.doc.id)) === beforeBlob, "被拒的删除：文件记录还在且未变");
       ok(fs.existsSync(blob.absPath), "被拒的删除：存储里的原文件还在");
       ok(noFileInfo(r3), "被拒的 DELETE 响应不带文件信息", r3.body);
+      // 探测不到文件：被拒的人用不存在的文件 ID 拿到的响应与真实文件完全相同（守卫在查文件之前）
+      const r3x = await deleteFile(uOutsider, projA.id, "cm-f17-no-such-file");
+      ok(r3x.status === r3.status && JSON.stringify(r3x.body) === JSON.stringify(r3.body), "别的组织的用户调 DELETE（不存在的文件 ID）→ 与真实文件同一个 403 响应，探测不到文件是否存在", [r3, r3x]);
 
       const r4 = await listFiles(uOutsider, projA.id);
       const r5 = await uploadFiles(uOutsider, projA.id);
