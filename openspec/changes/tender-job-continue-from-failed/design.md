@@ -292,3 +292,7 @@
 
 **G6 合并顺序**
 - 推荐 FIX-20 → FIX-18 → 本 change。本 change 依赖 FIX-20 的错误码、原因规则与执行失败码集合，依赖 FIX-18 的 `canStart`、锁与卡片纯函数，并改同一张卡片的按钮与同一个 POST 接口。
+
+## GATE 结论
+
+Evan 2026-11-22 看过修订版：「GATE 按你的推荐来」——上面「留给 GATE」各条都按推荐（A / B 以各条写的推荐为准）。其中 G1（FIX-20）「GATE 前由有权限的人跑附录 SQL」：容器里没有生产连接，SQL 结果到之前，识别字面量先按 SDK 报错格式推出的「insufficient_quota / exceeded your current quota」实现，结果到后在实现 PR 里核对改正并补进报告 §1。
