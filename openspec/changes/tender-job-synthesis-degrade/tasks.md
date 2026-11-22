@@ -4,7 +4,7 @@
 
 ## 1. 测试先行
 
-- [ ] 1.1 新建两个测试，并在同一步注册。
+- [x] 1.1 新建两个测试，并在同一步注册。
   - 纯函数测试 `src/lib/workforce-runtime/__tests__/step-failure-visibility.test.ts`，覆盖 design「验证方式」第一组：归类规则、降级判定、交接数据的话、重试投影（含重试中让出后）、停止原因新规则与计算时机、`synthesisNotGenerated` 投影、源码断言。注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
   - 隔离库测试 `src/lib/tender-workforce/__tests__/synthesis-degrade-db.isolated.test.ts`：预置 t1–t7 已完成的确定性计划 Job，第 8 步用测试注入口抛「429 You exceeded your current quota, please check your plan and billing details」，用真处理器驱动；另有中断回收、第 3 步失败、契约损坏三组。注册进 `scripts/test-all.sh`。
   - verify：在改动前的代码上运行，余额不足用例失败（第 9 步待开始、Job `needs_human` / `blocked_graph`、原因「前置步骤没有完成」），把输出贴进报告；`bash scripts/check-test-registry.sh` 输出 OK。
