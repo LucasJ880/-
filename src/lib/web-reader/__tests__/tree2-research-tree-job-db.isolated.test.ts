@@ -275,6 +275,9 @@ async function main() {
     const s5 = await startResearchTree({ orgId: ORG, projectId: p5, userId: USER, role: "admin", trigger: "human_start" });
     const analysis = await startTenderWorkforceAnalysis({ orgId: ORG, projectId: p5, projectName: "x", userId: USER, role: "admin" });
     ok(analysis.ok && s5.ok && analysis.jobId !== s5.jobId && analysis.reused === false, "项目有在查的调研 Job 时点 AI 分析：新建自己的 Job", { analysis, s5 });
+    const { cancelTenderWorkforceAnalysis } = await import("@/lib/tender-workforce/trigger-service");
+    const cancel = await cancelTenderWorkforceAnalysis({ orgId: ORG, projectId: p5, jobId: s5.ok ? s5.jobId : "" });
+    ok(!cancel.ok && cancel.code === "NOT_FOUND" && (await db.agentRun.findUniqueOrThrow({ where: { id: s5.ok ? s5.jobId : "" } })).status !== "cancelled", "分析的取消认不出调研 Job（取消不到它）", cancel);
     if (analysis.ok) await db.agentRun.update({ where: { id: analysis.jobId }, data: { status: "cancelled" } });
 
     /* ── 两处同时认领 ── */

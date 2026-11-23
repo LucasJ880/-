@@ -5,8 +5,8 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-23（第 4 次：TREE-1 已合并 #559，归档小 PR 进行中；TREE-2 开工前的调研结论写在 §6） |
-| 当前 main | `99bd7e18`（#559 TREE-1 的合并提交，2026-11-23 08:02 UTC）；开工时是 `451bb0d3`（任务书「依据」写的是 `f016325f`，之间多了 #532 CHAIN-2b、#550、#551，都不碰「依据」里列的文件，依据仍成立——见 §3） |
+| 最后更新 | 2026-11-23（第 5 次：TREE-1 归档 #567 已合并；TREE-2 四件套与实现完成、九维度审查后已改、挑错交叉验证进行中） |
+| 当前 main | `c376be86`（#564 BIDPAGE-3，2026-11-23）；TREE-2 分支已变基到它。TREE-1 合并提交是 `99bd7e18`，归档 #567 合并提交 `86a85724` |
 | 工作分支 | `claude/awesome-maxwell-9wh9m6`（会话指定的唯一可推送分支；八个 PR 依次从它开：上一个合并后把它重置到最新 main 再做下一个） |
 | 授权 | Evan 2026-11-22 20:08：TREE-0 ～ TREE-8 全权交给实现者，PR 自行合并，条件是至少七维度子 agent 独立审查 + 一个挑错子 agent 亲自重跑验证 + 每条意见有去向 + 基于最新 main 重跑门禁。**不在授权内**：改预发 / 生产环境变量与开关、买付费数据、对外发送、改数据库结构、改任务运行时、绕过访问限制 |
 
@@ -15,8 +15,8 @@
 | ID | change | 状态 | PR / 分支 |
 |---|---|---|---|
 | TREE-0 | （随 TREE-1） | 已合并 | 同 TREE-1 |
-| TREE-1 | `public-page-reader` | 已合并（2026-11-23，合并提交 `99bd7e18`）；归档进 `openspec/specs/tender/public-page-reader/spec.md`（归档小 PR） | PR [LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559) |
-| TREE-2 | `research-tree-runtime` | 未开始 | — |
+| TREE-1 | `public-page-reader` | 已合并（2026-11-23，合并提交 `99bd7e18`）；已归档进 `openspec/specs/tender/public-page-reader/spec.md` | PR [LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559)；归档 [LucasJ880/-#567](https://github.com/LucasJ880/-/pull/567) |
+| TREE-2 | `research-tree-runtime` | 审查中（四件套 + 实现 + 九维度审查已改；挑错交叉验证与门禁进行中） | 分支 `claude/awesome-maxwell-9wh9m6`（提交 `44dcdf29` 起），PR 未开 |
 | TREE-3 | `research-branches-awards` | 未开始 | — |
 | TREE-4 | `research-cross-verify` | 未开始 | — |
 | TREE-5 | `research-trunk-view` | 未开始 | — |
@@ -26,10 +26,9 @@
 
 ## 2. 正在做的与下一步
 
-- **TREE-1（含 TREE-0）已合并**：[LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559)，合并提交 `99bd7e18`。最终提交 `ea777e2e`（基于 main `d94e4323`）全量 726/736，10 项失败与 main 新库基线（720/730）逐条相同；八维度（阻断 1 条）+ 六轮挑错（阻断 3 条），均已改，去向见 `docs/QINGYAN_TREE-1_REPORT.md` §5 与 design D12–D16（归档在 `openspec/changes/archive/2026-11-23-public-page-reader/`）。
-- **合并后核对**：新模块没有调用方、没有页面改动、没有迁移（`prisma/`、`vercel.json`、`src/app/**` 无 diff）；唯一改到在用代码的是 `src/lib/trade/email-forward-parse.ts` 改为调用公共的 `html-to-text`（逻辑逐行等价，上限仍传 200000，多轮随机差分 0 处不同）。所以开关关着时生产行为与合并前相同，情报页签代码没动。main 上合并提交 `99bd7e18` 的 CI 在 08:12 UTC 被下一次推送（#536 CHAIN-1b，`51865685`）按并发组取消；含 TREE-1 的 `51865685` 上的 CI 结果由下一次交接更新补上（未核实）。**Vercel**：归档核对子 agent 在 08:09 UTC 读到合并提交上的状态——`Vercel – qingyan-staging` success、`Vercel – -` pending（「Vercel is deploying your app」），即合并后在自动部署；「-」是不是生产项目、部署是否已完成：**未核实**。开关 `TENDER_RESEARCH_TREE_ENABLED` 的生产值：未核实（实现者不读也不改生产环境变量）；即使被设成开，本 PR 也没有任何调用方。
-- **正在做**：归档小 PR（`openspec archive public-page-reader --yes` → 主规格 `tender/public-page-reader` 23 条；TASKFLOW TREE-0 / TREE-1 改 `[x]`；报告表头写上 PR 与合并提交）。
-- **下一步：TREE-2 `research-tree-runtime`**——先读 §6「TREE-2 开工前的调研结论」，再 `/opsx:propose research-tree-runtime`。Lucas 2026-11-23 已同意：在 `src/lib/tender-workforce/tools.ts` 登记调研工具（未合并的 FIX-20 也改这个文件，谁后合并谁解冲突）；睡前交代「需要定的按推荐做」。
+- **TREE-1（含 TREE-0）已合并并归档**：[LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559)（合并提交 `99bd7e18`）、归档 [LucasJ880/-#567](https://github.com/LucasJ880/-/pull/567)（`86a85724`）。合并后核对：新模块没有调用方、没有页面、没有迁移，开关关着时生产行为不变。main 上 `99bd7e18` 的 CI 被下一次推送（#536，`51865685`）按并发组取消；含 TREE-1 的 `51865685` 上的 CI：**success**（2026-11-23 08:30 UTC 核对）。生产部署是否完成、开关的生产值：**未核实**（实现者的工具读不到 Vercel 生产部署，也不读生产环境变量）。
+- **正在做：TREE-2 `research-tree-runtime`**。四件套 `openspec/changes/research-tree-runtime/`（spec 21 条、design D1–D20）；实现在 `src/lib/tender-research-tree/`、接口 `src/app/api/projects/[id]/research-tree/route.ts`；测试四份（纯函数 153、分支循环 84、发起接口隔离库 25、整棵树隔离库 35）。九个维度子 agent 审查 `0330457e`：阻断 2 条（TREE-1 守卫测试变红；事实的值不对照摘录），都已改（`1b9f8e70` 代码与测试、`44dcdf29` 四件套），每条去向见 `docs/QINGYAN_TREE-2_REPORT.md` §5。已变基到 main `c376be86`。
+- **下一步**：挑错交叉验证子 agent 在 `44dcdf29` 上亲自重跑全量门禁、开关关对比与验收 6 / 7 / 9 / 10；实现者在新库上跑分支 `44dcdf29` 与 main `c376be86` 两份全量门禁逐条对比。两者都过 → 填报告 §4、开 PR → CI 绿 → `git fetch` 核对 main 没再动（动了就变基重跑）→ 合并 → 合并后核对 → 归档小 PR → TREE-3。
 
 ## 3. 开工核对（2026-11-23）
 
@@ -57,16 +56,36 @@
 - **D-13（TREE-1，审查后）站点节拍**：同步预约、按时钟对象分开（生产全进程共享）、超过本支剩余时间不预约；额度在真正发出第一个页面请求前一刻扣。
 - **D-14（TREE-1，第二轮挑错后）内部状态与审计历史**：会话与分支状态在读页层内部（WeakMap），对外冻结外观 + 快照；建会话时按 jobId 读 `research.web_read` 审计恢复每支已用额度与被挡站、分支总数 ≤24；每支取 robots ≤12 次；IP 地址的网址不读、被挡站的子域名也算被挡；缓存命中校验形状并强制 untrusted。
 
+- **D-15（TREE-2）调研 Job 的身份**：不设 `metadata.projectId`，项目放 `researchProjectId`；一键分析的卡片、复用、取消、失败收尾都认不出它（不改 `trigger-service.ts` / `job-failure-surfacing.ts`，避开 FIX-20）。design D1。
+- **D-16（TREE-2）六步两波、「初查 / 补查」**：第一波 ③ 用一半额度、第二波甲用全额——对任务书「② 没查到 → ③ 全量」的解释，**待 Evan 确认**。design D2。
+- **D-17（TREE-2）游标放审计 `research.branch_step`、先写后发（模型请求、搜索、读页）**：门禁不许新文件写 `AgentRunStep`，让出时运行时丢掉 `data`。design D4。
+- **D-18（TREE-2）同一网址一棵树只请求一次**：别的支读过 / 被挡过的不再请求（不建持久页面缓存，正文不存）。代价：别的支要的事实恰在那一页上时拿不到。design D7。
+- **D-19（TREE-2）事实核对**：值逐字在摘录里、摘录 ≥12 字、只认 0–9、金额类必须带数；跳到别的站的页不收事实；事实不从搜索摘要里收。design D10。
+- **D-20（TREE-2）树干摘要不放模型自由文字**：未追线索只存类别；待反查只收不带数字 / 货币 / @ / 域名的名字（带数字的公司名会被漏掉，详情在交接单）。design D12。
+- **D-21（TREE-2）「在查」= 排队或运行中**：停在「需要人工处理」的调研 Job 不挡新树（本批没有取消入口）。发起用不阻塞的咨询锁。design D13。
+- **D-22（TREE-2）条款一支本批交「未接通」**（不联网查条款，等 TREE-3 的条款员）。design D15。
+- **D-23（TREE-2）「任何定时任务都不发起」的口径**：只有「开始调研」接口能建调研 Job；建好之后每一片都由既有 agent-runs 处理器执行（config 例外二登记的实现者解释，本 change 第一次用上）。**打开开关前请 Evan 确认**。design D20。
+- **D-24（TREE-2）两份测试放在 `src/lib/web-reader/__tests__/tree2-*`**：要用 TREE-1 真读页层 + 假网络，TREE-1 的守卫只许那个目录引用内部模块；不改守卫。design D17。
+- **D-25（TREE-2）四份既有测试的工具数断言**改为「原 9 个分析工具逐个不变 + 两个调研工具」，`t5-seg2-v2-spine` 的 `runFence` 名单加两项并加更严的 14d。design D18。
+
 ## 5. 判断点与「不确定处」的结论
 
 | 项 | 结论 |
 |---|---|
 | 判断点 1 robots | 按默认：看并遵守；ImportYeti 不看（TREE-1 已实现） |
-| 判断点 2–7 | 按默认（尚未到对应 change） |
+| 判断点 2 何时自动起 | 「确认招标要求时自动起一次」挪到 TREE-5（要动确认入口，与卡片一起做）；TREE-2 的发起服务已接受 `requirements_confirmed` |
+| 判断点 4 花费上限 | 先按次数控制（TREE-2 已实现）；实测用量**未核实**，见 §7 |
+| 判断点 3、5–7 | 按默认（尚未到对应 change） |
 | 不确定处 5（HTML 转文本） | 见 D-1 |
 | 不确定处 7（同址缓存放哪） | TREE-1 定义树级缓存接口、默认进程内；TREE-2 用 Job 步骤结果实现 |
 | 不确定处 8（各站条款与 robots） | 本批 robots 运行时遵守；逐站条款第二批开工前补，**未核实** |
-| 其余（1、2、3、4、6、9、10、11） | 未到对应 change，**未核实** |
+| 不确定处 1（失败收尾） | 不改 `job-failure-surfacing.ts`：调研 Job 不设 `metadata.projectId`，收尾找不到分析记录、什么都不做；隔离库测试用一条真实在跑的分析记录证明不被改（TREE-2 design 不确定处表） |
+| 不确定处 2（中途加步骤） | 不能；两波预先声明（TREE-2 D2） |
+| 不确定处 3（切片与续跑） | 审计游标、先写后发、正文不存、读页与提取同片、来不及的动作记待执行（TREE-2 D4、D5、D11） |
+| 不确定处 4（搜索单价与限速、耗时） | **未核实**（没有真实 key），见 §7 |
+| 不确定处 6（授标金额可见范围） | 项目读权限（`award-history` 路由）；TREE-2 不出读接口、摘要不放金额 |
+| 不确定处 7（同址只读一次放哪） | 一片一个会话；跨片、跨支改为树级拒读（TREE-2 D7） |
+| 其余（9、10、11） | 未到对应 change，**未核实** |
 
 ## 6. 已知问题、没验证到的地方、给后续 change 的硬要求
 
@@ -97,6 +116,12 @@
   - **接口**：照 FIX-21（`src/lib/projects/__tests__/project-routes-guard.test.ts`）——`const { id } = await params` 后第一句 `const x = await requireProjectWriteAccess(request, id)`、紧跟 `if (x instanceof NextResponse) return x`，开关判断放守卫之后（关 → 404）；新路由不用登记。建 Job 先例：`src/app/api/projects/[id]/tender-analysis/agent/route.ts` + `trigger-service.ts:107-231`（事务里 `pg_advisory_xact_lock`）。
   - **页面**：情报页签 `intel-tab.tsx:43-104` 平铺卡片，新卡放 `SourcingSuggestionsCard` 之后；开关在服务端判，卡片请求读接口、404 就不渲染（同 `sourcing-suggestions-card.tsx:101-115`）。
   - **搜索与模型**：`tavilySearchDetailed`（`tender-intel/tavily-client.ts:36-97`，不抛错、不看开关与 key；外部情报开关 `isExternalIntelEnabled` + `hasWebSearchKey` 由调用方判）。搜索词闸：`china-supplier-brief.ts` 现只剩 `containsSensitiveSupplierBriefText`（会误挡 cost / budget）；更合适的是 `muse-bridge/contract.ts:353-374` 的 `containsOutboundSensitive`（不挡 cost / budget）。模型：`createUnifiedRuntimeInvoker` + `callStructured`（`tender-understanding/llm.ts:65-75、:115-252`，截止错误不重试）。
+- **TREE-2 留下的（给 TREE-3 / TREE-4 / TREE-5）**：
+  - 交接单字段见 `src/lib/tender-research-tree/types.ts`：`status` 七种（found / none / blocked / limit / unavailable / not_needed / flag_off），`statusZh` 是短标签，整句在 `notFound[].messageZh`，第二波理由在 `reasonZh`，被挡明细 `blockedSites[{site, messageZh}]`，事实有 `requestedUrl`（跳转过时）。
+  - TREE-3：分支定义在 `fork-rules.ts` 的 `BRANCH_DEFS`（目标句、允许的事实类型、额度缩放）；条款一支 `notWired: true` 要换成条款员；「查到 N 条」现在数的是事实，「同类授标」的条数按 `comparable_award` 事实计——TREE-3 定义结构化记录后，分叉规则里「③ 不足 3 条」要改成按记录数。
+  - TREE-4：核对员重读网址时，同一网址一棵树只请求一次（D7）会挡住它——核对员的读页要另开一个分支键并在设计里写明「复读」不受树级拒读（或复读走缓存的读页结果）；事实的 `url` 是跳转后的网址。
+  - TREE-5：情报室 `summaryJson.researchTree` 只在树干那一步最后写，没有「在查」状态——读取接口要查 Job 与步骤；没有情报室的项目要回退到树干步骤的结果（`researchTree` 在 `outputJson` 里）；状态要显示「未接通」「无需追查」「未开启」；未追线索只有英文类别，页面要映射中文；「确认招标要求时自动起一次」在 TREE-5 做。
+  - 同一支只扛得住一次崩溃（运行时每步 2 次尝试）；Job 停在「需要人工处理」后同项目可以再发起，但旧 Job 没有取消入口（TREE-5 的「重新查」要处理）。
 - **给 TREE-4**：判官方来源 / 不同域名用 `finalUrl` 的主机；「重新读」命中会话缓存是预期行为，要写明。核对员每棵树只调一次模型（config 已登记）：把全部待核事实（值 + 网址 + 重读到的摘录）一次交给它。
 - **给 TREE-5**：`finalUrl` 与正文按不可信显示——只把 http / https 渲染成链接，文字一律转义；被挡明细拼「〈站名〉被挡：〈原因句〉」（站名在 `blocked.site`）。
 - **给 TREE-6**：读网页层不解析 PDF，PDF 只能由人补页——TREE-6 的 PDF 上传走既有的上传解析路径（人提供的文件，信任级与招标文件上传相同），不要调用读网页层；人工补的页不得写进会话缓存（否则别的支与 TREE-4 复读会把粘贴文字当成网上读到的）；独立来源标记、同样 `untrusted: true`。截图读数不调模型（并排给人确认），否则要补登记例外二。
@@ -104,7 +129,7 @@
 
 ## 7. 实测用量
 
-尚无（TREE-2 起才会有真实运行）。
+**未核实**（本地没有搜索 key 与模型 key，只能用假依赖测）。按上限：一棵树最多模型请求 105 次（30 + 15 + 30 + 30）、搜索 56 次、读页 42 次；一次计数的模型请求物理上最多约 18 次网络尝试（`callStructured` 2 × 主备 3 × OpenAI SDK 默认重试 2；SDK 对哪些状态码重试未核实）。预发验收时第一次实测，再定金额上限（判断点 4）。
 
 ## 8. 上线时要设的环境变量（由 Evan / Lucas 设，实现者不碰）
 
