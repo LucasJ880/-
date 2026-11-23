@@ -9,11 +9,11 @@ TASKFLOW：BIDPAGE-1（Phase F（续）— 标书与报价页改版；任务书 
 ## What Changes
 
 - 新增开关 `TENDER_BID_PAGE_V2_ENABLED` + `TENDER_BID_PAGE_V2_ORG_ALLOWLIST`（写法照 `src/lib/tender-bid-workspace/flags.ts`，名单为空 = 所有组织），默认关。
-- 新增只读接口 `GET /api/projects/{id}/bid-page-summary`：总闸关时在任何鉴权与取数之前返回 404；组织不在名单、不是招投标项目时也返回 404；否则返回「下一步」、三个分区各一句状态与看的人能否看金额。金额只给同时有报价内部成本权限（`requireQuoteAccess` 的 `canViewInternal`）与财务查看权（`resolveFinancePrivilege(...).canReadAll`）的人；对任何人都不出成本、毛利、供应商报价。
-- 新增「下一步」查表（纯函数，不调模型）：招标要求未批准且还没往下走 → 已定我方报价 → 有未定的报价（含已批准未选）→ 没有供应商 → 没发过询价（有待批询价卡时改说「等批准后发出」）→ 发了还在等 → 回复了没报价 → 开始做报价，每条带一个只导航的按钮。与任务书的出入见 design D3。
-- 新增新页面：右上角「更多」里放「版本历史」；顶部「下一步」；下面三个可折叠分区「① 找供应商、询价」「② 定报价」「③ 出文件」，标题右侧一句状态，默认展开 `#位置` 所在或「下一步」指向的那一步。三个分区本 change 先挂既有组件（不改它们），由 BIDPAGE-2 / 3 / 4 / 6 / 7 替换；带金额的既有组件（询价区、我方报价卡、报价区、投标工作区）只给看得到金额的人挂，其余人看到一句说明（design D5）。
-- 新增入口组件：项目页「标书与报价」页签改为渲染入口组件；入口没拿到「已开启」时原样渲染旧 `BidTab`，不在浏览器里记任何标记。`src/components/project-detail/tabs/bid-tab.tsx` 一个字不改（任务书附录 C 决定 B）。
-- 在 `.env.example` 登记两个新开关。
+- 新增只读接口 `GET /api/projects/{id}/bid-page-summary`：第一步做项目读权限检查；开关关、组织不在名单、不是招投标项目时返回 404；否则返回「下一步」、三个分区各一句状态与看的人能否看金额 / 报价功能开没开 / 能否生成文件。金额只给同时有报价内部成本权限（`resolveQuoteCapabilities` 的 `canViewInternal`，与 `requireQuoteAccess` 同一个判定）与财务查看权（`resolveFinancePrivilege(...).canReadAll`）的人，与报价引擎开关无关；对任何人都不出成本、毛利、供应商报价。
+- 新增「下一步」查表（纯函数，不调模型）：招标分析未批准且还没往下走 → 已定我方报价 → 有未定的报价（含已批准未选）→ 没有供应商 → 没发过询价（有待批询价卡时改说「等批准后发出」）→ 发了还在等 → 新一轮的卡在等批准 → 回复了没报价 → 开始做报价，每条带一个只导航的按钮；询价按每家供应商最近一次发出的那一轮算。与任务书的出入见 design D3。
+- 新增新页面：右上角「更多」里放「版本历史」；顶部「下一步」；下面三个可折叠分区「① 找供应商、询价」「② 定报价」「③ 出文件」，标题右侧一句状态，默认展开 `#位置` 所在或「下一步」指向的那一步。三个分区本 change 先挂既有组件（不改它们），由 BIDPAGE-2 / 3 / 4 / 6 / 7 替换；带金额的既有组件（询价区、我方报价卡、报价区、投标工作区、「更多」里的版本历史）只给看得到金额的人挂，其余人看到一句说明；没有编辑权限的人在 ③ 看到一句说明（design D5）。
+- 新增入口组件：项目页「标书与报价」页签改为渲染入口组件；入口没拿到「已开启」时原样渲染旧 `BidTab`，不在浏览器里记任何标记；已在新页面上时刷新出错保留当前页面，明确 404 才回旧页面。`src/components/project-detail/tabs/bid-tab.tsx` 一个字不改（任务书附录 C 决定 B）。
+- 登记 `.env.example` 里两个新开关的说明。
 - 新增「开关关 = 零变化」测试：开关关时入口组件的服务端渲染结果与旧 `BidTab` 逐字节相同；入口的旧分支原样渲染旧 `BidTab`、属性不变；入口在接口 404 / 出错 / 说没开时始终渲染旧页面。本 change 的 diff 里没有 `bid-tab.tsx`。
 
 ## Out of scope
@@ -23,7 +23,7 @@ TASKFLOW：BIDPAGE-1（Phase F（续）— 标书与报价页改版；任务书 
 - 不改项目页已有的「下一步」卡（FLOW-H1，`tender/web-next-step`）与 Muse 的 `next_step` 查表。
 - 不改报价引擎、询价、审批、出站、生成文件的任何行为，不改任何既有接口；不改 `computeQuote` 与 `QUOTE_ENGINE_CALC_VERSION`。
 - 不处理已结束 / 已提交 / 已中标的项目（任务书七条没有；项目页 FLOW-H1 卡照旧管）。
-- 专业模式里的运行信息（漂移提示）不在本 change 收口，由 BIDPAGE-3 处理（design D5）。
+- 不改任何旧接口的金额口径（`/quote-engine*`、`/inquiries`、`/quotes`、`GET /api/projects/{id}`）——附录 C 决定 C 留给 CHAIN-2e；新页面的金额门只决定挂不挂组件（design D5）。
 - 不打开、不依赖 `TENDER_BID_WORKSPACE_ENABLED`。
 - 不改环境变量、不打开开关（由 Evan / Lucas 本人操作）。
 

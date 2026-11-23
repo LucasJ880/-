@@ -16,11 +16,6 @@ function envList(v: string | undefined): string[] {
   return (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-/** 总闸：只看 TENDER_BID_PAGE_V2_ENABLED（不看组织）。汇总接口先判它，关着时在任何鉴权与取数之前返回 404 */
-export function isBidPageV2GloballyEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return envBool(env.TENDER_BID_PAGE_V2_ENABLED);
-}
-
 export function isBidPageV2EnabledForOrgWithEnv(orgId: string | null | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
   if (!envBool(env.TENDER_BID_PAGE_V2_ENABLED)) return false;
   if (!orgId) return false;

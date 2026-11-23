@@ -14,12 +14,12 @@
 |---|---|
 | 当前 main | `13c7ed33`（#546 合并后；2026-11-22 核对） |
 | 工作分支 | `claude/laughing-curie-2b9s1v`（每个 PR 合并后从最新 main 重开同名分支做下一个） |
-| 正在做 | BIDPAGE-1 `bid-page-v2-shell`：四件套已写（`openspec validate --strict` valid），开工前审查子代理在跑，实现中 |
-| 下一步 | 实现 BIDPAGE-1 的 tasks 1.1 ～ 3.2 → 全量门禁 → 六维审查 + 交叉验证 → PR → 合并 → 看部署状态 |
+| 正在做 | BIDPAGE-1 `bid-page-v2-shell`：实现完成；开工前审查 1 轮（1 阻断 13 应改，已处理）+ 六维审查（③ 1 阻断、其余无阻断，已处理）；分支已推送，PR 未开 |
+| 下一步 | 审查修改后重跑全量门禁 → 交叉验证子代理（单独库 `qingyan_xv`）→ 变基最新 main → 开 PR → 合并 → 看部署状态 |
 
 | change | ID | 状态 | PR | 分支 |
 |---|---|---|---|---|
-| `bid-page-v2-shell` | BIDPAGE-1 | 实现中 | — | `claude/laughing-curie-2b9s1v` |
+| `bid-page-v2-shell` | BIDPAGE-1 | 审查中 | —（未开） | `claude/laughing-curie-2b9s1v` |
 | `quote-line-mode-persist` | BIDPAGE-3 | 未开始 | — | — |
 | `quote-lump-sum-mode` | BIDPAGE-4 | 未开始 | — | — |
 | `quote-one-step-confirm` | BIDPAGE-6 | 未开始 | — | — |
@@ -48,11 +48,17 @@
 | 不确定处 1 / 4 | 逐行只用引擎一套算法，四个数取引擎；Σ行合计与引擎合计差 ≤ Σ(数量 × 0.005) | 任务书附录 C；BIDPAGE-3 design（待写） |
 | 不确定处 3 | 未核实（BIDPAGE-2 时复现） | — |
 | 不确定处 5 | 实现会话连不上生产库，未核实；用合成数据回归，只读查询留给 Lucas / Evan | BIDPAGE-6 时写出查询 |
-| BIDPAGE-1「下一步」规则顺序 | 「已定」「有草稿」挪到招标要求之后、找供应商之前（否则不走询价的项目永远停在「添加供应商」） | `openspec/changes/bid-page-v2-shell/design.md` D3 |
+| BIDPAGE-1「下一步」规则 | 「已定」「有未定的报价」挪到找供应商之前；招标分析那条只在没往下走时命中；新增「看供应商回复，把报价录入」；询价按每家供应商最近一次算（共 8 条出入） | `openspec/changes/bid-page-v2-shell/design.md` D3 |
+| BIDPAGE-1 金额门 | 内部成本权限（`resolveQuoteCapabilities`）∧ 财务查看权（`canReadAll`），与报价引擎开关无关；只决定新页面挂不挂带金额的旧组件，不是数据保护 | design D4 / D5 |
+| BIDPAGE-1 临时出入 | 看不到金额的人在新页面 ① ② 暂时不能起草询价、编辑报价；BIDPAGE-2 / 3 / 4 / 6 恢复（TASKFLOW 对应行已写明） | design D5；TASKFLOW |
 
 ## 4. 已知问题与没验证到的地方
 
 - 预发验收、生产页面、Sunny 组织 id：实现会话访问不到（未核实）。
+- **旧接口仍给金额**（`/quote-engine*`、`/inquiries`、`/quotes`、`GET /api/projects/{id}` 的 `ourBidPrice` / `winningBidPrice`）：附录 C 决定 C 留给 CHAIN-2e。开关开着时，入口第一次渲染与汇总接口第一次出错时仍是旧页面，期间看不到金额的人照今天的口径拿到金额（不新增暴露）。见 §5 上线前置条件。
+- ③ 的「内部项目分析 PDF」在项目同时有我方报价与中标价时会写出两者，有编辑权、没有财务查看权的人能生成：由 BIDPAGE-7 按金额门处理。
+- 全量门禁的「Mention Gateway M2-A Identity DB」在同一个库上第二次跑会因残留的平台组织 wecom 网关行撞唯一约束（与本任务无关）；跑全量前先删：`DELETE FROM "WeChatGateway" WHERE "orgId"='__qingyan_platform__' AND channel='wecom' AND "corpId" LIKE 'corp_shared_%';`。
+- 本地起过 `next dev` 后，`.next/dev/types/routes.d.ts` 可能被写坏，导致 `npm run typecheck` 报一串 `.next/dev/types` 语法错：删掉 `.next/dev` 再跑。
 - 本地隔离库：容器里 Postgres 16 已起、`vector` 扩展可用（`postgresql-16-pgvector` 装不上但扩展已在），库 `qingyan_test` 已 `prisma migrate deploy`。容器重启后要 `service postgresql start`。
 
 ## 5. 上线时要设的环境变量（八个都合并、预发验收通过后，由 Evan / Lucas 设）
@@ -62,12 +68,18 @@
 | `TENDER_BID_PAGE_V2_ENABLED` | `1` | 新页面总开关 |
 | `TENDER_BID_PAGE_V2_ORG_ALLOWLIST` | `<Sunny 组织 id>`（未核实，待填） | **必须填，不能留空**（留空 = 所有组织） |
 
+**上线前置条件（打开开关之前）**：
+
+1. 八个 change 都已合并，预发验收按任务书「验收」九条走过。
+2. 旧接口的金额口径：CHAIN-2e 已合并；或由 Lucas / Evan 明确接受「开关开着时旧接口照今天的口径给金额」（BIDPAGE-1 design D1 / D5）。
+3. `TENDER_QUOTE_ENGINE_ENABLED` 在生产已开（未核实，任务书说已开）。
+
 ## 6. 本地跑测试
 
 ```bash
 service postgresql start
 export PATH=/opt/node24/bin:$PATH
 export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/qingyan_test" DIRECT_URL="$DATABASE_URL"
-export NODE_ENV=test DATABASE_ENVIRONMENT=isolated JWT_SECRET="test-secret-test-secret-test-secret-0123456789"
+export NODE_ENV=test DATABASE_ENVIRONMENT=isolated JWT_SECRET="<任意 32 位以上的本地测试串>"
 npm test   # 全量；与 main 基线比对失败名单
 ```

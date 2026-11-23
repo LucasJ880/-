@@ -18,8 +18,8 @@ import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier
 import { TenderSourcingEntry } from "@/components/supplier-intel/tender-sourcing-entry";
 import { decideBidPageNextStep, type BidPageFacts, type BidPageView } from "@/lib/bid-page-v2/next-step";
 import { BidTabEntry } from "../bid-tab-entry";
-import { BidPageV2, MoreMenu, NextStepBanner, QUOTE_AMOUNTS_HIDDEN_ZH, SOURCING_AMOUNTS_HIDDEN_ZH, StepSection, initialOpenSection, tabHref } from "../bid-page-v2";
-import { parseSummaryResponse, sectionForAnchor } from "../entry-mode";
+import { BidPageV2, DOCUMENTS_NO_EDIT_ZH, MoreMenu, NextStepBanner, QUOTE_AMOUNTS_HIDDEN_ZH, SOURCING_AMOUNTS_HIDDEN_ZH, StepSection, initialOpenSection, tabHref } from "../bid-page-v2";
+import { classifySummaryResponse, fetchSummary, nextView, parseSummaryResponse, sectionForAnchor } from "../entry-mode";
 
 let pass = 0;
 let fail = 0;
@@ -55,7 +55,7 @@ function facts(o: Partial<BidPageFacts> = {}): BidPageFacts {
     analysisStatus: "APPROVED",
     supplierCount: 3,
     pendingRfqApprovals: 0,
-    inquiry: { askedCount: 2, respondedCount: 1, quotedCount: 1, repliedNoQuoteCount: 0, waitingSince: null },
+    inquiry: { askedCount: 2, respondedCount: 1, quotedCount: 1, repliedNoQuoteCount: 0, waitingCount: 0, waitingSince: null },
     quote: { available: true, bid: { status: "NONE", version: null, amount: null }, openDraft: null, approvedUnselected: 0 },
     documents: { canGenerate: true, generatedKinds: 0 },
     canViewAmounts: false,
@@ -83,10 +83,15 @@ console.log("BIDPAGE-1 新页面与入口");
   const entrySrc = stripComments(read("src/components/bid-page-v2/bid-tab-entry.tsx"));
   ok(/\n  return <BidTab \{\.\.\.props\} \/>;\n\}/.test(entrySrc) && (entrySrc.match(/<BidTab\b/g) ?? []).length === 1, "入口的改版前分支原样渲染 <BidTab {...props} />：同一组件、同样的属性、不加包裹元素、不加 key（停在旧页面时不会重新挂载）");
   ok((entrySrc.match(/<BidPageV2\b/g) ?? []).length === 1 && /if \(view\) return <BidPageV2 \{\.\.\.props\} view=\{view\} \/>;/.test(entrySrc), "只有拿到「已开启」的 view 才渲染新页面");
-  ok(/useState<BidPageView \| null>\(null\)/.test(entrySrc) && /setView\(parsed\.ok \? parsed\.view : null\)/.test(entrySrc), "第一次渲染没有 view（= 改版前页面）；接口没说已开启就回到没有 view");
+  ok(/useState<BidPageView \| null>\(null\)/.test(entrySrc) && /setView\(\(prev\) => nextView\(prev, outcome\)\)/.test(entrySrc), "第一次渲染没有 view（= 改版前页面）；之后按 nextView 决定（见下一节）");
+  const effectBody = entrySrc.slice(entrySrc.indexOf("const onV2 = view !== null;"), entrySrc.indexOf("if (view) return"));
+  ok(/useEffect\(\(\) => \{\s*if \(!onV2\) return;\s*const onFocus/.test(effectBody), "改版前的页面上不挂「回到标签页刷新」的监听（只在新页面上挂）", effectBody);
+  const loadBody = entrySrc.slice(entrySrc.indexOf("const load = useCallback("), entrySrc.indexOf("}, [projectId]);"));
+  ok(loadBody.length > 50 && !/console\.|toast|location|router|history|localStorage|sessionStorage|document\.cookie/.test(loadBody), "入口取数这一段没有打日志、提示、跳转、改地址、写存储", loadBody);
   ok(!/sessionStorage|localStorage/.test(entrySrc) && !/sessionStorage|localStorage/.test(stripComments(read("src/components/bid-page-v2/entry-mode.ts"))), "入口不在浏览器里记「开过」（开过再关时第一次渲染仍是改版前页面）");
   ok(!/apiJson|apiFetch/.test(entrySrc), "入口不用 apiJson（401 时不跳登录、没有副作用）");
-  ok(/fetch\(`\/api\/projects\/\$\{encodeURIComponent\(projectId\)\}\/bid-page-summary`/.test(entrySrc) && !/method:\s*["'](POST|PUT|PATCH|DELETE)/.test(entrySrc), "入口只发一个 GET 汇总请求");
+  const modeSrc = stripComments(read("src/components/bid-page-v2/entry-mode.ts"));
+  ok(/fetchSummary\(projectId, \(input, init\) => fetch\(input, init\)\)/.test(entrySrc) && (entrySrc.match(/fetch\(/g) ?? []).length === 1 && /fetchImpl\(`\/api\/projects\/\$\{encodeURIComponent\(projectId\)\}\/bid-page-summary`, \{ credentials: "include", cache: "no-store" \}\)/.test(modeSrc) && !/method:/.test(modeSrc + entrySrc), "入口只发一个 GET 汇总请求（网址与参数在 fetchSummary 里）");
 
   const page = stripComments(read("src/app/(main)/projects/[id]/page.tsx"));
   ok(page.includes('import { BidTabEntry } from "@/components/bid-page-v2/bid-tab-entry";') && !/import \{ BidTab \}/.test(page), "项目页引入入口组件、不再直接引入 BidTab");
@@ -113,6 +118,41 @@ console.log("BIDPAGE-1 新页面与入口");
   for (const [name, status, body] of bad) ok(!parseSummaryResponse(status, body).ok, `${name} → 改版前页面`);
 
   ok(!parseSummaryResponse(200, { enabled: true, view: { ...good.view, viewer: undefined } }).ok, "200 但 view 缺 viewer → 改版前页面");
+  ok(!parseSummaryResponse(404, good).ok && !parseSummaryResponse(500, good).ok, "状态码不是 200、哪怕内容是合法的「已开启」→ 改版前页面（单独守住状态码判断）");
+  // 结果分类：已开启 / 明确未启用（404）/ 出错
+  ok(classifySummaryResponse(200, good).kind === "enabled" && classifySummaryResponse(404, { error: "x" }).kind === "disabled" && classifySummaryResponse(404, good).kind === "disabled", "分类：200+已开启 → enabled；404（不管内容）→ disabled");
+  ok([[500, good], [401, null], [200, { enabled: false }], [200, null], [302, good]].every(([st, b]) => classifySummaryResponse(st as number, b).kind === "error"), "分类：500 / 401 / 200 但没开 / 不是 JSON / 其它状态 → error");
+}
+
+// —— 2b. 入口真实的取数流程（注入假的 fetch） ——
+async function entryFlow() {
+  const view = decideBidPageNextStep(facts());
+  const good = { enabled: true, view };
+  const res = (status: number, body: unknown, jsonThrows = false) => async () => ({ status, json: async () => { if (jsonThrows) throw new Error("not json"); return body; } });
+  const calls: string[] = [];
+  const spy = (status: number, body: unknown) => async (input: string, init?: { credentials?: string; cache?: string }) => { calls.push(`${input}|${init?.credentials}|${init?.cache}`); return { status, json: async () => body }; };
+  const runs: Array<[string, Parameters<typeof fetchSummary>[1], string]> = [
+    ["200 + 合法的已开启", res(200, good), "enabled"],
+    ["404 + 合法的已开启内容", res(404, good), "disabled"],
+    ["404 + 报错内容", res(404, { error: "新版标书与报价页未启用" }), "disabled"],
+    ["500 + 合法的已开启内容", res(500, good), "error"],
+    ["401", res(401, { error: "未登录" }), "error"],
+    ["200 但不是 JSON", res(200, null, true), "error"],
+    ["200 但 enabled 是字符串", res(200, { ...good, enabled: "true" }), "error"],
+    ["请求本身失败", async () => { throw new TypeError("Failed to fetch"); }, "error"],
+  ];
+  for (const [name, impl, kind] of runs) {
+    const out = await fetchSummary("p 1", impl);
+    ok(out.kind === kind, `取数：${name} → ${kind}`, out);
+  }
+  await fetchSummary("p 1/x", spy(404, null));
+  ok(calls[0] === "/api/projects/p%201%2Fx/bid-page-summary|include|no-store", "只发一个 GET：项目 id 编码进路径，带 cookie、不缓存", calls);
+  // 拿到结果后用哪份汇总
+  const other = decideBidPageNextStep(facts({ supplierCount: 9 }));
+  ok(nextView(null, { kind: "enabled", view }) === view && nextView(null, { kind: "disabled" }) === null && nextView(null, { kind: "error" }) === null, "还没进新页面：只有已开启才换新页面；404 / 出错 → 仍是改版前页面");
+  ok(nextView(view, { kind: "enabled", view: other }) === other, "已在新页面：刷新拿到新的汇总 → 换成新的");
+  ok(nextView(view, { kind: "error" }) === view, "已在新页面：刷新出错（500 / 401 / 断网 / 形状不对）→ 保留当前这份，不退回旧页面");
+  ok(nextView(view, { kind: "disabled" }) === null, "已在新页面：明确 404（开关关了 / 不在名单）→ 回到改版前页面");
 }
 
 // —— 3. 新页面：分区、状态、只展开一个（规格场景「分区与状态」） ——
@@ -137,7 +177,7 @@ console.log("BIDPAGE-1 新页面与入口");
   const reqHtml = render(<BidPageV2 projectId="p1" orgId="o1" canManage view={toReq} />);
   ok(toReq.rule === "requirements_unapproved" && openOf(reqHtml, "sourcing") && reqHtml.includes("去「招标要求」"), "下一步指向招标要求时展开 ①", toReq.rule);
   const also = decideBidPageNextStep(facts({ analysisStatus: "REVIEW_REQUIRED" }));
-  ok(render(<BidPageV2 projectId="p1" orgId="o1" canManage view={also} />).includes("另外：招标要求还没批准"), "已经往下走了、招标要求还没批准：横条顺带一句");
+  ok(render(<BidPageV2 projectId="p1" orgId="o1" canManage view={also} />).includes("另外：招标分析还没批准"), "已经往下走了、招标分析还没批准：横条顺带一句");
   const entryProps = stripComments(read("src/components/bid-page-v2/bid-page-v2.tsx"));
   ok(/view: BidPageView \};/.test(entryProps), "新页面一定带着汇总结果渲染（没有「读取中」的新页面）");
 }
@@ -172,11 +212,18 @@ console.log("BIDPAGE-1 新页面与入口");
   ok(!/<TenderOurBidCard\b|<BidWorkspacePanel\b|<BidQuoteArea\b/.test(no) && /QUOTE_AMOUNTS_HIDDEN_ZH/.test(no) && /id="bid-quote-area"/.test(no), "② 看不到金额的一支：只有说明和位置，没有这三个组件", no);
   ok((pageSrc.match(/<TenderOurBidCard\b/g) ?? []).length === 1 && (pageSrc.match(/<BidWorkspacePanel\b/g) ?? []).length === 1 && (pageSrc.match(/<BidQuoteArea\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectInquirySection\b/g) ?? []).length === 1, "这几个组件在新页面里各只出现一次（没有别处绕过金额门）");
   ok(QUOTE_AMOUNTS_HIDDEN_ZH.length < 80 && /找/.test(QUOTE_AMOUNTS_HIDDEN_ZH) && /找/.test(SOURCING_AMOUNTS_HIDDEN_ZH) && !/[A-Za-z]{3,}/.test(QUOTE_AMOUNTS_HIDDEN_ZH + SOURCING_AMOUNTS_HIDDEN_ZH), "说明是中文、写了找谁");
+  ok(SOURCING_AMOUNTS_HIDDEN_ZH === "询价里会有供应商报价，所以询价区只给项目负责人和有财务查看权的同事看。要起草或查看询价，请找他们。" && QUOTE_AMOUNTS_HIDDEN_ZH === "报价的金额与成本只给项目负责人和有财务查看权的同事看。要做报价或查看金额，请找他们。", "两句说明与规格逐字一致");
+  // 「更多」里的版本历史会经旧接口带出金额：只给看得到金额的人
+  ok(shown.includes("data-testid=\"bid-page-more\"") && !hidden.includes("data-testid=\"bid-page-more\""), "看得到金额：右上角有「更多」；看不到：没有「更多」（里面的版本历史会带出金额）");
+  ok(/\{showAmounts \? <VersionHistoryDrawer /.test(pageSrc) && (pageSrc.match(/<VersionHistoryDrawer\b/g) ?? []).length === 1, "版本历史抽屉只给看得到金额的人挂");
+  // 报价功能没开不影响挂不挂询价区（询价与报价引擎无关）
+  const engineOff = render(<BidPageV2 projectId="p1" orgId="o1" canManage view={decideBidPageNextStep(facts({ canViewAmounts: true, quote: { available: false, bid: { status: "NONE", version: null, amount: null }, openDraft: null, approvedUnselected: 0 } }))} />);
+  ok(engineOff.includes(legacyPieces[0]![1]) && !engineOff.includes(SOURCING_AMOUNTS_HIDDEN_ZH), "报价功能没开、看得到金额的人：照样挂询价区，没有说明");
 }
 
 // —— 4. 「更多」里的版本历史（规格场景「版本历史在更多里」） ——
 {
-  const html = render(<BidPageV2 projectId="p1" orgId="o1" canManage view={decideBidPageNextStep(facts())} />);
+  const html = render(<BidPageV2 projectId="p1" orgId="o1" canManage view={decideBidPageNextStep(facts({ canViewAmounts: true }))} />);
   ok(html.includes("data-testid=\"bid-page-more\"") && html.includes(">更多<"), "右上角有「更多」");
   ok(!html.includes("data-testid=\"open-version-history\""), "顶部没有单独的「版本历史」按钮（菜单收起时也不在页面上）");
   const menu = renderToStaticMarkup(<MoreMenu onOpenVersions={() => undefined} initialOpen />);
@@ -224,5 +271,20 @@ console.log("BIDPAGE-1 新页面与入口");
   ok(opened.includes("aria-expanded=\"true\"") && !/hidden=""/.test(opened) && opened.includes("正在读取…"), "展开：没有 hidden；没状态时写「正在读取…」");
 }
 
-console.log(`\n${pass} 通过，${fail} 失败`);
-if (fail > 0) process.exit(1);
+// —— 8. ③ 对没有编辑权限的人 ——
+{
+  const noEdit = render(<BidPageV2 projectId="p1" orgId="o1" canManage={false} view={decideBidPageNextStep(facts({ documents: { canGenerate: false, generatedKinds: 0 } }))} />);
+  ok(noEdit.includes(DOCUMENTS_NO_EDIT_ZH) && DOCUMENTS_NO_EDIT_ZH === "生成文件需要项目编辑权限，请找项目负责人。", "没有编辑权限：③ 里有「生成文件需要项目编辑权限，请找项目负责人。」（不是一片空白）");
+  const canEdit = render(<BidPageV2 projectId="p1" orgId="o1" canManage view={decideBidPageNextStep(facts())} />);
+  ok(!canEdit.includes(DOCUMENTS_NO_EDIT_ZH), "有编辑权限：没有这句");
+}
+
+entryFlow()
+  .then(() => {
+    console.log(`\n${pass} 通过，${fail} 失败`);
+    if (fail > 0) process.exit(1);
+  })
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

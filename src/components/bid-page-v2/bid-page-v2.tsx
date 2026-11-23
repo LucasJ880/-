@@ -4,8 +4,9 @@
  * BIDPAGE-1 改版后的「标书与报价」页：「更多」（版本历史）→「下一步」→ ① 找供应商、询价 → ② 定报价 → ③ 出文件。
  *
  * - 三个分区本 change 先挂既有组件（不改它们），由 BIDPAGE-2 / 3 / 4 / 6 / 7 替换。
- * - 金额（任务书附录 C 决定 C）：带金额的既有组件（询价轮次里的供应商报价、我方报价卡、报价区、投标工作区）
- *   只给看得到金额的人挂；其余人在那里看到一句说明。新页面自己写的字只用汇总接口给的金额。
+ * - 金额（任务书附录 C 决定 C）：带金额的既有组件（询价轮次里的供应商报价、我方报价卡、报价区、投标工作区、
+ *   「更多」里的版本历史）只给看得到金额的人挂；其余人在那里看到一句说明。新页面自己写的字只用汇总接口给的金额。
+ *   这只是「不挂组件」，不是数据保护：旧接口的口径照旧（决定 C 留给 CHAIN-2e）。
  * - 收起的分区仍挂在页面上、只加 hidden：组件取数照常，页内位置（rfq-section、bid-quote-area、bid-workspace）一直在。
  * - 打开时展开哪个分区：地址里的 #位置 落在哪个分区就展开哪个（优先）；否则展开「下一步」指向的那个。
  * - 「下一步」按钮只导航：展开分区并滚过去，或切到「招标要求」页签。不起草、不批准、不发送、不保存、不生成。
@@ -29,9 +30,10 @@ import { SECTION_ANCHOR, sectionForAnchor } from "./entry-mode";
 
 export type BidPageV2Props = ComponentProps<typeof BidTab> & { view: BidPageView };
 
-/** 看不到金额的人在 ① 询价、② 报价的位置看到的说明 */
-export const SOURCING_AMOUNTS_HIDDEN_ZH = "询价轮次里有供应商报价，只给有财务查看权的人看（项目负责人、持财务查看权的同事）。要起草或查看询价，请找他们。";
-export const QUOTE_AMOUNTS_HIDDEN_ZH = "报价的金额与成本只给有财务查看权的人看（项目负责人、持财务查看权的同事）。要做报价或查看金额，请找他们。";
+/** 看不到金额的人在 ① 询价、② 报价的位置看到的说明；没有编辑权限的人在 ③ 看到的说明 */
+export const SOURCING_AMOUNTS_HIDDEN_ZH = "询价里会有供应商报价，所以询价区只给项目负责人和有财务查看权的同事看。要起草或查看询价，请找他们。";
+export const QUOTE_AMOUNTS_HIDDEN_ZH = "报价的金额与成本只给项目负责人和有财务查看权的同事看。要做报价或查看金额，请找他们。";
+export const DOCUMENTS_NO_EDIT_ZH = "生成文件需要项目编辑权限，请找项目负责人。";
 
 /** 打开时展开哪个：#位置 落在某个分区 → 它；否则「下一步」指向的那个 */
 export function initialOpenSection(hash: string | null | undefined, view: BidPageView): BidPageSection {
@@ -121,14 +123,21 @@ export function BidPageV2({ projectId, orgId, canManage, view }: BidPageV2Props)
         <AmountsHiddenNote textZh={QUOTE_AMOUNTS_HIDDEN_ZH} testId="bid-page-quote-hidden" />
       </div>
     ),
-    documents: <ProjectGenerateMenu projectId={projectId} canManage={canManage} />,
+    documents: view.viewer.canGenerate ? (
+      <ProjectGenerateMenu projectId={projectId} canManage={canManage} />
+    ) : (
+      <AmountsHiddenNote textZh={DOCUMENTS_NO_EDIT_ZH} testId="bid-page-documents-no-edit" />
+    ),
   };
 
   return (
     <div className="space-y-4" data-testid="bid-page-v2">
-      <div className="flex items-center justify-end">
-        <MoreMenu onOpenVersions={() => setVersionsOpen(true)} />
-      </div>
+      {/* 「更多」里的版本历史会带出报价金额与毛利率（旧接口）：只给看得到金额的人 */}
+      {showAmounts ? (
+        <div className="flex items-center justify-end">
+          <MoreMenu onOpenVersions={() => setVersionsOpen(true)} />
+        </div>
+      ) : null}
 
       <NextStepBanner view={view} onGo={go} />
 
@@ -138,7 +147,7 @@ export function BidPageV2({ projectId, orgId, canManage, view }: BidPageV2Props)
         </StepSection>
       ))}
 
-      <VersionHistoryDrawer projectId={projectId} open={versionsOpen} onClose={() => setVersionsOpen(false)} />
+      {showAmounts ? <VersionHistoryDrawer projectId={projectId} open={versionsOpen} onClose={() => setVersionsOpen(false)} /> : null}
     </div>
   );
 }

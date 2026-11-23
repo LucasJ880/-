@@ -16,7 +16,7 @@ function skip(reason: string): never {
 if (!process.env.DATABASE_URL?.trim()) skip("未提供 DATABASE_URL");
 if (process.env.NODE_ENV !== "test") skip("需 NODE_ENV=test");
 if ((process.env.DATABASE_ENVIRONMENT || "").toLowerCase() !== "isolated") skip("需 DATABASE_ENVIRONMENT=isolated");
-assertSafeTestDatabase({ scriptName: "BIDPAGE-1 bid page summary DB test" });
+assertSafeTestDatabase({ scriptName: "BIDPAGE-1 标书与报价页汇总接口 隔离库测试" });
 
 let pass = 0;
 let fail = 0;
@@ -34,7 +34,7 @@ type View = {
   expanded: string;
   sections: Record<"sourcing" | "quote" | "documents", { statusZh: string }>;
   quote: { decided: boolean; amount?: { value: number; currency: string } };
-  viewer: { canViewAmounts: boolean };
+  viewer: { canViewAmounts: boolean; quoteAvailable: boolean; canGenerate: boolean };
 };
 type Body = { enabled?: boolean; view?: View; error?: string };
 
@@ -46,12 +46,12 @@ async function main() {
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
   const route = await import("@/app/api/projects/[id]/bid-page-summary/route");
 
-  console.log("BIDPAGE-1 bid page summary — isolated DB");
+  console.log("BIDPAGE-1 标书与报价页汇总接口——隔离库");
   const stamp = Date.now().toString(36);
   const OWNER = `bpowner_${stamp}`, VIEWER = `bpviewer_${stamp}`, OPERATOR = `bpop_${stamp}`, ORGMATE = `bpmate_${stamp}`, OUTSIDER = `bpout_${stamp}`;
-  const ORGADMIN = `bpadmin_${stamp}`, FINREAD = `bpfin_${stamp}`;
+  const ORGADMIN = `bpadmin_${stamp}`, FINREAD = `bpfin_${stamp}`, BIDS = `bpbids_${stamp}`, PADMIN = `bppadmin_${stamp}`;
   const ORG = `bporg_${stamp}`, ORG_B = `bporgb_${stamp}`;
-  const users = [OWNER, VIEWER, OPERATOR, ORGMATE, OUTSIDER, ORGADMIN, FINREAD];
+  const users = [OWNER, VIEWER, OPERATOR, ORGMATE, OUTSIDER, ORGADMIN, FINREAD, BIDS, PADMIN];
   const email = (id: string) => `${id}@fixture.test`;
   const DAY = 86_400_000;
   const ENV_KEYS = ["TENDER_BID_PAGE_V2_ENABLED", "TENDER_BID_PAGE_V2_ORG_ALLOWLIST", "TENDER_QUOTE_ENGINE_ENABLED", "TENDER_BID_WORKSPACE_ENABLED", "TENDER_WEB_NEXT_STEP_ENABLED"];
@@ -61,7 +61,7 @@ async function main() {
   for (const id of users) await db.user.create({ data: { id, email: email(id), name: `Fixture ${id}`, role: "user" } });
   await db.organization.create({ data: { id: ORG, name: "Fixture Bidder Inc.", code: `bp-${stamp}`, ownerId: OWNER, industryPackId: "window_covering_services_v1" } });
   await db.organization.create({ data: { id: ORG_B, name: "Other Fixture Org", code: `bpb-${stamp}`, ownerId: OUTSIDER } });
-  for (const [u, role] of [[OWNER, "org_admin"], [VIEWER, "org_member"], [OPERATOR, "org_member"], [ORGMATE, "org_member"], [ORGADMIN, "org_admin"], [FINREAD, "org_member"]] as const) {
+  for (const [u, role] of [[OWNER, "org_admin"], [VIEWER, "org_member"], [OPERATOR, "org_member"], [ORGMATE, "org_member"], [ORGADMIN, "org_admin"], [FINREAD, "org_member"], [BIDS, "org_member"], [PADMIN, "org_member"]] as const) {
     await db.organizationMember.create({ data: { orgId: ORG, userId: u, role, status: "active" } });
   }
   // 岗位模板：accounting 在 ORG 范围持 project.finance.read
@@ -69,6 +69,10 @@ async function main() {
   const accounting = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "accounting" } } });
   if (!accounting) throw new Error("缺少岗位模板 accounting");
   await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: FINREAD, roleProfileId: accounting.id, status: "active" } });
+  // 岗位模板：bids（招投标岗）的 project.finance.read 只在 ASSIGNED 范围——不算财务查看权
+  const bidsProfile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "bids" } } });
+  if (!bidsProfile) throw new Error("缺少岗位模板 bids");
+  await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: BIDS, roleProfileId: bidsProfile.id, status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG_B, userId: OUTSIDER, role: "org_admin", status: "active" } });
 
   const projectIds: string[] = [];
@@ -120,14 +124,16 @@ async function main() {
     await db.projectMember.create({ data: { projectId: P, userId: VIEWER, role: "viewer", status: "active" } });
     await db.projectMember.create({ data: { projectId: P, userId: OPERATOR, role: "operator", status: "active" } });
     await db.projectMember.create({ data: { projectId: P, userId: FINREAD, role: "viewer", status: "active" } });
+    await db.projectMember.create({ data: { projectId: P, userId: BIDS, role: "operator", status: "active" } });
+    await db.projectMember.create({ data: { projectId: P, userId: PADMIN, role: "project_admin", status: "active" } });
 
     // —— 1. 开关与权限（规格场景「开关与权限」）——
     const off = await call(P);
     ok(off.status === 404 && !off.body.view && off.body.enabled === undefined, "开关未设：404，没有内容", off.body);
     const offAnon = await call(P, null);
-    ok(offAnon.status === 404 && !offAnon.body.view, "开关未设、没登录：也是 404（总闸在鉴权之前判）", offAnon.status);
+    ok(offAnon.status === 401 && !offAnon.body.view, "开关未设、没登录：401（第一步先做项目读权限检查）", offAnon.status);
     const offOutsider = await call(P, OUTSIDER);
-    ok(offOutsider.status === 404 && !offOutsider.text.includes("Fixture Tender"), "开关未设、别的组织的人：404，没有项目内容", offOutsider.status);
+    ok(offOutsider.status >= 400 && offOutsider.status < 500 && !offOutsider.body.view && !offOutsider.text.includes("Fixture Tender"), "开关未设、别的组织的人：被拒，没有项目内容", offOutsider.status);
     process.env.TENDER_BID_PAGE_V2_ENABLED = "1";
     process.env.TENDER_BID_PAGE_V2_ORG_ALLOWLIST = ORG_B;
     ok((await call(P)).status === 404, "功能只对别的组织开放：404");
@@ -148,7 +154,7 @@ async function main() {
     // —— 2. 七条规则在真实数据上各走一遍 ——
     const before = await snapshot();
     let v = await view(P);
-    ok(v.rule === "requirements_unapproved" && v.reasonZh === "还没有招标分析" && v.action.target.kind === "tab" && v.expanded === "sourcing", "没有分析 → 先去「招标要求」确认要求", v);
+    ok(v.rule === "requirements_unapproved" && v.reasonZh === "还没有招标分析，先到那里发起分析" && v.action.target.kind === "tab" && v.expanded === "sourcing", "没有分析 → 先去「招标要求」确认要求", v);
     await approveRun(P, "REVIEW_REQUIRED");
     v = await view(P);
     ok(v.rule === "requirements_unapproved" && v.reasonZh === "招标分析还没批准", "分析待审 → 仍是先去「招标要求」", v);
@@ -170,7 +176,7 @@ async function main() {
     await db.pendingAction.create({ data: { type: "tender.send_rfq", title: "第 1 轮询价（2 家）", preview: "fixture", payload: { inquiryId: round1.id }, status: "pending", createdById: OWNER, orgId: ORG, projectId: P, expiresAt: new Date(Date.now() + 72 * 3600_000), idempotencyKey: `bp-${stamp}-card1` } });
     await db.pendingAction.create({ data: { type: "tender.send_rfq", title: "过期的卡", preview: "fixture", payload: { inquiryId: round1.id }, status: "pending", createdById: OWNER, orgId: ORG, projectId: P, expiresAt: new Date(Date.now() - 3600_000), idempotencyKey: `bp-${stamp}-card2` } });
     v = await view(P);
-    ok(v.rule === "rfq_pending_approval" && v.reasonZh === "有 1 张询价卡等批准" && v.sections.sourcing.statusZh === "询价已起草，等批准", "两家在待批询价里（过期的卡不算）→ 询价已起草，等批准后发出", v);
+    ok(v.rule === "rfq_pending_approval" && v.reasonZh === "有 1 张发询价卡等批准" && v.sections.sourcing.statusZh === "询价已起草，等批准", "两家在待批询价里（过期的卡不算）→ 询价已起草，等批准后发出", v);
     ok(!JSON.stringify(v).includes("第 1 轮询价（2 家）"), "响应里不出审批卡的标题");
     const viewerV = await view(P, VIEWER);
     ok(viewerV.rule === "rfq_pending_approval", "看不到这张卡的只读成员也得出同一条（不按看的人过滤）", viewerV.rule);
@@ -206,8 +212,8 @@ async function main() {
     ok(owner.body.view?.rule === "bid_decided" && owner.body.view.sections.quote.statusZh === "我方报价 12,345.00 加元，已定" && owner.body.view.quote.amount?.value === 12345 && owner.body.view.quote.amount.currency === "CAD", "项目负责人：我方报价 12,345.00 加元，已定，带金额与币种", owner.body.view);
     ok(owner.body.view?.viewer.canViewAmounts === true, "项目负责人：viewer.canViewAmounts = true");
     const fin = await call(P, FINREAD);
-    ok(fin.status === 200 && fin.body.view?.sections.quote.statusZh === "我方报价 12,345.00 加元，已定" && fin.body.view.viewer.canViewAmounts === true, "持 ORG 范围 project.finance.read 的项目成员：看得到金额", fin.body.view);
-    for (const [who, uid] of [["项目只读成员（带 project:cost:read、没有财务查看权）", VIEWER], ["项目操作员（能看能改内部成本、没有财务查看权）", OPERATOR], ["组织管理员（不是负责人、没有财务键）", ORGADMIN]] as const) {
+    ok(fin.status === 200 && fin.body.view?.sections.quote.statusZh === "我方报价 12,345.00 加元，已定" && fin.body.view.viewer.canViewAmounts === true && fin.body.view.quote.amount?.value === 12345 && fin.body.view.quote.amount.currency === "CAD", "持 ORG 范围 project.finance.read 的项目成员：看得到金额（带金额与币种）", fin.body.view);
+    for (const [who, uid] of [["项目只读成员（带 project:cost:read、没有财务查看权）", VIEWER], ["项目操作员（能看能改内部成本、没有财务查看权）", OPERATOR], ["组织管理员（不是负责人、没有财务键）", ORGADMIN], ["招投标岗（project.finance.read 只在 ASSIGNED 范围）+ 操作员", BIDS], ["项目管理员（没有财务键）", PADMIN]] as const) {
       const r = await call(P, uid);
       ok(r.status === 200 && r.body.view?.rule === "bid_decided" && r.body.view.sections.quote.statusZh === "我方报价已定" && r.body.view.viewer.canViewAmounts === false, `${who}：我方报价已定、viewer.canViewAmounts = false`, r.body.view);
       ok(!/12,?345|9,?876|7,?777|加元|"amount"|"currency"|"CAD"/.test(r.text), `${who}：整个响应里没有金额（12345 / 12345.00 / 12,345.00）、成本、供应商报价与币种`, r.text);
@@ -216,7 +222,10 @@ async function main() {
     ok(!/9,?876|7,?777|estimatedCost|grossMargin|grossProfit|markup|unitPrice|totalPrice|candidates|mirror|"reason"/.test(owner.text), "项目负责人：响应里也没有成本、毛利、供应商报价，也不透传我方报价解析的其它字段", owner.text);
     delete process.env.TENDER_QUOTE_ENGINE_ENABLED;
     const engineOff = await call(P, OWNER);
-    ok(engineOff.status === 200 && engineOff.body.view?.sections.quote.statusZh === "报价功能未开通" && !/12,?345|"amount"/.test(engineOff.text), "报价功能未开通：负责人也拿不到金额", engineOff.text);
+    ok(engineOff.status === 200 && engineOff.body.view?.sections.quote.statusZh === "报价功能未开通" && !/12,?345|"amount"/.test(engineOff.text), "报价功能未开通：负责人也拿不到我方报价金额", engineOff.text);
+    ok(engineOff.body.view?.viewer.canViewAmounts === true && engineOff.body.view.viewer.quoteAvailable === false, "报价功能未开通：负责人的金额门仍是「看得到」（询价区等照挂），只是报价功能标为未开通", engineOff.body.view?.viewer);
+    const engineOffViewer = await call(P, VIEWER);
+    ok(engineOffViewer.body.view?.viewer.canViewAmounts === false, "报价功能未开通：只读成员仍是看不到");
     process.env.TENDER_QUOTE_ENGINE_ENABLED = "1";
 
     // —— 4. 生成文件（有编辑权限的人才说生成了几种）——
@@ -225,7 +234,8 @@ async function main() {
     await db.projectGeneratedDocument.create({ data: { orgId: ORG, projectId: P, docType: "teammate_tasks", title: "garbled", blobUrl: "https://fixture.test/c.pdf", metaJson: null } });
     v = await view(P, OWNER);
     ok(v.sections.documents.statusZh === "已生成 1 种文件", "负责人：同一种生成两次算一种，乱码旧件不算 → 已生成 1 种文件", v.sections.documents);
-    ok((await view(P, VIEWER)).sections.documents.statusZh === "需要项目编辑权限", "只读成员：需要项目编辑权限");
+    const vd = await view(P, VIEWER);
+    ok(vd.sections.documents.statusZh === "生成文件需要项目编辑权限" && vd.viewer.canGenerate === false, "只读成员：生成文件需要项目编辑权限", vd.sections.documents);
     const afterDocs = await snapshot();
 
     // —— 5. 不写库（规格场景「不写库」）——
@@ -272,7 +282,7 @@ async function main() {
     await db.inquiryItem.create({ data: { inquiryId: r5.id, supplierId: sA, status: "replied", sentAt: new Date(Date.now() - 2 * DAY), repliedAt: new Date(), createdById: OWNER } });
     await db.inquiryItem.create({ data: { inquiryId: r5.id, supplierId: sB, status: "declined", sentAt: new Date(Date.now() - 2 * DAY), declinedAt: new Date(), createdById: OWNER } });
     const v5 = await view(P5);
-    ok(v5.rule === "replies_to_record" && v5.reasonZh === "1 家回复了，报价还没录入" && v5.sections.sourcing.statusZh === "2 家已询价，2 家已回", "一家回复没报价、一家拒绝 → 把供应商的报价记下来", v5);
+    ok(v5.rule === "replies_to_record" && v5.headlineZh === "看供应商回复，把报价录入" && v5.reasonZh === "1 家回复了，还没录入报价（先看回复里有没有报价）" && v5.sections.sourcing.statusZh === "2 家已询价，2 家已回", "一家回复没报价、一家拒绝 → 看供应商回复，把报价录入", v5);
 
     // —— 10. 分析待审、但已经发了询价 → 照实际进度，顺带一句 ——
     const P6 = await mkProject();
@@ -280,7 +290,29 @@ async function main() {
     const r6 = await db.projectInquiry.create({ data: { projectId: P6, roundNumber: 1, title: "round 1", scope: "x", status: "in_progress", createdById: OWNER } });
     await db.inquiryItem.create({ data: { inquiryId: r6.id, supplierId: sA, status: "sent", sentAt: new Date(Date.now() - 2 * DAY - 3600_000), createdById: OWNER } });
     const v6 = await view(P6);
-    ok(v6.rule === "waiting_replies" && v6.headlineZh === "等供应商回复（已等 2 天）" && v6.alsoZh === "招标要求还没批准", "分析待审、已发询价 → 等供应商回复，另外说招标要求还没批准", v6);
+    ok(v6.rule === "waiting_replies" && v6.headlineZh === "等供应商回复（已等 2 天）" && v6.alsoZh === "招标分析还没批准", "分析待审、已发询价 → 等供应商回复，另外说招标分析还没批准", v6);
+
+    // —— 10b. 多轮询价：第 1 轮 A 在等 5 天、第 2 轮 B 拒绝 → 等供应商回复（已等 5 天）——
+    const P7 = await mkProject();
+    await approveRun(P7);
+    const r7a = await db.projectInquiry.create({ data: { projectId: P7, roundNumber: 1, title: "round 1", scope: "x", status: "in_progress", createdById: OWNER } });
+    const r7b = await db.projectInquiry.create({ data: { projectId: P7, roundNumber: 2, title: "round 2", scope: "x", status: "in_progress", createdById: OWNER } });
+    await db.inquiryItem.create({ data: { inquiryId: r7a.id, supplierId: sA, status: "sent", sentAt: new Date(Date.now() - 5 * DAY - 3600_000), createdById: OWNER } });
+    await db.inquiryItem.create({ data: { inquiryId: r7b.id, supplierId: sB, status: "declined", sentAt: new Date(Date.now() - DAY), declinedAt: new Date(), createdById: OWNER } });
+    const v7 = await view(P7);
+    ok(v7.rule === "waiting_replies" && v7.headlineZh === "等供应商回复（已等 5 天）" && v7.sections.sourcing.statusZh === "2 家已询价，1 家已回", "上一轮还有人在等、新一轮有人拒绝 → 等供应商回复（已等 5 天），不是开始做报价", v7);
+    // 同一家第 1 轮拒绝、第 2 轮重发在等 → 按最近一次算在等
+    await db.inquiryItem.create({ data: { inquiryId: r7a.id, supplierId: sC, status: "declined", sentAt: new Date(Date.now() - 4 * DAY), declinedAt: new Date(), createdById: OWNER } });
+    await db.inquiryItem.create({ data: { inquiryId: r7b.id, supplierId: sC, status: "sent", sentAt: new Date(Date.now() - DAY), createdById: OWNER } });
+    const v7b = await view(P7);
+    ok(v7b.sections.sourcing.statusZh === "3 家已询价，1 家已回" && v7b.rule === "waiting_replies", "同一家第 1 轮拒绝、第 2 轮重发在等 → 算在等、不算已回", v7b.sections.sourcing);
+    // 已结束的轮次里还挂着「已发出」→ 不算在等
+    const P8 = await mkProject();
+    await approveRun(P8);
+    const r8 = await db.projectInquiry.create({ data: { projectId: P8, roundNumber: 1, title: "round 1", scope: "x", status: "completed", createdById: OWNER } });
+    await db.inquiryItem.create({ data: { inquiryId: r8.id, supplierId: sA, status: "sent", sentAt: new Date(Date.now() - 40 * DAY), createdById: OWNER } });
+    const v8 = await view(P8);
+    ok(v8.rule === "start_quote" && v8.reasonZh === "问过的 1 家都没报价，也可以再问几家", "已结束的轮次里还是「已发出」→ 不算在等，开始做报价", v8);
 
     // —— 11. 别的组织的项目：这边的人被拒 ——
     const PB = await mkProject({ orgId: ORG_B, ownerId: OUTSIDER });
@@ -308,7 +340,7 @@ async function main() {
     await db.$disconnect();
   }
 
-  console.log(`\nBIDPAGE-1 bid page summary DB: ${pass} passed, ${fail} failed`);
+  console.log(`\nBIDPAGE-1 标书与报价页汇总接口 隔离库：${pass} 通过，${fail} 失败`);
   if (fail > 0) process.exit(1);
 }
 
