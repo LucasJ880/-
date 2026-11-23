@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { apiFetch } from "@/lib/api-fetch";
+import { toStorableText } from "@/lib/files/extracted-text";
 import {
   ATTACH_MAX_FILES,
   DOC_EXTENSIONS,
@@ -123,7 +124,9 @@ export function useChatAttachments(options: UseChatAttachmentsOptions): ChatAtta
           return;
         }
         const text = typeof data.text === "string" ? data.text : "";
-        if (!text.trim()) {
+        // FIX-14：U+0000（PDF 勾选框之类抽不出的字形）按空白算——与服务端校验同一条规则，
+        // 只有 U+0000 的文档在这里就提示，不等发送时才被服务端拒绝
+        if (!toStorableText(text).trim()) {
           updatePending(id, {
             status: "error",
             error: kind === "image" ? "图片里没有识别出可用内容" : "没有可提取的文字（扫描件请直接传图片）",
