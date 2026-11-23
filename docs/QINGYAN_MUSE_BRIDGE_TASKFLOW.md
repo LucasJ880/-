@@ -335,6 +335,7 @@
 | 待定 | 公开的自定义流程模板跨企业可见（FIX-23 后续 5）：`GET /api/agent/templates`（`src/app/api/agent/templates/route.ts:22`）按 `isPublic` 列出所有企业的公开模板，`GET /api/agent/templates/:templateId`（`[templateId]/route.ts:28`）返回整条记录、含 `createdById` | FIX-23 | 另开 change；报告 `docs/QINGYAN_FIX-23_REPORT.md` §8 | [ ] |
 | 待定 | 岗位预览中的 super_admin 看最近任务这条路径补一个不连库的用例（FIX-23 后续 6，交叉验证提出）：`GET /api/agent/tasks/recent` 按预览身份判断（`src/lib/auth/index.ts:49,57` 降为 `user`，`src/lib/preview/server.ts:226-230` 只给预览企业的成员身份），目前只有隔离库测试 `recent-view-db.isolated.test.ts` 覆盖，CI 子集不跑；补进截获查询参数的不连库测试（预览身份下检查报告为 `null`、范围按预览企业） | FIX-23 | 另开小 change 或顺手并进下一个改 `src/app/api/agent/tasks/` 的 change；报告 `docs/QINGYAN_FIX-23_REPORT.md` §8 | [ ] |
 | 待定 | 财务特权 / 岗位绑定跟着组织成员身份走（CHAIN-2c 交叉验证 F3）：`src/lib/projects/owner-change-access.ts:24-27` 判「有财务特权」用 `resolveFinancePrivilege`（`src/lib/project-finance/access.ts:50`），只看岗位绑定、不看组织成员身份，删组织成员时也不停岗位绑定；所以组织成员身份已 inactive、仍保留「老板」岗位绑定、仍是项目管理员的人能把负责人换给别人（换给自己会因「新负责人须是本组织在用成员」得 400）。比合并前收窄了、与项目财务接口同口径；要改就是岗位绑定或财务特权跟着组织成员身份走，影响全部按岗位判定的地方 | CHAIN-2c | 另开 change；报告 `docs/QINGYAN_CHAIN-2c_REPORT.md` §8 | [ ] |
+| 待定 | 报价引擎里「写台账」与「同步我方报价」的锁顺序相反，同一事务处理两份报价时会互锁（BIDPAGE-6 开工前审查实测发现，既有）：写台账先对项目行取 `FOR KEY SHARE`，同步我方报价再取 `FOR UPDATE`；BIDPAGE-6 自己在事务开头先锁项目行绕开，专业模式的 `transitionQuote`（`src/lib/quote-engine/service.ts`）只写一次台账、窗口小，没改。修法候选：凡是写台账又同步我方报价的事务，开头先锁项目行 | BIDPAGE-6 | 另开 change；来源 BIDPAGE 会话 2026-11-23 协调消息（`docs/QINGYAN_TENDER_FLOW_HANDOFF.md` §0.5k 第 20 条） | [ ] |
 
 ### Phase F（续）— 询价单 PDF
 
