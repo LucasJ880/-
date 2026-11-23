@@ -148,7 +148,7 @@ function StageCard({ view }: { view: WorkspaceView }) {
       <p className="mt-1 text-xs text-muted">只读的阶段材料齐备就直接做；只有对外发送、付费、提交和需要 Owner 决定的才停下。</p>
       <div className="mt-3 grid gap-3 text-xs sm:grid-cols-3">
         <ListBlock title="缺的材料" empty="不缺" items={lists.missingMaterials.map((m) => `${m.stageZh}：${m.materials.join("、")}`)} />
-        <ListBlock title="未接通、也没有人工材料的来源" empty="没有" items={lists.notConnected.map((n) => `${n.stageZh}：${n.sourceZh}（${n.stateZh}）`)} />
+        <ListBlock title="未接通或仅人工的来源" empty="没有" items={lists.notConnected.map((n) => `${n.stageZh}：${n.sourceZh}（${n.stateZh}）`)} />
         <ListBlock title="等批准的动作" empty="没有" items={lists.awaitingApproval.map((a) => a.stageZh)} />
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
