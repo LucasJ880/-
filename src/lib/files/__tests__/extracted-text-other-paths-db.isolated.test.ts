@@ -318,6 +318,8 @@ async function main() {
       const step = await db.productContentStep.findFirst({ where: { jobId: job.id, stepKey: "analyze_inputs" }, select: { status: true } });
       const after = await db.productContentJob.findUniqueOrThrow({ where: { id: job.id }, select: { status: true } });
       ok(error === null && color?.value === "Red" && color?.sourceLocation === "Color: Red", "规格表一行「\\u0000 Color: Red」：抽出事实 color = Red，原文行为「Color: Red」（改动前写事实失败）", { error, color });
+      const material = facts.find((f) => f.fieldKey === "material");
+      ok(material?.value === "Polyester" && material?.sourceLocation === "Material: Polyester", "不含这两类字符的一行「Material: Polyester」：事实值与原文行原样写入", material);
       ok(facts.length >= 2 && facts.every((f) => !unstorable(f.value) && !unstorable(f.normalizedValue) && !unstorable(f.sourceLocation ?? "")), "抽出的每条事实的值、规范值与原文行都不含 U+0000", facts);
       ok(step?.status === "done" && (after.status === "NEEDS_INPUT" || after.status === "PLAN_READY"), "「分析输入」这一步完成，任务状态按缺字段照常变为 NEEDS_INPUT / PLAN_READY（改动前这一步停在进行中）", { step: step?.status, job: after.status });
 

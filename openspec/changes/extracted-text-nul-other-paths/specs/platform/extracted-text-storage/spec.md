@@ -8,12 +8,12 @@
 
 ### Requirement: 清理规则
 
-本能力里的每一处清理 SHALL 与项目文件解析用同一条规则：每个 U+0000 换成一个空格，每个落单的 UTF-16 代理字符换成 U+FFFD，其余字符（成对的代理字符、中文、制表符、换行）原样保留，清理前后字数相同。不含这两类字符的文字 SHALL 逐字不变。JSON 形状的数据（报价成本表的抽取结果与复核数据、采购记录的明细）SHALL 对其中每一个字符串（含键名）按这条规则清理，结构与非字符串的值不变。
+本能力里的每一处清理 SHALL 与项目文件解析用同一条规则：每个 U+0000 换成一个空格，每个落单的 UTF-16 代理字符换成 U+FFFD，其余字符（成对的代理字符、中文、制表符、换行）原样保留，清理前后字数相同。不含这两类字符的文字 SHALL 逐字不变。JSON 形状的数据（报价成本表的抽取结果与复核数据、采购记录的明细）SHALL 对其中每一个字符串（含键名）按这条规则清理，非字符串的值不变；键名由代码决定、清理后不会撞名时，结构也不变。
 
 #### Scenario: 普通文字不变
 - **WHEN** 五个入口处理的文字不含 U+0000 与落单代理字符（含中文、表情符号、制表符、换行）
 - **THEN** 送进模型的提示、写入数据库的内容与对话标题与改动前逐字相同
-- **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts`、`npx tsx src/lib/tender-rfq/__tests__/inbound-parse.test.ts`、`npx tsx src/lib/tender-rfq/__tests__/inbound-apply.test.ts`、`npx tsx src/lib/trade/__tests__/chat-attachments.test.ts`、`npx tsx src/lib/quote-engine/__tests__/quote-import.test.ts`、`npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts` 通过
+- **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts`、`npx tsx src/lib/tender-rfq/__tests__/inbound-parse.test.ts`、`npx tsx src/lib/tender-rfq/__tests__/inbound-apply.test.ts`、`npx tsx src/lib/trade/__tests__/chat-attachments.test.ts`、`npx tsx src/lib/quote-engine/__tests__/quote-import.test.ts`、`NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts`（采购附件）通过；产品资料一路由 `npx tsx src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts`「产品资料录入」段覆盖（不含这两类字符的「Material: Polyester」一行，事实值与原文行原样写入）
 
 #### Scenario: JSON 形状的数据
 - **WHEN** 一份数据的键名与嵌套数组里的字符串含 U+0000 与落单高位代理字符，另有数字、布尔值与 null
@@ -34,7 +34,7 @@
 系统处理供应商询价回信时，SHALL 先清理每个附件抽出的文字与附件文件名，再判断该附件有没有可提取的文字；清理后只剩空白的附件 SHALL 记为「附件无可提取文本（可能是扫描件）」，SHALL NOT 记为已解析。之后用到附件文件名的地方（送进模型的附件清单、报价备注里的附件一栏）SHALL 都是清理后的文件名。
 
 #### Scenario: 只有 U+0000 的附件
-- **WHEN** 一封回信的 PDF 附件抽出的文字只由 U+0000 与换行组成
+- **WHEN** 一封回信的 PDF 附件抽出的文字只由 U+0000 组成（夹具抽出 5 个 U+0000）
 - **THEN** 该附件记为未解析，报价备注里写「〈文件名〉 附件无可提取文本（可能是扫描件）」
 - **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过
 
@@ -57,6 +57,11 @@
 - **THEN** 模型收到的提示里没有 U+0000，抄出的证据通过核对，该家询价条目变为「已报价」，没有「解析失败」审计，也没有「有一封供应商回信解析失败，请手工录入」通知（改动前抄出的证据带 U+0000，写报价备注报 22021，条目停在「已回复」）
 - **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 与 `npx tsx src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts` 通过
 
+#### Scenario: U+0000 夹在数字中间
+- **WHEN** 回信的文本附件里是「Unit price CAD 1\u000025 per flag」，模型报单价 125、证据写「Unit price CAD 125 per flag」
+- **THEN** 证据通过核对、单价 125 入表（核对证据时去掉全部空白，与原文本来就是「1 25」时相同），报价备注附件一栏带「请打开原件核对勾选项和价格」的提示；模型编造的、证据里没有的数字仍然作废
+- **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过
+
 #### Scenario: 截断劈开代理对
 - **WHEN** 拼好的回信文字恰好在送进模型的字数上限处劈开一个表情符号
 - **THEN** 送进模型的回信文字以 U+FFFD 结尾，没有落单代理字符
@@ -78,12 +83,27 @@
 
 ### Requirement: 询价回信附件里有被换掉的 U+0000 时在报价备注里注明
 
-询价回信的某个附件抽出的文字里有 U+0000 被换成空格、且该附件仍记为已解析时，系统 SHALL 在报价备注附件一栏该附件的「已解析」之后写「（有 N 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）」，N 为该附件被换掉的 U+0000 个数；没有 U+0000 的附件 SHALL 照旧只写「已解析」。这句话与个数 SHALL NOT 进入通知、Muse 事件与送进模型的提示，个数只记在报价备注与这封回信的审计里；这句话 SHALL NOT 改变入表、证据核对与比价回读报价备注的结果。
+询价回信的某个附件抽出的文字里有 U+0000 被换成空格、且该附件仍记为已解析时，系统 SHALL 在报价备注附件一栏该附件的「已解析」之后写「（有 N 处符号没读出来，已当空格处理，多半是勾选框；请打开原件核对勾选项和价格）」，N 为该附件被换掉的 U+0000 个数；没有 U+0000 的附件 SHALL 照旧只写「已解析」；邮件正文里的 U+0000 照样清理，但 SHALL NOT 计数、SHALL NOT 加这句话。这句话与个数 SHALL NOT 进入通知、Muse 事件与询价回信解析时送进模型的提示，个数只记在报价备注与这封回信的审计里；这句话 SHALL NOT 改变入表、证据核对与比价回读报价备注的结果。报价备注整份会进既有的报价草稿与报价分析等模型提示，这句话随备注一起进去（既有链路，不是本能力新增）。
 
 #### Scenario: 附件里一个勾选框
 - **WHEN** 回信的 PDF 附件「q.pdf」里一个勾选框被抽成 U+0000，附件其余文字正常
-- **THEN** 报价备注附件一栏为「附件：q.pdf 已解析（有 1 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）」，价格与交期照常入表，送进模型的提示里没有这句话
+- **THEN** 报价备注附件一栏为「附件：q.pdf 已解析（有 1 处符号没读出来，已当空格处理，多半是勾选框；请打开原件核对勾选项和价格）」，价格与交期照常入表，询价回信解析时送进模型的提示里没有这句话（附件清单一行逐字为「附件：q.pdf」）；界面上这句话只在项目「投标」页询价表的「备注」列里看得到（格子截断，要悬停看全文），比价表、询价追踪、「报价了」通知与 Muse 都不显示
 - **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过
+
+#### Scenario: 一份附件里 3 个勾选框
+- **WHEN** 回信 PDF 附件的价格行里有 3 个被抽成 U+0000 的勾选框字形
+- **THEN** 附件一栏写「有 3 处符号没读出来」
+- **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过
+
+#### Scenario: 邮件正文里的 U+0000
+- **WHEN** 回信没有附件，正文同一行「Unit price CAD 12.50 per flag」与「Delivery 30 days」之间有一个 U+0000
+- **THEN** 送进模型前换成空格、价格通过核对；报价备注里没有那句提示
+- **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过
+
+#### Scenario: 通知与改动前相同
+- **WHEN** 同一封回信，一份附件里有勾选框、一份没有，各自入表
+- **THEN** 两边新增通知的条数、标题与摘要逐字相同，那句提示只在前者的报价备注里
+- **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts` 通过
 
 #### Scenario: 附件没有 U+0000
 - **WHEN** 回信附件的文字不含 U+0000
@@ -130,7 +150,7 @@
 
 ### Requirement: AI 对话附件在服务端收下时清理
 
-系统收到 AI 对话消息带的附件时（主助手、项目「问青砚」、外贸对话），存进消息记录的与送进模型的 SHALL 都是清理后的附件，文件名与正文都 SHALL NOT 含 U+0000 或落单代理字符：新客户端提交的附件列表 SHALL 先清理文件名与正文、再做「有没有可分析的文本」与长度校验；旧客户端只提交的单个文件文字（主助手与项目「问青砚」接受）SHALL 在按字数截断文件名与正文之后清理，不留截断处的半个代理对。新方式下附件正文清理后只剩空白时，系统 SHALL 以 400 拒绝并返回「附件「〈文件名〉」没有可分析的文本内容」，不写消息；旧方式下按没有附件处理。
+系统收到 AI 对话消息带的附件时（主助手、项目「问青砚」、外贸对话），存进消息记录的与送进模型的 SHALL 都是清理后的附件，文件名与正文都 SHALL NOT 含 U+0000 或落单代理字符：新客户端提交的附件列表 SHALL 先清理文件名与正文、再做「有没有可分析的文本」与长度校验（文件名先清理再去首尾空白）；旧客户端只提交的单个文件文字（主助手与项目「问青砚」接受）SHALL 在按字数截断文件名与正文之后清理，不留截断处的半个代理对，文件名被清理改动时再去首尾空白。新方式下附件正文清理后只剩空白时，系统 SHALL 以 400 拒绝并返回「附件「〈文件名〉」没有可提取的文字（扫描件请直接传图片）」，不写消息；旧方式下正文清理掉了这两类字符、且清理后只剩空白时按没有附件处理（这时消息也没有正文的，按既有规则 400「消息不能为空」），没清理掉什么时与改动前完全相同。浏览器上传文档时 SHALL 按同一条规则判空：只有 U+0000 的文档当场提示「没有可提取的文字（扫描件请直接传图片）」，不等发送时才被拒。
 
 #### Scenario: 文档附件带 U+0000
 - **WHEN** 用户发一条消息，附件正文是勾选框被抽成 U+0000 的 PDF 文字
@@ -139,7 +159,12 @@
 
 #### Scenario: 附件正文只有 U+0000
 - **WHEN** 新客户端提交的附件「a.pdf」正文只由 U+0000 组成
-- **THEN** 校验失败，返回「附件「a.pdf」没有可分析的文本内容」
+- **THEN** 校验失败，接口以 400 返回「附件「a.pdf」没有可提取的文字（扫描件请直接传图片）」；浏览器上传时同一份文档已当场提示「没有可提取的文字（扫描件请直接传图片）」
+- **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过（校验结果与两个路由返回 400、浏览器判空的接线断言）
+
+#### Scenario: 文件名以 U+0000 结尾或只有 U+0000
+- **WHEN** 新客户端或旧客户端提交的文件名为「a.pdf\u0000」，或只由 U+0000 组成
+- **THEN** 两种方式的文件名都为「a.pdf」；只由 U+0000 组成时，新方式返回「附件缺少文件名」，旧方式按「上传文件」处理
 - **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过
 
 #### Scenario: 旧客户端的文字劈开代理对
@@ -154,12 +179,17 @@
 
 ### Requirement: 对话标题截断后入库前清理
 
-系统用消息文字或附件名（没有文字时为「附件：〈文件名〉」）生成对话标题并按字数截断时（主助手与项目「问青砚」截 60 字、外贸对话截 30 字后加「...」、助手跟进任务截 60 字），写入的标题 SHALL NOT 含 U+0000 或落单代理字符：截断处劈开的半个代理对 SHALL 换成 U+FFFD，标题其余部分与改动前相同。
+系统用消息文字或附件名（没有文字时为「附件：〈文件名〉」）生成对话标题并按字数截断时（主助手与项目「问青砚」截 60 字、外贸对话截 30 字后加「...」、助手跟进任务截 60 字、主助手分流落库截 60 字），写入的标题 SHALL NOT 含 U+0000 或落单代理字符：截断处劈开的半个代理对 SHALL 换成 U+FFFD，标题其余部分与改动前相同。
 
 #### Scenario: 只发附件、文件名在标题截断处劈开表情符号
 - **WHEN** 用户在新对话里只发一个附件，「附件：〈文件名〉」的第 60 字处劈开一个表情符号
 - **THEN** 对话标题为前 60 字、以 U+FFFD 结尾，标题写入成功（改动前写标题报 `InvalidArg`，这一轮对话报错）
 - **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 与 `npx tsx src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts` 通过
+
+#### Scenario: 分流落库的标题
+- **WHEN** 新对话的第一条消息被主助手分流落库（如不支持的操作），打的字在第 60 字处劈开一个表情符号
+- **THEN** 对话标题为前 60 字、以 U+FFFD 结尾，标题写入成功（改动前 `InvalidArg`）
+- **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts` 通过
 
 #### Scenario: 外贸对话的标题
 - **WHEN** 外贸对话的第一条消息文字在第 30 字处劈开一个表情符号
@@ -167,8 +197,8 @@
 - **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过
 
 #### Scenario: 每个生成标题的地方都经过清理
-- **WHEN** 检查两个对话接口与助手跟进任务的源码
-- **THEN** 5 处生成对话标题的地方都经同一处「截断再清理」，没有直接截断后写库的写法
+- **WHEN** 检查两个对话接口、助手跟进任务与主助手分流的源码
+- **THEN** 6 处生成对话标题的地方都经同一处「截断再清理」，没有直接截断（slice / substring / substr）后写库的写法
 - **AND** 测试 `npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过（接线断言）
 
 ### Requirement: 转为市场调研时写入的市场证据入库前不含不可入库的字符

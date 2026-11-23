@@ -17,7 +17,7 @@
 
 ## 3. AI 对话附件、对话标题与市场调研
 
-- [x] 3.1 `src/lib/chat-attachments/core.ts`：新方式先清理文件名与正文、再做「有没有可分析的文本」与长度校验；旧方式照旧截断（文件名 200 字、正文 15 万字）、截断之后清理、清理之后再判空；加一个「截断到 N 字再清理」的标题函数，`src/app/api/ai/threads/[threadId]/messages/route.ts`（`:431`、`:720`、`:1241`）、`src/app/api/trade/chat/[sessionId]/messages/route.ts`（`:123`，「...」在清理之后拼）、`src/lib/assistant/followup-task.ts`（`:235`）生成标题改用它；`src/lib/market-intelligence/research-runtime.ts` 的市场证据在截到 2 万字之后再清理；两个测试文件补用例（正文带 U+0000、正文只有 U+0000 → 「附件「a.pdf」没有可分析的文本内容」、旧方式正文第 15 万字与文件名第 200 字处劈开表情符号、只发附件时「附件：〈文件名〉」第 60 字处劈开表情符号、外贸对话标题第 30 字处劈开；接线断言：两个对话路由与跟进任务只用校验后的附件写库、5 处标题都经同一个标题函数、没有直接截断标题的写法；隔离库写 `AiMessage` / `TradeChatMessage`（含旧方式文件名劈开的附件）、用劈开表情符号的标题写 `AiThread.title` / `TradeChatSession.title`，并用在截断处劈开表情符号的市场证据跑 `queueMarketResearchRequest`，先在改动前看到 22P05 / `InvalidArg`）；verify：两个新测试全过；`npx tsx src/lib/trade/__tests__/chat-attachments.test.ts`、`npx tsx src/lib/assistant/__tests__/durable-followup-pure.test.ts` 与读这两个路由源码的既有守卫测试（`npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts`、`tool-list-modules.test.ts`、`mail-tool-visibility.test.ts`，`npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts`，`npx tsx src/lib/authorization/__tests__/digital-employee.test.ts`、`residual-reads.test.ts`）照旧通过
+- [x] 3.1 `src/lib/chat-attachments/core.ts`：新方式先清理文件名与正文、再做「有没有可分析的文本」与长度校验；旧方式照旧截断（文件名 200 字、正文 15 万字）、截断之后清理、清理之后再判空；加一个「截断到 N 字再清理」的标题函数，`src/app/api/ai/threads/[threadId]/messages/route.ts`（`:431`、`:720`、`:1241`）、`src/app/api/trade/chat/[sessionId]/messages/route.ts`（`:123`，「...」在清理之后拼）、`src/lib/assistant/followup-task.ts`（`:235`）生成标题改用它（多维审查补上第 6 处 `src/lib/assistant/dispatch.ts:196`，并把浏览器上传判空 `src/components/chat-attachments/use-chat-attachments.ts` 改成同一条规则）；`src/lib/market-intelligence/research-runtime.ts` 的市场证据在截到 2 万字之后再清理；两个测试文件补用例（正文带 U+0000、正文只有 U+0000 → 「附件「a.pdf」没有可分析的文本内容」、旧方式正文第 15 万字与文件名第 200 字处劈开表情符号、只发附件时「附件：〈文件名〉」第 60 字处劈开表情符号、外贸对话标题第 30 字处劈开；接线断言：两个对话路由与跟进任务只用校验后的附件写库、5 处标题都经同一个标题函数、没有直接截断标题的写法；隔离库写 `AiMessage` / `TradeChatMessage`（含旧方式文件名劈开的附件）、用劈开表情符号的标题写 `AiThread.title` / `TradeChatSession.title`，并用在截断处劈开表情符号的市场证据跑 `queueMarketResearchRequest`，先在改动前看到 22P05 / `InvalidArg`）；verify：两个新测试全过；`npx tsx src/lib/trade/__tests__/chat-attachments.test.ts`、`npx tsx src/lib/assistant/__tests__/durable-followup-pure.test.ts` 与读这两个路由源码的既有守卫测试（`npx tsx src/lib/agent-core/__tests__/mail-untrusted-guard.test.ts`、`tool-list-modules.test.ts`、`mail-tool-visibility.test.ts`，`npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts`，`npx tsx src/lib/authorization/__tests__/digital-employee.test.ts`、`residual-reads.test.ts`）照旧通过
 
 ## 4. 产品资料录入
 
@@ -43,15 +43,18 @@
     - 多维审查结论；
     - 没做的：四处导入接口（G4 已定 A：只写在这里，不登记后续任务）、对话标题 5 处以外把用户打的字截断后写库的地方、手工构造的 `blobPath`，以及下面登记的其余后续任务。
   - 三处询价开关前提（本实现 PR 里改）：`docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 的「填写顺序」（`:8`）与第 7 行「建议值」（`:19`）、`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的 CHAIN-0 行（main `13c7ed33` 与 `d94e4323` 上都是 `:284`，以 grep 定位为准），都改成「CHAIN-4b 合并且 FIX-14 部署之后」再开三个询价开关；核查表「原值 / 新值 / 日期」三列不填。
-  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：「Phase F（续）— 情报串联」表 FIX-13 之后新增 FIX-14 一行，依赖 FIX-13，状态 `[~]`。同时登记 7 条后续任务，各一行，编号写「待定」，状态 `[ ]`：
-    1. 对话标题 5 处以外，把用户打的字按字数截断后写入文本列的地方没有逐处排查，截断劈开表情符号会写库失败（全仓 `.slice(0, N)` 之后写库的地方）；
+  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：「Phase F（续）— 情报串联」表 FIX-13 之后新增 FIX-14 一行，依赖 FIX-13，状态 `[~]`。同时登记后续任务，各一行，编号写「待定」，状态 `[ ]`（原 7 条；多维审查后加 8、9 两条，并登记编号为 FIX-24 的一行，四件套由协调会话另写）：
+    1. 对话标题 6 处以外（多维审查已把 `src/lib/assistant/dispatch.ts:196` 并进本 change），把用户打的字按字数截断后写入文本列的地方没有逐处排查，截断劈开表情符号会写库失败（全仓 `.slice(0, N)` 之后写库的地方）；
     2. AI 对话附件的 `blobPath`：手工构造带 U+0000 的路径写库报 22P05、接口返回 500（`src/lib/chat-attachments/core.ts:122` 只去首尾空白与查前缀）；
     3. 采购记录附件认领满 5 次后一直停在「解析中」、不记原因，界面上没有出路（`src/lib/procurement-records/attachments.ts:172`、`:256`）；
     4. 采购记录附件 `FAILED`（如「存储读取失败，稍后重试」）不被定时任务再认领，标签却写「解析失败（稍后重试）」（`attachments.ts:184`、`:256`，`src/lib/procurement-records/labels.ts:203`）；
     5. 采购记录附件 CSV / 纯文本按 UTF-8 读，带字节序标记的 UTF-16 CSV（Excel「Unicode 文本」导出）被判「文件损坏」，等有真实样本再定是否改用 `decodeTextFile`（G3 已定 A；`attachments.ts:122–124`）；
     6. 询价回信写库失败时不回滚：条目已被改成「已回复」，走「已回复」的还已推「收到回复」Muse 事件；失败后也不重试，只通知人工录入（`src/lib/tender-rfq/inbound-sync.ts:258–272`、`:390`、`:412–414`）；
-    7. 产品资料录入的解析报错（`parseResultJson.error`）与「分析输入」一步的 `parseNotes`（含文件名、网址、异常原文）写 jsonb 前没有清理与收口（`src/lib/product-content/intake/analyze.ts:217–221`、`:301`、`:343`）。
-  - verify：报告存在，含「没有开关，合并即在生产生效」与「合并后要人做的事」两节；`grep -c "FIX-14 部署之后" docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 为 2；`grep -n "^| CHAIN-0 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 那一行含「FIX-14 部署之后」；`grep -n "^| FIX-14 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行且行号大于 FIX-13 那一行；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于（原有 + 7），原有为开工前提里记下的条数（main `13c7ed33` 上为 0，合入 `d94e4323` 后为 17）。
+    7. 产品资料录入的解析报错（`parseResultJson.error`）与「分析输入」一步的 `parseNotes`（含文件名、网址、异常原文）写 jsonb 前没有清理与收口（`src/lib/product-content/intake/analyze.ts:217–221`、`:301`、`:343`）；
+    8. 询价备注里「有 N 处符号没读出来」的提示在界面上露出来（目前只在项目「投标」页询价表「备注」列悬停时看得到，例如把附件一栏前移或给该行加标记；来源：FIX-14 文案审查 U1）；
+    9. 主助手页发送失败时不吞掉报错（已有回复的对话里收到 400 / 500 会「找回回复」、刚发的消息消失且不显示原因，`src/app/(main)/assistant/page.tsx:319–370`、`:793–795`；来源：FIX-14 文案审查 U3）；
+    - FIX-24（编号已定，`[ ]`，三个询价开关打开之前必须上线）：供应商控制的附件文件名能伪造报价备注的结构化字段（文件名原样拼进 `[auto]` 段，`src/lib/tender-rfq/inbound-apply.ts`；`notes-parse.ts` 按「；」与换行切开回读），绕过证据闸影响比价与追问（来源：FIX-14 安全审查 S5）。
+  - verify：报告存在，含「没有开关，合并即在生产生效」与「合并后要人做的事」两节；`grep -c "FIX-14 部署之后" docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 为 2；`grep -n "^| CHAIN-0 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 那一行含「FIX-14 部署之后」；`grep -n "^| FIX-14 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行且行号大于 FIX-13 那一行；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于（原有 + 9），原有为开工前提里记下的条数（main `13c7ed33` 上为 0，合入 `d94e4323` 后为 17，审查后合入 `2a0eb964` 后为 19）；`grep -n "^| FIX-24 "` 有一行。
 
 ## Workflow follow-up
 
