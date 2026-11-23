@@ -7,6 +7,7 @@
 | 拍板 | Lucas 2026-11-20 GATE：「别名裁决只允许组织管理员做，并做撤回（同样只限组织管理员，撤回写审计记录）。单独开一个 change。」 |
 | OpenSpec change | `openspec/changes/import-leads-alias-admin-revoke/`（修改 `tender/import-leads`：改 6 条（其中「导入框与导入结果」只改说法，「情报页签的供应链槽」改说法并引用单独计数那一行）、新增 5 条） |
 | 基线 | origin/main `91d928e4`（CHAIN-3 归档 #531 之后） |
+| PR | #534，2026-11-23 合并（合并提交 `a8caa985`）；归档 `openspec/changes/archive/2026-11-23-import-leads-alias-admin-revoke/`；归档后 `openspec validate --specs --strict` 151 / 151 |
 | 开关 | 沿用 `TENDER_IMPORT_LEADS_ENABLED`（默认关）；没有新开关 |
 
 ## 1. 做了什么
