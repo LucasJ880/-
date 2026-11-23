@@ -8,7 +8,7 @@
 
 ## 2. 删去利润率
 
-- [ ] 2.1 `src/lib/quote/export-pdf.ts` 删去合计里的「Profit Margin」一行（verify：`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts` 退出码 0、全部通过；`git diff origin/main --stat -- src/` 只有 `export-pdf.ts` 与新测试）
+- [x] 2.1 `src/lib/quote/export-pdf.ts` 删去合计里的「Profit Margin」一行（verify：`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts` 退出码 0、全部通过；`git diff origin/main --stat -- src/` 只有 `export-pdf.ts` 与新测试）
 
 ## 3. 门禁
 
