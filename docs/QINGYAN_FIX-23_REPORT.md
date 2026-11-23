@@ -5,9 +5,10 @@
 | 项 | 值 |
 |---|---|
 | change | `agent-tasks-recent-safe-view`（新能力 `agents/agent-tasks-recent-view`，10 条要求） |
-| TASKFLOW | FIX-23（Phase F（续）— 情报串联表，FIX-21 后续 9；FIX-21 登记的那一行已改写并挪到 FIX-21 后续各行之后），另登记 5 条「编号待定」后续任务 |
+| TASKFLOW | FIX-23（Phase F（续）— 情报串联表，FIX-21 后续 9；FIX-21 登记的那一行已改写并挪到 FIX-21 后续各行之后），另登记 6 条「编号待定」后续任务（第 6 条在交叉验证后、归档时补登） |
 | 来源 | 2026-11-23 审查 FIX-21（`project-intel-bidpackage-access`）时两位审查员各自核实：同一张任务表上最后一个不按项目权限筛、也不经安全投影的读接口 |
 | GATE | 「留给 GATE」两条，Lucas 2026-11-22 授权按推荐定：第 1 条 **A**（不是平台管理员时 `checkReportJson` 为 `null`）、第 2 条 **A**（与项目读权限守卫同口径） |
+| PR | #562，2026-11-23 合并（合并提交 `d94e4323`）；归档 `openspec/changes/archive/2026-11-23-agent-tasks-recent-safe-view/`；归档后 `openspec validate --specs --strict` 153 / 153 |
 | 分支 | `claude/zen-turing-azudvx-fix23`；四件套提交 `857c9427`（main `22a87fb7` 上写），开工时合入 main `212613ec`（含 FIX-21 #554），审查后修订前又合入 main `a8caa985`（没有冲突，本 change 引用的文件都没变，只有 TASKFLOW 与两个测试脚本多了别人的行） |
 | 性质 | 修既有的越权与信息外泄。零 schema、零新模型调用、没有新增出站、没有新队列。**没有开关——合并即在生产生效** |
 
@@ -231,6 +232,7 @@
 3. cron 巡检对未分发的项目也建任务：`src/app/api/cron/inspect/route.ts:30-45` 只按 `status: "active"` 选项目、不看 `intakeStatus`。这些任务挂在负责人名下，负责人（不是 super_admin）从详情接口与最近任务接口都看不到。该不该跳过未分发项目，按 prod-check A 段「1 项目未分发」一行的 cron 条数定。
 4. （审查后加）execute / approve 的响应 `reason` 可能带原始异常文字：技能抛错时 `src/lib/agent-core/skills/flow-runner.ts:351-356` 把 `err.message` 作为 `reason` 返回，`POST /api/agent/tasks/:taskId/execute`（`src/app/api/agent/tasks/[taskId]/execute/route.ts:34`）与 `POST …/steps/:stepId/approve`（`approve/route.ts:65`）原样给调用者，不分平台管理员。
 5. （审查后加）公开的自定义流程模板跨企业可见：`GET /api/agent/templates`（`src/app/api/agent/templates/route.ts:22`）按 `isPublic` 列出所有企业的公开模板，`GET /api/agent/templates/:templateId`（`[templateId]/route.ts:28`）返回整条记录、含 `createdById`。
+6. （交叉验证后加，归档时补登）岗位预览这条路径只有隔离库测试覆盖、CI 子集里没有：`recent/route.ts` 对岗位预览中的 super_admin 按预览身份判断（`src/lib/auth/index.ts:49,57` 降为 `user`，`src/lib/preview/server.ts:226-230` 只给预览企业的成员身份），这一条只在 `recent-view-db.isolated.test.ts` 里测，CI 不跑隔离库。补一个不连库的用例（截获查询参数，断言预览身份下 `isPlatformAdmin` 为 false、`checkReportJson` 为 `null`、范围条件按预览企业）。
 
 另：prod-check C 段不为 0 时，另开任务处理空串角色的项目成员。
 
@@ -290,4 +292,17 @@
 
 ## 13. 多维审查
 
-（由协调会话补）
+（协调会话在归档时补，内容与 #562 正文一致。）
+
+四个维度各一个子 agent，各自在 `eb32b0e7` 的干净快照上做，互相不看结论——**都没有阻断项**：
+
+| 维度 | 主要发现 | 处理 |
+|---|---|---|
+| 正确性与口径等价（21 种身份 × 10 个项目对照） | 与守卫逐条一致，平台管理员与改动前逐字相同；项目角色是空串的 active 成员：守卫拒绝、共用的 `buildReadableProjectWhere` 放行（只可能来自直接写库）；`limit` 接受十六进制等写法 | 空串：不改共用函数（也被全局搜索用），prod-check C 段计数、design Risks 写明；`limit` 改为十进制正整数 |
+| 安全与硬纪律（伪造会话、被移出项目、岗位预览、11 种怪 `limit`） | 本 change 没有问题；同目录 `/api/agent/tasks` 有同一个负数 `limit` 缺口；`/approvals` 被移出项目的人照样拿到原始报错与价格；execute / approve 的 `reason` 可能带原始异常；公开模板跨企业可见 | 负数 `limit` **并进本 change**；其余登记后续 1、4、5 |
+| 规格—代码—测试一致性（归档演练 151 → 152） | tasks / design 的「改动前应失败」清单不全；几处文档没同步；`prod-check.sql` B 段没排除停用账号 | 已改 |
+| 测试质量（61 个变异抓 60，漏的 1 个等价） | 契约测试的「select 不得有 error」能被 5 种写法绕过，只有隔离库兜底而 CI 不跑；目录完整性只认 `route.ts` | 新增不连库的截获测试进 CI；目录匹配补全 |
+
+**交叉验证**（另起一个没参与过的子 agent，在 `d988787d` 上亲自跑：23 个身份 + 岗位预览 × 12 个项目等价对照、泄露检查、22 种 `limit` 写法 × 两个接口、37 个变异、全部门禁）：**代码可以合并**。它提的：PR 正文过时（已重写）；proposal 的 Why 超过两句（已改，`722f500b`）；岗位预览这条路径只有隔离库测试覆盖、CI 里没有（登记为后续 6）；截获测试把 `where` 结构写死、等价改写会误报（只误报不漏报，写进已知限制）。
+
+**归档核对**（#565，另一个子 agent）：主规格与 delta 从第一条要求起逐字节相同（10 条、27 个场景），`--specs --strict` 153 / 153，抽查 9 个场景在 main `d94e4323` 的代码里成立。

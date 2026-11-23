@@ -67,7 +67,23 @@ function makeFakeDb() {
         let out = records.filter((r) =>
           matches(r as unknown as Record<string, unknown>, (args.where ?? {}) as Record<string, unknown>),
         );
+        // 给了简单的 orderBy（{ 字段: "asc" | "desc" }）就照它排（与真实 DB 同）；没给时按日期、建档新到旧——
+        // 相当于真实 DB 不保证的顺序，写入服务不写 orderBy 时结果会和写了不一样（T4-01i 靠这个抓「疑似原记录」不确定）
+        const orderBy = (Array.isArray(args.orderBy) ? args.orderBy : args.orderBy ? [args.orderBy] : []) as Array<Record<string, unknown>>;
+        const simple = orderBy.length > 0 && orderBy.every((o) => Object.values(o).every((d) => d === "asc" || d === "desc"));
         out = [...out].sort((a, b) => {
+          if (simple) {
+            for (const o of orderBy) {
+              for (const [k, d] of Object.entries(o)) {
+                const av = (a as unknown as Record<string, unknown>)[k];
+                const bv = (b as unknown as Record<string, unknown>)[k];
+                const x = av instanceof Date ? av.getTime() : String(av);
+                const y = bv instanceof Date ? bv.getTime() : String(bv);
+                if (x !== y) return (x < y ? -1 : 1) * (d === "desc" ? -1 : 1);
+              }
+            }
+            return 0;
+          }
           const at = a.awardDate?.getTime() ?? -Infinity;
           const bt = b.awardDate?.getTime() ?? -Infinity;
           if (at !== bt) return bt - at;
@@ -270,6 +286,103 @@ console.log("tender-intel awards（T4 canonical service + read model）");
     withNo.source.sourceKey = "canadabuys:PW-2026-777";
     const r = await createOrObserveAwardRecord(withNo, { client });
     ok(r.outcome === "NEEDS_REVIEW", "T4-01f 一方没编号 → NEEDS_REVIEW（保持原规则）");
+  }
+
+  /* T4-01h（CHAIN-1b，Lucas 2026-11-20 收紧）中标方、授标日期、金额都相同时：
+     两条都有编号且规范化后不同 → 不挂上，新记录标为疑似重复指向那条（同一笔授标常有两套编号，不悄悄算两次）；
+     编号缺一方或只差写法 → 照旧挂上 */
+  {
+    const attachTry = async (solicitationNumber: string | null, key: string, buyerNameRaw = "Other Buyer Office") => {
+      const { client, records } = makeFakeDb();
+      await createOrObserveAwardRecord(canadabuysInput("orgA"), { client });
+      const input = canadabuysInput("orgA", { solicitationNumber, buyerNameRaw });
+      input.source.sourceType = "USER_ENTRY";
+      input.source.sourceKey = key;
+      input.verificationStatus = "NEEDS_REVIEW";
+      const r = await createOrObserveAwardRecord(input, { client });
+      return { r, first: records[0], count: records.length };
+    };
+    const a = await attachTry("PW-2024-002", "manual:distinct");
+    const aSame = await attachTry("PW-2024-002", "manual:distinct-same-buyer", canadabuysInput("orgA").award.buyerNameRaw ?? undefined);
+    const b = await attachTry(null, "manual:no-number");
+    const c = await attachTry("pw 2024 001", "manual:spelled");
+    ok(
+      a.r.outcome === "NEEDS_REVIEW" && a.count === 2 && a.r.record.status === "NEEDS_REVIEW" && a.r.record.possibleDuplicateOfId === a.first.id && a.r.record.solicitationNumber === "PW-2024-002" &&
+        aSame.r.outcome === "NEEDS_REVIEW" && aSame.r.record.possibleDuplicateOfId === aSame.first.id &&
+        b.r.outcome === "ATTACHED_EXISTING" && b.r.record.id === b.first.id && b.count === 1 &&
+        c.r.outcome === "ATTACHED_EXISTING" && c.r.record.id === c.first.id && c.count === 1,
+      "T4-01h 同中标方同日期同金额：编号不同 → 不挂上、新记录疑似重复指向那条（采购方同不同都一样）；没编号或只差写法 → 挂到既有",
+      [a.r.outcome, aSame.r.outcome, b.r.outcome, c.r.outcome],
+    );
+  }
+
+  /* T4-01i（CHAIN-1b 交叉验证 F4）同中标方同日期同金额的已有记录不止一条、编号都不同：
+     疑似原记录总指向最早建档的那条（不随数据库返回顺序变） */
+  {
+    const { client } = makeFakeDb();
+    const write = (n: string, buyer: string) =>
+      createOrObserveAwardRecord({ ...canadabuysInput("orgA", { solicitationNumber: n, buyerNameRaw: buyer }), source: { ...canadabuysInput("orgA").source, sourceKey: `canadabuys:${n}` } }, { client });
+    const first = await write("PW-2024-101", "Buyer One");
+    const second = await write("PW-2024-103", "Buyer Two");
+    const third = await write("PW-2024-102", "Buyer Three");
+    ok(
+      second.outcome === "NEEDS_REVIEW" && second.record.possibleDuplicateOfId === first.record.id &&
+        third.outcome === "NEEDS_REVIEW" && third.record.possibleDuplicateOfId === first.record.id,
+      "T4-01i 编号都不同的几条：新记录的疑似原记录是最早建档的那条",
+      [second.record.possibleDuplicateOfId, third.record.possibleDuplicateOfId, first.record.id],
+    );
+  }
+
+  /* T4-01j（CHAIN-1b 交叉验证 F1）疑似重复被人工确认的写入按编号挂上：只升信任级，状态仍待组织管理员裁决；
+     不是疑似重复的照旧提升为 ACTIVE + 人工确认 */
+  {
+    const { client, records } = makeFakeDb();
+    const e = await createOrObserveAwardRecord(canadabuysInput("orgA"), { client });
+    const n = await createOrObserveAwardRecord(
+      { ...canadabuysInput("orgA", { solicitationNumber: "PW-2024-002" }), source: { ...canadabuysInput("orgA").source, sourceType: "USER_ENTRY", sourceKey: "manual:apc:f1" }, confidence: "MEDIUM", verificationStatus: "NEEDS_REVIEW" },
+      { client },
+    );
+    const h = await createOrObserveAwardRecord(
+      { ...canadabuysInput("orgA", { solicitationNumber: "PW-2024-002" }), actor: USER, source: { ...canadabuysInput("orgA").source, sourceType: "USER_ENTRY", sourceKey: "tender-result-winner:p1" }, verificationStatus: "HUMAN_CONFIRMED" },
+      { client },
+    );
+    const ai = await createOrObserveAwardRecord(
+      { ...canadabuysInput("orgA", { winnerName: "Plain Lead Co", solicitationNumber: "PW-2024-777" }), source: { ...canadabuysInput("orgA").source, sourceType: "WEB_SEARCH", sourceKey: "web:f1" }, confidence: "LOW", verificationStatus: "AI_EXTRACTED" },
+      { client },
+    );
+    const hAi = await createOrObserveAwardRecord(
+      { ...canadabuysInput("orgA", { winnerName: "Plain Lead Co", solicitationNumber: "PW-2024-777" }), actor: USER, source: { ...canadabuysInput("orgA").source, sourceType: "USER_ENTRY", sourceKey: "tender-result-winner:p2" }, verificationStatus: "HUMAN_CONFIRMED" },
+      { client },
+    );
+    ok(
+      n.outcome === "NEEDS_REVIEW" && n.record.possibleDuplicateOfId === e.record.id &&
+        h.outcome === "ATTACHED_EXISTING" && h.record.id === n.record.id && h.record.status === "NEEDS_REVIEW" && h.record.verificationStatus === "HUMAN_CONFIRMED" && h.record.confirmedById === "u1" && h.record.possibleDuplicateOfId === e.record.id &&
+        records.find((r) => r.id === e.record.id)?.status === "ACTIVE" &&
+        hAi.outcome === "ATTACHED_EXISTING" && hAi.record.id === ai.record.id && hAi.record.status === "ACTIVE" && hAi.record.verificationStatus === "HUMAN_CONFIRMED",
+      "T4-01j 疑似重复被人工确认写入挂上：信任级升为人工确认、状态仍 NEEDS_REVIEW、仍指向原记录；不是疑似重复的照旧 ACTIVE + 人工确认",
+      { n: [n.outcome, n.record.possibleDuplicateOfId], h: [h.outcome, h.record.status, h.record.verificationStatus], hAi: [hAi.outcome, hAi.record.status] },
+    );
+  }
+
+  /* T4-01k（CHAIN-1b 复核 M1c）没有招标编号的「同中标方同买家」疑似重复，被人工确认的写入按日期金额挂上：
+     状态仍 NEEDS_REVIEW、来源多一条（不转正与有没有编号无关） */
+  {
+    const { client, sources } = makeFakeDb();
+    const noNumber = (date: string, amount: number, key: string) =>
+      ({ ...canadabuysInput("orgA", { solicitationNumber: null, awardDate: new Date(date), contractAmount: amount }), source: { ...canadabuysInput("orgA").source, sourceType: "WEB_SEARCH" as const, sourceKey: key }, confidence: "LOW" as const, verificationStatus: "AI_EXTRACTED" as const });
+    const orig = await createOrObserveAwardRecord(noNumber("2024-03-01", 50000, "web:k-orig"), { client });
+    const dup = await createOrObserveAwardRecord(noNumber("2024-09-01", 64000, "web:k-dup"), { client });
+    const h = await createOrObserveAwardRecord(
+      { ...noNumber("2024-09-01", 64000, "tender-result-winner:pk"), actor: USER, source: { ...canadabuysInput("orgA").source, sourceType: "USER_ENTRY", sourceKey: "tender-result-winner:pk" }, confidence: "MEDIUM", verificationStatus: "HUMAN_CONFIRMED" },
+      { client },
+    );
+    ok(
+      orig.outcome === "CREATED" && dup.outcome === "NEEDS_REVIEW" && dup.record.solicitationNumber === null && dup.record.possibleDuplicateOfId === orig.record.id &&
+        h.outcome === "ATTACHED_EXISTING" && h.record.id === dup.record.id && h.record.status === "NEEDS_REVIEW" && h.record.verificationStatus === "HUMAN_CONFIRMED" && h.record.possibleDuplicateOfId === orig.record.id &&
+        sources.filter((s) => s.awardRecordId === dup.record.id).length === 2,
+      "T4-01k 没有编号的疑似重复被人工确认写入按日期金额挂上：仍 NEEDS_REVIEW、仍指向原记录、来源 2 条",
+      { dup: [dup.outcome, dup.record.possibleDuplicateOfId], h: [h.outcome, h.record.status, h.record.verificationStatus] },
+    );
   }
 
   /* T4-01g 招标编号规范化 */

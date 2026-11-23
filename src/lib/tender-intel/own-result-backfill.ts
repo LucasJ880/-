@@ -158,7 +158,8 @@ export async function backfillOwnResultCanonical(input: {
         return out;
       }
       out.award = "written";
-      if (res.outcome === "NEEDS_REVIEW") out.awardReason = "needs_review";
+      // 新建为疑似重复，或挂到一条仍待裁决的疑似重复上（只升信任级、状态不变）：都告诉人去「历史中标」页核对
+      if (res.record.status === "NEEDS_REVIEW") out.awardReason = "needs_review";
       console.log(`[tender-own-result-backfill] project=${project.id} lost-winner award=${out.award} buyer=${out.buyer}`);
       return out;
     }
