@@ -59,6 +59,18 @@ console.log("tender-bid-workspace view");
   ok("询价里已有报价 → 成本核算阶段直接执行", withQuotes.stages.stages.find((s) => s.key === "costing")!.decision === "RUN");
 }
 {
+  // CHAIN-3b：导入的进口记录 = 人工提供的进口线索
+  ok("材料推导：有导入的进口记录 → 有进口线索（排在供应商报价之后）", deriveMaterials(stored, { documentCount: 0, quotedSupplierCount: 2, hasImportLeads: true }).join() === "TENDER_DOCUMENTS,DOCUMENT_HOLDER_LIST,SUPPLIER_QUOTES,IMPORT_LEADS");
+  ok("材料推导：hasImportLeads 为 false 或缺省 → 没有进口线索", !deriveMaterials(stored, { documentCount: 1, quotedSupplierCount: 0, hasImportLeads: false }).includes("IMPORT_LEADS") && !deriveMaterials(stored, { documentCount: 1, quotedSupplierCount: 0 }).includes("IMPORT_LEADS"));
+  ok("缺省与 false 的读取结果完全相同", JSON.stringify(buildWorkspaceView(stored, ctx())) === JSON.stringify(buildWorkspaceView(stored, ctx({ hasImportLeads: false }))));
+  const withLeads = buildWorkspaceView(stored, ctx({ hasImportLeads: true }));
+  assert.ok(withLeads.stages.ok);
+  const leads = withLeads.stages.stages.find((s) => s.key === "import_leads")!;
+  ok("有导入的进口记录 → 进口线索阶段执行，只处理人工提供的", leads.decision === "RUN" && leads.detailZh === "只处理人工提供的进口线索" && withLeads.materials.includes("IMPORT_LEADS"));
+  ok("面板写在阶段标签下的那一行：进口线索：只处理人工提供的进口线索", `${withLeads.stages.stages.find((s) => s.key === "import_leads")!.labelZh}：${leads.detailZh}` === "进口线索：只处理人工提供的进口线索");
+  ok("有导入的进口记录 → 未接通清单里没有进口线索；历史授标照旧在未接通 / 仅人工清单里", !withLeads.stages.lists.notConnected.some((n) => n.stageKey === "import_leads") && withLeads.stages.lists.notConnected.some((n) => n.stageKey === "historical_awards"));
+}
+{
   const r = buildCostSheet(stored, costRequest, ctx());
   assert.ok(r.ok);
   const rows = r.view.groups.flatMap((g) => g.rows);

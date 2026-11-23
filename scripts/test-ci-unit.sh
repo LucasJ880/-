@@ -29,12 +29,15 @@ npx tsx src/lib/tender-auto-analysis/__tests__/chat-context.test.ts
 npx tsx src/lib/trade/__tests__/chat-attachments.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/v2-persist-fence.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/v2-resumable.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/v2-slice-deadline.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/document-units.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/alerts.test.ts
 npx tsx src/lib/release/__tests__/drift.test.ts
 npx tsx src/lib/tender-understanding/__tests__/extract-prompt-locator.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/worker-budget-guards.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts
+npx tsx src/lib/files/__tests__/extracted-text.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/page-parse.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/tender-identity.test.ts
 npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts
 npx tsx src/lib/projects/generate/__tests__/tender-doc-html.test.ts
@@ -89,6 +92,7 @@ npx tsx src/lib/tender-room/__tests__/summary-json.test.ts
 NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-merge-db.isolated.test.ts
 npx tsx src/lib/tender-room/__tests__/summary-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-writers-db.isolated.test.ts
+npx tsx src/lib/projects/__tests__/files-route-guard.test.ts
 npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts
 npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx
@@ -481,11 +485,14 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/followup-auto-db.isolated.tes
 npx tsx src/lib/tender-rfq/__tests__/auto-draft-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/attachment-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts
 npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts
 npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/readiness-count-db.isolated.test.ts
 npx tsx src/lib/__tests__/google-email-mime.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts
@@ -495,6 +502,8 @@ npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts
 npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts
+npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts
+NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx

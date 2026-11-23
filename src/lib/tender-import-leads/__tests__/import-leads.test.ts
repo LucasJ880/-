@@ -265,6 +265,23 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
 }
 
 {
+  // CHAIN-3b：投标准备度只问「有没有导入的进口记录」，口径与 service.ts 一致，且不把 service.ts 的整串依赖带进投标工作区读取
+  const root = process.cwd();
+  const rc = readFileSync(path.join(root, "src/lib/tender-import-leads/readiness-count.ts"), "utf8");
+  const svcSrc = readFileSync(path.join(root, "src/lib/tender-import-leads/service.ts"), "utf8");
+  const lit = (src: string, name: string) => src.match(new RegExp(`export const ${name} = "([^"]+)";`))?.[1];
+  ok(!!lit(rc, "READINESS_IMPORT_LEAD_PLATFORM") && lit(rc, "READINESS_IMPORT_LEAD_PLATFORM") === lit(svcSrc, "IMPORT_LEAD_PLATFORM") && !!lit(rc, "READINESS_IMPORT_LEAD_KIND") && lit(rc, "READINESS_IMPORT_LEAD_KIND") === lit(svcSrc, "IMPORT_LEAD_KIND"), "投标准备度：平台与 kind 与 service.ts 的常量相同");
+  const imports = [...rc.matchAll(/^import [^;]*? from "([^"]+)";/gm)].map((m) => m[1]);
+  ok(JSON.stringify(imports.sort()) === JSON.stringify(["./flags", "@/lib/db"]), "投标准备度：readiness-count.ts 只 import @/lib/db 与 ./flags", imports);
+  ok(/status: \{ not: "REJECTED" \}/.test(rc) && /findFirst\(/.test(rc) && !/\.count\(/.test(rc) && /if \(!isImportLeadsEnabledForOrg\(input\.orgId\)\) return false;/.test(rc) && rc.indexOf("isImportLeadsEnabledForOrg(input.orgId)") < rc.indexOf("findFirst("), "投标准备度：开关关时不查库；不采用的不算；只判有没有（findFirst）");
+  ok(/status !== "REJECTED"/.test(svcSrc) && /storedLeadCount: state\.signals\.filter\(\(s\) => s\.status !== "REJECTED"\)\.length/.test(svcSrc), "投标准备度与读视图的「已导入 N 条」同一口径（不采用的不算）");
+  ok(/orgId: input\.orgId,/.test(rc) && /projectId: input\.projectId,/.test(rc) && /platform: READINESS_IMPORT_LEAD_PLATFORM,/.test(rc) && /rawMetadataJson: \{ path: \["kind"\], equals: READINESS_IMPORT_LEAD_KIND \}/.test(rc), "投标准备度：按组织、项目、平台、kind 过滤");
+  ok(!/^export [^;]* from /m.test(rc) && !/\bimport\(/.test(rc) && !/\brequire\(/.test(rc), "投标准备度：没有 export…from、动态 import、require");
+  const store = readFileSync(path.join(root, "src/lib/tender-bid-workspace/store.ts"), "utf8");
+  ok(store.includes('from "@/lib/tender-import-leads/readiness-count"') && !store.includes("tender-import-leads/service") && store.includes("hasImportLeadsForReadiness({ orgId, projectId }),") && /\n    hasImportLeads,\n  \};/.test(store), "投标工作区读取：接上 hasImportLeadsForReadiness、返回 hasImportLeads，不 import service.ts");
+}
+
+{
   // CHAIN-3c：有效裁决由撤回行指向决定，不靠时间先后
   const tgt = new Map([["t1", "p1"], ["t2", "p2"]]);
   const dec = (id: string, targetId: string, pairKey: string, decision: string, at: number) => ({ id, action: IMPORT_LEAD_ALIAS_AUDIT_ACTION, targetId, createdAt: new Date(at), afterData: JSON.stringify({ pairKey, nameA: "A", nameB: "B", decision, decidedBy: "u", decidedAt: new Date(at).toISOString() }) });
