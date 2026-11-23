@@ -22,7 +22,7 @@
 
 ## 2. 实现
 
-- [ ] 2.1 `src/lib/tender-rfq/inbound-apply.ts`（design D1、D2、D5）。
+- [x] 2.1 `src/lib/tender-rfq/inbound-apply.ts`（design D1、D2、D5）。
   - 加一个不导出的中和函数，规则三条：
     - 控制字符（U+0000–U+001F、U+007F–U+009F）与 U+2028、U+2029 → 空格；
     - 「；」→「;」；

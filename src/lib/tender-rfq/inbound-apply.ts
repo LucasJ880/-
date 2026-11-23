@@ -10,6 +10,11 @@
  *
  * ⚠ notesAppend 的格式被 notes-parse.ts（parseAutoNotes，P1-5 比价回读起订量/贸易条款/多档价/强制项）
  *   逐字解析：改这里的措辞或分隔符必须同步改 notes-parse.ts，并跑 __tests__/notes-parse.test.ts 往返测试。
+ *   notes-parse.ts 还按这里事实的先后认段（FIX-24 R5）：加字段或调整顺序要同步改它的写入顺序表。
+ *
+ * FIX-24：供应商可控的文字（附件文件名、币种、已录币种、证据片段）拼进段之前先中和，
+ *   让它们开不了新的一块（「；」）、开不了新的一行（换行类字符）、也关不掉证据引号（「"）」）。
+ *   只用于显示：查附件说明、写入字段与审计照旧用原文。见 __tests__/notes-forgery.test.ts。
  */
 
 import { toStorableText } from "@/lib/files/extracted-text";
@@ -65,8 +70,52 @@ function toYmd(v: Date | string | null): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+/** 控制字符（C0、DEL、C1，含 \n \r \t 与 NEL）与 U+2028、U+2029：回读按行切、按行内容认段 */
+function isControlOrLineSeparator(code: number): boolean {
+  return code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029;
+}
+
+function controlsToSpaces(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    out += isControlOrLineSeparator(code) ? " " : text[i];
+  }
+  return out;
+}
+
+/** 证据引号的收尾：回读把「（证据："」到第一个「"）」之间遮住，片段里自带的会把引号提前关掉 */
+const EVIDENCE_CLOSER = /"）/g;
+
+/**
+ * FIX-24：拼进段里的非证据供应商文字（附件文件名、币种、已录币种）。
+ * 控制字符与各类换行 → 空格；全角「；」→ 半角「;」；「"）」→「")」。不做 NFKC，其它字符原样。
+ */
+function neutralizeNoteText(text: string): string {
+  return controlsToSpaces(text).replace(/；/g, ";").replace(EVIDENCE_CLOSER, '")');
+}
+
+/** 证据片段：控制字符与各类换行 → 空格，空白归一，最后「"）」→「")」；「；」「，」留着（回读时在引号里被遮住） */
 function q(evidence: string | null | undefined): string {
-  return evidence ? `（证据："${evidence.replace(/\s+/g, " ").trim()}"）` : "";
+  return evidence
+    ? `（证据："${controlsToSpaces(evidence).replace(/\s+/g, " ").trim().replace(EVIDENCE_CLOSER, '")')}"）`
+    : "";
+}
+
+/**
+ * 附件说明（「文件名：说明」）对上文件名：取本封回信里使说明以「文件名：」开头的最长文件名
+ * （文件名里带「：」、或两个文件名互为前缀时也对得上）；同名的后一条覆盖前一条。
+ */
+function attachmentNotesByName(filenames: string[], attachmentNotes: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const n of attachmentNotes) {
+    let best: string | null = null;
+    for (const f of filenames) {
+      if (n.startsWith(`${f}：`) && (best == null || f.length > best.length)) best = f;
+    }
+    if (best != null) out.set(best, n.slice(best.length + 1));
+  }
+  return out;
 }
 
 /**
@@ -145,11 +194,11 @@ export function planInquiryItemUpdate(
   if (parsed.currency) {
     if (!manualCurrency) {
       if (exCur !== parsed.currency) data.currency = parsed.currency;
-      facts.push(`币种=${parsed.currency}`);
+      facts.push(`币种=${neutralizeNoteText(parsed.currency)}`);
     } else if (exCur && exCur !== parsed.currency) {
-      conflicts.push(`回信币种 ${parsed.currency} 与已录 ${exCur} 不一致`);
+      conflicts.push(`回信币种 ${neutralizeNoteText(parsed.currency)} 与已录 ${neutralizeNoteText(exCur)} 不一致`);
     } else {
-      facts.push(`币种=${parsed.currency}`);
+      facts.push(`币种=${neutralizeNoteText(parsed.currency)}`);
     }
   }
 
@@ -218,8 +267,9 @@ export function planInquiryItemUpdate(
   if (conflicts.length) segs.push(conflicts.join("；"));
   if (missingFields.length) segs.push(`缺：${missingFields.map((f) => INBOUND_MISSING_LABEL[f]).join("、")}`);
   if (parsed.attachmentsSeen.length) {
-    const notesByName = new Map((meta.attachmentNotes ?? []).map((n) => [n.split("：")[0], n.slice(n.indexOf("：") + 1)]));
-    segs.push(`附件：${parsed.attachmentsSeen.map((a) => `${a.filename} ${a.parsed ? attachmentParsedLabel(a) : notesByName.get(a.filename) ?? "未解析"}`).join("、")}`);
+    const notesByName = attachmentNotesByName(parsed.attachmentsSeen.map((a) => a.filename), meta.attachmentNotes ?? []);
+    // FIX-24：文件名只在显示时中和；系统写的说明（含 FIX-14 的提示句）原样
+    segs.push(`附件：${parsed.attachmentsSeen.map((a) => `${neutralizeNoteText(a.filename)} ${a.parsed ? attachmentParsedLabel(a) : notesByName.get(a.filename) ?? "未解析"}`).join("、")}`);
   }
   // FIX-14：写库前把这次追加的整段清理一遍（证据可能以半个表情符号结尾：按码元仍能在原文里找到）
   const notesAppend = toStorableText(`[auto ${meta.now.toISOString()} msg=${meta.messageId}] ${segs.join("；")}`);
