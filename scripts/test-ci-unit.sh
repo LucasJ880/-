@@ -92,6 +92,7 @@ npx tsx src/lib/tender-room/__tests__/summary-json.test.ts
 NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-merge-db.isolated.test.ts
 npx tsx src/lib/tender-room/__tests__/summary-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-writers-db.isolated.test.ts
+npx tsx src/lib/projects/__tests__/files-route-guard.test.ts
 npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts
 npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx
