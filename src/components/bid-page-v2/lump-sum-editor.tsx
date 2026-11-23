@@ -263,7 +263,7 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
             <tbody>
               {/* 货品：填一个总数，或展开成明细 */}
               <tr className="border-t border-border/60 align-top" data-testid="lump-row-goods">
-                <td className="px-2 py-1 font-medium">{LUMP_TEXT.goods}</td>
+                <td className="whitespace-nowrap px-2 py-1 font-medium">{LUMP_TEXT.goods}</td>
                 <td className="space-y-1 px-2 py-1">
                   {g.mode === "total" ? (
                     <>
@@ -334,7 +334,7 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
                 const value = it.kind === "amount" ? it.amount : it.ratePct;
                 return (
                   <tr key={`${it.costLineId ?? "new"}-${i}`} className="border-t border-border/60 align-top" data-testid="lump-row">
-                    <td className="px-2 py-1">
+                    <td className="whitespace-nowrap px-2 py-1">
                       {it.key === "other" ? (
                         <input aria-label={`${name}名称`} placeholder="其它（填名称）" className="w-40 rounded border border-border px-2 py-1" maxLength={LUMP_OTHER_LABEL_MAX} disabled={!editable} value={it.label ?? ""} onChange={(e) => setItem(i, { label: e.target.value })} />
                       ) : (
@@ -380,7 +380,7 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
 
               {/* 销售税：配置里的税，不是成本行 */}
               <tr className="border-t border-border/60 align-top" data-testid="lump-row-tax">
-                <td className="px-2 py-1 font-medium">{LUMP_TEXT.salesTax}</td>
+                <td className="whitespace-nowrap px-2 py-1 font-medium">{LUMP_TEXT.salesTax}</td>
                 <td className="space-y-1 px-2 py-1">
                   <div className="flex flex-wrap items-center gap-2">
                     {(["hstPct", "gstPct", "pstPct"] as const).map((k) => (
