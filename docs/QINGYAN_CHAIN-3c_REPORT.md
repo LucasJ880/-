@@ -76,6 +76,12 @@
 - `npm test`（新库 `qy_full_chain3c`，`prisma migrate deploy`）：`712/722 通过, 10 失败`，10 项与 main 既有失败逐条相同（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB）；全量里 `import-leads-db` 69、`readiness-count-db` 19 全过。
 - `npm run test:ci`（`env -u DATABASE_ENVIRONMENT`、CI 的库地址与 JWT）：PASS（注册校验：已注册 689 个，历史欠账 66 条）；`npm run typecheck` 通过；`npm run lint:baseline` PASS（无新增指纹）；`bash scripts/check-test-registry.sh` 通过；`bash scripts/test-runtime-architecture.sh` PASS（9/9）；`openspec validate import-leads-alias-admin-revoke --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空。
 
+**2026-11-23 交叉验证后修订的重跑**（在协调会话合入 main `f332dd91` 之后的 HEAD `7a5a210d` 上修订，提交 `4f3bf99d`；改了服务、`aggregate-pure.ts`、面板与测试，修订内容见 §5 末）：
+
+- 单跑（隔离库 `qy_iso_b`）：`import-leads.test.ts` 152 通过（139 + F1 的 4 条 + F3 的 2 条 + 纯函数对抗用例 7 条）；`import-leads-db.isolated.test.ts` 69 通过；新文件 `alias-decisions-db.isolated.test.ts` 39 通过；CHAIN-3b 的 `readiness-count-db.isolated.test.ts` 19 通过。变异验证见 §5 末 F2。
+- `npm test`（`qy_full_chain3c` 删掉重建后 `prisma migrate deploy`）：`713/723 通过, 10 失败`，10 项与 main 既有失败逐条相同（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB）；全量里 `import-leads` 152、`import-leads-db` 69、`alias-decisions-db` 39、`readiness-count-db` 19 全过。
+- `npm run test:ci`（`env -u DATABASE_ENVIRONMENT`、CI 的库地址与 JWT）：PASS（已注册 690 个，历史欠账 66 条；新文件在 CI 里按设计跳过）；`npm run typecheck` 通过；`npm run lint:baseline` PASS（无新增指纹）；`bash scripts/check-test-registry.sh` 通过；`bash scripts/test-runtime-architecture.sh` PASS（9/9）；`openspec validate import-leads-alias-admin-revoke --strict` valid（最长的一条要求 497 字）；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空。
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与 CHAIN-3 代码）**——逐条核实后全部并入四件套（`43444121`）：
@@ -152,6 +158,20 @@
 | 使用流畅与文案 | 标题后的计数紧挨「（对本组织所有项目生效）」，像是全组织的对数 | **已修**：前面加「本项目涉及：」、间距加大 |
 | | 「都对不上……（或已标为不是同一家）」与新那一行重复；槽里没说怎样恢复 | 不改：不在这次范围；下面紧挨着就是「导入 / 查看进口线索」 |
 
+**2026-11-23 交叉验证后修订**（合并前的独立交叉验证：可以合并、没有阻断项；三条中等问题由协调会话定为合并前修，低优先级的顺手做；提交 `4f3bf99d`）——逐条核实后：
+
+| 编号 | 意见 | 处理 |
+|---|---|---|
+| F1（中） | 槽里「已导入 N 条进口记录，都在等组织管理员确认是不是同一家」的条件是「没有挂上的、且有待确认的对」，比规格「都在等确认」宽：3 条记录里 2 条涉及的两对都已否决、1 条还在待确认时，同时显示「都在等…」「另有 1 对等…」「已标为不是同一家 2 对」 | **已修**：读视图多 `pendingLeadCount`（还在待确认的记录条数，每条记录只算一次）；全部在等照旧「都在等」，只有一部分写 `已导入 N 条进口记录，其中 K 条在等组织管理员确认是不是同一家（打开进口线索查看）。`；规格「情报页签的供应链槽」（加场景「只有一部分记录在等确认」）、design D4 / D5、proposal 同步；单测覆盖这个组合，隔离库覆盖「3 条都在等（各对条数相加是 5）」与「其中 1 条在等」 |
+| F2（中） | 测试缺口：读裁决不按组织过滤、锁内不重读（撤回 / 裁决）、锁内或锁外不比对裁决标识、裁决人不按本组织现有成员取名，改坏后既有测试都抓不住 | **已补**：新文件 `alias-decisions-db.isolated.test.ts`（39 条，已注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`），以审查员的对抗用例为底：两个组织同一对；6 个并发撤回、3 个并发裁决；测试先在自己的事务里拿住同一把锁，让请求在锁上排队、期间以同事身份撤回并重新裁决（或先裁决），断言请求 409、同事的新裁决不被撤掉；锁被占着时拿旧标识撤回立即 409；裁决人被移出本组织（仍是别的组织成员）写「本组织以外的人」。纯函数的 7 条对抗用例并进 `import-leads.test.ts`（审查员标为「记录」的两条不并：见 §7）。**逐个变异验证**（每次只改坏一处，跑新文件与既有 `import-leads-db`，改回后 sha256 一致）：M16 读裁决去掉 `orgId` → 新文件 7 条失败；M14 撤回锁内不重读 → 3 条；M15 裁决锁内不重读 → 5 条；M7 锁内不比对标识 → 「等锁期间同事撤回又重新裁决」失败（请求 200、撤掉了同事的新裁决）；M8 锁外不比对标识 → 「锁被占着时拿旧标识撤回立即 409」失败（排队超时）；M11 裁决人名字去掉 `status: "active"` 或去掉 `orgId` → 各 1 条失败。既有 `import-leads-db` 在这 7 个变异下都是 69/69 通过（缺口属实） |
+| F3（中） | 撤回失败（409 / 404）后刷新出来的视图里已没有那条裁决，表单跟着消失，但 `revokingDecision` 没清，所有「撤回」一直灰着 | **已修**：失败后先刷新，那条裁决已不在视图里就收起表单、清掉原因（错误写在上方状态区）；还在（如网络出错）就留着表单、原因不丢、表单里写明错误；「撤回」按钮的禁用改看 `openRevoke`（只有表单对应的裁决还在视图里才算开着）；补源码断言；规格「撤回要写原因」写明并加场景「撤回没有成功」 |
+| F4（低） | `effectiveDecisions` 不核对撤回行与被撤回的裁决是不是同一对 | 不改代码：只可能来自手工改库；写进 §7 与 design Risks |
+| F5（低） | 撤回的 422 实际覆盖「没有可比对的历史中标者」的全部情形（授标记录没接通、没有采购方、没有他人中标的记录、读不出），规格只写「读不出」 | **已改规格**（不收窄代码，与导入同一判定、说法更有用）：「撤回裁决」写明范围，加场景「没有可比对的中标者」；隔离库补「没有采购方时撤回 422、不写」；design D4 / D5、proposal、服务与路由注释同步 |
+| F6（低） | design D3 的提示文字与 D5 / 代码不一致；`match-pure.ts` 里 `candidatePairKeys` 的注释挪到了 `CandidatePair` 类型上 | **已改** |
+| F7（低） | 同一对有两条都没撤回的裁决时，撤回较新的那条会让较早的那条重新生效 | 不改代码：只可能来自手工改库（接口写入时同一把锁下每对最多一条有效裁决）；写进 §7 与 design Risks |
+
+既有断言的改动：`slotSummaryZh` 的入参由 `suggestions` 换成 `pendingLeadCount`，三条既有摘要断言的入参随之改、期望字符串不变；CHAIN-3c 自己的一条面板源码断言把 `revokingDecision !== null` 换成 `openRevoke !== null`。
+
 ## 6. 留给 GATE 的问题
 
 Lucas 2026-11-20 对开 PR 时的三个问题的回答（三个都已答）：
@@ -165,3 +185,5 @@ Lucas 2026-11-20 对开 PR 时的三个问题的回答（三个都已答）：
 - 没有组织级的「全部别名裁决」管理页：只能在有相关记录的项目面板里看到与撤回。一对只在别的项目里有记录时，要去那个项目撤回。
 - 撤回否决后，否决期间被跳过的记录要重新导入原表（已导入的不会重复）。
 - 生产开关默认关；若生产已有 CHAIN-3 的裁决，照旧有效，组织管理员可以撤回。
+- （交叉验证 F4）有效裁决只认「有没有撤回行指向它」：撤回行与被撤回的裁决是不是同一对（`targetId` 是否一致）不再核对，挂在别的对上的撤回行也能撤回这一条。接口写入时撤回行总是与裁决同一对，只有手工改库才会出现。
+- （交叉验证 F7）同一对有两条都没撤回的裁决时取较新的一条；撤回较新的那条后，较早的那条重新生效。接口写入时同一把锁下每对最多一条有效裁决，只有手工改库才会出现。
