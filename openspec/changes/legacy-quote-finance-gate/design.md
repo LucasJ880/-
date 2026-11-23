@@ -18,13 +18,13 @@
 
 | # | 出口 | 谁能拿到（真实守卫） | 拿到什么 | 改成什么 |
 |---|---|---|---|---|
-| 1 | `GET …/quotes`（`quotes/route.ts:7-31`） | 项目读者 | 每份报价（含引擎与逐行报价）`totalAmount` + `profitMargin`（`:22-23`）；两数配对即成本 = 总额 ×（1 − 利润率） | 没有财务查看权：`profitMargin: null`，带 `costHidden`；所有人多带 `capabilities` |
+| 1 | `GET …/quotes`（`quotes/route.ts:7-31`） | 项目读者 | 每份报价 `totalAmount` + `profitMargin`（`:22-23`），两数配对即成本 = 总额 ×（1 − 利润率）；查询不按来源过滤（`:12-13`），把报价引擎与逐行报价建的报价也列出来，点开进旧编辑器能导出旧版 PDF（引擎的可选行照印、算进 Subtotal、不算税，总额与报价页对不上） | 只列 `orgId` 为空的旧报价单（D3）；没有财务查看权：`profitMargin: null`，带 `costHidden`；所有人多带 `capabilities` |
 | 2 | `GET …/quotes/{报价}`（`[quoteId]/route.ts:9-26`） | 项目读者 | 整行 + 行项：`internalCost`、`profitMargin`、`internalNotes`、`aiDraftJson`（AI 草稿，每行带 `costPrice`）、`aiReviewJson`；引擎报价还有 `pricingRate`、`pricingMethod`、`engineJson`、`summaryJson`、`customerJson`、`termsJson`，行项 `costPrice`、`sourceJson` | 对所有人只给旧报价单字段（D2）；没有财务查看权：内部成本、利润率、内部备注、AI 草稿 / 审查原文、行 `costPrice` 为 `null`，带 `costHidden`；引擎报价 409（D3） |
-| 3 | `PATCH …/quotes/{报价}`（`:28-110`） | 项目读者（只读成员也能改价、把 `status` 改成任意值、整组替换行项并重算成本列） | 返回同 #2 的整行 | 要能编辑（D4），否则 403 不写库；引擎报价 409；返回按 #2 |
+| 3 | `PATCH …/quotes/{报价}`（`:28-110`） | 项目读者（只读成员也能改价、把 `status` 改成任意值、整组替换行项并重算成本列；请求里的 `isInternal` 原样存下，`:88`） | 返回同 #2 的整行 | 要能编辑（D4），否则 403 不写库；引擎报价 409；每行一律存成非内部行（D10）；返回按 #2 |
 | 4 | `POST …/quotes`、`DELETE …/quotes/{报价}`、`POST …/quotes/save-ai-draft` | 项目读者 | 建 / 删草稿；`save-ai-draft` 把整份 AI 草稿存进 `aiDraftJson` | 要能编辑；`DELETE` 引擎报价 409 |
 | 5 | `POST …/quotes/{报价}/ai/review`（`ai/review/route.ts:9-81`） | 项目读者 | 每行成本价、内部成本、利润率交给模型（`:49`、`:53-54`；提示词 `src/lib/ai/prompts/trade.ts:212`、`:217-219`，「利润率 < 5% 必须标记 urgent」`:249`），审查结论原样回给调用者 | 没有财务查看权 403、不调模型；引擎报价 409（D6） |
 | 6 | `POST …/quotes/ai/generate-draft`（`generate-draft/route.ts:11-104`） | 项目读者 | 本项目已报价供应商的单价 / 总价交给模型（`:31-45`、`:59-66`），返回的草稿每行带 `costPrice`（提示词「costPrice 是内部成本参考」`trade.ts:116`）、`internalNotes`、`reasoning`（定价依据） | 不能编辑 403、不调模型（D6） |
-| 7 | 旧报价单编辑器（`src/components/quote/quote-editor.tsx`） | 能打开编辑器的人 = 项目读者 | 内部成本（`quote-summary-bar.tsx:52-60`）、利润率（`:62-70`；`quote-top-summary.tsx:44-47,85,116-119,143-155`）、成本价一栏（`quote-line-table.tsx:82,159-165`）、规则检查「利润率 X%，低于 5% 安全线」（`src/lib/quote/rules.ts:67-95`）；读取失败时 `if (!res.ok) return;`（`quote-editor.tsx:68`）留下空白默认表单 | 按 `capabilities` / `costHidden` 显示（D9） |
+| 7 | 旧报价单编辑器（`src/components/quote/quote-editor.tsx`） | 能打开编辑器的人 = 项目读者 | 内部成本（`quote-summary-bar.tsx:52-60`）、利润率（`:62-70`；`quote-top-summary.tsx:44-47,85,116-119,143-155`）、成本价一栏（`quote-line-table.tsx:82,159-165`）、规则检查「利润率 X%，低于 5% 安全线」（`src/lib/quote/rules.ts:67-95`）；读取失败时 `if (!res.ok) return;`（`quote-editor.tsx:68`）留下空白默认表单 | 按 `capabilities` / `costHidden` 显示（D8） |
 | 8 | Excel（`src/lib/quote/export-excel.ts:43-47,55,66`；`quote-editor.tsx:25,326`） | 能打开编辑器的人 | 「内部成本」「利润率」「成本价（内部）」 | 有财务查看权：内部成本表；没有：不含这三样（D5） |
 | 9 | 智能体报价技能 `src/lib/agent/skills/quote.ts` | 问青砚 `project_bid_quote`（`src/lib/agent-core/tools/project-skills.ts:108-130`；工具角色 admin / sales，`_policy.ts:116`；`runStaticSkill` 只核对项目所属组织，`src/lib/agent-core/skills/static-bridge.ts:67-79`，不查项目读权限）；智能体任务里执行这一步的人（`flow-runner.ts:344-348`）；一键投标方案（项目写者，`run-step/route.ts:114-117`） | review：按传入的 `quoteId` 取报价、**不核对属于本项目**（`:179-187`）；成本价、内部成本、利润率交给模型（`:249`、`:253-254`）；规则检查带利润率（`:230`）。draft：供应商单价 / 总价交给模型（`:94-102`），返回带 `costPrice` 的草稿（`:148-152`） | 按执行的人判（D7）：`quoteId` 必须属于本项目；没有财务查看权时 review 不调模型、规则检查不评利润率，draft 不调模型；问青砚路径先查项目读权限 |
 | 10 | 问青砚 `project_get_project_quotes`（`src/lib/agent-core/tools/enterprise-readonly.ts:516-557`） | 本组织任一 active 成员（`requireOrgMember` `:19-31`，不查项目读权限）；企业微信 @青砚 的项目上下文也能调（`src/lib/mention-gateway/policy.ts:33-42`，回复只给发起人 `:195-198`）；数字员工技能「投标废标风险检查」用它（`src/lib/agent-core/skills/tender-seed.ts:127`） | 每份报价 `subtotal`、`totalAmount`、`profitMargin`（`:548-550`） | 先查项目读权限；没有财务查看权 `profitMargin: null`、带 `costHidden`（D7） |
@@ -84,11 +84,12 @@
 
 ### D3：旧接口不处理报价引擎的报价
 
-`orgId` 不为空的报价经 `GET` / `PATCH` / `DELETE …/quotes/{报价}` 与 `POST …/ai/review` → 409「这份报价是在报价页里做的，旧报价单不能打开或修改它；请到报价页查看和修改。」，带 `href: /projects/{项目}/quote-engine/{报价}`；不写库、不调模型。列表照旧列出引擎报价（版本历史抽屉要用），只按 D2 裁剪。判定顺序：项目读权限 → 报价不存在 404 → 引擎报价 409 → 编辑权 403（写）/ 财务查看权 403（审查）。
+`orgId` 不为空的报价经 `GET` / `PATCH` / `DELETE …/quotes/{报价}` 与 `POST …/ai/review` → 409「这份报价是在报价页里做的，旧报价单不能打开或修改它；请到报价页查看和修改。」，带 `href: /projects/{项目}/quote-engine/{报价}`；不写库、不调模型。列表 `GET …/quotes` 同一口径：查询加 `orgId: null`，只列旧报价单（留给 GATE ③ 的推荐 A）；报价管理区块、版本历史抽屉随之只显示旧报价单，引擎报价在报价引擎区块与新页面的报价列表里看。判定顺序：项目读权限 → 报价不存在 404 → 引擎报价 409 → 编辑权 403（写）/ 财务查看权 403（审查）。
 
 - 备选 A：旧接口照旧读写引擎报价、只做 D2 的裁剪。否决：旧 `PATCH` 带行项时先删掉这份报价的全部 `QuoteLineItem`（客户报价行，`[quoteId]/route.ts:72-73`），再按旧算法重算小计、总额、内部成本、利润率四列，覆盖引擎快照；`status` 不经状态机直接改（CHAIN-2e 报告 §5：只读成员能改成 `approved`，绕过 GATE ①）；BIDPAGE-3 逐行报价同样受影响。
 - 备选 B：按 `calcVersion` 或 `quoteType` 区分。否决：旧报价单的 `quoteType` 默认就是 `CUSTOM`，与引擎的 CUSTOM 类型同值；`calcVersion` 要等引擎第一次快照才写。`orgId` 是建行时定的，旧路由从不写。
-- 备选 C：旧编辑器遇到引擎报价自动跳转。否决：跳转是界面行为，接口仍得 409；编辑器写一句加链接就够（D9）。
+- 备选 C：旧编辑器遇到引擎报价自动跳转。否决：跳转是界面行为，接口仍得 409；编辑器写一句加链接就够（D8）。
+- 备选 D（列表）：照旧列出引擎报价，每行标 `engineQuote: true` 与 `href`，报价管理区块与版本历史抽屉把这些行链到报价页。否决为默认（留给 GATE ③ 可改判）：要多改版本历史抽屉；老页面开着报价引擎时报价管理区块与引擎区块重复列同一批报价；BIDPAGE-8 判断点 4「项目没有旧报价单就不显示旧版报价单」要按旧报价单数，列表混着引擎报价数不准。代价是版本历史抽屉里不再有引擎报价那几行。
 
 ### D4：旧报价单的写要「能编辑报价」（GATE ② 已定 A）
 
@@ -150,6 +151,16 @@
 
 - 备选：各路由自己删字段。否决：五个路由、一个技能、一个工具各写一遍，单测覆盖不到；白名单只能定义一次。
 
+### D10：旧报价单的行都是客户行：PATCH 一律存 `isInternal = false`（留给 GATE ② 的推荐 A）
+
+旧编辑器没有「内部行」这个概念：界面不会写 `true`，合计（`src/lib/quote/calculate.ts:28-37`）、PDF、Excel 都把全部行当客户行；成本写在每行的成本价里。可是 PATCH 把请求里的 `isInternal` 原样存下（`[quoteId]/route.ts:88`），报价引擎修订复制时也保留（`src/lib/quote-engine/service.ts:331`），于是有人用接口标了内部行，这一行照样印进客户 PDF、算进 Subtotal。改为：PATCH 写行项时每行 `isInternal: false`，不看请求；其余字段照旧。
+
+为什么 PDF / Excel 不需要排除内部行、按印出的行重算客户小计：本 change 之后旧报价单（`orgId` 为空）再也写不进内部行；真正用「内部行」的是报价引擎（`src/lib/quote-engine/customer-view.ts:76` 按它过滤客户视图），它的报价经旧接口一律 409（D3），客户报价单走报价引擎自己的 PDF（`src/lib/quote-engine/quotation-pdf.ts`）。旧报价单里若已有 `isInternal = true` 的行（只能是有人直接调接口写的），下次保存时变成客户行——今天它们在编辑器、PDF、合计里本来就当客户行显示与计算，只是标记跟着对齐；有多少要先查生产（tasks 6.1 的只读查询），不为零时由负责人逐份看。
+
+- 备选 B：请求里有任何一行 `isInternal: true` 就 400。否决：编辑器把读到的 `isInternal` 原样回传，已有内部行的旧报价单会永远存不进去。
+- 备选 C：保留内部行语义——PDF / Excel 排除内部行、按印出的行重算客户小计，合计与编辑器分开算内部行。否决：旧报价单的总额（`totalAmount`）今天是全部行之和，改算法会让已存的总额与 PDF 对不上；编辑器要加内部行的开关与显示；要改 `calculate.ts`、编辑器、两种导出与接口，范围比收口大，且旧编辑器没人用这个功能。
+- 备选 D：不改，只在报告里提示。否决：内部行印给客户是 FIX-26a 审查点名的口子，接口写得进去就是口子。
+
 ## 八条硬纪律
 
 1. 零 schema：遵守。不改 `prisma/`；`capabilities`、`costHidden`、`hintReason`、`href` 只是响应里的键。
@@ -164,7 +175,7 @@
 ## 验证方式
 
 - 纯函数与界面：`npx tsx src/lib/quote/__tests__/legacy-quote-finance-view.test.ts`——有权限时列表行、详情视图与输入逐字段相同；没有时置空项逐个为 `null`；详情白名单不含任何引擎字段与 `sourceJson`；兜底两条（出错、没有组织）；规则检查默认调用与改动前 `JSON.stringify` 相同、「看不到成本」时没有 `low_margin` / `margin_warning` / `high_margin`；Excel 两种内容；编辑器、合计条、行项表、AI 面板、报价管理区块的静态渲染与源码断言（看不到成本 / 不能编辑 / 读取失败 / 409 四种）。
-- 隔离库 + HTTP：`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`——八种身份（只读成员、不是负责人的项目管理员、operator、不是成员没有财务键的组织管理员、只在分配范围持 `project.finance.read` 的投标同事、持组织范围 `project.finance.read` 且项目角色 viewer 的成员、项目负责人、平台超级管理员）+ 不是项目成员的普通组织成员（工具）；授权查询出错用注入的判定测；旧报价单与引擎报价各一份（成本价 17.31、内部成本 91,234.56、利润率 23.45、`summaryJson.estimatedCost` 87,654.32）；列表、详情、写（403 / 409 后库不变）、AI 两个接口（本机假模型服务：被拒 0 次、有资格 1 次且请求正文与改动前相同）、报价技能 review / draft（跨项目 `quoteId` 被拒）、两个问青砚工具；没有财务查看权的每个响应 JSON 里搜不到这几个数。改动前的代码上跑一次，记下失败条数。
+- 隔离库 + HTTP：`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`——八种身份（只读成员、不是负责人的项目管理员、operator、不是成员没有财务键的组织管理员、只在分配范围持 `project.finance.read` 的投标同事、持组织范围 `project.finance.read` 且项目角色 viewer 的成员、项目负责人、平台超级管理员）+ 不是项目成员的普通组织成员（工具）；授权查询出错用注入的判定测；旧报价单与引擎报价各一份（成本价 17.31、内部成本 91,234.56、利润率 23.45、`summaryJson.estimatedCost` 87,654.32）；列表、详情、写（403 / 409 后库不变）、AI 两个接口（本机假模型服务：被拒 0 次、有资格 1 次且请求正文与改动前相同）、报价技能 review / draft（跨项目 `quoteId` 被拒）、两个问青砚工具；列表里没有引擎报价与逐行报价；PATCH 时请求里标 `isInternal: true` 的行库里与返回都是 `false`；没有财务查看权的每个响应 JSON 里搜不到这几个数。改动前的代码上跑一次，记下失败条数。
 - 守卫：`npx tsx src/lib/projects/__tests__/project-routes-guard.test.ts` 全过（改的路由第一步仍是项目读权限）。
 - 既有：`quote-engine-contract.test.ts`、`finance-access.test.ts`、`m2c-tool-policy.test.ts`、`bid-page-v2.test.tsx`、FIX-26a 的 `export-customer-pdf.test.ts` 原样通过。
 - 全量：`npm test`（失败清单与 CHAIN-2e 分支基线逐条相同）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`npx openspec validate legacy-quote-finance-gate --strict`、`git diff <CHAIN-2e 分支> -- prisma/ vercel.json package.json` 为空。
@@ -178,6 +189,8 @@
 - 每次旧报价单请求多 2 次 `authorize`（与成本核算接口同代价），看不到时多一次查负责人账号（选句子）。
 - 有财务查看权的人在问青砚里拿到的利润率会留在他自己的会话记录里；工具结果写进智能体运行记录后还有谁能读，没核实（见报告）。
 - 行项「备注」是自由文本，AI 草稿可能写进「按供应商报价加价 30%」一类的话，裁剪不了；本 change 之后只有能编辑的人能应用 AI 草稿，已存的备注照旧显示。
+- 旧报价单列表只列旧报价单（D3，留给 GATE ③ 推荐 A）：报价管理区块与版本历史抽屉（老页面的「版本历史」、新页面「更多 → 版本历史」）不再显示报价引擎与逐行报价建的报价；它们在报价引擎区块与新页面的报价列表里照常有。
+- 旧报价单里已有 `isInternal = true` 的行（只能是有人直接调接口写的）下次保存后变成客户行（D10）；今天它们在编辑器、PDF、合计里本来就当客户行，生产里有多少先查（tasks 6.1）。
 - 叠在未合并的 CHAIN-2e 上：CHAIN-2e 合并前若再改 `resolveFinanceViewSafe` / `resolveQuoteCapabilities` 的签名或句子，本 change 要跟着变基改。
 
 ## 与在审 / 并行 change 的关系
@@ -198,7 +211,8 @@
 6. 与 BIDPAGE 的交叠：**本 change 先合**；BIDPAGE 变基时保留判断（协调会话通知 BIDPAGE 会话）。
 7. 依赖：**叠在 CHAIN-2e 分支上做**（`claude/inspiring-johnson-o54xbt-chain-2e`，`35e9ae91`），CHAIN-2e 合并后再合；CHAIN-2e 长期不合时协调会话再定。
 8. 开关：**不设**，合并即生效。
-9. 三个顺手的小问题：**登记「待定」**（tasks 6.1 写进 TASKFLOW）——版本历史抽屉与报价管理区块把引擎报价链到旧编辑器；旧报价单 `PATCH` 接受任意 `status`；AI 面板「输出版本」三个按钮没有接线。
+9. 顺手的小问题：**登记「待定」**（tasks 6.1 写进 TASKFLOW）——版本历史抽屉与报价管理区块把引擎报价链到旧编辑器（留给 GATE ③ 选 A 时随列表过滤一并消失，不再登记）；旧报价单 `PATCH` 接受任意 `status`；AI 面板「输出版本」三个按钮没有接线。
+10. FIX-26a 审查（2026-11-23）后补的两条：`isInternal` 与旧报价单列表的口径，见下「留给 GATE」② ③（四件套按推荐写）。
 
 ## 留给 GATE
 
@@ -207,3 +221,5 @@
    - **B 有财务查看权或项目写权限可看**：询价同事里有编辑权的照常看和录；只读成员、tester、operator 看不到。代价：不是项目成员的组织管理员仍能看（FIX-21 后续 8 点名要收的人）；两价反推对有编辑权的人照旧成立；口径与报价表助手、报价引擎都不同，要新写一份判定。
    - **C 维持现状（当前状态）**：不改任何东西，CHAIN-2e D3 照旧。代价：所有项目读者（含只读成员与不是成员的组织管理员）都能看到每家供应商原价；供应商报 DDP 加元时原价就是落地价，CHAIN-2e 对落地价的收口对这类报价等于没收；本 change 与 FIX-25 之后「项目读者拿不到我方成本」仍不成立。
    - 初稿（本分支提交 `180eeda9` 的 `specs/tender/inquiry-supplier-price-view/spec.md` 与 design D8）按 A 写过一版，FIX-26b 选 A 或 B 时可从那里改起。
+2. **旧报价单的「是否内部行」（D10；FIX-26a 两位审查员都提）**：A PATCH 一律存 `false`、不看请求（推荐）／B 请求里有 `true` 就 400／C 保留内部行语义，PDF / Excel 排除内部行并按印出的行重算客户小计。推荐 A：旧编辑器没有内部行功能，合计、PDF、Excel 本来就把全部行当客户行；真正用内部行的报价引擎经旧接口一律 409、有自己的客户 PDF；B 会让已有内部行的旧报价单存不进去；C 要改算法、编辑器、两种导出与接口，且会让已存总额与 PDF 对不上。选 A 时 PDF / Excel 不需要排除内部行（D10 写明理由），新增一条「请求里标内部行，库里与返回都是否」的隔离库用例。
+3. **旧报价单列表要不要列报价引擎的报价（D3；FIX-26a 审查提）**：A 只列 `orgId` 为空的旧报价单（推荐）／B 照旧列出、每行标 `engineQuote: true` 与 `href`，报价管理区块与版本历史抽屉把这些行链到报价页。推荐 A：与旧接口对引擎报价 409 同一口径，一处 `where` 改动；老页面开着报价引擎时不再在两处重复列；BIDPAGE-8 判断点 4 按旧报价单数才准；GATE ⑨ 第一条小问题随之消失。代价：版本历史抽屉里不再有引擎报价那几行（引擎区块与新页面报价列表里有）。选 B 要多改 `src/components/project-detail/version-history-drawer.tsx` 与报价管理区块，并通知 BIDPAGE 会话（新页面「更多 → 版本历史」用同一个抽屉）。

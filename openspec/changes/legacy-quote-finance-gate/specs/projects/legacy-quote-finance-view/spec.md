@@ -18,11 +18,11 @@
 - **THEN** 负责人与平台超级管理员仍能看、能编辑，其余人都不能；出错时带 `hintReason: "unconfirmed"`，没有组织时不调用授权查询（`npx tsx src/lib/quote/__tests__/legacy-quote-finance-view.test.ts`）
 
 ### Requirement: 报价单列表不带利润率
-`GET /api/projects/{项目}/quotes` SHALL 对所有人多返回 `capabilities`（`canViewInternal`、`canEdit`）。没有财务查看权的人：每份报价（包括报价引擎、逐行报价建的）的 `profitMargin` SHALL 为 `null`，响应 SHALL 带 `costHidden: true`；`totalAmount`、标题、状态、版本、行数等其它字段 SHALL 照旧。有财务查看权的人每份报价的字段 SHALL 与改动前相同。
+`GET /api/projects/{项目}/quotes` SHALL 只列所属组织为空的旧报价单，SHALL NOT 列出报价引擎、逐行报价建的报价（与旧接口对它们 409 同一口径）。响应 SHALL 对所有人多带 `capabilities`（`canViewInternal`、`canEdit`）。没有财务查看权的人：每份报价的 `profitMargin` SHALL 为 `null`，响应 SHALL 带 `costHidden: true`；`totalAmount`、标题、状态、版本、行数等其它字段 SHALL 照旧。有财务查看权的人每份旧报价单的字段 SHALL 与改动前相同。
 
 #### Scenario: 只读成员与负责人读列表
-- **WHEN** 项目里有一份旧报价单（利润率 23.45）和一份报价引擎的报价，只读成员与项目负责人分别读列表
-- **THEN** 只读成员拿到两份报价、`profitMargin` 都是 `null`、带 `costHidden: true`、`totalAmount` 与负责人看到的相同；负责人的 `profitMargin` 是 23.45 与引擎的毛利率，没有 `costHidden`（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
+- **WHEN** 项目里有一份旧报价单（利润率 23.45）、一份报价引擎的报价和一份逐行报价，只读成员与项目负责人分别读列表
+- **THEN** 两人都只拿到那份旧报价单；只读成员的 `profitMargin` 是 `null`、带 `costHidden: true`、`totalAmount` 与负责人看到的相同；负责人的 `profitMargin` 是 23.45，没有 `costHidden`（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
 
 ### Requirement: 报价单详情只返回旧报价单字段
 `GET /api/projects/{项目}/quotes/{报价}` 与修改成功的返回 SHALL 只含：报价头（标题、模板、币种、贸易方式、付款条款、交期、有效期、MOQ、原产地、状态、版本）、小计、总额、内部成本、利润率、内部备注、AI 草稿与审查原文、是否 AI 生成、关联询价、创建人与时间，行项（顺序、类别、品名、规格、单位、数量、单价、合计、备注、成本价、是否内部行），以及 `capabilities`。没有财务查看权时内部成本、利润率、内部备注、AI 草稿与审查原文、每行成本价 SHALL 为 `null`，并带 `costHidden: true`。
@@ -48,6 +48,13 @@
 #### Scenario: 负责人照常修改
 - **WHEN** 项目负责人改一份旧报价单的行项并确认
 - **THEN** 返回 200，状态为已确认，内部成本与利润率按新行项重算，返回里带成本，没有 `costHidden`（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
+
+### Requirement: 旧报价单的行都是客户行
+旧报价单的修改（`PATCH …/quotes/{报价}` 带行项时）SHALL 把每一行存成非内部行（「是否内部行」为否），SHALL NOT 采用请求里带的「是否内部行」的值；其余行项字段 SHALL 照旧按请求保存。旧报价单的编辑器、PDF、Excel 与合计 SHALL 照旧把全部行当客户行处理。
+
+#### Scenario: 请求里把一行标成内部行
+- **WHEN** 项目负责人保存一份旧报价单，两行里一行带「是否内部行」为是
+- **THEN** 返回 200；库里与返回里两行的「是否内部行」都为否，其余字段与请求相同，合计按两行算（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
 
 ### Requirement: 报价 AI 只给有资格的人
 `POST …/quotes/{报价}/ai/review` SHALL 只对有财务查看权的人调用模型；没有的人 SHALL 得到 403「AI 审查用到的成本和利润率只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。」。`POST …/quotes/ai/generate-draft` SHALL 只对能编辑的人调用模型；不能编辑的人 SHALL 得到 403「没有生成：你不是本项目负责人，不能用 AI 起草报价单。要做报价，请项目负责人或组织管理员在项目成员里把你设为主负责人。」（后一句按上一条同样换）。被拒时 SHALL NOT 调模型。有资格的人的模型输入与返回 SHALL 与改动前相同。
