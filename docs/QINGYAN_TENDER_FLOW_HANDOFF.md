@@ -551,7 +551,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 
 **开工核对（2026-11-22 约 21:30 UTC）**：远端各分支最新提交都不晚于 2026-11-21 04:09:20 UTC（`claude/modest-einstein-4ovbd2` `490d786a`）；`list_sessions` 里本账号没有别的会话在跑；原来的会话「青砚招投标线 T1–T6」（`session_01S6TUMQWjut1btSm1teBx21`）不在本账号的列表里，按 Evan 的说法已停。
 
-**进度（以本节最后一次更新为准；最后更新 2026-11-23 00:50 UTC，main = `f016325f`）**
+**进度（以本节最后一次更新为准；最后更新 2026-11-23 03:10 UTC，main = `f332dd91`）**
 
 | 项 | 状态 | 在哪 |
 |---|---|---|
@@ -560,9 +560,9 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 | 第 3 步 #545 / #543 | **都已合并**：#545（`8f65b77a`）、#543（`2f5d24d2`，核对子 agent：两份原交接一行没丢）；#537、#541 已关闭并留言「已由 #543 取代」。之后本文件从 `claude/zen-turing-azudvx` 走新 PR | PR #545、#543 |
 | 第 4 步 FIX-15 / FIX-16 四件套 | **已定稿**：FIX-15 `cdd13767`（G1A G2A G4C；t8 原因改写归 FIX-20；排队头阻塞最坏情况；G3 合并前要生产耗时分布）+ `45ea769f`（`docs/acceptance/fix-15/prod-check.sql`）；FIX-16 `957c7325`（G1–G10 按推荐） | `claude/zen-turing-azudvx-fix15`、`-fix16` |
 | 第 5 步 FIX-14 四件套 | **已定稿** `e889c585`（G1A G2A G3A G4A G5B G6A；登记 7 条后续任务） | `claude/zen-turing-azudvx-fix14` |
-| 七个情报串联 PR | #533（CHAIN-4c）**已合并**（`07c02358`），归档 #550 核对通过、等 CI；#532（CHAIN-2b）合入 main `07c02358`（HEAD `de867d85`），全量 `707/717` 与基线相同，交叉验证无阻断，已转 Ready、正文写了复核，等 CI 后合并，再开归档；其后 #535 → #534 → #536 → #539 → #538 | 分支 `claude/inspiring-johnson-o54xbt-chain-*` |
-| CHAIN-2e | 未开始（排在 #532 合并之后） | `claude/inspiring-johnson-o54xbt-chain-2e` |
-| FIX-18 / 19 / 20（+20b）/ 21 | FIX-21 **实现中**（子 agent，分支 `-fix21`，已合入 main）；FIX-19 已定稿，等生产查询第 1、2 条；FIX-20 **实现完成**（`ec625198`，已合入 main），五个维度审查已回（安全：招投标判断进了冻结区执行器，要挪出；规格：归档后一条要求超 500 字；正确性 / 文案：已停下的作业仍写「正在重试」等），修订清单在 scratchpad `reviews/fix20-fixlist.md`，等测试质量维度回来后交实现者一并改；FIX-20b 在 FIX-18 之后；FIX-18 **已定稿** `eac72193` | `claude/zen-turing-azudvx-fix18`、`-fix19`、`-fix20`、`-fix21` |
+| 七个情报串联 PR | **已合并**：#533（CHAIN-4c）+ 归档 #550；#532（CHAIN-2b）+ 归档 #552；#535（CHAIN-3b，交叉验证后面板标题改为「未接通或仅人工的来源」）+ 归档 #555。**进行中**：#534（CHAIN-3c）子 agent 合入 main 跑全量（与 #535 的两处冲突两边保留）。其后 #536 → #539 → #538 | 分支 `claude/inspiring-johnson-o54xbt-chain-*` |
+| CHAIN-2e | 已实现（`e0a4883d`），Draft PR #556；开工前核实四条都属实（viewer 带成本读权限、测试用了不存在的 `project_viewer`、单个报价页停在加载中、询价追踪页是第三处），GATE ① 前提代码上成立但**默认派发会留下系统负责人**；五个维度审查无阻断，26 条修订在实现者手里（清单 scratchpad `reviews/chain2e-fixlist.md`）。**合并前提**：生产只读查出负责人是系统账号的投标项目，组织管理员先把做报价的同事设为主负责人。另：legacy 报价接口必须在打开 `TENDER_QUOTE_ENGINE_ENABLED` 前修（已登记后续） | `claude/inspiring-johnson-o54xbt-chain-2e`、PR #556 |
+| FIX-18 / 19 / 20（+20b）/ 21 / 23 | **FIX-21** PR #554：五维审查无阻断，修订已推（`8da9e2d5`，全量 713/723 与基线相同；检查器收紧，3 个既有接口进只减不增的「守卫前预处理名单」），交叉验证在跑，过了就 Ready + 合并。**FIX-23**（新，`/api/agent/tasks/recent` 给非平台管理员原始报错与价格、不重查项目权限）四件套已审已改（`857c9427`），FIX-21 合并后实现。**FIX-20** 五维审查 + 修订 + 交叉验证都过，本地 `ab7ac48b`（全量 714/724 与基线相同），**子 agent 推送被权限系统拒绝，等 Lucas 同意由本会话推送**。FIX-19 等生产查询；FIX-18 已定稿 | `-fix18`、`-fix19`、`-fix20`、`-fix21`、`-fix23` |
 | FIX-22 四件套 | **已定稿** `7a8a9ed3`（G1–G12 按推荐；G8 要把「自动补翻」写进 `openspec/config.yaml` 第 7 条例外——config 由 Evan 改，只登记为后续任务） | `claude/zen-turing-azudvx-fix22` |
 
 **接手要知道的**
@@ -579,6 +579,8 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 10. **生产查询由谁跑**：各 change 写法不一（FIX-16 写 Evan，其它写 Lucas），统一为「有生产只读权限的人（Lucas 或 Evan）」，本会话交给 Lucas；各报告实现时照此写。
 11. **审查做法（Lucas 2026-11-22「PR 的审查需要用子agent多方面交叉审查」）**：实现 PR 合并前至少四到五个维度各一个子 agent（正确性、安全与硬纪律、规格一致性、文案、测试质量 / 变异），互相不看结论、不看实现者自述；再起一个没参与过的子 agent 做「挑错」交叉验证，亲自跑关键验证。**做变异的审查员会改工作树里的文件**，其它审查员要从 `git archive <提交>` 导出的干净快照读代码、跑测试。归档小 PR 由一个子 agent 核对主规格与 delta。
 12. **`openspec/config.yaml` 由 Evan 改**：FIX-22 的 G8（把「自动补翻」写进第 7 条例外）只登记为后续任务，等 Evan 动手。
+13. **另一个会话合并了 #544（supplier-docs-converge）与 #553**（2026-11-23 01:16 / 01:39 UTC，作者不是本会话）。FIX-19、BIDPAGE 开工时要按新 main 核对行号。
+14. **子 agent 推送被拒**：FIX-20 实现子 agent 2026-11-23 推送被权限系统拒（「Unsanctioned Communication」）。本会话没有代推（子 agent 被拒的操作不代做），已问 Lucas；其它子 agent 的推送都成功过。
 
 **环境做法（本会话的容器）**：Node 24 在 `/home/user/node24/node-v24.22.3-linux-x64/`（nodejs.org 下载、校验 sha256）；`source /home/user/env.sh` 设 PATH、`JWT_SECRET`、`NODE_ENV=test`、`DATABASE_ENVIRONMENT=isolated` 并提供 `isodb <库名>`；openspec 1.15.0 全局装（项目依赖里没有它）；本机 PostgreSQL 16（`apt-get install -y postgresql-16-pgvector`、`pg_ctlcluster 16 main start`），角色 `qy`，隔离库 `qy_iso_a…g`（单测与审查子 agent 各用一个）与 `qy_full_*`（全量，每次新建）；每个 change 一个 worktree（`/home/user/wt/<名字>`，`node_modules` 符号链接）。全量在本机约 20–25 分钟（不与别的重活并行时）。CI 子集要用 `env -u DATABASE_ENVIRONMENT DATABASE_URL=… DIRECT_URL=… JWT_SECRET=… NODE_ENV=test npm run test:ci`（`env -u` 要写在变量赋值之前）。
 <!-- K-END -->
