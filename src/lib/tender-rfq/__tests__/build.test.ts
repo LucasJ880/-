@@ -42,7 +42,7 @@ const specSection = (body: string) => body.slice(body.indexOf("一、规格要�
 console.log("tender-rfq build");
 
 {
-  const r = buildRfqDocument({ identity: RCMP_ID, buyerDisplayName: "Sunny Trading Inc.", closeDate: "2026-11-14", now,
+  const r = buildRfqDocument({ identity: RCMP_ID, buyerDisplayName: "Sunny Trading Inc.", closeDate: "2026-11-14", now, timeZone: "UTC",
     requirements: [
       req({ requirementCode: "R-01" }),
       req({ requirementCode: "R-02", category: "DELIVERY", mandatory: false, originalRequirement: "Delivery within 60 days of PO.", chineseTranslation: "下单后 60 天内交付。", sourcePage: 15 }),
