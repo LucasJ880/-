@@ -4,9 +4,9 @@
 
 | 项 | 值 |
 |---|---|
-| change | `extracted-text-nul-other-paths`（新能力 `platform/extracted-text-storage`，14 条要求） |
+| change | `extracted-text-nul-other-paths`（已归档到 `openspec/changes/archive/2026-11-23-extracted-text-nul-other-paths/`；新能力 `platform/extracted-text-storage`，14 条要求） |
 | TASKFLOW | FIX-14（Phase F（续）— 情报串联表，紧接 FIX-13），另登记 9 条「编号待定」后续任务与 FIX-24 一行 |
-| PR | #569（协调会话开） |
+| PR | #569，2026-11-23 合并（合并提交 `07759375`）；归档后 `openspec validate --specs --strict` 159 / 159 |
 | 依赖 | FIX-13（#546，main `13c7ed33`）：复用 `toStorableText` / `toStorableParseError` 与夹具 `src/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf.ts` |
 | GATE | Lucas 2026-11-22：G1 A、G2 A、G3 A、G4 A、G5 B、G6 A（见 §10）；G5-B 的措辞按文案审查调整（Lucas 授权按推荐） |
 | 分支 | `claude/zen-turing-azudvx-fix14`；四件套定稿提交 `e889c585`；开工时合入 main `d94e4323`，多维审查修订前合入 main `2a0eb964`（都不 rebase；`openspec/config.yaml` 取 main 的） |
