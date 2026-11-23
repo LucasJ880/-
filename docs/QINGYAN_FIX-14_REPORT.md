@@ -96,9 +96,22 @@
 
 `inbound-parse` 38、`inbound-apply` 72、`notes-parse` 17、`tracking-notify-wiring` 67、`chat-attachments` 54、`durable-followup-pure` 73、`durable-followup-m1.isolated` 61、`daily-brief-scenario` 6、`dispatch-policy` 11、`human-signals` 80、`mail-untrusted-guard` 56、`tool-list-modules` 37、`mail-tool-visibility` 69、`effective-platform-role` 63、`digital-employee` 50、`residual-reads` 76、`b1-tenant-context-static` 20、`research-runtime` 13、`quote-import` 74、`quote-ops-contract` 75、`disclosure-analysis-pure` 50、`procurement-records-db.isolated` 158、`priority-conflict` 10、`page-parse` 29。`git diff origin/main -- src/lib/tender-rfq/inbound-sync.ts src/lib/tender-rfq/inbound-contract.ts src/lib/tender-rfq/notes-parse.ts` 为空。
 
-### 4.4 门禁
+### 4.4 门禁（多维审查修订后、合入 main `2a0eb964` 后重跑）
 
-（待填）
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| 全量 | 删库重建 `qy_full_fix14`（`DROP / CREATE DATABASE` 后 `npx prisma migrate deploy`）上 `npm test < /dev/null`（提交 `101efab9`） | **731/742 通过、11 失败**：10 项与本机 main 基线逐条相同（来信观察 DB（MAIL-2）、Sunny 工艺单 DB、Phase3A-3 Approvals Smoke、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Autopilot A2-P0 Isolated E2E、Phase3A-5 Overview Acceptance、T4 授标情报真实 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草第 1 轮 DB）；多出的 1 项「日历观察 DB 端到端（CAL-1）」79/80，失败的是「GET 无 syncToken / pageToken 字样」——断言里有一条 `!g1.text.includes("t2")`，那次运行的时间戳夹具是 `mwt2hvol`，本身就含「t2」（`src/lib/calendar-watch/__tests__/calendar-watch-db.isolated.test.ts:415`），与本 change 无关；在 `qy_iso_f` 单独重跑两次都是 80/80。本 change 的两个新测试 78 / 38 全过，`extracted-text` 53 过 |
+| CI 子集 | `env -u DATABASE_ENVIRONMENT DATABASE_URL=…ci… DIRECT_URL=…ci… JWT_SECRET=ci-only-… NODE_ENV=test npm run test:ci` | 末行 `CI unit subset PASS`（新测试 78 过） |
+| 类型 | `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出码 0 |
+| lint | `npm run lint:baseline` | PASS（errors 38，没有新增 fingerprint） |
+| 测试注册 | `bash scripts/check-test-registry.sh` | OK（已注册 708 个，基线 66 条未增） |
+| 运行时架构 | `bash scripts/test-runtime-architecture.sh` | PASS（9 过） |
+| OpenSpec | `openspec validate extracted-text-nul-other-paths --strict` | valid |
+| 归档演练 | 把 `openspec/` 拷到 scratchpad 里跑 `openspec archive extracted-text-nul-other-paths --yes`，前后各跑 `openspec validate --specs --strict` | 归档前 156 过 0 败 → 归档后 157 过 0 败，「+ 14 added」；每条要求正文最长 465 字（≤ 500） |
+| 冻结面 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json .claude/launch.json openspec/specs openspec/config.yaml` | 为空 |
+| 开关前提 | `grep -c "FIX-14 部署之后" docs/QINGYAN_CHAIN-0_ENV_CHECK.md`；`grep -n "^| CHAIN-0 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`；`grep -n "^| FIX-14 \|^| FIX-24 "`；`grep -c "| 待定 |"` | 2；CHAIN-0 行含「FIX-14 部署之后」与四条前提；FIX-14 在 `:299`（FIX-13 在 `:298`）、FIX-24 在 `:309`；28（main `2a0eb964` 原有 19 + 9） |
+
+第一轮（审查前，提交 `b4f416d0`）全量为 722/732、10 项失败与基线逐条相同。
 
 ## 5. 没验证到的与已知限制
 
@@ -276,7 +289,8 @@ ROLLBACK;
 | 5.1 报价成本表导入 | `b4f416d0` |
 | 6.1 门禁 + 7.1 报告、开关前提与 TASKFLOW | `503e99f9` |
 | 多维审查修订：代码与测试（合入 main `2a0eb964`） | `52f4eb22` |
-| 多维审查修订：四件套、报告、核查表与 TASKFLOW | （待填） |
+| 多维审查修订：四件套、报告、核查表与 TASKFLOW | `101efab9` |
+| 多维审查修订：门禁数字写进报告 | 本提交 |
 
 ## 13. 多维审查
 
