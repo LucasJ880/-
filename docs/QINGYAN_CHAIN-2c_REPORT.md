@@ -5,9 +5,10 @@
 | TASKFLOW | CHAIN-2c（Phase F（续）— 情报串联的后续） |
 | 起因 | CHAIN-2b #532 留给 GATE 的第 ② 条：能编辑项目的人可以把负责人改成自己，从而按负责人拿到财务查看权 |
 | 拍板 | Lucas 2026-11-20 GATE：「可以」（另立 change） |
-| OpenSpec change | `openspec/changes/project-owner-change-guard/`（新能力 `projects/owner-change`，9 条要求） |
+| OpenSpec change | `project-owner-change-guard`（已归档到 `openspec/changes/archive/2026-11-23-project-owner-change-guard/`；新能力 `projects/owner-change`，9 条要求） |
+| PR | #539，2026-11-23 合并（合并提交 `591ffa8a`）；归档后 `openspec validate --specs --strict`：以 `591ffa8a` 为基 154 / 154；合入 main `86a85724`（TREE-1 归档）后 155 / 155（不含同时在审的 CHAIN-1b 归档 #568） |
 | 基线 | origin/main `91d928e4` |
-| 开关 | 没有开关，合并即生效 |
+| 开关 | 没有开关，已随合并（2026-11-23）在生产生效 |
 
 ## 1. 做了什么
 
