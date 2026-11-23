@@ -78,11 +78,15 @@
 - **THEN** 卡片提示比价矩阵现在是 B 家的落地价，已保存的成本仍是 A 家的（`compare-cost-source-db.isolated.test.ts`；`compare-cost-source.test.tsx`）
 
 ### Requirement: 毛利率与成本加成写清楚
-卡片 SHALL 把毛利列（只对有财务查看权的人显示）与目标毛利写作「毛利率（按售价）」（没有财务查看权、开关开着时目标毛利的写法与成本加成提示照旧），并在目标毛利旁显示等价的成本加成率（m ÷ (1 − m)）。计算 SHALL NOT 改变。
+开关开着时，有财务查看权的人看卡片，卡片 SHALL 把毛利列与目标毛利写作「毛利率（按售价）」，并在目标毛利旁显示等价的成本加成率（m ÷ (1 − m)）。没有财务查看权的人 SHALL NOT 看到目标毛利、毛利列与成本加成提示（按 `tender/pricing-helper`「卡片上没有财务查看权时的显示」）。计算 SHALL NOT 改变。
 
 #### Scenario: 目标毛利 20%
-- **WHEN** 目标毛利填 20
-- **THEN** 旁边显示「相当于成本加成 25%」，情景表数字与改动前相同（`compare-cost-source.test.tsx`）
+- **WHEN** 有财务查看权的人目标毛利填 20
+- **THEN** 旁边显示「相当于成本加成 25%」，情景表数字与改动前相同（`npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx`）
+
+#### Scenario: 没有财务查看权、开关开着
+- **WHEN** 读取结果带 `costHidden` 与 `compareCostHidden`
+- **THEN** 卡片不渲染目标毛利输入框与成本加成提示（`npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts` 源码断言）
 
 ### Requirement: 不带出不该带的
 这一项 SHALL NOT 带出报价邮件正文、供应商联系方式、报价备注原文。读取 SHALL NOT 建审批卡、发信、改选定或询价状态。
