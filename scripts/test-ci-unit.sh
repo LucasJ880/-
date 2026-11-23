@@ -500,6 +500,8 @@ npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts
 npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts
+npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts
+NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx

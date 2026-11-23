@@ -3,9 +3,11 @@ import { db } from "@/lib/db";
 import {
   requireProjectReadAccess,
   requireProjectWriteAccess,
+  type ProjectAccessContext,
 } from "@/lib/projects/access";
+import { resolveFinancePrivilege } from "@/lib/project-finance/access";
+import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 import {
-  buildScenarios,
   PRICING_MODEL_VERSION,
   type PricingInputs,
   type ScoringModel,
@@ -31,6 +33,13 @@ import {
 } from "@/lib/tender-pricing/compare-cost-source";
 import { loadCompareCostSuggestionSafe } from "@/lib/tender-pricing/compare-cost-source-load";
 import { lockProject } from "@/lib/quote-engine/tender-bid";
+import {
+  COST_WRITE_FORBIDDEN_ZH,
+  buildPricingHelperView,
+  buildSavedInputsView,
+  resolvePricingCostVisibility,
+  touchesCost,
+} from "@/lib/tender-pricing/finance-view";
 
 /**
  * 报价表助手（tender-pricing/v1）
@@ -41,7 +50,21 @@ import { lockProject } from "@/lib/quote-engine/tender-bid";
  * 纪律：计算结果是假设驱动的情景，不是报价决定；绝不 GO/NO-GO。
  * FLOW-H2（开关 TENDER_PRICING_COMPARE_SOURCE_ENABLED）：GET 多返回 compareCost（比价矩阵里人工选定那一家的落地价建议、
  * 已保存成本的来源、矩阵变了的提示）；POST save 可带 ourCostSource 声明，服务端重新取数核对，到分相同才记来源。
+ * CHAIN-2b：我方成本、落地价只给有财务查看权的人（与成本核算接口、寻源建议卡同一个判定）。没有的人读取时成本为 null、
+ * 带 costHidden、不带成本建议（开关开着时只带 compareCostHidden），情景按没有成本算；保存时带了成本或成本来源 → 403。
  */
+
+/**
+ * 对本项目有财务查看权（resolveFinancePrivilege(...).canReadAll）。项目没有组织、或判定出错时，
+ * 按「不持组织键」重算：只剩平台超级管理员与项目负责人（他们的判定不依赖授权查询）。
+ */
+async function canSeePricingCost(access: ProjectAccessContext): Promise<boolean> {
+  const { user, project } = access;
+  return resolvePricingCostVisibility(
+    { isPlatformSuperAdmin: isPlatformSuperAdmin(user.role), isProjectOwner: !!project.ownerId && project.ownerId === user.id, orgId: project.orgId },
+    async (orgId) => (await resolveFinancePrivilege(user, orgId, project.ownerId)).canReadAll,
+  );
+}
 
 
 export async function GET(
@@ -73,24 +96,29 @@ export async function GET(
     ourCostCad: saved.ourCostCad ?? null,
     targetMarginPct: saved.targetMarginPct ?? null,
   };
-  const result = model ? buildScenarios(model, inputs) : null;
 
   // FLOW-H2：组织只用服务端鉴权得到的项目组织
   const orgId = access.project.orgId;
+  // CHAIN-2b：没有财务查看权时不取比价建议、情景按没有成本算
+  const canSeeCost = await canSeePricingCost(access);
+  const compareEnabled = !!orgId && isPricingCompareSourceEnabledForOrg(orgId);
   let compareCost: CompareCostView | null = null;
-  if (orgId && isPricingCompareSourceEnabledForOrg(orgId)) {
+  if (orgId && canSeeCost && compareEnabled) {
     const suggestion = await loadCompareCostSuggestionSafe({ projectId, orgId });
     const source = readCostSource((saved as Record<string, unknown>).ourCostSource);
     compareCost = { suggestion, source, staleNoteZh: staleNoteZh(source, inputs.ourCostCad, suggestion) };
   }
+  const view = buildPricingHelperView({ model, inputs, canSeeCost, compareEnabled, compareCost });
   return NextResponse.json({
     ...(compareCost ? { compareCost } : {}),
+    ...(view.compareCostHidden ? { compareCostHidden: true } : {}),
     runId: run?.id ?? null,
     model,
     modelOrigin,
     benchmark,
-    inputs,
-    result,
+    inputs: view.inputs,
+    result: view.result,
+    ...(view.costHidden ? { costHidden: true } : {}),
     note: !run
       ? "尚无已完成的分析"
       : !model
@@ -224,7 +252,9 @@ export async function POST(
   const access = await requireProjectWriteAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
-  const body = (await request.json().catch(() => ({}))) as PricingPostBody;
+  const raw = asRec(await request.json().catch(() => ({})));
+  // inputs 不是对象时当作没带（原来会在 buildSave 里抛错变 500）
+  const body = { ...raw, ...(raw.inputs !== undefined ? { inputs: asRec(raw.inputs) } : {}) } as PricingPostBody;
   const room = await db.bidIntelligenceRoom.findUnique({
     where: { projectId },
     select: { id: true, summaryJson: true },
@@ -264,6 +294,12 @@ export async function POST(
   // save：输入与/或人工模型覆盖
   // FLOW-H2：组织只用服务端鉴权得到的项目组织；比价建议是一次取数，在锁外取
   const orgId = access.project.orgId;
+  // CHAIN-2b：没有财务查看权的人不能改我方成本与来源（锁外判定；顺序：没有调查室 409 → 这里 403 → 锁内 400）
+  const canSeeCost = await canSeePricingCost(access);
+  if (!canSeeCost && touchesCost(body)) {
+    return NextResponse.json({ error: COST_WRITE_FORBIDDEN_ZH }, { status: 403 });
+  }
+  // compareEnabled 照旧按开关算：没有财务查看权的人不带成本保存时，已记的来源原样保留（不当成「开关关了」清掉）
   const compareEnabled = !!orgId && isPricingCompareSourceEnabledForOrg(orgId);
   const claim = compareEnabled ? readCostClaim(body.ourCostSource) : null;
   const suggestion =
@@ -274,10 +310,15 @@ export async function POST(
   });
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   const { next, inputs, source } = out.result;
-  return NextResponse.json({
-    ok: true,
-    inputs,
-    model: next[PRICING_MODEL_KEY] ?? null,
-    ...(compareEnabled ? { ourCostSource: source } : {}),
-  });
+  return NextResponse.json(
+    buildSavedInputsView(
+      {
+        ok: true,
+        inputs,
+        model: next[PRICING_MODEL_KEY] ?? null,
+        ...(compareEnabled ? { ourCostSource: source } : {}),
+      },
+      canSeeCost,
+    ),
+  );
 }
