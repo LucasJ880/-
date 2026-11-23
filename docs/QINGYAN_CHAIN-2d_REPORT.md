@@ -4,11 +4,12 @@
 |---|---|
 | TASKFLOW | CHAIN-2d（Phase F（续）— 情报串联的后续） |
 | 起因 | CHAIN-2b（#532）留给 GATE 的第 ③ 条；Lucas 2026-11-20 答「可以」 |
-| OpenSpec change | `openspec/changes/strategy-memo-cost-strip/`（新能力 `tender/bid-strategy-memo`，4 条要求） |
+| OpenSpec change | `strategy-memo-cost-strip`（已归档到 `openspec/changes/archive/2026-11-23-strategy-memo-cost-strip/`；新能力 `tender/bid-strategy-memo`，4 条要求） |
+| PR | #538，2026-11-23 合并（合并提交 `fc321a7d`）；归档后 `openspec validate --specs --strict` 158 / 158 |
 | 基线 | origin/main `91d928e4` |
 | 合入 main | `325cbdc0`（2026-11-23，合并提交 `b54a1c30`；之前 `c376be86` → `9c3ba172`，见 §8.5）；更早：`51865685`（`a908e6d7`，见 §8）、`5a4d2760`（先合 `d94e4323`（合并提交 `4e58826f`，解决冲突），复核期间 main 又进了只改文档的 #565 / #566，再合 `5a4d2760`（合并提交 `545cd025`，无冲突）；复核见 §7） |
 | 合并顺序 | **须在 CHAIN-2b（#532）之后**：项目列表与调查室读取两个原样返回房间 JSON 的接口由 #532 处理，本 change 不改。#532 已于 2026-11-23 合并（`d9de8490`），已含在本次合入的 main 里 |
-| 开关 | 没有新开关，合并即生效 |
+| 开关 | 没有新开关，已随合并（2026-11-23）在生产生效 |
 
 ## 1. 做了什么
 
