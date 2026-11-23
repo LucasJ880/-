@@ -249,6 +249,10 @@ async function main() {
     ok((revQ.engineJson as { entryMode?: string }).entryMode === "LINE" && revQ.costLines.filter((l) => readBidLineMeta(l.metadata)).length === 10, "另起新版：新版照样是逐行报价，行身份随成本行照抄");
     const g7 = await getLine(P, rev.id);
     ok(g7.status === 200 && (g7.body as unknown as LineView).state.rows.length === 2 && (g7.body as unknown as LineView).quote.version === 2, "新版能按逐行打开（行 id 换了也认得）");
+    const bidAfterRevise = await resolveTenderBid({ projectId: P, orgId: ORG, internal: true });
+    const lr = (await list(P)).body as unknown as ListView;
+    ok(!lr.export.available && (bidAfterRevise.status !== "QUOTE_REVISION_PENDING" || lr.export.reasonZh.includes("新版还没定")), "另起新版后我方报价有新版待定：导出不可用，原因写「新版还没定」", { status: bidAfterRevise.status, export: lr.export });
+    ok(lr.quotes.every((q) => q.currency === "CAD"), "列表带报价币种");
 
     // —— 8. 没碰的地方 ——
     ok((await db.quoteLineItem.count({ where: { quote: { projectId: P } } })) === 0, "全程没写给客户报价单的明细行");
@@ -260,6 +264,24 @@ async function main() {
     const c3 = await create(P2, { entryMode: "LINE", businessType: "SUPPLY_ONLY" });
     const e3 = (await getLine(P2, String(c3.body.id))).body as unknown as LineView;
     ok(c3.status === 201 && e3.state.rows.length === 0 && e3.seed !== null && e3.seed.scheduleLineCount === 0 && typeof e3.seed.prefill.messageZh === "string", "没有价格表：逐行表是空的，附招标分析带入的状态与说明", e3.seed);
+
+    // —— 10. 专业模式改了定价方式 / 币种 ——
+    const Q3 = String(c3.body.id);
+    await updateEngineQuote({ quoteId: Q3, projectId: P2, userId: OWNER, header: { pricingMethod: "MARKUP_ON_COST", pricingRate: 10 } });
+    const e4 = (await getLine(P2, Q3)).body as unknown as LineView;
+    ok(e4.state.targetMarginPct === null && e4.notices.some((n) => n.includes("成本加成")), "专业模式改成成本加成：逐行读出时目标毛利率空着并提示");
+    const before3 = await linesSnap(Q3);
+    const p3 = await putLine(P2, Q3, { baseUpdatedAt: e4.quote.updatedAt, state: e4.state });
+    ok(p3.status === 400 && String(p3.body.error).includes("请先填目标毛利率") && (await linesSnap(Q3)) === before3, "这时不填目标毛利率就保存：400，不写（不会悄悄变成零毛利）", p3.body);
+    const p4 = await putLine(P2, Q3, { baseUpdatedAt: e4.quote.updatedAt, state: { ...e4.state, targetMarginPct: 20 } });
+    const q3 = await getQuote(Q3, P2);
+    ok(p4.status === 200 && q3.pricingMethod === "MARGIN_ON_REVENUE" && Number(q3.pricingRate) === 20, "填了目标毛利率再保存：改回按售价毛利 20%");
+    await updateEngineQuote({ quoteId: Q3, projectId: P2, userId: OWNER, header: { currency: "USD" } });
+    const usd = await getLine(P2, Q3);
+    const usdPut = await putLine(P2, Q3, { baseUpdatedAt: (p4.body as unknown as LineView).quote.updatedAt, state: e4.state });
+    ok(usd.status === 409 && String(usd.body.error).includes("币种") && String(usd.body.error).includes("USD") && usdPut.status === 409, "专业模式把报价币种改成美元：逐行读、存都 409，叫去专业模式", usd.body);
+    const lu = (await list(P2)).body as unknown as ListView;
+    ok(lu.quotes.find((q) => q.id === Q3)?.currency === "USD", "列表照实写出这份报价的币种");
   } finally {
     for (const k of ENV_KEYS) delete process.env[k];
     await db.project.updateMany({ where: { id: { in: projectIds } }, data: { bidQuoteId: null } });

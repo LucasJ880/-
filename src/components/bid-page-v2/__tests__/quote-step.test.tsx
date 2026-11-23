@@ -31,8 +31,8 @@ const noop = () => undefined;
 const LIST: QuoteListView = {
   capabilities: { canEdit: true, canApprove: true },
   quotes: [
-    { id: "q1", name: "合成逐行报价", quoteNumber: "Q-2026-0001-P1", version: 2, status: "draft", quoteType: "SUPPLY_ONLY", entryMode: "LINE", sellingPrice: 8092.08, updatedAt: "2026-11-23T00:00:00.000Z", isOurBid: false, proModeHref: "/projects/p1/quote-engine/q1" },
-    { id: "q2", name: null, quoteNumber: "Q-2026-0002-P1", version: 1, status: "approved", quoteType: "PROJECT_SUPPLY_INSTALL", entryMode: null, sellingPrice: 120000, updatedAt: "2026-11-22T00:00:00.000Z", isOurBid: true, proModeHref: "/projects/p1/quote-engine/q2" },
+    { id: "q1", name: "合成逐行报价", quoteNumber: "Q-2026-0001-P1", version: 2, status: "draft", quoteType: "SUPPLY_ONLY", currency: "CAD", entryMode: "LINE", sellingPrice: 8092.08, updatedAt: "2026-11-23T00:00:00.000Z", isOurBid: false, proModeHref: "/projects/p1/quote-engine/q1" },
+    { id: "q2", name: null, quoteNumber: "Q-2026-0002-P1", version: 1, status: "approved", quoteType: "PROJECT_SUPPLY_INSTALL", currency: "USD", entryMode: null, sellingPrice: 120000, updatedAt: "2026-11-22T00:00:00.000Z", isOurBid: true, proModeHref: "/projects/p1/quote-engine/q2" },
   ],
   scheduleLineCount: 3,
   export: { available: false, reasonZh: "我方报价不是逐行报价做的，不能按价格表导出" },
@@ -68,7 +68,7 @@ function lineView(over: Partial<LineModeView> = {}): LineModeView {
       },
       warnings: [{ code: "NO_CONTINGENCY", messageZh: "没有预备金（需要的话在专业模式里加）" }],
     },
-    inquiryQuotes: [{ inquiryItemId: "ii1", supplierId: "s1", supplierName: "合成供应商甲", roundNumber: 1, repliedAt: null, unitPrice: 30, totalPrice: null, currency: "CNY" }, { inquiryItemId: "ii2", supplierId: "s2", supplierName: "合成供应商乙", roundNumber: 1, repliedAt: null, unitPrice: null, totalPrice: 9000, currency: "CNY" }],
+    inquiryQuotes: [{ inquiryItemId: "ii1", supplierId: "s1", supplierName: "合成供应商甲", roundNumber: 1, repliedAt: null, unitPrice: 30, totalPrice: null, currency: "CNY" }, { inquiryItemId: "ii2", supplierId: "s2", supplierName: "合成供应商乙", roundNumber: 1, repliedAt: null, unitPrice: null, totalPrice: 9000, currency: "CNY" }, { inquiryItemId: "ii3", supplierId: "s3", supplierName: "合成供应商丙", roundNumber: 2, repliedAt: null, unitPrice: 12, totalPrice: null, currency: "RMB" }],
     seed: null,
     proModeHref: "/projects/p1/quote-engine/q1",
     ...over,
@@ -83,7 +83,9 @@ console.log("\n━━━ 1. 报价列表与专业模式入口 ━━━");
   ok(html.includes("8,092.08 加元") && html.includes("我方报价") && html.includes("第 2 版 · 草稿") && html.includes("已批准"), "报价合计、版本、状态、我方报价标记");
   ok(html.includes(QUOTE_STEP_TEXT.createTitle), "有编辑权限：有「新建报价」");
   const ro = render(<QuoteListPanel view={{ ...LIST, capabilities: { canEdit: false, canApprove: false } }} onOpen={noop} onCreate={noop} creating={false} createError={null} />);
-  ok(!ro.includes(QUOTE_STEP_TEXT.createTitle), "没有编辑权限：没有「新建报价」");
+  ok(!ro.includes(QUOTE_STEP_TEXT.createTitle) && ro.includes(QUOTE_STEP_TEXT.noEditList) && QUOTE_STEP_TEXT.noEditList.includes("请找项目负责人"), "没有编辑权限：没有「新建报价」，写明为什么、找谁");
+  ok(!html.includes(QUOTE_STEP_TEXT.noEditList), "有编辑权限：没有那句说明");
+  ok(html.includes("120,000.00 美元"), "列表按报价自己的币种写金额（专业模式里的美元报价写美元）");
   const src = read("src/components/bid-page-v2/quote-step.tsx");
   ok(src.includes(QUOTE_STEP_TEXT.askHow) && src.includes("QUOTE_STEP_TEXT.lineOption") && src.includes("BUSINESS_TYPES.map") && src.includes("QUOTE_STEP_TEXT.proModeOnly"), "新建两问：怎么交价（逐行）与业务类型（三种），另两种写明在专业模式里做");
   ok(/entryMode: "LINE", businessType/.test(src) && /router\.push\(String\(data\.proModeHref\)\)/.test(src), "建好：逐行报价在页内打开；另两种转到专业模式");
@@ -106,6 +108,10 @@ console.log("\n━━━ 2. 逐行报价 ━━━");
   ok(html.includes("100 → 103.09") && html.includes(PRESET_EXPLAIN_ZH.commission) && html.includes(PRESET_EXPLAIN_ZH.financing), "预置旁边写真实算法（管理费 100 → 103.09；提成计入成本）");
   ok(html.includes("汇率：1 CNY =") && html.includes("海运费") && html.includes("报关费") && html.includes("关税率") && html.includes("国内运费（中国境内）") && html.includes("目标毛利率（按售价）"), "共用参数：汇率、海运费、报关费、关税率、国内运费；目标毛利率");
   ok(html.includes("没有预备金"), "引擎的警告照列（中文）");
+  ok(html.includes("报价 = 提成前的成本 ÷（1 − 目标毛利率），提成再从毛利里扣") && !html.includes("报价 = 成本 ÷"), "定价公式写真实算法（提成前的成本；顶部成本合计含提成）");
+  ok(html.includes(QUOTE_STEP_TEXT.landedNote), "表下写明到手单位成本是怎么分到的");
+  ok(html.includes("币种「RMB」不在报价币种里，请手填"), "询价回复的币种不在报价币种里：不能点选，写明原因");
+  ok(html.includes("（CNY，请与回复核对单位与币种）"), "点选的回复提示核对单位与币种");
   ok(html.includes('data-testid="line-editor-pro-mode"') === false && html.includes(">更多<"), "「更多」菜单收着（点开才有专业模式）");
   ok(read("src/components/bid-page-v2/quote-step.tsx").includes('data-testid="line-editor-pro-mode"'), "「更多」里有专业模式入口");
 
@@ -114,7 +120,7 @@ console.log("\n━━━ 2. 逐行报价 ━━━");
   const frozen = render(<LineQuoteEditor projectId="p1" view={lineView({ quote: { ...lineView().quote, status: "approved", frozen: true } })} onSaved={noop} onClose={noop} />);
   ok(frozen.includes(QUOTE_STEP_TEXT.frozen) && !frozen.includes('data-testid="line-save"') && /aria-label="第 1 行品名"[^>]*disabled=""|disabled=""[^>]*aria-label="第 1 行品名"/.test(frozen), "已定的报价：写明锁定、输入框不可改、没有保存按钮");
   const noEdit = render(<LineQuoteEditor projectId="p1" view={lineView({ capabilities: { canEdit: false, canApprove: false } })} onSaved={noop} onClose={noop} />);
-  ok(noEdit.includes(QUOTE_STEP_TEXT.readOnly) && !noEdit.includes('data-testid="line-save"'), "没有编辑权限：只看不改");
+  ok(noEdit.includes(QUOTE_STEP_TEXT.readOnly) && QUOTE_STEP_TEXT.readOnly.includes("请找项目负责人") && !noEdit.includes('data-testid="line-save"'), "没有编辑权限：只看不改，写明找谁");
   const err = render(<LineTotals view={lineView({ computed: { ok: false, errorsZh: ["有外币的行还没填汇率：先在共用参数里填汇率"] } })} dirty={false} />);
   ok(err.includes("还算不出报价") && err.includes("先在共用参数里填汇率") && !err.includes("报价合计"), "引擎算不出：写原因，不显示四个数");
   const dirty = render(<LineTotals view={lineView()} dirty />);
@@ -129,6 +135,7 @@ console.log("\n━━━ 3. 导出 ━━━");
   ok(off.includes(QUOTE_STEP_TEXT.exportButton) && off.includes("disabled") && off.includes("报价定为我方报价后才能导出") && off.includes('id="bid-page-export"'), "没定：按钮灰着并写原因");
   const on = render(<ExportBar projectId="p1" availability={{ available: true, quoteId: "q1", version: 2 }} />);
   ok(on.includes('href="/api/projects/p1/bid-page/quotes/q1/export"') && on.includes("download"), "已定且是逐行报价：链到导出接口");
+  ok(on.includes(QUOTE_STEP_TEXT.exportNote) && off.includes(QUOTE_STEP_TEXT.exportNote), "导出处写明导出的是逐行表里的行、交出去前与招标方价格表核对");
 }
 
 console.log("\n━━━ 4. 容器与源码 ━━━");
@@ -139,6 +146,9 @@ console.log("\n━━━ 4. 容器与源码 ━━━");
   ok(/apiFetch\(base, \{ cache: "no-store" \}\)/.test(src) && /status === 404\) return setList\(\{ kind: "disabled" \}\)/.test(src), "列表接口 404（报价功能或新页面没开）→「报价功能未开通」");
   ok(/method: "PUT"/.test(src) && /baseUpdatedAt: view\.quote\.updatedAt, state/.test(src), "保存带读取时的修改时间与整个状态");
   ok(!/computeQuote|allocateFromEngine/.test(src), "组件里不算数（四个数与每行的数都由服务端用报价引擎算好）");
+  ok(/value=\{text\}/.test(src) && /parseNumInput\(raw\)/.test(src) && !/value=\{value \?\? ""\}/.test(src), "数字输入框留着人打的字、能读成数才往上报（不把「12.」改写成「12」）");
+  ok(/disabled=\{saving \|\| !dirty \|\| invalid\.size > 0\}/.test(src) && src.includes("改好才能保存"), "有格子填的不是数字：不让保存，写明哪几格");
+  ok(/draftToPrompt\(window\.localStorage\.getItem\(costDraftPromptedKey\(projectId\)\), window\.localStorage\.getItem\(costDraftStorageKey\(projectId\)\), parseCostDraft\)/.test(src), "旧草稿提示的判定用纯函数（quote-line.test 里测）");
   const page = read("src/components/bid-page-v2/bid-page-v2.tsx");
   ok(/<div id="bid-quote-area" className="scroll-mt-4">\s*<QuoteStep projectId=\{projectId\} \/>/.test(page), "② 里的报价区挂在 #bid-quote-area 里（项目页「下一步」卡照常跳得过来）");
 }

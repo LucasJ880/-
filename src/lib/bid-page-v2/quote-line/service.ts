@@ -89,14 +89,18 @@ function writeData(orgId: string | null, w: CostLineWrite) {
 
 /* ---------------------------------- 列表 ---------------------------------- */
 
-async function ourBidQuoteId(projectId: string, orgId: string): Promise<{ id: string | null; status: string }> {
+type OurBid = { id: string | null; status: string };
+
+async function ourBidQuoteId(projectId: string, orgId: string): Promise<OurBid> {
   const bid = await resolveTenderBid({ projectId, orgId, internal: true });
   return { id: bid.status === "AUTHORITATIVE" ? bid.quote?.id ?? null : null, status: bid.status };
 }
 
-export async function exportAvailability(projectId: string, orgId: string): Promise<ExportAvailability> {
-  const bid = await ourBidQuoteId(projectId, orgId);
-  if (!bid.id) return { available: false, reasonZh: "报价定为我方报价后才能导出" };
+export async function exportAvailability(projectId: string, orgId: string, known?: OurBid): Promise<ExportAvailability> {
+  const bid = known ?? (await ourBidQuoteId(projectId, orgId));
+  if (!bid.id) {
+    return { available: false, reasonZh: bid.status === "QUOTE_REVISION_PENDING" ? "我方报价有新版还没定：新版批准并定为我方报价后才能导出" : "报价定为我方报价后才能导出" };
+  }
   const q = await db.projectQuote.findFirst({ where: { id: bid.id, projectId }, select: { id: true, version: true, engineJson: true } });
   if (!q || !isLineModeQuote(q)) return { available: false, reasonZh: "我方报价不是逐行报价做的，不能按价格表导出" };
   return { available: true, quoteId: q.id, version: q.version };
@@ -107,7 +111,7 @@ export async function listLineQuotes(input: { projectId: string; orgId: string; 
     db.projectQuote.findMany({
       where: { projectId: input.projectId, quoteType: { not: "CUSTOM" } },
       orderBy: [{ updatedAt: "desc" }],
-      select: { id: true, name: true, title: true, quoteNumber: true, version: true, status: true, quoteType: true, engineJson: true, summaryJson: true, updatedAt: true },
+      select: { id: true, name: true, title: true, quoteNumber: true, version: true, status: true, quoteType: true, currency: true, engineJson: true, summaryJson: true, updatedAt: true },
     }),
     ourBidQuoteId(input.projectId, input.orgId),
     usableSchedule(input.projectId),
@@ -121,6 +125,7 @@ export async function listLineQuotes(input: { projectId: string; orgId: string; 
       version: q.version,
       status: q.status,
       quoteType: q.quoteType,
+      currency: q.currency,
       entryMode: isLineModeQuote(q) ? ("LINE" as const) : null,
       sellingPrice: typeof sp === "number" && Number.isFinite(sp) ? sp : null,
       updatedAt: q.updatedAt.toISOString(),
@@ -128,7 +133,7 @@ export async function listLineQuotes(input: { projectId: string; orgId: string; 
       proModeHref: proModeHrefOf(input.projectId, q.id),
     };
   });
-  return { capabilities: input.caps, quotes, scheduleLineCount: schedule?.length ?? 0, export: await exportAvailability(input.projectId, input.orgId) };
+  return { capabilities: input.caps, quotes, scheduleLineCount: schedule?.length ?? 0, export: await exportAvailability(input.projectId, input.orgId, bid) };
 }
 
 /* ---------------------------------- 新建 ---------------------------------- */
@@ -201,6 +206,8 @@ async function inquiryQuotesOf(projectId: string): Promise<InquiryQuoteOption[]>
 
 function assertLineMode(q: QuoteRecord) {
   if (!isLineModeQuote(q)) throw new QuoteEngineError("NOT_LINE_MODE", "这份报价不是逐行报价，请在专业模式里打开", 409);
+  // 逐行表的汇率、金额都按加元写；专业模式里把报价币种改掉了，就只能在专业模式里做
+  if (q.currency !== "CAD") throw new QuoteEngineError("NOT_LINE_MODE", `这份报价的币种在专业模式里改成了 ${q.currency}，逐行报价只按加元做，请在专业模式里打开`, 409);
 }
 
 /** 由一份报价算出逐行视图里的状态、结果与分摊（读、保存后、导出共用） */
@@ -294,6 +301,11 @@ export async function saveLineView(input: { projectId: string; orgId: string; qu
   if (q.updatedAt.toISOString() !== input.request.baseUpdatedAt) throw new QuoteEngineError("QUOTE_CHANGED", "这份报价刚被别人改过，请刷新后再改", 409);
   const checked = validateLineModeState(input.request.state);
   if (!checked.ok) throw new QuoteEngineError("VALIDATION", checked.issues[0].messageZh, 400, { issues: checked.issues });
+  // 专业模式里把定价方式改成了别的：逐行保存会改回按售价毛利；没填目标毛利率就保存会变成零毛利，先拦下
+  if (q.pricingMethod !== "MARGIN_ON_REVENUE" && checked.state.targetMarginPct == null) {
+    const msg = "定价方式在专业模式里改过：逐行报价按售价毛利定价，请先填目标毛利率再保存";
+    throw new QuoteEngineError("VALIDATION", msg, 400, { issues: [{ rowNo: null, messageZh: msg }] });
+  }
   const state = await resolveInquiryRows(input.projectId, checked.state);
   const writes = stateToWrites(state, q.costLines);
   const before = { sellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null };
@@ -332,6 +344,7 @@ export async function exportLineQuote(input: { projectId: string; orgId: string;
   if (!availability.available) throw new QuoteEngineError("EXPORT_UNAVAILABLE", availability.reasonZh, 409);
   if (availability.quoteId !== input.quoteId) throw new QuoteEngineError("EXPORT_UNAVAILABLE", "这份报价不是当前的我方报价，不能导出；请导出当前的我方报价", 409);
   const q = await getQuote(input.quoteId, input.projectId);
+  assertLineMode(q);
   const { read, computed } = buildLineComputed(q);
   if (!computed.ok) throw new QuoteEngineError("EXPORT_UNAVAILABLE", computed.errorsZh[0] ?? "报价算不出，不能导出", 409);
   const lines: PriceScheduleLine[] = read.state.rows.map((r, i) => ({ lineNo: i + 1, description: r.description, quantity: r.quantity, uom: r.uom, packCount: r.packCount ?? undefined }));

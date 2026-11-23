@@ -11,6 +11,7 @@
  */
 import { db } from "@/lib/db";
 import { isLegacyGarbledGeneratedDoc } from "@/lib/projects/generate/legacy-doc-filter";
+import { engineConfigSchema } from "@/lib/quote-engine/contract";
 import { resolveTenderBid } from "@/lib/quote-engine/tender-bid";
 import { loadWebNextStepInput, type NextStepProject } from "@/lib/tender-next-step/service";
 import { countInquiry } from "./inquiry-count";
@@ -64,11 +65,15 @@ export async function loadBidPageFacts(input: { project: NextStepProject; userId
     const status: BidTenderStatus = resolution.status;
     const q = resolution.quote;
     const price = q?.sellingPrice;
+    // 我方报价是不是逐行报价（BIDPAGE-3）：只读做法字段，决定「已定」的按钮去 ② 还是 ③
+    const bidQuote = status === "AUTHORITATIVE" && q ? await db.projectQuote.findFirst({ where: { id: q.id, projectId }, select: { engineJson: true } }) : null;
+    const lineMode = !!bidQuote && engineConfigSchema.safeParse(bidQuote.engineJson ?? {}).data?.entryMode === "LINE";
     bid = {
       status,
       version: q?.version ?? null,
       // 与「我方报价」卡同一个数（resolveTenderBid → summarize：实时计算，计算无效时沿用快照）
       amount: access.canViewAmounts && status === "AUTHORITATIVE" && q && typeof price === "number" && Number.isFinite(price) ? { value: price, currency: q.currency } : null,
+      lineMode,
     };
     openDraft = draft ? { status: draft.status === "review" ? "review" : "draft", version: draft.version } : null;
     // 还没有我方报价、但有已批准（或已中标）的报价可选（自动选中只在恰好一份时发生）

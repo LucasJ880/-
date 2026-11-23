@@ -317,6 +317,8 @@ export type QuoteListItem = {
   version: number;
   status: string;
   quoteType: string;
+  /** 报价币种（专业模式能改）；逐行报价只按加元做 */
+  currency: string;
   entryMode: "LINE" | null;
   sellingPrice: number | null;
   updatedAt: string;
@@ -407,3 +409,17 @@ export const QUOTE_STATUS_ZH: Record<string, string> = {
   awarded: "已中标",
   cancelled: "已作废",
 };
+
+/* ------------------------------ 数字输入框（浏览器里用） ------------------------------ */
+
+/**
+ * 输入框里的文字 → 数。空 = null；带千分位逗号可以；「12.」「0.」这类还在输入中的写法按已写出的数算（不把小数点吞掉）；
+ * 「-」「abc」「1.2.3」这类不是数 → 不合法（界面标红、不让保存），不猜。
+ */
+export function parseNumInput(text: string): { ok: true; value: number | null } | { ok: false } {
+  const t = text.replace(/,/g, "").trim();
+  if (!t) return { ok: true, value: null };
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(t)) return { ok: false };
+  const n = Number(t);
+  return Number.isFinite(n) ? { ok: true, value: n } : { ok: false };
+}

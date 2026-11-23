@@ -6,6 +6,7 @@
  *（草稿的「按售价毛利」= 报价引擎的按售价毛利）。草稿里逐行的关税、运费、送货费、其它费用、进口 GST 不带入（逐行报价里是共用参数）。
  */
 import type { CostDraft } from "@/lib/tender-bid-workspace/cost-draft";
+import { QUOTE_CURRENCIES } from "@/lib/quote-engine/contract";
 import { LINE_EVIDENCE_KINDS, piecesPerUnit, type LineEvidenceKind, type LineModeState } from "./contract";
 
 /** 提示过一次后在这台电脑上记的标记（不含任何金额） */
@@ -25,6 +26,14 @@ const toNum = (s: string | null | undefined): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** 要不要提示导入：提示过（有标记）就不提示；草稿读不出或没有填了报价的行也不提示 */
+export function draftToPrompt(promptedMarker: string | null, rawDraft: string | null, parse: (raw: string | null) => CostDraft): CostDraft | null {
+  if (promptedMarker) return null;
+  if (!rawDraft) return null;
+  const d = parse(rawDraft);
+  return draftHasLines(d) ? d : null;
+}
+
 /** 草稿里有没有可带入的行（没有就不提示） */
 export function draftHasLines(draft: CostDraft): boolean {
   return Object.values(draft.lines).some((l) => toNum(l.unitPrice) != null);
@@ -42,15 +51,21 @@ export function importCostDraft(state: LineModeState, draft: CostDraft): DraftIm
     const basis = d.basis === "PER_PIECE" && piecesPerUnit(row.uom, row.packCount) != null ? "PER_PIECE" : "PER_TENDER_UOM";
     if (d.basis === "PER_PIECE" && basis !== "PER_PIECE") skipped.add(`第 ${lineNo} 行草稿是按件报价，但这一行没有包装数，按招标单位带入了，请核对`);
     const evidenceKind = (LINE_EVIDENCE_KINDS as readonly string[]).includes(d.evidenceKind) ? (d.evidenceKind as LineEvidenceKind) : "ESTIMATE";
+    const currency = (d.currency || row.currency).trim().toUpperCase();
+    if (!(QUOTE_CURRENCIES as readonly string[]).includes(currency)) {
+      skipped.add(`第 ${lineNo} 行草稿的币种「${d.currency}」不在报价币种里，这一行没带入`);
+      return row;
+    }
     importedRows.push(lineNo);
     if (toNum(d.dutyRatePct) != null) skipped.add("草稿里逐行的关税率（逐行报价里关税率是共用参数）");
     if (toNum(d.freightCad) != null || toNum(d.localDeliveryCad) != null) skipped.add("草稿里逐行的运费、送货费（逐行报价里是共用参数）");
     if (toNum(d.otherCad) != null) skipped.add("草稿里逐行的其它费用（需要的话在专业模式里加）");
-    return { ...row, unitPrice: price, basis, currency: d.currency || row.currency, evidenceKind, inquiryItemId: null } as typeof row;
+    return { ...row, unitPrice: price, basis, currency, evidenceKind, inquiryItemId: null, supplierId: null } as typeof row;
   });
   const fx = { ...state.fx };
-  for (const [ccy, e] of Object.entries(draft.fx)) {
-    if (ccy === "CAD") continue;
+  for (const [rawCcy, e] of Object.entries(draft.fx)) {
+    const ccy = rawCcy.trim().toUpperCase();
+    if (ccy === "CAD" || !(QUOTE_CURRENCIES as readonly string[]).includes(ccy)) continue;
     const rate = toNum(e.rate);
     if (rate == null || rate <= 0) continue;
     fx[ccy] = { rate, source: e.source?.trim() ? e.source.trim().slice(0, 40) : null };

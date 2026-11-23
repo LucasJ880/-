@@ -7,7 +7,7 @@
  * 所有数都由服务端用报价引擎算好再返回；这里不算数，只在保存前标明「数字是上次保存时的」。
  * 不写浏览器本地存储里的成本；只读一次旧的本地成本草稿，提示过后记一个不含金额的标记。
  */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api-fetch";
 import { formatMoneyZh } from "@/lib/bid-page-v2/next-step";
@@ -19,6 +19,7 @@ import {
   LINE_MODE_MAX_ROWS,
   LINE_UOMS,
   QUOTE_STATUS_ZH,
+  parseNumInput,
   piecesPerUnit,
   rowsFromParsed,
   type BusinessType,
@@ -31,7 +32,7 @@ import {
   type QuoteListItem,
   type QuoteListView,
 } from "@/lib/bid-page-v2/quote-line/contract";
-import { costDraftPromptedKey, draftHasLines, importCostDraft } from "@/lib/bid-page-v2/quote-line/draft-import";
+import { costDraftPromptedKey, draftToPrompt, importCostDraft } from "@/lib/bid-page-v2/quote-line/draft-import";
 import { costDraftStorageKey, parseCostDraft, type CostDraft } from "@/lib/tender-bid-workspace/cost-draft";
 import { parseSchedulePaste } from "@/lib/tender-bid-workspace/paste-import";
 
@@ -54,7 +55,10 @@ export const QUOTE_STEP_TEXT = {
   exportButton: "按招标方价格表导出",
   draftPrompt: "发现这台电脑上有未保存到系统的成本草稿，导入到这份报价？",
   frozen: "这份报价已定或已结束，内容锁定；要改请在专业模式里另起新版",
-  readOnly: "你可以看这份报价，但没有编辑权限",
+  readOnly: "你可以看这份报价，但没有编辑权限；要修改请找项目负责人",
+  noEditList: "新建、修改报价需要项目编辑权限，请找项目负责人",
+  exportNote: "导出的是逐行表里的行（品名、数量、单位以表里为准），交出去之前请与招标方的价格表核对",
+  landedNote: "到手单位成本 = 这一行按货值分到的直接成本与关税（含专业模式里加的其它直接成本）÷ 数量",
 } as const;
 
 export const LINE_TABLE_HEADERS = ["品名", "数量", "供应商报价（原币）", "到手单位成本（加元）", "我方单价", "行合计", "毛利率"] as const;
@@ -68,12 +72,6 @@ export const PRESET_EXPLAIN_ZH = {
 
 const money = (v: number | null | undefined, ccy = "CAD") => (v == null ? "—" : formatMoneyZh(v, ccy));
 const pct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? "—" : `${(Math.round(v * 10) / 10).toFixed(1)}%`);
-const toNum = (s: string): number | null => {
-  const t = s.replace(/,/g, "").trim();
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-};
 
 function Note({ children, tone = "muted", testId }: { children: ReactNode; tone?: "muted" | "warn" | "error"; testId?: string }) {
   const cls = tone === "error" ? "border-red-300/60 bg-red-50/60 text-red-700" : tone === "warn" ? "border-amber-300/60 bg-amber-50/60 text-amber-800" : "border-border/60 bg-card-bg/60 text-muted";
@@ -101,7 +99,7 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
               <span className="font-medium">{q.name ?? q.quoteNumber ?? "未命名报价"}</span>
               <span className="text-muted">第 {q.version} 版 · {QUOTE_STATUS_ZH[q.status] ?? q.status}</span>
               <span className="text-muted">{q.entryMode === "LINE" ? "逐行报价" : QUOTE_STEP_TEXT.proMode}</span>
-              <span>报价合计 {money(q.sellingPrice)}</span>
+              <span>报价合计 {money(q.sellingPrice, q.currency)}</span>
               {q.isOurBid ? <span className="rounded bg-emerald-100 px-1.5 text-xs text-emerald-800">我方报价</span> : null}
               <span className="ml-auto flex gap-3">
                 {q.entryMode === "LINE" ? (
@@ -117,6 +115,7 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
           ))}
         </ul>
       )}
+      {!view.capabilities.canEdit ? <Note testId="quote-step-no-edit">{QUOTE_STEP_TEXT.noEditList}</Note> : null}
       {view.capabilities.canEdit ? (
         showForm ? (
           <div className="space-y-3 rounded-xl border border-border/60 px-4 py-3 text-sm" data-testid="quote-step-create">
@@ -176,6 +175,7 @@ export function ExportBar({ projectId, availability }: { projectId: string; avai
           <span className="text-muted">{availability.reasonZh}</span>
         </>
       )}
+      <span className="basis-full text-xs text-muted">{QUOTE_STEP_TEXT.exportNote}</span>
     </div>
   );
 }
@@ -223,8 +223,49 @@ export function LineTotals({ view, dirty }: { view: LineModeView; dirty: boolean
   );
 }
 
-function NumInput({ value, onChange, disabled, label, step = "any", className = "w-24" }: { value: number | null; onChange: (v: number | null) => void; disabled: boolean; label: string; step?: string; className?: string }) {
-  return <input aria-label={label} inputMode="decimal" className={`rounded border border-border px-2 py-1 ${className}`} disabled={disabled} step={step} value={value ?? ""} onChange={(e) => onChange(toNum(e.target.value))} />;
+/** 不合法输入的登记：编辑器据此不让保存（输入框自己标红） */
+type InvalidReporter = (label: string, invalid: boolean) => void;
+const InvalidContext = createContext<InvalidReporter>(() => undefined);
+
+/**
+ * 数字输入框：框里留着人打的字（「12.」「0.0」不会被改写），能读成数时才往上报；读不成数就标红并登记，不往上报。
+ * 外面的值变了（恢复、导入、点选询价回复）且与框里的字不是同一个数时，才把框里的字换掉。
+ */
+function NumInput({ value, onChange, disabled, label, className = "w-24" }: { value: number | null; onChange: (v: number | null) => void; disabled: boolean; label: string; className?: string }) {
+  const report = useContext(InvalidContext);
+  const [text, setText] = useState(value == null ? "" : String(value));
+  const [bad, setBad] = useState(false);
+  useEffect(() => {
+    const cur = parseNumInput(text);
+    if (!(cur.ok && cur.value === value)) {
+      setText(value == null ? "" : String(value));
+      setBad(false);
+      report(label, false);
+    }
+    // 只在外面的值变了时对齐；text 不进依赖，免得打字时被改写
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  // 框被拿掉（删行）或换了名字（删行后行号变了）：撤掉它登记过的「不合法」
+  useEffect(() => () => report(label, false), [label, report]);
+  return (
+    <input
+      aria-label={label}
+      aria-invalid={bad || undefined}
+      inputMode="decimal"
+      title={bad ? "这里要填数字" : undefined}
+      className={`rounded border px-2 py-1 ${bad ? "border-red-500" : "border-border"} ${className}`}
+      disabled={disabled}
+      value={text}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        const parsed = parseNumInput(raw);
+        setBad(!parsed.ok);
+        report(label, !parsed.ok);
+        if (parsed.ok) onChange(parsed.value);
+      }}
+    />
+  );
 }
 
 function CurrencySelect({ value, onChange, disabled, label }: { value: string; onChange: (v: string) => void; disabled: boolean; label: string }) {
@@ -251,8 +292,13 @@ function InquiryPicker({ options, row, onPick, disabled }: { options: InquiryQuo
     >
       <option value="">从询价回复里选…</option>
       {options.map((o) => (
-        <option key={o.inquiryItemId} value={o.inquiryItemId} disabled={o.unitPrice == null}>
-          {o.supplierName} · 第 {o.roundNumber} 轮 · {o.unitPrice == null ? `只报了总价 ${money(o.totalPrice, o.currency)}，请手填单价` : money(o.unitPrice, o.currency)}
+        <option key={o.inquiryItemId} value={o.inquiryItemId} disabled={o.unitPrice == null || !(CURRENCIES as readonly string[]).includes(o.currency)}>
+          {o.supplierName} · 第 {o.roundNumber} 轮 ·{" "}
+          {!(CURRENCIES as readonly string[]).includes(o.currency)
+            ? `币种「${o.currency}」不在报价币种里，请手填`
+            : o.unitPrice == null
+              ? `只报了总价 ${money(o.totalPrice, o.currency)}，请手填单价`
+              : money(o.unitPrice, o.currency)}
         </option>
       ))}
     </select>
@@ -269,6 +315,17 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
   const [draft, setDraft] = useState<CostDraft | null>(null);
   const [draftNotes, setDraftNotes] = useState<string[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [invalid, setInvalid] = useState<ReadonlySet<string>>(new Set());
+  const [resetKey, setResetKey] = useState(0);
+  const reportInvalid = useCallback<InvalidReporter>((label, bad) => {
+    setInvalid((prev) => {
+      if (prev.has(label) === bad) return prev;
+      const next = new Set(prev);
+      if (bad) next.add(label);
+      else next.delete(label);
+      return next;
+    });
+  }, []);
   const editable = view.capabilities.canEdit && !view.quote.frozen;
 
   // 换了一份报价或保存成功后，以服务端的状态为准
@@ -281,9 +338,8 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
   useEffect(() => {
     if (!editable) return;
     try {
-      if (window.localStorage.getItem(costDraftPromptedKey(projectId))) return;
-      const d = parseCostDraft(window.localStorage.getItem(costDraftStorageKey(projectId)));
-      if (draftHasLines(d)) setDraft(d);
+      const d = draftToPrompt(window.localStorage.getItem(costDraftPromptedKey(projectId)), window.localStorage.getItem(costDraftStorageKey(projectId)), parseCostDraft);
+      if (d) setDraft(d);
     } catch {
       /* 读不了本地存储就不提示 */
     }
@@ -332,7 +388,8 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
   const usedCurrencies = Object.keys(state.fx).filter((c) => c !== "CAD");
 
   return (
-    <div className="space-y-4 rounded-xl border border-border/60 px-4 py-3" data-testid="line-editor">
+    <InvalidContext.Provider value={reportInvalid}>
+    <div key={`${view.quote.updatedAt}-${resetKey}`} className="space-y-4 rounded-xl border border-border/60 px-4 py-3" data-testid="line-editor">
       <div className="flex flex-wrap items-center gap-3">
         <div className="font-medium">
           逐行报价 · {view.quote.name ?? view.quote.quoteNumber ?? "未命名报价"} · 第 {view.quote.version} 版 · {QUOTE_STATUS_ZH[view.quote.status] ?? view.quote.status}
@@ -439,7 +496,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                       </select>
                     ) : null}
                     {r.inquiryItemId ? (
-                      <div className="text-xs text-muted">来自询价回复：{r.supplierName ?? "供应商"}</div>
+                      <div className="text-xs text-muted">来自询价回复：{r.supplierName ?? "供应商"}（{r.currency}，请与回复核对单位与币种）</div>
                     ) : r.unitPrice != null ? (
                       <select aria-label={`第 ${i + 1} 行证据类别`} className="rounded border border-border px-1 py-1 text-xs" disabled={!editable} value={r.evidenceKind ?? ""} onChange={(e) => setRow(i, { evidenceKind: (e.target.value || null) as LineRow["evidenceKind"] })}>
                         <option value="">选证据类别（必选）</option>
@@ -477,7 +534,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
             })}
           </tbody>
         </table>
-        {state.rows.length === 0 ? <Note>还没有行：粘贴价格表、从招标分析带入，或加一行</Note> : null}
+        {state.rows.length === 0 ? <Note>还没有行：粘贴价格表、从招标分析带入，或加一行</Note> : <div className="mt-1 text-xs text-muted">{QUOTE_STEP_TEXT.landedNote}</div>}
       </div>
 
       {editable ? (
@@ -587,7 +644,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
           <span>目标毛利率（按售价）：</span>
           <NumInput label="目标毛利率" value={state.targetMarginPct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, targetMarginPct: v }))} className="w-16" />
-          <span>%　报价 = 成本 ÷（1 − 目标毛利率）</span>
+          <span>%　报价 = 提成前的成本 ÷（1 − 目标毛利率），提成再从毛利里扣</span>
         </div>
       </fieldset>
 
@@ -611,9 +668,14 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
           {error.conflict ? <div className="mt-1">关掉这份报价再打开，就是最新的内容。</div> : null}
         </Note>
       ) : null}
+      {invalid.size > 0 ? (
+        <Note tone="error" testId="line-invalid">
+          有 {invalid.size} 个格子填的不是数字（标红的那几格），改好才能保存
+        </Note>
+      ) : null}
       {editable ? (
         <div className="flex gap-3">
-          <button type="button" disabled={saving || !dirty} className="rounded bg-primary px-4 py-1.5 text-sm text-white disabled:opacity-60" onClick={save} data-testid="line-save">
+          <button type="button" disabled={saving || !dirty || invalid.size > 0} className="rounded bg-primary px-4 py-1.5 text-sm text-white disabled:opacity-60" onClick={save} data-testid="line-save">
             {saving ? "正在保存…" : "保存"}
           </button>
           {dirty ? (
@@ -624,6 +686,8 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                 setState(view.state);
                 setDirty(false);
                 setError(null);
+                setInvalid(new Set());
+                setResetKey((k) => k + 1);
               }}
             >
               不保存，恢复
@@ -632,6 +696,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
         </div>
       ) : null}
     </div>
+    </InvalidContext.Provider>
   );
 }
 
@@ -652,7 +717,7 @@ function PresetRow({ label, explain, included, disabled, onToggle, children }: {
 
 /* ---------------------------------- 容器 ---------------------------------- */
 
-type ListState = { kind: "loading" } | { kind: "disabled" } | { kind: "error" } | { kind: "ready"; view: QuoteListView };
+type ListState = { kind: "loading" } | { kind: "disabled" } | { kind: "error"; messageZh?: string | null } | { kind: "ready"; view: QuoteListView };
 
 export function QuoteStep({ projectId }: { projectId: string }) {
   const router = useRouter();
@@ -667,7 +732,10 @@ export function QuoteStep({ projectId }: { projectId: string }) {
     try {
       const res = await apiFetch(base, { cache: "no-store" });
       if (res.status === 404) return setList({ kind: "disabled" });
-      if (!res.ok) return setList({ kind: "error" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return setList({ kind: "error", messageZh: typeof data?.error === "string" ? data.error : null });
+      }
       setList({ kind: "ready", view: (await res.json()) as QuoteListView });
     } catch {
       setList({ kind: "error" });
@@ -715,7 +783,7 @@ export function QuoteStep({ projectId }: { projectId: string }) {
 
   if (list.kind === "loading") return <Note>正在加载报价…</Note>;
   if (list.kind === "disabled") return <Note testId="quote-step-disabled">{QUOTE_STEP_TEXT.notEnabled}</Note>;
-  if (list.kind === "error") return <Note tone="error">{QUOTE_STEP_TEXT.loadFailed}</Note>;
+  if (list.kind === "error") return <Note tone="error">{list.messageZh ?? QUOTE_STEP_TEXT.loadFailed}</Note>;
   return (
     <div className="space-y-4" data-testid="quote-step">
       <QuoteListPanel view={list.view} onOpen={(q) => void openQuote(q.id)} onCreate={(b, n) => void create(b, n)} creating={creating} createError={createError} />

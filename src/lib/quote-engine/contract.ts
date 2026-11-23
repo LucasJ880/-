@@ -275,7 +275,8 @@ export const engineConfigSchema = z.object({
     .nullable()
     .optional(),
   marginRiskPct: z.object({ high: z.number().finite(), medium: z.number().finite() }).optional(),
-  entryMode: z.enum(QUOTE_ENTRY_MODES).optional(),
+  // 不认识的做法值（例如回退了加做法的版本以后库里留下的值）只丢掉这个字段，不让整份配置解析失败
+  entryMode: z.enum(QUOTE_ENTRY_MODES).optional().catch(undefined),
 });
 
 export const quoteHeaderSchema = z.object({

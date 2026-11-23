@@ -13,7 +13,7 @@ import { QUOTE_BASES } from "@/lib/tender-price-schedule/unit-conversion";
 import { QUOTE_ENGINE_CALC_VERSION, engineConfigSchema, type CostLineInput } from "@/lib/quote-engine/contract";
 import { computeQuote, round2 } from "@/lib/quote-engine/calc";
 import { templateSupplyOnlyLines } from "@/lib/quote-engine/templates";
-import { emptyCostDraft } from "@/lib/tender-bid-workspace/cost-draft";
+import { emptyCostDraft, parseCostDraft } from "@/lib/tender-bid-workspace/cost-draft";
 import { parseSchedulePaste } from "@/lib/tender-bid-workspace/paste-import";
 import {
   LINE_EVIDENCE_KINDS,
@@ -21,6 +21,7 @@ import {
   LINE_GROUPED_UOMS,
   LINE_QUOTE_BASES,
   LINE_UOMS,
+  parseNumInput,
   readBidLineMeta,
   rowsFromParsed,
   validateLineModeState,
@@ -29,7 +30,7 @@ import {
 } from "../quote-line/contract";
 import { costLinesToState, defaultLineModeState, lineModeTemplate, seedRowsFromSchedule, stateToWrites, type CostLineWrite, type DbCostLine } from "../quote-line/mapping";
 import { allocateFromEngine, diffBoundOf, exportUnitPrices } from "../quote-line/allocation";
-import { importCostDraft, draftHasLines } from "../quote-line/draft-import";
+import { importCostDraft, draftHasLines, draftToPrompt } from "../quote-line/draft-import";
 import { buildLineComputed, isLineModeQuote } from "../quote-line/service";
 
 let pass = 0;
@@ -158,7 +159,8 @@ console.log("\n━━━ 1. 词表、做法字段与模板对照 ━━━");
   ];
   ok(samples.every((s) => eq(engineConfigSchema.parse(s), oldSchema.parse(s))), "没有做法字段的配置：解析结果与改前的校验逐字段相同（含未知键被剥除）");
   ok(engineConfigSchema.parse({ tax: {}, entryMode: "LINE" }).entryMode === "LINE", "做法字段 LINE 被接受并保留");
-  ok(!engineConfigSchema.safeParse({ entryMode: "LUMP_SUM" }).success, "本 change 只认 LINE（只报总价由 BIDPAGE-4 加）");
+  const unknown = engineConfigSchema.safeParse({ tax: { hstPct: 13 }, scenarios: [{ key: "a", labelZh: "进攻", method: "MARGIN_ON_REVENUE", rate: 8 }], entryMode: "LUMP_SUM" });
+  ok(unknown.success && unknown.data.entryMode === undefined && unknown.data.tax?.hstPct === 13 && unknown.data.scenarios?.length === 1, "不认识的做法值（如回退后留下的 LUMP_SUM）：只丢掉这个字段，税与情景照旧，整份配置不失败", unknown);
   const merged = engineConfigSchema.parse({ ...engineConfigSchema.parse({ tax: {}, entryMode: "LINE" }), ...engineConfigSchema.parse({}) });
   ok(merged.entryMode === "LINE", "专业模式保存时回写空配置 {}：合并后做法字段还在（updateEngineQuote 的合并顺序）");
   ok(isLineModeQuote({ engineJson: { entryMode: "LINE" } }) && !isLineModeQuote({ engineJson: { tax: {} } }) && !isLineModeQuote({ engineJson: null }), "有做法字段才是逐行报价；旧报价（没有字段）按专业模式打开");
@@ -233,6 +235,8 @@ console.log("\n━━━ 2. 状态 ↔ 成本行往返；只动自己管的行 �
   const w5 = stateToWrites(off, all);
   const customs = w5.updates.find((u) => (readBidLineMeta(u.data.metadata) as { key?: string })?.key === "customs")!;
   ok(customs.data.included === false && customs.data.unitCost === 250, "报关费清空 = 不计入，库里原来的 250 不清掉");
+  const zero = stateToWrites({ ...read2.state, shared: { ...read2.state.shared, oceanFreight: { containers: 0, perContainer: 3000, currency: "CAD" } } }, all);
+  ok(zero.updates.find((u) => (readBidLineMeta(u.data.metadata) as { key?: string })?.key === "ocean_freight")!.data.included === false, "海运柜数填 0 = 这项没有（不计入；引擎要求按柜计的箱数大于 0）");
 }
 
 /* ------------------------------ 3. 专业模式改过后的读法 ------------------------------ */
@@ -249,6 +253,9 @@ console.log("\n━━━ 3. 专业模式改过以后 ━━━");
   const noCommission = lines.filter((l) => (readBidLineMeta(l.metadata) as { key?: string })?.key !== "commission");
   const r3 = costLinesToState(noCommission, { pricingMethod: "MARKUP_ON_COST", pricingRate: new Prisma.Decimal(10) });
   ok(r3.state.presets.commission.included === false && r3.notices.some((n) => n.includes("提成")) && r3.state.targetMarginPct === null && r3.notices.some((n) => n.includes("成本加成")), "专业模式删了预置行 / 改了定价方式：按关掉读出、目标毛利率空着，并提示");
+  const excluded = lines.map((l) => (l.id === a.id ? { ...l, included: false } : (readBidLineMeta(l.metadata) as { key?: string })?.key === "duty" ? { ...l, calculationBase: "DIRECT_COST" } : l));
+  const r4 = costLinesToState(excluded, { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: new Prisma.Decimal(25) });
+  ok(r4.notices.some((n) => n.includes("第 1 行在专业模式里设成了不计入")) && r4.notices.some((n) => n.includes("关税") && n.includes("改回原来的算法")), "专业模式把货品行设成不计入、改了关税的基数：读出时提示，保存时会改回", r4.notices);
 }
 
 /* ------------------------------ 4. 四个数与引擎相同；分摊 ------------------------------ */
@@ -365,6 +372,20 @@ console.log("\n━━━ 6. 粘贴、旧的本地成本草稿 ━━━");
   const keep = importCostDraft({ ...base, targetMarginPct: 30 }, draft);
   ok(keep.state.targetMarginPct === 30, "报价已经填了目标毛利率：草稿不覆盖");
   ok(base.rows[0].unitPrice === null, "导入不改原来的状态对象（纯函数）");
+  const cases: Array<[string, number | null | "bad"]> = [["", null], ["  ", null], ["0.", 0], ["12.", 12], ["12.5", 12.5], ["0.19", 0.19], [".5", 0.5], ["1,234.5", 1234.5], ["-3", -3], ["-", "bad"], ["abc", "bad"], ["1.2.3", "bad"], ["12a", "bad"], ["1e3", "bad"]];
+  const wrong = cases.filter(([t, want]) => {
+    const r = parseNumInput(t);
+    return want === "bad" ? r.ok : !(r.ok && r.value === want);
+  });
+  ok(wrong.length === 0, "数字输入框：「12.」「0.」按已写出的数算（小数点不被吞掉），千分位逗号可以，「-」「abc」「1.2.3」不合法", wrong);
+  const raw = JSON.stringify(draft);
+  ok(draftToPrompt(null, raw, parseCostDraft)?.lines["1"].unitPrice === "48.5" && draftToPrompt("1", raw, parseCostDraft) === null && draftToPrompt(null, null, parseCostDraft) === null && draftToPrompt(null, JSON.stringify(emptyCostDraft()), parseCostDraft) === null && draftToPrompt(null, "{坏的", parseCostDraft) === null, "要不要提示：有填了报价的草稿且没提示过才提示；提示过、没有草稿、空草稿、读不出的草稿都不提示");
+  const odd = emptyCostDraft();
+  odd.lines["1"] = { ...draft.lines["1"], currency: "rmb" };
+  odd.lines["2"] = { ...draft.lines["1"], currency: "usd" };
+  odd.fx = { usd: { rate: "1.35", source: "", asOf: "" } };
+  const oddImp = importCostDraft(base, odd);
+  ok(eq(oddImp.importedRows, [2]) && oddImp.state.rows[1].currency === "USD" && oddImp.state.fx.USD?.rate === 1.35 && oddImp.skipped.some((x) => x.includes("rmb")), "草稿币种转大写；不在报价币种里的（rmb）那一行不带入并写明", oddImp);
 }
 
 /* ------------------------------ 7. 接口与组件源码 ------------------------------ */

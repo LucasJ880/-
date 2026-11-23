@@ -252,7 +252,8 @@ function sharedWrite(state: LineModeState, key: SharedKey, existing: DbCostLine 
   const keep = { quantity: num(existing?.quantity), unitCost: num(existing?.unitCost), rate: num(existing?.rate), duration: num(existing?.duration), sourceCurrency: existing?.sourceCurrency ?? "CAD" };
   let vals: { quantity: number | null; unitCost: number | null; rate: number | null; duration: number | null; sourceCurrency: string; included: boolean };
   if (key === "ocean_freight") {
-    const on = s.oceanFreight.perContainer != null && s.oceanFreight.containers != null;
+    // 柜数 0 按「这项没有」处理（引擎要求按柜计的行箱数大于 0）
+    const on = s.oceanFreight.perContainer != null && s.oceanFreight.containers != null && s.oceanFreight.containers > 0;
     vals = on ? { quantity: null, unitCost: s.oceanFreight.perContainer, rate: null, duration: s.oceanFreight.containers, sourceCurrency: s.oceanFreight.currency, included: true } : { ...keep, included: false };
   } else if (key === "customs" || key === "domestic_freight") {
     const p = key === "customs" ? s.customs : s.domesticFreight;
@@ -384,6 +385,8 @@ export function costLinesToState(
     }
     const description = clip(meta.description, COST_LINE_DESCRIPTION_MAX) === l.description ? meta.description : l.description;
     if (description !== meta.description) notices.push(`第 ${rowNo} 行的品名在专业模式里改过，这里按改后的显示`);
+    if (!l.included) notices.push(`第 ${rowNo} 行在专业模式里设成了不计入；逐行保存时会重新计入`);
+    if (l.category !== t.goods.category || l.calculationType !== t.goods.calculationType) notices.push(`第 ${rowNo} 行的类别或算法在专业模式里改过；逐行保存时会改回货品按件计`);
     return {
       costLineId: l.id,
       description,
@@ -402,10 +405,18 @@ export function costLinesToState(
   });
 
   const sh = idx.shared;
+  const algoChanged = (l: DbCostLine, tpl: TemplateSeed) => l.category !== tpl.category || l.calculationType !== tpl.calculationType || (l.calculationBase ?? null) !== (tpl.calculationBase ?? null);
   for (const key of ["ocean_freight", "customs", "duty", "domestic_freight"] as const) {
     const l = sh[key];
     if (!l) notices.push(`「${SHARED_DESCRIPTION_ZH[key]}」这一行在专业模式里删掉了，保存时会重新建一条（空着就不计入）`);
-    else if (l.included) noteFx(l);
+    else {
+      if (l.included) noteFx(l);
+      if (algoChanged(l, t.shared[key])) notices.push(`「${SHARED_DESCRIPTION_ZH[key]}」的类别或算法在专业模式里改过；逐行保存时会改回原来的算法`);
+    }
+  }
+  for (const key of ["financing", "admin", "cash_allowance", "commission"] as const) {
+    const l = idx.preset[key];
+    if (l && algoChanged(l, t.preset[key])) notices.push(`「${PRESET_DESCRIPTION_ZH[key]}」的类别或算法在专业模式里改过；逐行保存时会改回原来的算法`);
   }
   const on = (l: DbCostLine | undefined) => (l && l.included ? l : null);
   const ocean = on(sh.ocean_freight);
