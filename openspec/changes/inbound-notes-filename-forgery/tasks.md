@@ -48,7 +48,7 @@
 
 ## 3. 验收
 
-- [ ] 3.1 全部门禁。
+- [x] 3.1 全部门禁。
   - verify：
     - `npm test` 对照既有失败清单无新增；
     - `npm run test:ci` PASS（含新测试）；
@@ -80,7 +80,7 @@
     - A 段正好 4 行（乙②③④⑤），B 段正好 3 行（甲②③④），C 段正好 2 行（甲②的文件名、甲③的价格证据），C0 段正好 1 行，D 段正好 1 行；
     - 输出存进报告；
     - `grep -vE '^\s*(--|$)' docs/acceptance/fix-24/prod-check.sql` 里没有 INSERT / UPDATE / DELETE / ALTER / CREATE / DROP。
-- [ ] 3.3 写 `docs/QINGYAN_FIX-24_REPORT.md` + 更新 TASKFLOW 状态列。
+- [x] 3.3 写 `docs/QINGYAN_FIX-24_REPORT.md` + 更新 TASKFLOW 状态列。
   - 报告：
     - 开工前复核：合入 FIX-14 后的行号、TASKFLOW 与核查表的现状；
     - design Context 向量表与「旧数据」表逐条的改动前 / 改动后，P1、P3、P4 与 L07 写明「仍生效」；
