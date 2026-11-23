@@ -48,7 +48,7 @@
 | 附录 C 的 D ～ K | 按默认 | 任务书附录 C |
 | 不确定处 2 | `engineConfigSchema` 非严格、`engineOf` 用 `safeParse`，加可选字段不会让旧数据失败；不认识的做法值只丢自己（`.catch`）；专业模式保存的表头不收做法字段 | 任务书附录 C；BIDPAGE-3 design D1 |
 | 不确定处 1 / 4 | 逐行只用引擎一套算法，四个数取引擎；Σ行合计与引擎合计差 ≤ Σ(数量 × 0.005)（数量带小数的行再各加 0.005），数量大时可达上百加元；行毛利率接近整体但不总相同 | 任务书附录 C；BIDPAGE-3 design D4；报告 §6 第 4 条请 Evan 确认 |
-| BIDPAGE-3 出入 | 七条（proposal）：没有财务查看权的人看不到报价合计；不恢复编辑；逐行只配只供货；提交批准仍在专业模式；行实际从招标分析带入；差额上限；类别与说明细节 | `openspec/changes/quote-line-mode-persist/proposal.md`；报告 §6 |
+| BIDPAGE-3 出入 | 七条（proposal）：没有财务查看权的人看不到报价合计；不恢复编辑；逐行只配只供货；提交批准仍在专业模式；行实际从招标分析带入；差额上限；类别与说明细节 | `openspec/changes/archive/2026-11-23-quote-line-mode-persist/proposal.md`；报告 §6 |
 | 不确定处 3 | 未核实（BIDPAGE-2 时复现） | — |
 | 不确定处 5 | 实现会话连不上生产库，未核实；用合成数据回归，只读查询留给 Lucas / Evan | BIDPAGE-6 时写出查询 |
 | BIDPAGE-1「下一步」规则 | 「已定」「有未定的报价」挪到找供应商之前；招标分析那条只在没往下走时命中；新增「看供应商回复，把报价录入」；询价按每家供应商最近一次算（共 8 条出入） | `openspec/changes/archive/2026-11-23-bid-page-v2-shell/design.md` D3；主规格 `tender/bid-page` |
@@ -73,16 +73,15 @@
   - 共用的 `official-export.ts` 没有防公式：逐行报价的导出在调用前自己加了前缀（`csvSafeText`），其它调用方以后各自处理。
   - 专业模式保存与逐行保存之间有一个很窄的丢更新窗口（BIDPAGE-3 design Risks），要改专业模式的服务才能堵上。
   - 报价建好后才存的价格表没有带入入口（`seed` 只在表空时给）；生产上新页面开着时本来就存不了价格表。
-- **main 动得很勤时怎么合**（BIDPAGE-3 #564 的做法，2026-11-23）：开 PR 后 main 每 20–40 分钟动一次。碰到代码的就把 main 合进分支（用合并，不变基、不强推），重跑全量门禁；只进文档 / 规格的（各轨道的归档、交接）合并后核对与上一次跑门禁的提交比 `git diff <gated> HEAD -- . ':(exclude)docs' ':(exclude)openspec'` 为空，补跑 `openspec validate --specs --strict` 与注册校验；最后一次只进文档时可以在本地合并核对（不推送），直接以 PR 头合并，免得再等一轮 CI。挂一个每 2 分钟 `git ls-remote origin refs/heads/main` 的监视器，main 一动就停掉作废的门禁、马上重来。
-- **容器会重启**：2026-11-23 07:17 左右容器重启过一次，Postgres 随之停了，紧接着跑的全量门禁 161 项连库失败（作废）。跑门禁前先 `service postgresql status`，停了就 `service postgresql start`；`uptime` 能看出有没有重启过。
+- **main 动得很勤时怎么合**（BIDPAGE-3 #564 的做法，2026-11-23）：开 PR 后 main 约每 10–30 分钟动一次（06:41 开 PR 到 09:31 合并之间动了 8 次）。碰到代码的就把 main 合进分支（用合并，不变基、不强推），重跑全量门禁；只进文档 / 规格的（各轨道的归档、交接）合并后核对与上一次跑门禁的提交比 `git diff <gated> HEAD -- . ':(exclude)docs' ':(exclude)openspec'` 为空，补跑 `openspec validate --specs --strict` 与注册校验；最后一次只进文档时可以在本地合并核对（不推送），直接以 PR 头合并，免得再等一轮 CI。挂一个每 2 分钟 `git ls-remote origin refs/heads/main` 的监视器，main 一动就停掉作废的门禁、马上重来。
 - **BIDPAGE-4 开工前**（代码地图要点，开工时按最新 main 复核）：
   - 总价表的每一项要有自己的行身份（新的 role / key），**不能借用 BIDPAGE-3 的「共用参数」身份**——否则逐行模式一保存，FIXED 的海运 / 关税会被改回原算法并设成不计入，金额从合计里掉出去。
   - 销售税存 `engineJson.tax`（`computeTax`，不是成本行）；专业模式没有改税的界面，税只能经 PUT 的 `header.engine.tax` 写；我方报价（`ourBidPrice`）一律记税前售价。验收 3 的「税 7%」写进 gst / hst / pst 哪一项要定。
-  - `QUOTE_ENTRY_MODES` 加 `LUMP_SUM` 后要改两条 BIDPAGE-3 测试：纯测试「不认识的做法值 LUMP_SUM 只丢自己」、隔离库「新建传 LUMP_SUM 返回 400」。`quoteHeaderSchema` 的 omit 别动（专业模式 PUT 唯一校验、也是税唯一写入口）。
+  - `QUOTE_ENTRY_MODES` 加 `LUMP_SUM` 后要改 BIDPAGE-3 的纯测试「不认识的做法值 LUMP_SUM 只丢自己」。新建接口的校验是单独写死的 `z.enum(["LINE"])`（`quote-line/contract.ts` 的 `createQuoteRequestSchema`），不引用 `QUOTE_ENTRY_MODES`——放宽新建接口时，隔离库「新建传 LUMP_SUM 返回 400」那条才要改。`quoteHeaderSchema` 的 omit 别动（专业模式 PUT 唯一校验、也是税唯一写入口）。
   - 同组合冲突：海运（填金额时）与加拿大境内运费都是 FREIGHT/FIXED、国内运费与包装都是 LOGISTICS/FIXED，行身份只能靠 metadata 的 key 区分。
   - 货品明细：展开成多条 PROCUREMENT/PER_UNIT 行（转逐行几乎只改做法字段，明细没单位要给默认）或一条货品行 + metadata 明细（成本行少，专业模式改单价会对不上）——四件套里定。
   - 与 CHAIN-2e（#556）重叠的是 `pricing-control-center.tsx`、`quote-engine/access.ts`、`quote-engine/[quoteId]/route.ts` 等；BIDPAGE-4 不碰它们。
-- 本地隔离库：容器里 Postgres 16 已起、`vector` 扩展可用（`postgresql-16-pgvector` 装不上但扩展已在），库 `qingyan_test` 已 `prisma migrate deploy`。容器重启后要 `service postgresql start`。
+- 本地隔离库：容器里 Postgres 16 已起、`vector` 扩展可用（`postgresql-16-pgvector` 装不上但扩展已在），库 `qingyan_test` 已 `prisma migrate deploy`。**容器会重启**（2026-11-23 07:17 左右重启过一次，Postgres 随之停了，紧接着跑的全量门禁 161 项连库失败、作废）：跑门禁前先 `service postgresql status`，停了就 `service postgresql start`；`uptime -s` 能看出什么时候重启的。
 
 ## 5. 上线时要设的环境变量（八个都合并、预发验收通过后，由 Evan / Lucas 设）
 
