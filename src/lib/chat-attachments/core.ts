@@ -10,6 +10,7 @@
  * 本文件只有纯函数，不碰 DB / 网络，便于单测。
  */
 
+import { toStorableText } from "@/lib/files/extracted-text";
 import { toProxyUrl } from "@/lib/files/blob-url";
 
 /** document = 文档解析文本；image = 图片识别文本（逐字转录 + 画面描述） */
@@ -90,7 +91,12 @@ export type ParseAttachmentsResult =
   | { ok: true; attachments: ChatAttachment[] }
   | { ok: false; error: string };
 
-/** 校验请求体里的 attachments（来自浏览器，不可信） */
+/**
+ * 校验请求体里的 attachments（来自浏览器，不可信）。
+ * FIX-14：文件名与正文先清掉写不进库的字符（U+0000 → 空格、落单代理字符 → U+FFFD），
+ * 再做「有没有可分析的文本」与长度校验——存进消息记录的与送进模型的都是清理后的这一份。
+ * 替换是一个换一个，长度校验的结果不变；正文只有 U+0000 的附件按「没有可分析的文本内容」拒绝。
+ */
 export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
   if (raw === undefined || raw === null) return { ok: true, attachments: [] };
   if (!Array.isArray(raw)) return { ok: false, error: "attachments 必须是数组" };
@@ -101,12 +107,12 @@ export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
   for (const item of raw) {
     if (!item || typeof item !== "object") return { ok: false, error: "附件格式不正确" };
     const rec = item as Record<string, unknown>;
-    const name = typeof rec.name === "string" ? rec.name.trim() : "";
+    const name = typeof rec.name === "string" ? toStorableText(rec.name).trim() : "";
     if (!name) return { ok: false, error: "附件缺少文件名" };
     if (name.length > MAX_ATTACHMENT_NAME_CHARS) {
       return { ok: false, error: `文件名过长：${name.slice(0, 40)}…` };
     }
-    const text = typeof rec.text === "string" ? rec.text : "";
+    const text = typeof rec.text === "string" ? toStorableText(rec.text) : "";
     if (!text.trim()) return { ok: false, error: `附件「${name}」没有可分析的文本内容` };
     if (text.length > MAX_ATTACHMENT_TEXT_CHARS) {
       return {
@@ -138,17 +144,26 @@ export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
   return { ok: true, attachments };
 }
 
-/** 旧客户端只传 fileText/fileName 时，折算成一个文档附件（兼容主助手早期上传） */
+/**
+ * 旧客户端只传 fileText/fileName 时，折算成一个文档附件（兼容主助手早期上传）。
+ * FIX-14：照旧截断（文件名 200 字、正文 15 万字），截断之后再清理——先清后截会在截断处留下半个代理对；
+ * 清理之后再判一次空：只有 U+0000 的文字按没有附件处理（与传空文字相同）。
+ */
 export function attachmentsFromLegacyFile(fileText: unknown, fileName: unknown): ChatAttachment[] {
-  const text = typeof fileText === "string" ? fileText : "";
-  if (!text.trim()) return [];
-  const name = (typeof fileName === "string" && fileName.trim()) || "上传文件";
+  const raw = typeof fileText === "string" ? fileText : "";
+  if (!raw.trim()) return [];
+  const cut = raw.slice(0, MAX_ATTACHMENT_TEXT_CHARS);
+  const text = toStorableText(cut);
+  // 清理之后再判一次空：只有 U+0000 的文字上面的判空拦不住，清理后才变成空白（没清理掉什么时结果与改动前相同）
+  if (text !== cut && !text.trim()) return [];
+  const rawName = (typeof fileName === "string" && fileName.trim()) || "上传文件";
+  const name = toStorableText(rawName.slice(0, MAX_ATTACHMENT_NAME_CHARS));
   return [
     {
-      name: name.slice(0, MAX_ATTACHMENT_NAME_CHARS),
+      name: name.trim() ? name : "上传文件",
       kind: "document",
       size: 0,
-      text: text.slice(0, MAX_ATTACHMENT_TEXT_CHARS),
+      text,
     },
   ];
 }
@@ -295,7 +310,16 @@ export function renderTurnsForModel(
   return rendered;
 }
 
-/** 首条消息生成会话标题时的文案来源：有文字用文字，否则用附件名 */
+/**
+ * 会话标题：截到 maxChars 字再清理（FIX-14）。截断可能把一对代理字符（表情符号）劈开，
+ * 落单的那半个写库会被拒（InvalidArg）；换成 U+FFFD，其余与直接截断逐字相同。
+ * 主助手 / 项目「问青砚」（3 处，60 字）、外贸对话（30 字，「...」由调用方在之后拼）、助手跟进任务（60 字）共用。
+ */
+export function storableTitle(source: string, maxChars: number): string {
+  return toStorableText(source.slice(0, maxChars));
+}
+
+/** 首条消息生成会话标题时的文案来源：有文字用文字，否则用附件名（截断与清理见 storableTitle） */
 export function attachmentsTitleSource(content: string, attachments: ChatAttachment[]): string {
   const c = content.trim();
   if (c) return c;

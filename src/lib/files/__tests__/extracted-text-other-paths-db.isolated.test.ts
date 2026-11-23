@@ -203,6 +203,67 @@ async function main() {
         "原文片段为前 1000 字、以 U+FFFD 结尾，状态为待复核；产品描述（没截断）里成对的表情符号原样", c.lines[0] ? { len: c.lines[0].rawSnippet.length, tail: JSON.stringify(c.lines[0].rawSnippet.slice(-2)), review: c.lines[0].reviewStatus } : null);
       ok(analysesAfter === analysesBefore + 1, "申请的按口径分析照常运行（多一个分析版本；改动前没有运行）", { analysesBefore, analysesAfter });
     });
+
+    /* ============================ 3. AI 对话附件、对话标题与市场调研 ============================ */
+    await section("AI 对话附件、对话标题与市场调研", async () => {
+      const core = await import("@/lib/chat-attachments/core");
+      // 改动前没有这个函数（路由里直接 slice）；拿不到时按改动前的写法算，好在改动前的代码上看到写库失败
+      const titleOf: (source: string, maxChars: number) => string =
+        typeof (core as Record<string, unknown>).storableTitle === "function"
+          ? (core as unknown as { storableTitle: (s: string, n: number) => string }).storableTitle
+          : (source, maxChars) => source.slice(0, maxChars);
+      const tryWrite = async (fn: () => Promise<unknown>) => {
+        try {
+          await fn();
+          return null;
+        } catch (e) {
+          return errText(e);
+        }
+      };
+      const stored = async (id: string) => core.readStoredAttachments((await db.aiMessage.findUniqueOrThrow({ where: { id }, select: { attachments: true } })).attachments);
+
+      // 主助手 / 项目「问青砚」：AiMessage.attachments 与 AiThread.title
+      const thread = await db.aiThread.create({ data: { userId: OWNER, orgId: ORG, title: "新对话" } });
+      const parsed = core.parseAttachmentsInput([{ name: "checkbox.pdf", kind: "document", size: 2048, text: `${LINE_A}\n${NUL} ${LINE_B}` }]);
+      let msgId = "";
+      const e1 = await tryWrite(async () => {
+        msgId = (await db.aiMessage.create({ data: { threadId: thread.id, role: "user", content: "帮我看看这份声明", attachments: (parsed.ok ? parsed.attachments : []) as unknown as object } })).id;
+      });
+      ok(e1 === null && (await stored(msgId))[0]?.text === `${LINE_A}\n  ${LINE_B}`, "文档附件正文带 U+0000：消息存下，存下的附件正文里该处为空格（改动前写消息报 22P05，接口 500）", e1);
+
+      const legacy = core.attachmentsFromLegacyFile("legacy file body", `${"n".repeat(199)}😀.pdf`);
+      let legacyId = "";
+      const e2 = await tryWrite(async () => {
+        legacyId = (await db.aiMessage.create({ data: { threadId: thread.id, role: "user", content: "", attachments: legacy as unknown as object } })).id;
+      });
+      const legacyStored = e2 === null ? await stored(legacyId) : [];
+      ok(e2 === null && legacyStored[0]?.name.length === 200 && legacyStored[0].name.endsWith(`n${FFFD}`), "旧客户端的文件名在第 200 字处劈开表情符号：消息存下，文件名为前 200 字、以 U+FFFD 结尾（改动前 InvalidArg）", e2);
+
+      const only = core.parseAttachmentsInput([{ name: `${"报".repeat(56)}😀价.pdf`, size: 3, text: "附件正文" }]);
+      const titleSource = core.attachmentsTitleSource("", only.ok ? only.attachments : []);
+      const e3 = await tryWrite(() => db.aiThread.update({ where: { id: thread.id }, data: { title: titleOf(titleSource, 60) } }));
+      const t3 = (await db.aiThread.findUniqueOrThrow({ where: { id: thread.id }, select: { title: true } })).title;
+      ok(e3 === null && t3.length === 60 && t3.startsWith("附件：") && t3.endsWith(`报${FFFD}`), "只发附件、「附件：〈文件名〉」第 60 字处劈开表情符号：标题写入成功，为前 60 字、以 U+FFFD 结尾（改动前 InvalidArg，这一轮对话报错）", { e3, title: JSON.stringify(t3.slice(-3)) });
+
+      // 外贸对话：TradeChatMessage.attachments 与 TradeChatSession.title
+      const session = await db.tradeChatSession.create({ data: { orgId: ORG, userId: OWNER } });
+      const e4 = await tryWrite(() => db.tradeChatMessage.create({ data: { sessionId: session.id, role: "user", content: "看看附件", attachments: (parsed.ok ? parsed.attachments : []) as unknown as object } }));
+      ok(e4 === null, "外贸对话：带 U+0000 的文档附件消息存下（改动前 22P05）", e4);
+      const content = `${"外".repeat(29)}😀贸对话第一条消息`;
+      const e5 = await tryWrite(() => db.tradeChatSession.update({ where: { id: session.id }, data: { title: titleOf(content, 30) + (content.length > 30 ? "..." : "") } }));
+      const t5 = (await db.tradeChatSession.findUniqueOrThrow({ where: { id: session.id }, select: { title: true } })).title;
+      ok(e5 === null && t5 === `${"外".repeat(29)}${FFFD}...`, "外贸对话第一条消息第 30 字处劈开表情符号：标题写入为前 30 字（最后一个为 U+FFFD）加「...」（改动前 InvalidArg，消息与回复已存下、接口仍返回 500）", { e5, title: JSON.stringify(t5.slice(-5)) });
+
+      // 转为后台市场调研：市场证据在 2 万字处劈开表情符号
+      const { queueMarketResearchRequest } = await import("@/lib/market-intelligence/research-runtime");
+      const evidence = `${"e".repeat(19_999)}😀 tail of the uploaded file`;
+      let run: { status: string; inputJson: unknown } | null = null;
+      const e6 = await tryWrite(async () => {
+        run = await queueMarketResearchRequest({ orgId: ORG, userId: OWNER, objective: "Fixture market research objective", marketEvidence: evidence });
+      });
+      const me = run ? String(((run as { inputJson: unknown }).inputJson as Record<string, unknown>).marketEvidence ?? "") : "";
+      ok(e6 === null && (run as { status: string } | null)?.status === "queued" && me.length === 20_000 && me.endsWith(`e${FFFD}`), "市场证据截断处劈开表情符号：调研任务建成（等待研究），市场证据以 U+FFFD 结尾（改动前写库被拒，接口 500）", { e6, status: (run as { status: string } | null)?.status, tail: JSON.stringify(me.slice(-3)) });
+    });
   } catch (e) {
     fail++;
     console.error("  ✗ 测试中途抛错", errText(e));
@@ -217,6 +278,10 @@ async function main() {
     await d.recordsRequestVersion.deleteMany({ where: { requestId: { in: reqIds } } });
     await d.recordsRequest.deleteMany({ where: { id: { in: reqIds } } });
     await d.task.deleteMany({ where: { OR: [{ sourceId: { in: reqIds } }, { projectId: { in: projectIds } }] } });
+    await d.aiThread.deleteMany({ where: { userId: OWNER } });
+    await d.tradeChatSession.deleteMany({ where: { userId: OWNER } });
+    await d.marketResearchRun.deleteMany({ where: { orgId: ORG } });
+    await d.agentSkill.deleteMany({ where: { orgId: ORG } });
     await d.notification.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { orgId: ORG }] } });
     await d.inquiryItem.deleteMany({ where: { inquiry: { projectId: { in: projectIds } } } });
     await d.projectInquiry.deleteMany({ where: { projectId: { in: projectIds } } });

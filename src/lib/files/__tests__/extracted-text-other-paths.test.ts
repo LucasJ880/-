@@ -273,10 +273,95 @@ async function procurementSection() {
   }
 }
 
+async function chatSection() {
+  console.log("\n— AI 对话附件与对话标题 —");
+  const core = await import("@/lib/chat-attachments/core");
+  const { parseAttachmentsInput, attachmentsFromLegacyFile, attachmentsTitleSource } = core;
+  // 改动前没有这个函数（路由里直接 slice）；拿不到时按改动前的写法算，测试照样能在改动前的代码上跑出失败
+  const titleOf: (source: string, maxChars: number) => string =
+    typeof (core as Record<string, unknown>).storableTitle === "function"
+      ? (core as unknown as { storableTitle: (s: string, n: number) => string }).storableTitle
+      : (source, maxChars) => source.slice(0, maxChars);
+
+  // 1. 新方式：正文带 U+0000、文件名带 U+0000
+  {
+    const r = parseAttachmentsInput([{ name: `quote${NUL}.pdf`, kind: "document", size: 100, text: `${LINE_A}\n${NUL} ${LINE_B}` }]);
+    ok(r.ok && r.attachments[0].text === `${LINE_A}\n  ${LINE_B}` && r.attachments[0].name === "quote .pdf", "新方式：附件正文与文件名里的 U+0000 换成空格（存下与送模型的都是这一份）", r);
+  }
+  // 2. 新方式：正文只有 U+0000 → 400 的那句原因
+  {
+    const r = parseAttachmentsInput([{ name: "a.pdf", size: 10, text: NUL.repeat(12) }]);
+    ok(!r.ok && r.error === "附件「a.pdf」没有可分析的文本内容", "新方式：正文只由 U+0000 组成 → 「附件「a.pdf」没有可分析的文本内容」（改动前校验通过、写消息 500）", r);
+  }
+  // 3. 新方式：长度校验结果不变（替换一个换一个）
+  {
+    const r = parseAttachmentsInput([{ name: "big.txt", size: 1, text: `${"x".repeat(149_999)}${NUL}` }]);
+    ok(r.ok && r.attachments[0].text.length === 150_000, "新方式：正好 15 万字（含一个 U+0000）仍通过长度校验", r.ok);
+  }
+  // 4. 旧方式：正文第 15 万字处劈开表情符号
+  {
+    const list = attachmentsFromLegacyFile(`${"y".repeat(149_999)}😀tail`, "legacy.pdf");
+    ok(list.length === 1 && list[0].text.length === 150_000 && list[0].text.endsWith(`y${FFFD}`) && !hasUnstorableChars(list[0].text), "旧方式：按 15 万字截断劈开表情符号 → 折算出的附件正文以 U+FFFD 结尾", list[0] ? JSON.stringify(list[0].text.slice(-3)) : list);
+  }
+  // 5. 旧方式：文件名第 200 字处劈开表情符号
+  {
+    const name = `${"n".repeat(199)}😀.pdf`;
+    const list = attachmentsFromLegacyFile("some text", name);
+    ok(list[0]?.name.length === 200 && list[0].name.endsWith(`n${FFFD}`), "旧方式：文件名超过 200 字、第 200 字处劈开表情符号 → 前 200 字、以 U+FFFD 结尾", list[0]?.name.slice(-3));
+  }
+  // 6. 旧方式：正文只有 U+0000 → 按没有附件处理
+  {
+    ok(attachmentsFromLegacyFile(NUL.repeat(8), "x.pdf").length === 0, "旧方式：正文只有 U+0000 → 按没有附件处理", attachmentsFromLegacyFile(NUL.repeat(8), "x.pdf"));
+  }
+  // 7. 普通文字不变
+  {
+    const text = "中文 English 😀𠮷\t制表\n换行";
+    const r = parseAttachmentsInput([{ name: "报价 😀.pdf", size: 3, text }]);
+    const legacy = attachmentsFromLegacyFile(text, "报价.pdf");
+    ok(r.ok && r.attachments[0].text === text && r.attachments[0].name === "报价 😀.pdf" && legacy[0]?.text === text && legacy[0]?.name === "报价.pdf", "不含这两类字符的附件与改动前逐字相同");
+    const plainTitle = "帮我看看这份报价单 😀 有没有问题，尤其是交期和付款条件这两块，供应商说可以再谈谈的";
+    ok(titleOf(plainTitle, 60) === plainTitle.slice(0, 60) && titleOf(plainTitle, 30) === plainTitle.slice(0, 30), "不劈开代理对时，标题与改动前的截断逐字相同");
+  }
+  // 8. 只发附件：「附件：〈文件名〉」第 60 字处劈开表情符号
+  {
+    const r = parseAttachmentsInput([{ name: `${"报".repeat(56)}😀价.pdf`, size: 3, text: "内容" }]);
+    const source = attachmentsTitleSource("", r.ok ? r.attachments : []);
+    const title = titleOf(source, 60);
+    ok(source.startsWith("附件：") && title.length === 60 && title.endsWith(`报${FFFD}`) && !hasUnstorableChars(title), "只发附件、「附件：〈文件名〉」第 60 字处劈开表情符号 → 标题为前 60 字、以 U+FFFD 结尾", JSON.stringify(title.slice(-3)));
+  }
+  // 9. 外贸对话的标题：第 30 字处劈开表情符号
+  {
+    const content = `${"外".repeat(29)}😀贸对话第一条消息`;
+    const title = titleOf(content, 30) + (content.length > 30 ? "..." : "");
+    ok(title === `${"外".repeat(29)}${FFFD}...`, "外贸对话第一条消息第 30 字处劈开表情符号 → 标题为前 30 字（最后一个为 U+FFFD）加「...」", JSON.stringify(title.slice(-5)));
+  }
+  // 10. 接线断言：5 处标题都经同一个函数；两个路由与跟进任务只用校验后的附件写库
+  {
+    const ai = src("src/app/api/ai/threads/[threadId]/messages/route.ts");
+    const trade = src("src/app/api/trade/chat/[sessionId]/messages/route.ts");
+    const followup = src("src/lib/assistant/followup-task.ts");
+    const count = (code: string, re: RegExp) => (code.match(re) ?? []).length;
+    ok(count(ai, /storableTitle\(titleSource, 60\)/g) === 3 && !/titleSource\.slice\(/.test(ai), "接线：主助手 / 项目「问青砚」的 3 处标题都经 storableTitle(titleSource, 60)，没有直接截断", count(ai, /storableTitle\(titleSource, 60\)/g));
+    ok(trade.includes('storableTitle(titleSource, 30) + (titleSource.length > 30 ? "..." : "")') && !/titleSource\.slice\(/.test(trade), "接线：外贸对话的标题经 storableTitle(titleSource, 30)，「...」在清理之后拼");
+    ok(/storableTitle\(\s*attachmentsTitleSource\(input\.userContent, input\.attachments\),\s*60,?\s*\)/.test(followup) && !/attachmentsTitleSource\([^)]*\)\.slice\(/.test(followup), "接线：助手跟进任务的标题经 storableTitle(…, 60)");
+    for (const [label, code] of [["主助手路由", ai], ["外贸对话路由", trade], ["跟进任务", followup]] as const) {
+      ok(!/\btitle\s*[:=]\s*[^\n]*?\.slice\(/.test(code), `接线：${label}里没有「title: / title = ….slice(」直接截断后写库的写法`);
+    }
+    ok(count(ai, /body\.attachments/g) === 1 && ai.includes("parseAttachmentsInput(body.attachments)") && count(ai, /body\.fileText/g) === 1 && ai.includes("attachmentsFromLegacyFile(body.fileText, body.fileName)") && ai.includes("{ attachments: attachments as unknown as Prisma.InputJsonValue }"),
+      "接线：主助手路由只把校验后的附件（parseAttachmentsInput / attachmentsFromLegacyFile 的结果）写进消息");
+    ok(count(trade, /body\.attachments/g) === 1 && trade.includes("parseAttachmentsInput(body.attachments)") && trade.includes("const attachments = parsedAttachments.attachments;") && trade.includes("{ attachments: attachments as unknown as Prisma.InputJsonValue }"),
+      "接线：外贸对话路由只把校验后的附件写进消息");
+    ok(followup.includes("{ attachments: input.attachments as unknown as Prisma.InputJsonValue }") && !/body\.|fileText/.test(followup), "接线：跟进任务写的是路由校验后传进来的附件");
+    const rt = src("src/lib/market-intelligence/research-runtime.ts");
+    ok(/marketEvidence: toStorableText\(\(input\.marketEvidence\?\.trim\(\) \|\| "未提供新的公开证据"\)\.slice\(0, 20_000\)\)/.test(rt), "接线：市场证据截到 2 万字之后再清理");
+  }
+}
+
 async function main() {
   console.log("FIX-14 extracted-text other paths（不用数据库）");
   await inquirySection();
   await procurementSection();
+  await chatSection();
   console.log(`\nFIX-14 extracted-text other paths: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
