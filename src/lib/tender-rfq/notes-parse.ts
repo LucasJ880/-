@@ -11,10 +11,14 @@
  *
  * FIX-24：供应商可控的文字（附件文件名、证据片段）不能变成回读字段。写入方已中和（inbound-apply.ts），
  * 这里另有五条读取规则，管住本次改动之前已经写进库里的段（见 __tests__/notes-forgery.test.ts）：
- *   R1 行头严格：时间是 toISOString 的格式且能原样还原（2026-02-30、24:00 不认），msg 只含字母、数字、-、_；
- *      行内的 \r、U+2028、U+2029 当空格（不让整段失效，也不另起一段）；
+ *   R1 行头严格：按原始行匹配（行头里有回车等也不认），时间是 toISOString 的格式且能原样还原
+ *      （2026-02-30、24:00 不认），msg 只含字母、数字、-、_；行头之后正文里的 \r、U+2028、U+2029 当空格
+ *      （不让整段失效，也不另起一段）；
  *   R2 读到第一个以「附件：」开头的块就停：附件一栏永远在最后，里面只有文件名与系统说明；
- *   R3 整段（含附件一栏及之后）遮住证据后仍剩「"）」→ 某条证据提前关了引号，整段不认；
+ *   R3 遮住成对证据之后还剩「"）」，且它前面那一截（从上一条证据结束处起）里有「；」——证据把字段夹带了出去——
+ *      而它后面（到下一个「"）」或段尾）不是一截不带「；」、不带证据的普通文字，整段不认。
+ *      证据里合法的英寸记号（「（宽 36"）单价 45」：前面没有「；」）与旧文件名里的引号
+ *      （「报价单（"含税"）.pdf 已解析」：后面跟着普通文字）照常读；行内的换行类字符已当空格、不分块，所以只看「；」；
  *   R4 第一个「附件：」块及之后出现证据 → 整段不认（写入方从不在那里写证据）；
  *   R5 附件一栏之前认得出的字段按写入顺序、除「其它档」外每种至多一次，违反就整段不认。
  *   整段不认 = 这一段的字段、缺字段与时间都不参与。
@@ -40,8 +44,9 @@ const MISSING_BY_LABEL = new Map<string, InboundMissingField>(
   (Object.entries(INBOUND_MISSING_LABEL) as Array<[InboundMissingField, string]>).map(([k, label]) => [label, k]),
 );
 
-const SEGMENT_RE = /^\[auto (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z) msg=([A-Za-z0-9_-]+)\] (.*)$/;
-/** R1：行内的回车与段落分隔符当空格 */
+/** R1：行头按原始行匹配；正文取到行尾（行里没有 \n，正文可能带 \r 等，取出来再换空格） */
+const SEGMENT_RE = /^\[auto (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z) msg=([A-Za-z0-9_-]+)\] ([\s\S]*)$/;
+/** R1：正文里的回车与段落分隔符当空格 */
 const IN_LINE_BREAKS = /[\r\u2028\u2029]/g;
 /** R3：遮住证据之后不该再有的收尾 */
 const EVIDENCE_CLOSER = '"）';
@@ -54,7 +59,7 @@ const ATTACHMENT_PREFIX = "附件：";
  * 依次：单价、总价、其它档、多档未入表的说明、币种、交期、有效期、起订量、贸易条款、强制项答复、强制项未答、
  * 不报价的说明；然后单价 / 总价 / 币种 / 交期 / 有效期五种不一致；最后「缺：」。认不出的块不参与。
  */
-const WRITE_ORDER: ReadonlyArray<readonly [string, boolean]> = [
+export const AUTO_NOTES_WRITE_ORDER: ReadonlyArray<readonly [prefix: string, repeatable: boolean]> = [
   ["单价=", false], ["总价=", false], ["其它档：", true], ["多档报价均不对应", false],
   ["币种=", false], ["交期=", false], ["有效期至=", false], ["起订量=", false], ["贸易条款=", false],
   ["强制项：", false], ["强制项未答：", false], ["供应商明确表示不报价", false],
@@ -68,14 +73,34 @@ function isRealInstant(iso: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString() === iso;
 }
 
+/**
+ * R3：遮住成对证据之后剩下的每个「"）」——
+ *   前面那一截 = 从它之前最后一个证据占位结束处（没有就从段首）到它；
+ *   后面那一截 = 从它到下一个「"）」（没有就到段尾）。
+ * 前面那一截有「；」（证据把字段夹带成了新块），且后面那一截是空的、有「；」或有证据占位
+ * （写入方在证据收尾之后只会写「；」、强制项的「，下一条（证据…）」或什么都不写），就是证据跳出了引号。
+ * 前面没有「；」= 证据里合法带的「"）」（英寸记号）；后面是一截普通文字 = 旧文件名里的引号。
+ */
+function evidenceBrokeOut(masked: string): boolean {
+  const step = EVIDENCE_CLOSER.length;
+  for (let i = masked.indexOf(EVIDENCE_CLOSER); i >= 0; i = masked.indexOf(EVIDENCE_CLOSER, i + step)) {
+    const tailStart = masked.lastIndexOf(PLACEHOLDER_MARK, i) + 1; // 占位成对出现：最后一个就是上一条证据的结尾
+    const before = masked.slice(tailStart, i);
+    const next = masked.indexOf(EVIDENCE_CLOSER, i + step);
+    const after = masked.slice(i + step, next < 0 ? masked.length : next);
+    if (before.includes("；") && (after.trim() === "" || after.includes("；") || after.includes(PLACEHOLDER_MARK))) return true;
+  }
+  return false;
+}
+
 /** R5：块按写入顺序、不重复 */
 function inWriteOrder(blocks: string[]): boolean {
   let last = -1;
   const seen = new Set<number>();
   for (const b of blocks) {
-    const rank = WRITE_ORDER.findIndex(([prefix]) => b.startsWith(prefix));
+    const rank = AUTO_NOTES_WRITE_ORDER.findIndex(([prefix]) => b.startsWith(prefix));
     if (rank < 0) continue;
-    if (rank < last || (!WRITE_ORDER[rank][1] && seen.has(rank))) return false;
+    if (rank < last || (!AUTO_NOTES_WRITE_ORDER[rank][1] && seen.has(rank))) return false;
     last = rank;
     seen.add(rank);
   }
@@ -113,8 +138,8 @@ function parseSegment(at: string, body: string): SegmentValues | null {
   };
   const strip = (s: string) => s.replace(/\u0000\d+\u0000/g, "");
 
-  // R3：遮住证据之后整段还剩「"）」
-  if (masked.includes(EVIDENCE_CLOSER)) return null;
+  // R3：证据跳出了引号
+  if (evidenceBrokeOut(masked)) return null;
   const facts = masked.split("；").map((raw) => raw.trim());
   // R2：读到第一个「附件：」块就停
   const stop = facts.findIndex((f) => strip(f).startsWith(ATTACHMENT_PREFIX));
@@ -164,11 +189,10 @@ function parseSegment(at: string, body: string): SegmentValues | null {
 
 export function parseAutoNotes(quoteNotes: string | null | undefined): ParsedAutoNotes {
   const segments: SegmentValues[] = [];
-  for (const rawLine of (quoteNotes ?? "").split("\n")) {
-    const line = rawLine.replace(IN_LINE_BREAKS, " "); // R1
-    const m = line.match(SEGMENT_RE);
+  for (const line of (quoteNotes ?? "").split("\n")) {
+    const m = line.match(SEGMENT_RE); // R1：行头按原始行匹配
     if (!m || !isRealInstant(m[1])) continue; // R1
-    const seg = parseSegment(m[1], m[3]);
+    const seg = parseSegment(m[1], m[3].replace(IN_LINE_BREAKS, " ")); // R1：只对正文换空格
     if (seg) segments.push(seg);
   }
   segments.sort((a, b) => a.at.localeCompare(b.at));

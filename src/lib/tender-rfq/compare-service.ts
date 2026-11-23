@@ -24,6 +24,54 @@ const toNum = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** 比价取数时每个已报价条目用到的列（与 loadCompareMatrix 的 select 一致） */
+export type CompareItemRow = {
+  id: string;
+  supplierId: string;
+  unitPrice: unknown;
+  totalPrice: unknown;
+  currency: string;
+  deliveryDays: number | null;
+  validUntil: Date | null;
+  repliedAt: Date | null;
+  quoteNotes: string | null;
+  supplier: { name: string } | null;
+};
+
+/**
+ * 已报价条目 → 比价输入（纯函数，FIX-24 从 loadCompareMatrix 抽出，行为不变）：
+ * 价格、币种、交期、有效期取列；贸易条款、起订量、强制项答复从报价备注的 [auto] 段回读（notes-parse.ts）。
+ */
+export function toCompareInputs(
+  items: CompareItemRow[],
+  ctx: { settings: ReturnType<typeof readLandedCostSettings>; dutyRatePct: number | null; firstTierQty: number | null; now: Date },
+): CompareInput[] {
+  return items.map((it) => {
+    const notes = parseAutoNotes(it.quoteNotes);
+    const quoted = {
+      unitPrice: toNum(it.unitPrice),
+      totalPrice: toNum(it.totalPrice),
+      currency: it.currency,
+      incoterm: notes.incoterm,
+      moq: notes.moq,
+      deliveryDays: it.deliveryDays,
+      validUntil: it.validUntil ? it.validUntil.toISOString().slice(0, 10) : null,
+    };
+    return {
+      itemId: it.id,
+      supplierId: it.supplierId,
+      supplierName: it.supplier?.name ?? "供应商",
+      quoted,
+      emailDate: it.repliedAt,
+      mandatoryAnswers: notes.mandatoryAnswers,
+      normalized: normalizeQuote(
+        { unitPrice: quoted.unitPrice, totalPrice: quoted.totalPrice, currency: quoted.currency, incoterm: quoted.incoterm },
+        { settings: ctx.settings, dutyRatePct: ctx.dutyRatePct, quantity: ctx.firstTierQty, now: ctx.now },
+      ),
+    };
+  });
+}
+
 /** orgId 传了就强制租户匹配（Muse 通道）；不传则由调用方先做项目读权限校验（API 路由） */
 export async function loadCompareMatrix(input: {
   projectId: string;
@@ -79,30 +127,7 @@ export async function loadCompareMatrix(input: {
   const body = (sent?.payload as { items?: Array<{ body?: string }> } | null)?.items?.[0]?.body ?? null;
   const rfq = rfqContextFromBody(body);
 
-  const inputs: CompareInput[] = items.map((it) => {
-    const notes = parseAutoNotes(it.quoteNotes);
-    const quoted = {
-      unitPrice: toNum(it.unitPrice),
-      totalPrice: toNum(it.totalPrice),
-      currency: it.currency,
-      incoterm: notes.incoterm,
-      moq: notes.moq,
-      deliveryDays: it.deliveryDays,
-      validUntil: it.validUntil ? it.validUntil.toISOString().slice(0, 10) : null,
-    };
-    return {
-      itemId: it.id,
-      supplierId: it.supplierId,
-      supplierName: it.supplier?.name ?? "供应商",
-      quoted,
-      emailDate: it.repliedAt,
-      mandatoryAnswers: notes.mandatoryAnswers,
-      normalized: normalizeQuote(
-        { unitPrice: quoted.unitPrice, totalPrice: quoted.totalPrice, currency: quoted.currency, incoterm: quoted.incoterm },
-        { settings, dutyRatePct: overrides.dutyRatePct, quantity: rfq.firstTierQty, now },
-      ),
-    };
-  });
+  const inputs = toCompareInputs(items, { settings, dutyRatePct: overrides.dutyRatePct, firstTierQty: rfq.firstTierQty, now });
 
   const matrix = buildCompareMatrix(inputs, {
     closeDate: project.closeDate,

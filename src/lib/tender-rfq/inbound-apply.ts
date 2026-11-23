@@ -86,13 +86,16 @@ function controlsToSpaces(text: string): string {
 
 /** 证据引号的收尾：回读把「（证据："」到第一个「"）」之间遮住，片段里自带的会把引号提前关掉 */
 const EVIDENCE_CLOSER = /"）/g;
+/** 证据引号的开头：拼进段里的非证据文字带着它，会和后面某条证据的收尾配成一对，吞掉中间的字段 */
+const EVIDENCE_OPENER = /（证据：/g;
 
 /**
- * FIX-24：拼进段里的非证据供应商文字（附件文件名、币种、已录币种）。
- * 控制字符与各类换行 → 空格；全角「；」→ 半角「;」；「"）」→「")」。不做 NFKC，其它字符原样。
+ * FIX-24：拼进段里的非证据文字（附件文件名、币种、已录币种、强制项编号）。
+ * 控制字符与各类换行 → 空格；全角「；」→ 半角「;」；「"）」→「")」；「（证据：」→「（证据:」（半角冒号）。
+ * 不做 NFKC，其它字符原样。
  */
 function neutralizeNoteText(text: string): string {
-  return controlsToSpaces(text).replace(/；/g, ";").replace(EVIDENCE_CLOSER, '")');
+  return controlsToSpaces(text).replace(/；/g, ";").replace(EVIDENCE_CLOSER, '")').replace(EVIDENCE_OPENER, "（证据:");
 }
 
 /** 证据片段：控制字符与各类换行 → 空格，空白归一，最后「"）」→「")」；「；」「，」留着（回读时在引号里被遮住） */
@@ -229,8 +232,9 @@ export function planInquiryItemUpdate(
   if (parsed.incoterm) facts.push(`贸易条款=${parsed.incoterm}${q(parsed.incotermEvidence)}`);
   const answered = parsed.mandatoryAnswers.filter((a) => a.answer !== "未答");
   const unanswered = parsed.mandatoryAnswers.filter((a) => a.answer === "未答");
-  if (answered.length) facts.push(`强制项：${answered.map((a) => `${a.requirementCode} ${a.answer}${q(a.evidence)}`).join("，")}`);
-  if (unanswered.length) facts.push(`强制项未答：${unanswered.map((a) => a.requirementCode).join("、")}`);
+  // FIX-24：强制项编号从询价正文里扫出（含供应商名所在的称呼行），也按非证据文字中和
+  if (answered.length) facts.push(`强制项：${answered.map((a) => `${neutralizeNoteText(a.requirementCode)} ${a.answer}${q(a.evidence)}`).join("，")}`);
+  if (unanswered.length) facts.push(`强制项未答：${unanswered.map((a) => neutralizeNoteText(a.requirementCode)).join("、")}`);
   if (parsed.declined) facts.push("供应商明确表示不报价（未自动标记为已拒绝，请人工确认）");
 
   // ── 缺字段：回信涉及报价时，按"写入后"的值判缺（四个核心字段；起订量/贸易条款只记录不判缺，P1-7 追问时再补问） ──
