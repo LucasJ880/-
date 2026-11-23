@@ -97,6 +97,8 @@ export type ConfirmPromptInput = {
   alreadyApproved?: boolean;
   /** 要改选时现在的我方报价（每份报价各自从第 1 版数起，所以带上名称） */
   current: { name: string; version: number; amount: number | null; currency: string } | null;
+  /** 我方报价正在另起新版（新版还没定），这一份不是那份新版：定了以后同样换成这一份 */
+  revisionPending?: { version: number } | null;
 };
 
 export function confirmPromptZh(input: ConfirmPromptInput): string[] {
@@ -105,13 +107,17 @@ export function confirmPromptZh(input: ConfirmPromptInput): string[] {
   if (input.current) {
     const amt = input.current.amount != null ? `（${formatMoneyZh(input.current.amount, input.current.currency)}）` : "";
     lines.push(`现在的我方报价是「${input.current.name}」第 ${input.current.version} 版${amt}，定了以后我方报价换成这一份。`);
+  } else if (input.revisionPending) {
+    lines.push(`现在的我方报价第 ${input.revisionPending.version} 版正在另起新版（新版还没定），定了以后我方报价换成这一份。`);
   }
   return lines;
 }
 
-/** 定好以后的一句：改选了写原来那份还在；没改选不再多说（我方报价一行与锁定说明已经写了） */
-export function confirmedNoteZh(previous: { name: string; version: number } | null): string | null {
-  return previous ? `已定为我方报价；原来的「${previous.name}」第 ${previous.version} 版仍是已批准，需要时可以再定回去` : null;
+/** 定好以后的一句：改选了写原来那份还在（或原来那份已被新版替代）；没改选不再多说（我方报价一行与锁定说明已经写了） */
+export function confirmedNoteZh(previous: { name: string; version: number } | { superseded: true; version: number } | null): string | null {
+  if (!previous) return null;
+  if ("superseded" in previous) return `已定为我方报价；原来的我方报价第 ${previous.version} 版已另起新版，不再是我方报价`;
+  return `已定为我方报价；原来的「${previous.name}」第 ${previous.version} 版仍是已批准，需要时可以再定回去`;
 }
 
 /* ------------------------------ 请求体 ------------------------------ */
