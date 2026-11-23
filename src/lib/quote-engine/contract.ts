@@ -198,7 +198,13 @@ export type EngineConfig = {
   standingOffer?: StandingOfferInput | null;
   /** 风险阈值（情景风险指示用，可配置） */
   marginRiskPct?: { high: number; medium: number };
+  /** 报价做法（BIDPAGE-3，新版「标书与报价」页写入）：LINE = 逐行报价。不参与计算；没有这个字段 = 专业模式 */
+  entryMode?: QuoteEntryMode;
 };
+
+/** 报价做法（engineJson.entryMode）。BIDPAGE-4 再加 LUMP_SUM */
+export const QUOTE_ENTRY_MODES = ["LINE"] as const;
+export type QuoteEntryMode = (typeof QUOTE_ENTRY_MODES)[number];
 
 export const DEFAULT_SCENARIOS: ScenarioParam[] = [
   { key: "aggressive", labelZh: "Aggressive（进攻）", method: "MARGIN_ON_REVENUE", rate: 8 },
@@ -269,6 +275,8 @@ export const engineConfigSchema = z.object({
     .nullable()
     .optional(),
   marginRiskPct: z.object({ high: z.number().finite(), medium: z.number().finite() }).optional(),
+  // 不认识的做法值（例如回退了加做法的版本以后库里留下的值）只丢掉这个字段，不让整份配置解析失败
+  entryMode: z.enum(QUOTE_ENTRY_MODES).optional().catch(undefined),
 });
 
 export const quoteHeaderSchema = z.object({
@@ -278,7 +286,8 @@ export const quoteHeaderSchema = z.object({
   pricingMethod: z.enum(PRICING_METHODS).optional(),
   pricingRate: num(),
   internalNotes: z.string().max(4000).nullable().optional(),
-  engine: engineConfigSchema.optional(),
+  // 做法只由新页面新建时写（BIDPAGE-3）；专业模式保存不收这个字段，库里原有的值合并时保留
+  engine: engineConfigSchema.omit({ entryMode: true }).optional(),
 });
 
 export type QuoteValidationError = { code: string; message: string; lineId?: string; tierId?: string };
