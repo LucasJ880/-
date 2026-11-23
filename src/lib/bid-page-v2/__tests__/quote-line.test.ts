@@ -11,7 +11,8 @@ import { Prisma } from "@prisma/client";
 import { QUOTE_EVIDENCE_KINDS, QUOTE_EVIDENCE_LABELS_ZH } from "@/lib/tender-bid-cost/contract";
 import { GROUPED_UOMS, PRICE_SCHEDULE_UOMS } from "@/lib/tender-price-schedule/contract";
 import { QUOTE_BASES } from "@/lib/tender-price-schedule/unit-conversion";
-import { QUOTE_ENGINE_CALC_VERSION, engineConfigSchema, quoteHeaderSchema, type CostLineInput } from "@/lib/quote-engine/contract";
+import { z } from "zod";
+import { PRICING_METHODS, QUOTE_CURRENCIES, QUOTE_ENGINE_CALC_VERSION, engineConfigSchema, quoteHeaderSchema, type CostLineInput } from "@/lib/quote-engine/contract";
 import { computeQuote, round2 } from "@/lib/quote-engine/calc";
 import { templateSupplyOnlyLines } from "@/lib/quote-engine/templates";
 import { emptyCostDraft, parseCostDraft } from "@/lib/tender-bid-workspace/cost-draft";
@@ -154,7 +155,40 @@ console.log("\n━━━ 1. 词表、做法字段与模板对照 ━━━");
   ok(eq([...LINE_QUOTE_BASES].sort(), [...QUOTE_BASES].sort()), "报价口径与价格表换算的口径相同");
   ok(QUOTE_ENGINE_CALC_VERSION === "quote-engine-calc/v2", "报价引擎算法版本号没改");
 
-  const oldSchema = engineConfigSchema.omit({ entryMode: true });
+  // 改前的两个 schema 原样冻结在这里（取自 b717427f 的 src/lib/quote-engine/contract.ts），不从新 schema 推出来
+  const num = (min?: number) => z.preprocess((v) => (v === "" || v === undefined ? null : v), z.number().finite().min(min ?? -Infinity).nullable());
+  const oldSchema = z.object({
+    scenarios: z.array(z.object({ key: z.string().min(1).max(30), labelZh: z.string().max(40), method: z.enum(PRICING_METHODS), rate: z.number().finite() })).max(6).optional(),
+    tax: z.object({ gstPct: num(0).optional(), hstPct: num(0).optional(), pstPct: num(0).optional() }).optional(),
+    standingOffer: z
+      .object({
+        supplierCostPerPiece: num(0),
+        supplierCurrency: z.string().max(3).nullable().optional(),
+        fxRate: num(0).optional(),
+        piecesPerBox: num(0),
+        boxesPerContainer: num(0),
+        moq: num(0).optional(),
+        annualQuantity: num(0).optional(),
+        freightPerContainer: num(0).optional(),
+        customsPerContainer: num(0).optional(),
+        dutyPct: num(0).optional(),
+        warehousePerContainer: num(0).optional(),
+        otherPerContainer: num(0).optional(),
+        inventoryCarryingPct: num(0).optional(),
+      })
+      .nullable()
+      .optional(),
+    marginRiskPct: z.object({ high: z.number().finite(), medium: z.number().finite() }).optional(),
+  });
+  const oldHeader = z.object({
+    name: z.string().max(160).nullable().optional(),
+    quoteNumber: z.string().max(60).nullable().optional(),
+    currency: z.enum(QUOTE_CURRENCIES).optional(),
+    pricingMethod: z.enum(PRICING_METHODS).optional(),
+    pricingRate: num(),
+    internalNotes: z.string().max(4000).nullable().optional(),
+    engine: oldSchema.optional(),
+  });
   const samples: unknown[] = [
     {},
     { tax: { hstPct: 13, gstPct: null, pstPct: null } },
@@ -168,8 +202,10 @@ console.log("\n━━━ 1. 词表、做法字段与模板对照 ━━━");
       const b = oldSchema.parse(s) as Record<string, unknown>;
       return isDeepStrictEqual(a, b) && !Object.keys(a).includes("entryMode");
     }),
-    "没有做法字段的配置：解析结果与改前的校验深度相同、键集合相同（不多出 entryMode 键；未知键被剥除）",
+    "没有做法字段的配置：解析结果与改前（冻结的旧 schema）深度相同、键集合相同（不多出 entryMode 键；未知键被剥除）",
   );
+  const headers: unknown[] = [{}, { name: "合成", pricingMethod: "MARKUP_ON_COST", pricingRate: "" }, { engine: {} }, { engine: { tax: { hstPct: 13 }, x: 1 } }, { engine: { entryMode: "LINE" } }, { currency: "USD", engine: { standingOffer: null } }];
+  ok(headers.every((h) => isDeepStrictEqual(quoteHeaderSchema.parse(h), oldHeader.parse(h))), "专业模式保存的报价表头：解析结果与改前（冻结的旧 schema）深度相同（含请求里带了 entryMode 的情况）");
   const hdr = quoteHeaderSchema.parse({ engine: { entryMode: "LINE", tax: { hstPct: 13 } } }).engine as Record<string, unknown>;
   ok(!Object.keys(hdr).includes("entryMode") && (hdr.tax as { hstPct: number }).hstPct === 13, "专业模式保存（报价表头）不收做法字段：手工请求带 entryMode 也写不进去（开关关时与改前相同）", hdr);
   const dbEngine = engineConfigSchema.parse({ tax: { hstPct: 13 }, entryMode: "LINE" });

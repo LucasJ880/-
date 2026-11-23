@@ -11,7 +11,7 @@
  */
 import { db } from "@/lib/db";
 import { isLegacyGarbledGeneratedDoc } from "@/lib/projects/generate/legacy-doc-filter";
-import { isLineModeQuote } from "./quote-line/service";
+import { isLineModeQuote } from "./quote-line/contract";
 import { resolveTenderBid } from "@/lib/quote-engine/tender-bid";
 import { loadWebNextStepInput, type NextStepProject } from "@/lib/tender-next-step/service";
 import { countInquiry } from "./inquiry-count";

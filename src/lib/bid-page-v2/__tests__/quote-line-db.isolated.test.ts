@@ -252,7 +252,12 @@ async function main() {
     }
     const frozen = await putLine(P, Q, { baseUpdatedAt: v6.quote.updatedAt, state: v6.state });
     ok(frozen.status === 409 && String(frozen.body.error).includes("锁定"), "已批准：逐行保存 409（内容锁定）", frozen.body);
-    ok((await exp(P, Q2)).status === 409, "不是当前我方报价的那份：导出 409");
+    ok((await exp(P, Q2)).status === 409, "专业模式做的另一份报价：导出 409");
+    // 同一项目里另一份逐行报价（草稿）：是逐行报价，但不是当前我方报价 → 409 并写明（走的是「不是当前我方报价」这道判断）
+    const c4 = await create(P, { entryMode: "LINE", businessType: "SUPPLY_ONLY", name: "合成逐行报价二" });
+    const notBid = await exp(P, String(c4.body.id));
+    ok(c4.status === 201 && notBid.status === 409 && String(notBid.body.error).includes("这份报价不是当前的我方报价"), "另一份逐行报价（不是当前我方报价）：导出 409，写明不是当前的我方报价", notBid.body);
+    await db.projectQuote.delete({ where: { id: String(c4.body.id) } });
     ok((await exp(P, Q, VIEWER)).status === 403, "没有财务查看权：导出 403");
 
     // —— 7. 另起新版 ——
@@ -289,6 +294,8 @@ async function main() {
     const c3 = await create(P2, { entryMode: "LINE", businessType: "SUPPLY_ONLY" });
     const e3 = (await getLine(P2, String(c3.body.id))).body as unknown as LineView;
     ok(c3.status === 201 && e3.state.rows.length === 0 && e3.seed !== null && e3.seed.scheduleLineCount === 0 && typeof e3.seed.prefill.messageZh === "string", "没有价格表：逐行表是空的，附招标分析带入的状态与说明", e3.seed);
+    const l2 = (await list(P2)).body as unknown as ListView;
+    ok(l2.quotes.length === 1 && l2.quotes[0].id === String(c3.body.id) && !l2.quotes.some((q) => q.id === Q || q.id === Q2), "列表只列本项目的报价（同组织另一个项目的不出现）", l2.quotes.map((q) => q.id));
 
     // —— 10. 专业模式改了定价方式 / 币种 ——
     const Q3 = String(c3.body.id);
