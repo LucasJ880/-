@@ -18,7 +18,8 @@
 --
 -- 与读取规则的关系：读取侧行头按原始行严格匹配。A 段先把回车、U+2028、U+2029 换成空格再找行头，
 -- 所以会多列出「行头里夹着回车」的行——读取侧不认它们，列出来是因为它们只可能是伪造的；
--- B 段与读取侧一样按原始行严格认行头，只对行头之后的正文把这三种字符换成空格。
+-- B 段与读取侧一样按原始行严格认行头，只对行头之后的正文把这三种字符换成空格；
+-- 正文里带这三种字符的行 main 上整行不读、合并后开始采信，B 段单独列出（被 R3–R5 挡住的写「合并后也不采信」）。
 -- 时间不依赖 PostgreSQL 16 的 pg_input_is_valid：先用严格正则与当月天数挡住不存在的时刻再转换；
 -- C 段在 PostgreSQL 16 及以上用 pg_input_is_valid 把不合法的审计原文挪进 C0，更早的版本只挪落单代理字符转义。
 
@@ -74,7 +75,10 @@ judged AS (
   ) au ON true
 )
 SELECT 'A' AS "段", project_name AS "项目", round_no AS "轮次", supplier_name AS "供应商", link AS "链接",
-       item_id AS "条目", line_no AS "行号", ts_raw AS "行头时间", msg_id AS "消息编号",
+       item_id AS "条目", line_no AS "行号",
+       -- 行头里的两项可能是伪造者写的任意文字：只出 [0-9A-Za-z:.-]、截到 32 个字（判定仍用原值）
+       left(regexp_replace(ts_raw COLLATE "C", '[^0-9A-Za-z:.-]', '', 'g'), 32) AS "行头时间",
+       left(regexp_replace(msg_id COLLATE "C", '[^0-9A-Za-z:.-]', '', 'g'), 32) AS "消息编号",
        CASE
          WHEN ts IS NULL THEN '行头时间不是写入格式或不存在'
          WHEN ts > item_updated_at + interval '1 minute' THEN '行头时间晚于条目最后更新'
@@ -92,9 +96,14 @@ ORDER BY item_id, line_no;
 -- 与读取规则同口径：去掉行头；非贪婪地把每条证据换成记号「⟦证据⟧」；按「；」切块，每块按 JS 的 trim() 去掉首尾空白
 -- （含 U+FEFF、NBSP、全角空格），再去掉记号看块的开头。PG 正则的方括号里不能写 \S，一行里没有换行，用 . 即可。
 WITH ws AS (
-  -- JS String.prototype.trim() 去掉的那些空白
-  SELECT '[' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || ' ' || chr(160) || chr(5760) || chr(8192) || '-' || chr(8202)
-         || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279) || ']' AS cls
+  -- cls：JS String.prototype.trim() 去掉的那些空白（也是 JS 正则 \s 认的那些）；
+  -- pfx：认得的块开头（与下面 ranked 的字段前缀同一张表，加上「附件：」）；shape：一条强制项答复「编号 答复」
+  SELECT '[' || c.chars || ']' AS cls,
+         '^(单价=|总价=|其它档：|多档报价均不对应|币种=|交期=|有效期至=|起订量=|贸易条款=|强制项：|强制项未答：|供应商明确表示不报价'
+           || '|回信单价 |回信报价 |回信币种 |回信交期 |回信有效期 |缺：|附件：)' AS pfx,
+         '^[^' || c.chars || ']+ (部分满足|不满足|满足)$' AS shape
+  FROM (SELECT chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || ' ' || chr(160) || chr(5760) || chr(8192) || '-' || chr(8202)
+               || chr(8232) || chr(8233) || chr(8239) || chr(8287) || chr(12288) || chr(65279) AS chars) c
 ),
 items AS (
   SELECT i.id AS item_id, i."quoteNotes" AS notes,
@@ -128,23 +137,57 @@ masked AS (
   SELECT v.*, regexp_replace(v.body0, '（证据：".*?"）', '⟦证据⟧', 'g') AS body
   FROM valid v
 ),
--- R3：遮住证据之后剩下的每个「"）」：前面那一截（从上一条证据结束处起）有「；」，
---     且后面那一截（到下一个「"）」或段尾）是空白、有「；」或有证据，就是证据跳出了引号
-r3_parts AS (
-  SELECT m.item_id, m.line_no, p.k,
-         count(*) OVER (PARTITION BY m.item_id, m.line_no) AS nparts,
-         string_agg(p.part, '"）') OVER (PARTITION BY m.item_id, m.line_no ORDER BY p.k ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS upto,
-         lead(p.part) OVER (PARTITION BY m.item_id, m.line_no ORDER BY p.k) AS after_part
+-- R3（与读取侧 evidenceBrokeOut 同口径）：遮住证据之后剩下「"）」时看它前后两截。一次切分：每个记号是
+--     （分隔，后面到下一个分隔的文字），分隔是行首、「；」「，」「"）」或证据记号。
+--     前一截（从上一条证据结束处到它）里有一个「；」块的开头（跳过空白与证据记号；「，」「"）」本身算正文）
+--     是认得的前缀，或在「强制项：」块里有一个「，」块形如「编号 满足」；
+--     且后一截（到下一个剩下的「"）」或行尾，中间的证据记号不截断）全是空白、有这样开头的「；」块、
+--     有形如「编号 满足」的「，」块、或有证据记号，就是证据跳出了引号
+r3_tok AS (
+  SELECT m.item_id, m.line_no, t.k, t.m[1] AS dlm,
+         regexp_replace(t.m[2], '^' || ws.cls || '+', '') AS txt_l,
+         regexp_replace(t.m[2], '^' || ws.cls || '+|' || ws.cls || '+$', '', 'g') AS txt_t
   FROM masked m
-  CROSS JOIN LATERAL regexp_split_to_table(m.body, '"）') WITH ORDINALITY AS p(part, k)
+  CROSS JOIN LATERAL regexp_matches(m.body, '(^|；|，|"）|⟦证据⟧)((?:[^；，"⟦]|"(?!）)|⟦(?!证据⟧))*)', 'g') WITH ORDINALITY AS t(m, k)
+  CROSS JOIN ws
+),
+r3_blk AS (
+  SELECT r.*, count(*) FILTER (WHERE r.dlm = '；') OVER (PARTITION BY r.item_id, r.line_no ORDER BY r.k) AS blk
+  FROM r3_tok r
+),
+r3_open AS (
+  SELECT DISTINCT ON (b.item_id, b.line_no, b.blk) b.item_id, b.line_no, b.blk, b.k AS open_k,
+         (b.dlm NOT IN ('，', '"）') AND b.txt_l ~ ws.pfx) AS open_recog,
+         (b.dlm NOT IN ('，', '"）') AND strpos(b.txt_l, '强制项：') = 1) AS open_mand
+  FROM r3_blk b, ws
+  WHERE b.dlm IN ('，', '"）') OR b.txt_l <> ''
+  ORDER BY b.item_id, b.line_no, b.blk, b.k
+),
+r3_ev AS (
+  SELECT b.item_id, b.line_no, b.k, b.dlm, b.txt_l,
+         ((b.k = o.open_k AND o.open_recog) OR (b.dlm = '，' AND o.open_mand AND b.txt_t ~ ws.shape)) AS e_inj,
+         ((b.k = o.open_k AND o.open_recog) OR (b.dlm = '，' AND b.txt_t ~ ws.shape) OR b.dlm = '⟦证据⟧') AS e_like
+  FROM r3_blk b
+  LEFT JOIN r3_open o ON o.item_id = b.item_id AND o.line_no = b.line_no AND o.blk = b.blk
+  CROSS JOIN ws
+),
+r3_win AS (
+  SELECT e.*,
+         max(CASE WHEN e.dlm = '⟦证据⟧' THEN e.k END) OVER w_before AS last_reset,
+         max(CASE WHEN e.e_inj THEN e.k END) OVER w_before AS last_inj,
+         min(CASE WHEN e.dlm = '"）' THEN e.k END) OVER w_after AS next_stop,
+         min(CASE WHEN e.e_like THEN e.k END) OVER w_after AS next_like,
+         lead(e.dlm) OVER w AS next_dlm
+  FROM r3_ev e
+  WINDOW w AS (PARTITION BY e.item_id, e.line_no ORDER BY e.k),
+         w_before AS (w ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),
+         w_after AS (w ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING)
 ),
 r3_bad AS (
-  SELECT DISTINCT r.item_id, r.line_no
-  FROM r3_parts r, ws
-  WHERE r.k < r.nparts
-    AND strpos(regexp_replace(r.upto, '^.*⟦证据⟧', ''), '；') > 0
-    AND (regexp_replace(r.after_part, '^' || ws.cls || '+|' || ws.cls || '+$', '', 'g') = ''
-         OR strpos(r.after_part, '；') > 0 OR strpos(r.after_part, '⟦证据⟧') > 0)
+  SELECT DISTINCT item_id, line_no FROM r3_win
+  WHERE dlm = '"）' AND last_inj >= coalesce(last_reset, 0)
+    AND ((next_like IS NOT NULL AND (next_stop IS NULL OR next_like < next_stop))
+         OR (txt_l = '' AND (next_dlm IS NULL OR next_dlm = '"）')))
 ),
 blocks AS (
   SELECT m.item_id, m.line_no, b.k,
@@ -200,8 +243,11 @@ flagged AS (
            CASE WHEN r4.item_id IS NOT NULL THEN '附件一栏里或附件之后出现了引用原回信的格式' END,
            CASE WHEN r5.item_id IS NOT NULL THEN '报价字段的顺序被打乱或重复了（被篡改，或被人手改过）' END,
            CASE WHEN sc.item_id IS NOT NULL THEN '附件文件名里带分号' END,
+           -- main 上读取侧的正文是「.*」，跨不过回车、U+2028、U+2029：这类行整行不读；合并后行头之后的这三种字符当空格
            CASE WHEN strpos(m.line, chr(13)) > 0 OR strpos(m.line, chr(8232)) > 0 OR strpos(m.line, chr(8233)) > 0
-                THEN '这一行里有回车或特殊的换行符号（多半来自附件文件名）' END) AS reasons
+                THEN CASE WHEN r3.item_id IS NOT NULL OR r4.item_id IS NOT NULL OR r5.item_id IS NOT NULL
+                          THEN '这一行 main 上不读，合并后也不采信'
+                          ELSE '这一行 main 上不读、合并后开始采信' END END) AS reasons
   FROM masked m
   LEFT JOIN r3_bad r3 ON r3.item_id = m.item_id AND r3.line_no = m.line_no
   LEFT JOIN r4_bad r4 ON r4.item_id = m.item_id AND r4.line_no = m.line_no

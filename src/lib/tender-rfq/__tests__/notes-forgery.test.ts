@@ -310,8 +310,17 @@ async function main() {
   await t("Q4", () => {
     const code = "X；缺：币种、";
     const r = write(quote({ mandatoryAnswers: [{ requirementCode: code, answer: "未答", evidence: null }, { requirementCode: "Y；起订量=7；z", answer: "满足", evidence: "Y 满足" }] }));
-    ok("Q4 强制项编号里的「；」写成「;」", r.plan.notesAppend.includes("强制项：Y;起订量=7;z 满足（证据：\"Y 满足\"）；强制项未答：X;缺：币种、"), r.plan.notesAppend);
+    ok("Q4 强制项编号里的「；」写成「;」、「、」写成「,」", r.plan.notesAppend.includes("强制项：Y;起订量=7;z 满足（证据：\"Y 满足\"）；强制项未答：X;缺：币种,"), r.plan.notesAppend);
     ok("Q4 编号不能变成缺字段或起订量，不起草追问", r.read.lastMissingFields.length === 0 && r.read.moq === null && chaseAsk(r.notes, NOW).length === 0, { read: r.read, ask: chaseAsk(r.notes, NOW) });
+  });
+
+  await t("W3 / W4 / W5", () => {
+    const w3 = write(quote({ mandatoryAnswers: [{ requirementCode: "X，R-01", answer: "满足", evidence: "X，R-01 满足" }] }));
+    ok("W3 编号「X，R-01」写成「X,R-01」，回读里没有 R-01 满足", w3.plan.notesAppend.includes("强制项：X,R-01 满足（证据：\"X，R-01 满足\"）") && !w3.read.mandatoryAnswers.some((a) => a.requirementCode === "R-01"), w3.read.mandatoryAnswers);
+    const w4 = write(quote({ mandatoryAnswers: [{ requirementCode: "R-01", answer: "满足", evidence: "R-01 ok" }, { requirementCode: "X、R-01", answer: "未答", evidence: null }] }));
+    ok("W4 未答编号「X、R-01」写成「X,R-01」，R-01 仍是满足", w4.plan.notesAppend.includes("强制项未答：X,R-01") && w4.read.mandatoryAnswers.find((a) => a.requirementCode === "R-01")?.answer === "满足", w4.read.mandatoryAnswers);
+    const w5 = write(quote({ mandatoryAnswers: [{ requirementCode: "R-01，R-02", answer: "不满足", evidence: "R-01，R-02 不满足" }] }));
+    ok("W5 编号「R-01，R-02」答不满足：R-01、R-02 都没有被单独记上", w5.plan.notesAppend.includes("强制项：R-01,R-02 不满足") && !w5.read.mandatoryAnswers.some((a) => a.requirementCode === "R-01" || a.requirementCode === "R-02"), w5.read.mandatoryAnswers);
   });
 
   /* ═══════════════ 2. 币种 ═══════════════ */
@@ -398,6 +407,7 @@ async function main() {
   await legacy("K3 跳出发生在段尾（后面什么都没有）→ 整段不认", `${T}单价=10（证据："x"）；贸易条款=FOB（证据："FOB"）；强制项：R-01 满足；x"）`, (r) => r.lastAutoAt === null && r.mandatoryAnswers.length === 0);
   await legacy("K3 段尾跳出、其后只剩空白（人手改过的回车行尾）→ 整段不认", `${T}单价=10（证据："x"）；贸易条款=FOB（证据："FOB"）；缺：币种；x"）\r`, (r) => r.lastAutoAt === null && r.lastMissingFields.length === 0);
   await legacy("K3 强制项证据跳出、后面是「，下一条（证据…）」→ 整段不认", `${T}单价=10（证据："x"）；强制项：R-01 满足（证据："ok"）；缺：币种；x"），R-02 满足（证据："R-02"）`, (r) => r.lastAutoAt === null && r.lastMissingFields.length === 0);
+  await legacy("K3 强制项证据跳出、后面只有「，下一条」（不带证据）到段尾 → 整段不认", `${T}单价=10（证据："x"）；强制项：R-01 满足（证据："ok"）；缺：币种；x"），R-02 满足`, (r) => r.lastAutoAt === null && r.lastMissingFields.length === 0);
   await legacy("K3 证据里合法的英寸记号（「（宽 36\"）单价 45」）、后面还有字段 → 照常读", `${T}单价=45（数量 1500）（证据："百叶窗（宽 36"）单价 45"）；币种=CAD；贸易条款=FOB（证据："FOB"）；缺：交期、有效期`, (r) => r.lastAutoAt === T_AT && r.incoterm === "FOB" && r.lastMissingFields.join() === "deliveryDays,validUntil");
   await legacy("K3 强制项证据里的英寸记号（「叶片 2.5\"）」）→ 照常读", `${T}贸易条款=FOB（证据："FOB"）；强制项：R-01 满足（证据："R-01 满足（叶片 2.5"）"）`, (r) => r.lastAutoAt === T_AT && r.incoterm === "FOB");
   await legacy("K3 / Q5 旧文件名里的「\"）」（「报价单（\"含税\"）.pdf」）→ 照常读", `${T}单价=41（证据："41"）；贸易条款=FOB（证据："FOB"）；附件：报价单（"含税"）.pdf 已解析`, (r) => r.lastAutoAt === T_AT && r.incoterm === "FOB");
@@ -423,6 +433,118 @@ async function main() {
   ] as const) {
     await legacy(`L06 行头不是写入格式（${label}）→ 不认`, `${line}\n${T}贸易条款=FOB（证据："FOB"）`, (r) => r.incoterm === "FOB" && r.lastAutoAt === T_AT);
   }
+
+  // ── 交叉验证：R3 再收准（审查员语料 r3corpus：A = 旧数据里的注入，G = 真实旧段，逐条对照） ──
+  // 挡住 = 与库里只有更早那一段时回读得一样；不误伤 / 注入不生效 / 残余 = 这一段照常参与回读，回读值逐项钉住
+  const XC_CR = String.fromCharCode(13);
+  const XC_LS = String.fromCharCode(0x2028);
+  const XC_PS = String.fromCharCode(0x2029);
+  const XC_IDSP = String.fromCharCode(0x3000);
+  const XC_BOM = String.fromCharCode(0xfeff);
+  const XC_NBSP = String.fromCharCode(0xa0);
+  const XC_H = (ts: string, id = "m1") => `[auto ${ts} msg=${id}] `;
+  const XC_T1 = "2026-11-10T00:00:00.000Z";
+  const XC_T2 = "2026-11-20T00:00:00.000Z";
+  const XC_PRIOR = XC_H(XC_T1, "m0") + `单价=12.5（证据："Unit price CAD 12.50"）；币种=CAD；贸易条款=FOB（证据："FOB Shanghai"）；强制项：R-02 不满足（证据："R-02 no"）；缺：交期、有效期`;
+  const XC_L = (body: string, prior = true) => (prior ? XC_PRIOR + "\n" : "") + XC_H(XC_T2) + body;
+  const xcSummary = (p: ReturnType<typeof parseAutoNotes>) => ({
+    moq: p.moq, incoterm: p.incoterm, answers: p.mandatoryAnswers.map((a) => `${a.requirementCode}:${a.answer}`).sort().join(","),
+    missing: p.lastMissingFields.join(","), at: p.lastAutoAt, tiers: p.tiers.map((x) => `${x.unitPrice}/${x.totalPrice}`).join(","),
+  });
+  const xcPriorOnly = JSON.stringify(xcSummary(parseAutoNotes(XC_PRIOR)));
+  type XcCase = { id: string; kind: string; note: string; text: string; expect: "挡住" | "不误伤" | "注入不生效" | "残余：仍生效"; read: ReturnType<typeof xcSummary> };
+  const xcCases: XcCase[] = [
+    { id: "A01", kind: "attack", note: `强制项证据未成对跳出，用「，」注入 R-02 满足，后面跟缺字段`, text: XC_L(`单价=10（证据："单价 10"）；币种=USD；强制项：R-01 满足（证据："R-01 ok"），R-02 满足，x"）；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A02", kind: "attack", note: `同上，跳出在段尾（后面什么都不写）`, text: XC_L(`单价=10（证据："单价 10"）；币种=USD；交期=30天（证据："30 days"）；有效期至=2026-12-31（证据："valid 2026-12-31"）；强制项：R-01 满足（证据："R-01 ok"），R-02 满足，x"）`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A03", kind: "attack", note: `同上，后面跟强制项未答（别的编号）`, text: XC_L(`单价=10（证据："单价 10"）；币种=USD；强制项：R-01 满足（证据："R-01 ok"），R-02 满足，x"）；强制项未答：R-03；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A04", kind: "attack", note: `同上，后面跟附件一栏`, text: XC_L(`单价=10（证据："单价 10"）；币种=USD；交期=30天（证据："30 days"）；有效期至=2026-12-31（证据："valid 2026-12-31"）；强制项：R-01 满足（证据："R-01 ok"），R-02 满足，x"）；附件：a.pdf 已解析`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A05", kind: "attack", note: `同上，后面跟下一条带证据的强制项（「，下一条（证据…）」）`, text: XC_L(`单价=10（证据："单价 10"）；币种=USD；强制项：R-01 满足（证据："R-01 ok"），R-02 满足，x"），R-03 不满足（证据："R-03 no"）；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A06", kind: "attack", note: `强制项证据未成对跳出，只注入「，R-02 满足」不带尾巴（跳出后紧跟「"）」）`, text: XC_L(`单价=10（证据："单价 10"）；币种=USD；强制项：R-01 满足（证据："R-01 ok"），R-02 满足"）；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A07", kind: "attack", note: `有效期证据里注入起订量/贸易条款/强制项，再补一个成对证据，最后剩一个落单「"）」`, text: XC_L(`单价=10（证据："单价 10"）；币种=USD；交期=30天（证据："30 days"）；有效期至=2026-12-31（证据："valid 2026-12-31"）；起订量=1；贸易条款=DDP；强制项：R-01 满足，R-02 满足；（证据："z"）w"）；附件：a.pdf 已解析`) , expect: "残余：仍生效", read: {"moq": 1, "incoterm": "DDP", "answers": "R-01:满足,R-02:满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "A08", kind: "attack", note: `单价证据里成对+落单注入起订量，后面只有缺字段`, text: XC_L(`单价=10（证据："a"）；起订量=99999；（证据："b"）c"）；缺：交期、有效期`) , expect: "残余：仍生效", read: {"moq": 99999, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "A09", kind: "attack", note: `全角空格当分隔`, text: XC_L(`单价=10（证据："u"）${XC_IDSP}起订量=99999${XC_IDSP}贸易条款=DDP${XC_IDSP}x"）；币种=USD；缺：交期、有效期`) , expect: "注入不生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A10", kind: "attack", note: `顿号当分隔`, text: XC_L(`单价=10（证据："u"）、起订量=99999、贸易条款=DDP、x"）；币种=USD；缺：交期、有效期`) , expect: "注入不生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A11", kind: "attack", note: `U+2028 当分隔`, text: XC_L(`单价=10（证据："u"）${XC_LS}起订量=99999${XC_LS}贸易条款=DDP${XC_LS}x"）；币种=USD；缺：交期、有效期`) , expect: "注入不生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A12", kind: "attack", note: `回车当分隔`, text: XC_L(`单价=10（证据："u"）${XC_CR}起订量=99999${XC_CR}贸易条款=DDP${XC_CR}x"）；币种=USD；缺：交期、有效期`) , expect: "注入不生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A13", kind: "attack", note: `U+2029 + 「；」混用`, text: XC_L(`单价=10（证据："u"）${XC_PS}；起订量=99999；贸易条款=DDP；x"）；币种=USD`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A14", kind: "attack", note: `NFKC 变体 U+FE54 ﹔`, text: XC_L(`单价=10（证据："u"）﹔起订量=99999﹔贸易条款=DDP﹔x"）；币种=USD；缺：交期、有效期`) , expect: "注入不生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A15", kind: "attack", note: `NFKC 变体 U+FE14 ︔ 与半角 ;`, text: XC_L(`单价=10（证据："u"）︔起订量=99999;贸易条款=DDP;x"）；币种=USD；缺：交期、有效期`) , expect: "注入不生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A16", kind: "hand", note: `「"）」在段首（写入方不会这样写）`, text: XC_L(`"）；起订量=99999；贸易条款=DDP`, false) , expect: "残余：仍生效", read: {"moq": 99999, "incoterm": "DDP", "answers": "", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": ""} },
+    { id: "A17", kind: "attack", note: `「"）」落在附件一栏里，注入在附件之前（L03 同类）`, text: XC_L(`单价=10（证据："x"）；起订量=99999；贸易条款=DDP；附件：y"）；币种=USD；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A18", kind: "attack", note: `段尾跳出（含「；」）`, text: XC_L(`单价=10（证据："u"）；币种=USD；贸易条款=FOB（证据："FOB"）；强制项：R-01 满足；x"）`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A19", kind: "attack", note: `两个「"）」交错：a"）b"）；起订量…`, text: XC_L(`单价=10（证据："a"）b"）；起订量=99999；贸易条款=DDP；c"）；币种=USD；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A20", kind: "attack", note: `跳出后中间再放一个「"）」让后一截是普通文字`, text: XC_L(`单价=10（证据："a"）；起订量=99999；贸易条款=DDP；c"）d"）；币种=USD；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A21", kind: "hand", note: `同上在段尾`, text: XC_L(`单价=10（证据："u"）；币种=USD；交期=30天（证据："30 days"）；有效期至=2026-12-31（证据："valid 2026-12-31"）；贸易条款=FOB（证据："FOB"）；强制项：R-01 满足；c"）d`) , expect: "残余：仍生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-01:满足,R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "A22", kind: "attack", note: `证据里嵌证据（未成对）`, text: XC_L(`单价=10（证据："a（证据："b"）；起订量=99999；c"）；币种=USD；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A23", kind: "attack", note: `证据里嵌证据（成对，注入按顺序）`, text: XC_L(`单价=10（证据："a（证据："b"）；起订量=99999；（证据："c"）；缺：交期、有效期`) , expect: "残余：仍生效", read: {"moq": 99999, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "A24", kind: "attack", note: `成对 + 假附件截掉缺字段（落单「"）」在假附件里，后面是缺）`, text: XC_L(`单价=10（证据："x"）；起订量=99999；（证据："z"）；附件：q"）；缺：交期、有效期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A25", kind: "hand", note: `成对 + 假附件，落单「"）」后面紧跟普通文字再到段尾（R3 后一截是普通文字）`, text: XC_L(`单价=10（证据："x"）；起订量=99999；（证据："z"）；附件：q"）r`) , expect: "残余：仍生效", read: {"moq": 99999, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "A26", kind: "attack", note: `R2 先于 R5：注入的重复字段放进假附件块之后`, text: XC_L(`单价=10（证据："x"）；起订量=99999；附件：q；贸易条款=DDP；（证据："z"）；币种=USD`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A27", kind: "attack", note: `其它档（可重复）成对注入`, text: XC_L(`其它档：数量 500 单价 1（证据："a"）；其它档：数量 1500 单价 0.01；（证据："b"）；币种=USD；缺：交期、有效期`) , expect: "残余：仍生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "1/null,0.01/null"} },
+    { id: "A28", kind: "attack", note: `强制项证据用「，」注入多条（R-02、R-03），跳出后跟强制项未答（同编号）`, text: XC_L(`单价=10（证据："单价 10"）；币种=USD；强制项：R-01 满足（证据："R-01 ok"），R-02 满足，R-03 满足，x"）；强制项未答：R-02`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A29", kind: "attack", note: `强制项证据用「，」注入，跳出后紧跟成对证据（后一截有证据）`, text: XC_L(`强制项：R-01 满足（证据："ok"），R-02 满足，x"）（证据："y"）；缺：价格`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A30", kind: "attack", note: `贸易条款证据成对注入强制项（P4，已登记残余）`, text: XC_L(`单价=10（证据："u"）；币种=USD；贸易条款=FOB（证据："FOB"）；强制项：R-01 满足；（证据："x"）；缺：交期、有效期`) , expect: "残余：仍生效", read: {"moq": null, "incoterm": "FOB", "answers": "R-01:满足,R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "A31", kind: "attack", note: `强制项「，」注入 + 前面一截里有全角空格（trim 吃掉）`, text: XC_L(`强制项：R-01 满足（证据："ok"），${XC_IDSP}R-02 满足${XC_IDSP}，x"）`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A32", kind: "attack", note: `BOM/NBSP 挨着「；」做的未成对跳出`, text: XC_L(`单价=10（证据："u"）${XC_BOM}；${XC_NBSP}起订量=99999；x"）；币种=USD`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "A33", kind: "attack", note: `强制项未答块里用「"）」（不在证据里）`, text: XC_L(`单价=10（证据："u"）；强制项未答：R-01"），R-02 满足；缺：交期`) , expect: "挡住", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-10T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G01", kind: "genuine", note: `K3 英寸记号后面跟字段`, text: XC_L(`单价=45（数量 1500）（证据："百叶窗（宽 36"）单价 45"）；币种=CAD；贸易条款=FOB（证据："FOB"）；缺：交期、有效期`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G02", kind: "genuine", note: `（2.5"）后面跟字段`, text: XC_L(`单价=45（证据："叶片（2.5"）单价 45"）；币种=CAD；交期=30天（证据："30 days"）；有效期至=2026-12-31（证据："valid 2026-12-31"）；贸易条款=FOB（证据："FOB"）`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G03", kind: "genuine", note: `Q5 旧文件名「报价单（"含税"）.pdf」`, text: XC_L(`币种=CAD；贸易条款=FOB（证据："FOB"）；附件：报价单（"含税"）.pdf 已解析`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G04", kind: "genuine", note: `L13 证据里「（"含税"）」`, text: XC_L(`单价=10（证据："单价 10（"含税"）"）；币种=CAD；贸易条款=FOB（证据："FOB"）；缺：交期、有效期`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G05", kind: "genuine", note: `英寸记号 + 证据后面还有「；含税」`, text: XC_L(`单价=45（数量 1500）（证据："百叶窗（宽 36"）单价 45；含税"）；币种=CAD；贸易条款=FOB（证据："FOB"）；缺：交期、有效期`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G06", kind: "genuine", note: `两个英寸记号之后有「；」`, text: XC_L(`单价=45（证据："百叶窗（宽 36"）×（高 48"）；单价 45"）；币种=CAD；贸易条款=FOB（证据："FOB"）；缺：交期、有效期`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G07", kind: "genuine", note: `L13 + 「；总价」`, text: XC_L(`单价=10（证据："单价 10（"含税"）；总价 100"）；币种=CAD；贸易条款=FOB（证据："FOB"）；缺：交期、有效期`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "deliveryDays,validUntil", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "G08", kind: "genuine", note: `旧文件名带「"）」+ FIX-14 提示句（自带「；」）`, text: XC_L(`币种=CAD；贸易条款=FOB（证据："FOB"）；附件：报价单（"含税"）.pdf 已解析（有 3 处符号没读出来，已当空格处理，多半是勾选框；请打开原件核对勾选项和价格）`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G09", kind: "genuine", note: `旧文件名带「"）」，下一个文件名带「；」`, text: XC_L(`币种=CAD；贸易条款=FOB（证据："FOB"）；附件：报价单（"含税"）.pdf 已解析、规格；尺寸.pdf 已解析`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G10", kind: "genuine", note: `旧文件名「报价（"v2"）；最终.pdf」`, text: XC_L(`币种=CAD；贸易条款=FOB（证据："FOB"）；附件：报价（"v2"）；最终.pdf 已解析`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G11", kind: "genuine", note: `强制项证据英寸记号 +「；」，后面跟下一条强制项`, text: XC_L(`单价=10（证据："u"）；币种=CAD；贸易条款=FOB（证据："FOB"）；强制项：R-01 满足（证据："宽 36"）以内；可定制"），R-02 满足（证据："R-02 ok"）`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "G12", kind: "genuine", note: `两个文件名都带「"）」`, text: XC_L(`币种=CAD；贸易条款=FOB（证据："FOB"）；附件：报价（"含税"）.pdf 已解析、清单（"v2"）.xlsx 已解析`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+    { id: "G13", kind: "genuine", note: `英寸记号在最后一条证据里、段尾`, text: XC_L(`单价=10（证据："u"）；币种=CAD；贸易条款=FOB（证据："FOB，宽 36"）"）`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "G14", kind: "genuine", note: `普通段（对照）`, text: XC_L(`单价=10（证据："u"）；币种=CAD；交期=30天（证据："30 days"）；有效期至=2026-12-31（证据："valid 2026-12-31"）；贸易条款=FOB（证据："FOB"）；附件：a.pdf 已解析`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "10/null"} },
+    { id: "G15", kind: "genuine", note: `以回车结尾的旧行（L10）+ 英寸记号`, text: XC_L(`单价=45（证据："百叶窗（宽 36"）单价 45"）；币种=CAD；贸易条款=FOB（证据："FOB"）${XC_CR}`) , expect: "不误伤", read: {"moq": null, "incoterm": "FOB", "answers": "R-02:不满足", "missing": "", "at": "2026-11-20T00:00:00.000Z", "tiers": "12.5/null"} },
+  ];
+  for (const c of xcCases) {
+    await t(`XC ${c.id}`, () => {
+      const got = xcSummary(parseAutoNotes(c.text));
+      const same = JSON.stringify(got) === JSON.stringify(c.read);
+      const cond = c.expect === "挡住" ? same && JSON.stringify(got) === xcPriorOnly
+        : c.expect === "注入不生效" ? same && got.at === XC_T2 && got.moq !== 99999 && got.incoterm !== "DDP"
+        : same && got.at === XC_T2;
+      ok(`XC ${c.id} ${c.expect}：${c.note}`, cond, got);
+    });
+  }
+  await legacy("X06 证据收尾之后先跟一截普通文字再注入（「a\"）b；起订量=99999；c\"）」）→ 整段不认", `${T}单价=10（证据："a"）b；起订量=99999；c"）；缺：交期、有效期`, (r) => r.lastAutoAt === null && r.moq === null && r.lastMissingFields.length === 0);
+  await legacy("X15 合法的「\"）」在后面字段的证据里、前面隔着好几个字段 → 照常读", `${T}单价=10（证据："u"）；币种=CAD；贸易条款=FOB（证据："FOB"）；强制项：R-01 满足（证据："宽 36"）以内"）；缺：交期、有效期`, (r) => r.lastAutoAt === T_AT && r.incoterm === "FOB" && r.lastMissingFields.join() === "deliveryDays,validUntil");
+  await legacy("XG1 不误伤：强制项以外的证据里英寸记号之后有「，全部 满足」→ 照常读（「，」块只在强制项一栏里算）", `${T}单价=45（证据："宽 36"）以内，全部 满足"）；币种=CAD；贸易条款=FOB（证据："FOB"）；缺：交期、有效期`, (r) => r.lastAutoAt === T_AT && r.incoterm === "FOB" && r.lastMissingFields.join() === "deliveryDays,validUntil");
+  await legacy("D1 跳出后用自己写的「（证据：\"」吃掉真正的收尾（「x\"）y（证据：\"z\"）；缺：…」）→ 整段不认", `${T}单价=10（证据："a"）；起订量=99999；x"）y（证据："z"）；缺：交期、有效期`, (r) => r.lastAutoAt === null && r.moq === null);
+  await legacy("D2 强制项「，」注入后紧跟自己写的证据、段尾 → 整段不认", `${T}强制项：R-01 满足（证据："ok"），R-02 满足，x"）（证据："y"）`, (r) => r.lastAutoAt === null && r.mandatoryAnswers.length === 0);
+  await legacy("E1 注入的块以成对证据开头（「；（证据：\"b\"）缺：价格；x\"）」）→ 整段不认", `${T}单价=10（证据："u"）；币种=USD；交期=30天（证据："30 days"）；有效期至=2026-12-31（证据："a"）；（证据："b"）缺：价格；x"）；附件：a.pdf 已解析`, (r) => r.lastAutoAt === null && r.lastMissingFields.length === 0);
+  const crPrior = `[auto 2026-11-10T00:00:00.000Z msg=m0] 单价=12.5（证据："u"）；币种=CAD；贸易条款=FOB（证据："FOB"）；强制项：R-01 不满足（证据："R-01 no"）`;
+  const crHead = `[auto 2026-11-20T00:00:00.000Z msg=m1] 单价=10（证据："u"）；币种=USD；交期=30天（证据："30 days"）；有效期至=2026-12-31（证据："v 2026-12-31"）；`;
+  await legacy("CR1 文件名带回车的旧行（main 整行不读、现在开始读）+ 强制项「，」注入 → 整段不认", `${crPrior}\n${crHead}强制项：R-02 满足（证据："R-02 ok"），R-01 满足，x"）；附件：a${XC_CR}b.pdf 已解析`,
+    (r) => r.lastAutoAt === "2026-11-10T00:00:00.000Z" && r.mandatoryAnswers.find((a) => a.requirementCode === "R-01")?.answer === "不满足");
+  await legacy("CR2 文件名带 U+2028 的旧行 + 贸易条款证据成对注入（P4）：现在开始读、注入跟着生效（残余）", `${crPrior}\n${crHead}贸易条款=DDP（证据："DDP"）；强制项：R-01 满足；（证据："x"）；附件：a${XC_LS}b.pdf 已解析`,
+    (r) => r.lastAutoAt === "2026-11-20T00:00:00.000Z" && r.incoterm === "DDP" && r.mandatoryAnswers.find((a) => a.requirementCode === "R-01")?.answer === "满足");
+  await legacy("R3 已知误伤：强制项证据里英寸记号之后有「，全部 满足」→ 整段不认", `${T}贸易条款=FOB（证据："FOB"）；强制项：R-01 满足（证据："宽 36"）以内，全部 满足"）`, (r) => r.lastAutoAt === null);
+  await legacy("R3 已知误伤：证据里英寸记号之后同一条证据里有「；」加认得的前缀（「；缺：样品」）→ 整段不认", `${T}币种=CAD；贸易条款=FOB（证据："FOB 宽 36"）；缺：样品"）`, (r) => r.lastAutoAt === null);
+  await legacy("R3 已知误伤：旧文件名里引号之后有「；缺：」→ 整段不认", `${T}币种=CAD；贸易条款=FOB（证据："FOB"）；附件：报价（"v2"）；缺：图.pdf 已解析`, (r) => r.lastAutoAt === null);
+  await t("XC 性能", () => {
+    const N = 100_000;
+    const shapes: Array<[string, string]> = [
+      ["连续的「\"）」", `单价=10（证据："u"）；附件：${"\"）".repeat(N / 2)}`],
+      ["「a\"）b」交错", `单价=10（证据："u"）；附件：${"a\"）b".repeat(N / 4)}`],
+      ["连续的「（证据：\"」", `单价=10；附件：${"（证据：\"".repeat(N / 5)}`],
+      ["连续的「；起订量=1」", `单价=10（证据："u"）${"；起订量=1".repeat(N / 6)}"）`],
+      ["连续的「，R-02 满足」", `强制项：R-01 满足（证据："u"）${"，R-02 满足".repeat(N / 8)}"）`],
+    ];
+    for (const [label, body] of shapes) {
+      const line = T + body;
+      const t0 = performance.now();
+      parseAutoNotes(line);
+      const ms = performance.now() - t0;
+      ok(`XC 性能 ${label}：${line.length} 字的一行解析 < 200ms（这次 ${ms.toFixed(1)}ms）`, line.length >= N && ms < 200, `${ms.toFixed(1)}ms`);
+    }
+  });
 
   /* ═══════════════ 4. 使用方 ═══════════════ */
   console.log("\n4. 比价、追问、追踪页按同一规则回读");

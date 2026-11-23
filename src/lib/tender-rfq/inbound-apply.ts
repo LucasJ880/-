@@ -90,12 +90,20 @@ const EVIDENCE_CLOSER = /"）/g;
 const EVIDENCE_OPENER = /（证据：/g;
 
 /**
- * FIX-24：拼进段里的非证据文字（附件文件名、币种、已录币种、强制项编号）。
+ * FIX-24：拼进段里的非证据文字（附件文件名、币种、已录币种、强制项编号；编号另见 neutralizeRequirementCode）。
  * 控制字符与各类换行 → 空格；全角「；」→ 半角「;」；「"）」→「")」；「（证据：」→「（证据:」（半角冒号）。
  * 不做 NFKC，其它字符原样。
  */
 function neutralizeNoteText(text: string): string {
   return controlsToSpaces(text).replace(/；/g, ";").replace(EVIDENCE_CLOSER, '")').replace(EVIDENCE_OPENER, "（证据:");
+}
+
+/**
+ * 强制项编号：在 neutralizeNoteText 之外，全角「，」「、」也写成半角「,」——回读按「，」切强制项答复、
+ * 按「、」切未答编号，编号里带着它们会把一条答复拆成两条（「X，R-01 满足」读出 R-01 满足）。
+ */
+function neutralizeRequirementCode(code: string): string {
+  return neutralizeNoteText(code).replace(/[，、]/g, ",");
 }
 
 /** 证据片段：控制字符与各类换行 → 空格，空白归一，最后「"）」→「")」；「；」「，」留着（回读时在引号里被遮住） */
@@ -233,8 +241,8 @@ export function planInquiryItemUpdate(
   const answered = parsed.mandatoryAnswers.filter((a) => a.answer !== "未答");
   const unanswered = parsed.mandatoryAnswers.filter((a) => a.answer === "未答");
   // FIX-24：强制项编号从询价正文里扫出（含供应商名所在的称呼行），也按非证据文字中和
-  if (answered.length) facts.push(`强制项：${answered.map((a) => `${neutralizeNoteText(a.requirementCode)} ${a.answer}${q(a.evidence)}`).join("，")}`);
-  if (unanswered.length) facts.push(`强制项未答：${unanswered.map((a) => neutralizeNoteText(a.requirementCode)).join("、")}`);
+  if (answered.length) facts.push(`强制项：${answered.map((a) => `${neutralizeRequirementCode(a.requirementCode)} ${a.answer}${q(a.evidence)}`).join("，")}`);
+  if (unanswered.length) facts.push(`强制项未答：${unanswered.map((a) => neutralizeRequirementCode(a.requirementCode)).join("、")}`);
   if (parsed.declined) facts.push("供应商明确表示不报价（未自动标记为已拒绝，请人工确认）");
 
   // ── 缺字段：回信涉及报价时，按"写入后"的值判缺（四个核心字段；起订量/贸易条款只记录不判缺，P1-7 追问时再补问） ──

@@ -5,7 +5,7 @@
 >    - 四件套按 main `2a0eb964` 写行号；FIX-14 合并后的版本见 design「相邻改动」（起草时对照 `e2b4cd83`，审查时 `101efab9`，以合并时为准）。
 >    - 合入后逐处复核 `inbound-apply.ts`、`inbound-parse.ts`、`notes-parse.ts`、两个测试脚本、`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的 FIX-24 一行与 CHAIN-0 一行、`docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 第 7 项。对不上就先改四件套、跑 `openspec validate inbound-notes-filename-forgery --strict`，再动代码。
 >    - 复核 FIX-14 附件提示句的最终原文。design 里引的是「…多半是勾选框；请打开原件核对勾选项和价格」，3.2 的 SQL 照原文排除。
-> 2. design「留给 GATE」三条已定：1 = A、2 = B + 整段 R3（按多维审查收窄）、R4、R5、3 = A（协调会话 2026-11-23 定，Lucas 2026-11-22 授权按推荐）。下面各条按这个结论写，没有分支。
+> 2. design「留给 GATE」三条已定：1 = A、2 = B + 整段 R3（按多维审查收窄、交叉验证后再收准）、R4、R5、3 = A（协调会话 2026-11-23 定，Lucas 2026-11-22 授权按推荐）。下面各条按这个结论写，没有分支。
 > 3. 开工前跑一遍将要触碰模块的已注册测试，记下通过数，写进报告草稿。
 >    - main 上实测：`notes-parse.test.ts` 17、`inbound-apply.test.ts` 72、`inbound-parse.test.ts` 38、`chase-pure.test.ts` 55、`compare.test.ts` 47、`tracker-pure.test.tsx` 89。
 >    - 合入后再记：`tracking-notify.test.ts` 与 FIX-14 的 `src/lib/files/__tests__/extracted-text-other-paths.test.ts`。
@@ -37,7 +37,7 @@
 - [x] 2.3 `src/lib/tender-rfq/notes-parse.ts`：读取五条规则（design D4）。
   - R1：行内 `\r`、U+2028、U+2029 先换空格；行头严格为写入时刻格式且能原样还原，消息编号只含字母、数字、`-`、`_`。
   - R2：读到以「附件：」开头的一块即停。
-  - R3：整段（含附件一栏及之后）占位后仍含「"）」的，整段不认。
+  - R3：整段（含附件一栏及之后）占位后仍含「"）」的，整段不认（起草版；多维审查与交叉验证后的写法见 2.4 与 design D4）。
   - R4：第一个「附件：」块及之后出现证据占位的，整段不认。
   - R5：附件一栏之前认得出的字段按写入顺序、除「其它档」外不重复，违反的整段不认。
   - 更新文件头注释里的规则说明；导出签名与 `ParsedAutoNotes` 形状不变。
@@ -46,12 +46,18 @@
     - `notes-parse.test.ts`、`chase-pure.test.ts`、`compare.test.ts`、`tracker-pure.test.tsx`、`tracking-notify.test.ts`、`src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过数与开工前相同；
     - `git diff origin/main -- src/lib/tender-rfq/notes-parse.ts | grep -E '^[-+]export'` 无输出；`npm run typecheck` 退出码 0。
 
-- [x] 2.4 按多维审查修订（协调会话 2026-11-23 的修订清单）。
+- [x] 2.4 按多维审查修订（协调会话 2026-11-23 的修订清单），再按交叉验证修订（同日）。
   - `notes-parse.ts`：R1 行头按原始行匹配、只对正文换空格（Q1 / M1）；R3 按多维审查收窄（K3、Q5，design D4）；导出写入顺序表 `AUTO_NOTES_WRITE_ORDER`（M6）。
   - `inbound-apply.ts`：「（证据：」也中和（K1）；强制项编号过同一个中和（Q4）。
   - `compare-service.ts`：取数循环原样抽成 `toCompareInputs`（M8，design D8）。
   - `notes-forgery.test.ts` 补 M2–M7、Q1、K1、K3、Q4、Q5、P3、P4 与可选各条；每条新断言在对应源码变异下跑一次（28 个变异），确认失败，记数字，再还原。
   - verify：`notes-forgery.test.ts` 120 / 0；28 个变异每个都有新断言失败、还原后 120 / 0；既有测试通过数与开工前相同；`npm run typecheck` 退出码 0。
+  - 交叉验证修订：
+    - `notes-parse.ts`：R3 改成「前一截有认得开头的『；』块（强制项一栏里还有『编号 满足』的『，』块）、且后一截像写入方收尾证据之后的写法」，一次扫描；证据遮挡也改成一次扫描（design D4）；
+    - `inbound-apply.ts`：强制项编号里的「，」「、」写成「,」（design D1）；
+    - `prod-check.sql`：B 段 R3 同口径（一次切分 + 窗口函数）；回车等的行写「这一行 main 上不读、合并后开始采信」；A 段行头两项只出安全字符、截到 32 个字；
+    - `notes-forgery.test.ts` 补交叉验证语料 48 条、W3 / W4 / W5、X06、X15、XG1、E1、D1、D2、CR1、CR2、已知误伤三条与五种 10 万字的行；隔离库回归测试补 b18–b36、a13。
+  - verify：`notes-forgery.test.ts` 188 / 0；`prod-check-fix24-db.isolated.test.ts` 112 / 0；交叉验证的源码变异 20 个、SQL 变异 22 个，除等价的 XM14、SX11 外都有新断言失败，还原后 188 / 0、112 / 0；`npm run typecheck` 退出码 0。
 
 ## 3. 验收
 

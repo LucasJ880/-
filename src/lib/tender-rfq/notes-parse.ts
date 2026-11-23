@@ -15,10 +15,12 @@
  *      （2026-02-30、24:00 不认），msg 只含字母、数字、-、_；行头之后正文里的 \r、U+2028、U+2029 当空格
  *      （不让整段失效，也不另起一段）；
  *   R2 读到第一个以「附件：」开头的块就停：附件一栏永远在最后，里面只有文件名与系统说明；
- *   R3 遮住成对证据之后还剩「"）」，且它前面那一截（从上一条证据结束处起）里有「；」——证据把字段夹带了出去——
- *      而它后面（到下一个「"）」或段尾）不是一截不带「；」、不带证据的普通文字，整段不认。
- *      证据里合法的英寸记号（「（宽 36"）单价 45」：前面没有「；」）与旧文件名里的引号
- *      （「报价单（"含税"）.pdf 已解析」：后面跟着普通文字）照常读；行内的换行类字符已当空格、不分块，所以只看「；」；
+ *   R3 遮住成对证据之后还剩「"）」时，看它前后两截：前一截从上一条证据结束处到它，后一截从它到下一个剩下的
+ *      「"）」或段尾（中间的成对证据不截断）。前一截里有一个以认得的字段前缀或「附件：」开头的「；」块
+ *      （强制项一栏里还有以「，」隔开、形如「编号 满足」的块）——证据把字段夹带了出去——
+ *      且后一截像写入方收尾证据之后写的东西（全是空白、有一个这样开头的「；」块、有形如「编号 满足」的「，」块、
+ *      或有成对证据），整段不认。证据里合法的英寸记号（「（宽 36"）单价 45；含税」：前一截没有认得的块）
+ *      与旧文件名里的引号（「报价单（"含税"）.pdf 已解析」：后一截是普通文字）照常读；一次扫描，行长线性；
  *   R4 第一个「附件：」块及之后出现证据 → 整段不认（写入方从不在那里写证据）；
  *   R5 附件一栏之前认得出的字段按写入顺序、除「其它档」外每种至多一次，违反就整段不认。
  *   整段不认 = 这一段的字段、缺字段与时间都不参与。
@@ -48,9 +50,10 @@ const MISSING_BY_LABEL = new Map<string, InboundMissingField>(
 const SEGMENT_RE = /^\[auto (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z) msg=([A-Za-z0-9_-]+)\] ([\s\S]*)$/;
 /** R1：正文里的回车与段落分隔符当空格 */
 const IN_LINE_BREAKS = /[\r\u2028\u2029]/g;
-/** R3：遮住证据之后不该再有的收尾 */
+/** 证据引号的开头与收尾（与 inbound-apply.ts 的 q() 一致） */
+const EVIDENCE_OPENER = "（证据：\"";
 const EVIDENCE_CLOSER = '"）';
-/** 证据占位符的起止字符（与 parseSegment 里的写法一致） */
+/** 证据占位符的起止字符（与 R3_SPLIT_RE、restore、strip 里的写法一致） */
 const PLACEHOLDER_MARK = "\u0000";
 const ATTACHMENT_PREFIX = "附件：";
 
@@ -73,24 +76,88 @@ function isRealInstant(iso: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString() === iso;
 }
 
+/** R3：「；」块认得的开头（R5 的字段前缀，加上附件一栏） */
+const R3_PREFIXES: readonly string[] = [...AUTO_NOTES_WRITE_ORDER.map(([prefix]) => prefix), ATTACHMENT_PREFIX];
+/** R3：写入方写的一条强制项答复「编号 答复」（与 ANSWER_RE 同一形状，不带证据） */
+const ANSWER_SHAPE_RE = /^\S+ (部分满足|不满足|满足)$/;
+/** R3：按「；」「，」、剩下的「"）」与证据占位切开，留下分隔本身 */
+const R3_SPLIT_RE = /(；|，|"）|\u0000\d+\u0000)/;
+
 /**
- * R3：遮住成对证据之后剩下的每个「"）」——
- *   前面那一截 = 从它之前最后一个证据占位结束处（没有就从段首）到它；
- *   后面那一截 = 从它到下一个「"）」（没有就到段尾）。
- * 前面那一截有「；」（证据把字段夹带成了新块），且后面那一截是空的、有「；」或有证据占位
- * （写入方在证据收尾之后只会写「；」、强制项的「，下一条（证据…）」或什么都不写），就是证据跳出了引号。
- * 前面没有「；」= 证据里合法带的「"）」（英寸记号）；后面是一截普通文字 = 旧文件名里的引号。
+ * R3：证据跳出了引号。一次从左到右扫完（split 的偶数下标是文字，奇数下标是分隔）：
+ *   injected —— 从上一条证据结束处到这里，有一个「；」块的开头（跳过开头的空白与证据占位，
+ *               与 R5 去掉占位再看开头同口径）是认得的前缀；或当前「强制项：」块里有一个「，」块形如「编号 满足」；
+ *   每遇到一个剩下的「"）」，记下当时的 injected，再看它的后一截（到下一个剩下的「"）」或段尾，成对证据不截断）：
+ *   全是空白、有认得开头的「；」块、有形如「编号 满足」的「，」块、或有成对证据 = 写入方收尾证据之后的写法
+ *   （写入方在证据收尾之后只写「；下一项」「，下一条强制项（证据…）」或什么都不写；攻击方用自己写的
+ *   「（证据："」吃掉真正的收尾时，后一截里也会有成对证据）。
  */
 function evidenceBrokeOut(masked: string): boolean {
-  const step = EVIDENCE_CLOSER.length;
-  for (let i = masked.indexOf(EVIDENCE_CLOSER); i >= 0; i = masked.indexOf(EVIDENCE_CLOSER, i + step)) {
-    const tailStart = masked.lastIndexOf(PLACEHOLDER_MARK, i) + 1; // 占位成对出现：最后一个就是上一条证据的结尾
-    const before = masked.slice(tailStart, i);
-    const next = masked.indexOf(EVIDENCE_CLOSER, i + step);
-    const after = masked.slice(i + step, next < 0 ? masked.length : next);
-    if (before.includes("；") && (after.trim() === "" || after.includes("；") || after.includes(PLACEHOLDER_MARK))) return true;
+  const parts = masked.split(R3_SPLIT_RE);
+  let injected = false;
+  let opened = false; // 当前「；」块读到了正文
+  let mandatory = false; // 当前「；」块以「强制项：」开头
+  let open = false; // 有一个剩下的「"）」，后一截还没看完
+  let openInjected = false; // 那个「"）」前一截里有注入
+  let closes = false; // 那个「"）」后一截里有认得开头的「；」块、「编号 满足」的「，」块或成对证据
+  let blank = true; // 那个「"）」后一截到目前全是空白
+  const brokeOut = () => open && openInjected && (closes || blank);
+  for (let k = 0; k < parts.length; k++) {
+    const part = parts[k];
+    if (k % 2 === 0) {
+      const s = part.trimStart();
+      if (!s) continue;
+      blank = false;
+      if (!opened) {
+        opened = true;
+        mandatory = s.startsWith("强制项：");
+        if (R3_PREFIXES.some((prefix) => s.startsWith(prefix))) {
+          injected = true;
+          closes = true;
+        }
+      }
+    } else if (part === "；") {
+      blank = false;
+      opened = false;
+      mandatory = false;
+    } else if (part === "，") {
+      blank = false;
+      if (ANSWER_SHAPE_RE.test(parts[k + 1].trim())) {
+        if (mandatory) injected = true;
+        closes = true;
+      }
+      opened = true;
+    } else if (part === EVIDENCE_CLOSER) {
+      if (brokeOut()) return true;
+      open = true;
+      openInjected = injected;
+      closes = false;
+      blank = true;
+      opened = true;
+    } else {
+      // 一条成对证据：前一截从这里重新算；后一截不在这里截断，碰到成对证据也算写入方的写法
+      blank = false;
+      closes = true;
+      injected = false;
+    }
   }
-  return false;
+  return brokeOut();
+}
+
+/** 把成对证据「（证据："…"）」换成占位（从左到右、每条到第一个「"）」为止；一次扫描，行长线性） */
+function maskEvidence(body: string, evidence: string[]): string {
+  let out = "";
+  let pos = 0;
+  for (;;) {
+    const start = body.indexOf(EVIDENCE_OPENER, pos);
+    if (start < 0) break;
+    const end = body.indexOf(EVIDENCE_CLOSER, start + EVIDENCE_OPENER.length);
+    if (end < 0) break;
+    evidence.push(body.slice(start + EVIDENCE_OPENER.length, end));
+    out += `${body.slice(pos, start)}${PLACEHOLDER_MARK}${evidence.length - 1}${PLACEHOLDER_MARK}`;
+    pos = end + EVIDENCE_CLOSER.length;
+  }
+  return out + body.slice(pos);
 }
 
 /** R5：块按写入顺序、不重复 */
@@ -106,7 +173,6 @@ function inWriteOrder(blocks: string[]): boolean {
   }
   return true;
 }
-const EVIDENCE_RE = /（证据："([\s\S]*?)"）/g;
 const ANSWER_RE = /^(\S+) (部分满足|不满足|满足)(\u0000\d+\u0000)?$/;
 
 const toNum = (s: string | undefined): number | null => {
@@ -128,10 +194,7 @@ type SegmentValues = {
 function parseSegment(at: string, body: string): SegmentValues | null {
   // 先把证据片段换成占位符：证据是原文摘录，里面可能有"；""，"等分隔符
   const evidence: string[] = [];
-  const masked = body.replace(EVIDENCE_RE, (_m, ev: string) => {
-    evidence.push(ev);
-    return `\u0000${evidence.length - 1}\u0000`;
-  });
+  const masked = maskEvidence(body, evidence);
   const restore = (token: string | undefined): string | null => {
     const m = token?.match(/\u0000(\d+)\u0000/);
     return m ? evidence[Number(m[1])] ?? null : null;

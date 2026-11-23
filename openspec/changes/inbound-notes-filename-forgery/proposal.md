@@ -11,16 +11,16 @@ TASKFLOW：FIX-24（「Phase F（续）— 情报串联」表；FIX-14 修订版
 
 ## What Changes
 
-- 把附件文件名、币种文字（本次读到的与条目上已录的）、强制项编号拼进备注之前，全角分号「；」改成半角「;」，紧挨着的「"）」改成「")」，「（证据：」改成「（证据:」，换行、回车、U+2028、U+2029 与其它控制字符改成空格（design D1）。
+- 把附件文件名、币种文字（本次读到的与条目上已录的）、强制项编号拼进备注之前，全角分号「；」改成半角「;」，紧挨着的「"）」改成「")」，「（证据：」改成「（证据:」，换行、回车、U+2028、U+2029 与其它控制字符改成空格；强制项编号里的「，」「、」另改成「,」（design D1）。
 - 把证据片段里紧挨着的「"）」改成「")」、控制字符改成空格，证据里的「；」「，」照旧保留（design D2）。
 - 按「文件名：」最长前缀给附件对上说明，文件名带「：」时不再显示成「未解析」（design D5）。
 - 让证据闸在模型读出的币种转成大写后不是三个 A–Z 字母时把它作废、记入被作废字段，不再用它拼正则。现在币种「(((」会让整封回信记成解析失败，「.*.」会被当成原文写过的币种写进条目（design D3）。
 - 回读时只认原始行的行首正好是「[auto <真实存在的写入时刻> msg=<字母、数字、-、_>] 」的行（行头里夹着回车等的不认）；行头之后正文里的回车、U+2028、U+2029 当作空格，不再让整段失效（design D4 R1）。
 - 回读时读到附件一栏就停，附件一栏里的任何文字都不当字段读，本次改动之前写进库里的备注也一样（design D4 R2）。
-- 回读时证据引号配对之后剩下的「"）」前面那一截有「；」、且后面不是一截普通文字的（证据跳出引号夹带了字段），或附件一栏里、附件一栏之后出现证据引号的，整段不认；证据里合法的英寸记号与旧文件名里的引号照常读（design D4 R3、R4）。
+- 回读时证据引号配对之后还剩「"）」、它前面一截里有以认得的字段前缀或「附件：」开头的块（强制项一栏里还有以「，」隔开的「编号 满足」块）、且后面一截像写入方收尾证据之后的写法的（证据跳出引号夹带了字段），或附件一栏里、附件一栏之后出现证据引号的，整段不认；证据里合法的英寸记号与旧文件名里的引号照常读；一次扫描，行长线性（design D4 R3、R4）。
 - 回读时要求附件一栏之前认得出的字段按写入顺序出现、除「其它档」外每种至多一次，不满足的整段不认（design D4 R5）。
 - 把 `loadCompareMatrix` 里「条目 → 比价输入」的循环原样抽成纯函数 `toCompareInputs`，行为不变，测试直接调它（design D8）。
-- 新增不连库的测试 `src/lib/tender-rfq/__tests__/notes-forgery.test.ts`（120 项，遇失败不中途退出），注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；新增只读核查的隔离库回归测试 `src/lib/tender-rfq/__tests__/prod-check-fix24-db.isolated.test.ts`，注册进 `scripts/test-all.sh`（design D7）。
+- 新增不连库的测试 `src/lib/tender-rfq/__tests__/notes-forgery.test.ts`（188 项，遇失败不中途退出），注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；新增只读核查的隔离库回归测试 `src/lib/tender-rfq/__tests__/prod-check-fix24-db.isolated.test.ts`，注册进 `scripts/test-all.sh`（design D7）。
 - 新增只读核查 `docs/acceptance/fix-24/prod-check.sql`，找出生产上已有备注里的伪造整行、被切开或注入的真实行（带「比价还采信这次回信吗」一列）、审计里文件名或原文引用带分隔符的回信、审计原文转不成 jsonb 的行、币种列不是三个大写字母的条目；输出只有编号、项目名、轮次、供应商名与链接，不出价格与原文（design D6、Migration Plan）。
 - 把只读核查挂进开关前提：CHAIN-0 核查表第 7 项与 TASKFLOW CHAIN-0 一行在已有的 ④「FIX-24 已合并部署」之后加 ⑤：A 段为 0 行；不为 0 时按 TASKFLOW「FIX-24 后续 4」另开 change 删掉伪造行、重跑核查；剩下的每一行写明为什么是真实行，经 Owner Gate 逐行确认，记在核查表验证表第 7 项。
 
@@ -54,7 +54,7 @@ TASKFLOW：FIX-24（「Phase F（续）— 情报串联」表；FIX-14 修订版
 - **Cf 类字符**：零宽字符与双向控制字符（Unicode Cf 类）在界面上的展示欺骗，本次不处理。它们不参与切分（design Context）。
 - **按段时间丢段**：读取时丢掉「段时间晚于现在」的段，GATE 2 未采纳。
 - **强制项编号怎么扫**：编号按 `【强制】(\S+)` 从整封询价正文里扫（`src/lib/tender-rfq/inbound-contract.ts:108`），正文里有供应商名（`src/lib/tender-rfq/build.ts:361`），供应商名可能来自外部贸易数据（`src/lib/tender-import-leads/service.ts:533-536`）。写进备注时已在本次中和、不能再冒充字段；供应商名里带「【强制】X」会多出一条假的强制项（各家都按未答计），扫法不在本次，登记为后续任务。
-- **其它登记为后续的**：币种作废或没写时询价表与比价按默认的 CAD 显示和计算；界面上没有「这次回信没被采信」的提示；发件人显示名写了我方地址时回信被当成我方自己发的信跳过（`inbound-sync.ts:130-134`、`:205`）；证据遮罩对大量未关的「（证据："」是平方级（4 万个约 3.4 秒，main 一样）。
+- **其它登记为后续的**：币种作废或没写时询价表与比价按默认的 CAD 显示和计算；界面上没有「这次回信没被采信」的提示；发件人显示名写了我方地址时回信被当成我方自己发的信跳过（`inbound-sync.ts:130-134`、`:205`）。
 - **文件名进模型提示与证据文本**：不改（`inbound-parse.ts:176-182`、`:285-298`），模型看到的仍是原文件名。
 - **写库失败不回滚**：属于 FIX-14 后续，不在本次。
 - **schema、队列、模型调用、开关**：没有 schema 变更、新的队列 / 调度、新的模型调用、新开关。**没有开关，合并即在生产生效。**
@@ -74,10 +74,10 @@ TASKFLOW：FIX-24（「Phase F（续）— 情报串联」表；FIX-14 修订版
 - 代码：
   - `src/lib/tender-rfq/inbound-apply.ts`：附件一栏、币种三处、证据包装的写法；附件说明的对应；导出不变。
   - `src/lib/tender-rfq/inbound-parse.ts`：币种核对先看是不是三个 A–Z 字母；导出不变。
-  - `src/lib/tender-rfq/notes-parse.ts`：行头、附件一栏、证据引号、附件一栏后的证据、字段顺序五条读取规则；已有导出与返回形状不变，新增只读导出 `AUTO_NOTES_WRITE_ORDER`。
+  - `src/lib/tender-rfq/notes-parse.ts`：行头、附件一栏、证据引号、附件一栏后的证据、字段顺序五条读取规则，证据引号一条与证据遮挡都是一次扫描；已有导出与返回形状不变，新增只读导出 `AUTO_NOTES_WRITE_ORDER`。
   - `src/lib/tender-rfq/compare-service.ts`：取数循环原样抽成 `toCompareInputs`，行为不变。
 - 测试：
-  - 新 `src/lib/tender-rfq/__tests__/notes-forgery.test.ts`（不连库，120 项），注册进 `scripts/test-all.sh`（`notes-parse.test.ts` 那一条之后）与 `scripts/test-ci-unit.sh`（P1-6G 那一段之后）。
+  - 新 `src/lib/tender-rfq/__tests__/notes-forgery.test.ts`（不连库，188 项），注册进 `scripts/test-all.sh`（`notes-parse.test.ts` 那一条之后）与 `scripts/test-ci-unit.sh`（P1-6G 那一段之后）。
   - 新 `src/lib/tender-rfq/__tests__/prod-check-fix24-db.isolated.test.ts`（隔离库，要 `psql`），注册进 `scripts/test-all.sh`。
   - 既有测试不改断言、照过：`notes-parse.test.ts`、`inbound-apply.test.ts`、`inbound-parse.test.ts`、`chase-pure.test.ts`、`compare.test.ts`、`tracker-pure.test.tsx`、`tracking-notify.test.ts`，以及 FIX-14 的 `src/lib/files/__tests__/extracted-text-other-paths.test.ts`。
 - 行为（只对文件名、证据或币种里带这几类字符的回信，或库里已有的被注入的段）：
