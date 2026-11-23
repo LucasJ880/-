@@ -36,21 +36,29 @@
   - 合并后谁会发现什么变了的白话说明；
   - **没有开关，合并即在生产生效**；回滚只能 revert 这一个 PR；
   - **合并后要人做的事**：
-    - 只读查询（Lucas 在生产库跑，SQL 写进报告）：列出 `taskType = 'ai_bid_package'` 的任务里，建任务的人（`AgentTask.createdById`）既不是 super_admin、也不是该项目负责人、该项目 active 成员、项目所在组织的 active 所有者或管理员的那些，看合并前建任务这个缺口有没有被用过（执行步骤、查看、审核、重新分析都不记调用者，查不到）。查到就把任务 ID 与人报给 Evan 定怎么处理；查不到就在报告里写「0 行」。
+    - 只读查询（有生产只读权限的人跑 `docs/acceptance/fix-21/prod-check.sql`，`BEGIN READ ONLY … ROLLBACK`，在隔离库上验证过语法；多维审查后加第 ② 条）：
+      - ① `taskType = 'ai_bid_package'` 的任务里，建任务的人（`AgentTask.createdById`）对项目没有读权限的（不是 super_admin、不是该项目负责人、不是该项目 active 成员、不是项目所在组织的 active 所有者或管理员），看合并前建任务这个缺口有没有被用过（执行步骤、查看、重新分析都不记调用者，查不到）；
+      - ② `ProjectIntelligence.reviewedBy`（存的是姓名，没有姓名时是邮箱或用户 ID）对不上任何一个对项目有读权限的人的，看合并前改审核结论这个缺口有没有被用过。
+      - 查到就把任务 ID / 项目与人报给 Evan 定要不要通知；查不到就在报告里写「0 行」。
     - 重新分析的项目名单：没有。本 change 不改任何数据；情报审核与「重新分析」没有审计记录，查不出过去谁改过、谁点过，所以不出名单。
     - 合并后点一遍（Lucas）：用 super_admin 打开一个项目的「内部 · AI 任务运行时」面板，一键投标方案照常显示全部内容、能执行一步；用该项目的只读成员打开情报页签，审核按钮与「重新分析」照常可用。「重新分析」会清掉审核结论，挑一个情报还没人审过的项目点。
 
-  TASKFLOW：`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的「Phase F（续）— 情报串联」表，在 FIX-17 一行之后加 FIX-21 一行，状态 `[~]`。同时登记 8 条后续任务，各一行，编号写「待定」，状态 `[ ]`：
-    1. 重新生成情报会清掉人工审核结论（Lucas 2026-11-22 点名）：`src/lib/files/intelligence-extractor.ts:346-369` 重算写库时把 `reportStatus` 改回 `ai_generated`，清空审核人 / 时间 / 备注 / 评分，不留痕；「重新分析」与「上传新文件 + 逐步处理」（`files/process-next`）都走这里。改成保留已有审核结论，或先留痕。
+  TASKFLOW：`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的「Phase F（续）— 情报串联」表，在 FIX-17 一行之后加 FIX-21 一行，状态 `[~]`。同时登记 13 条后续任务，各一行，状态 `[ ]`；第 9 条编号写「FIX-23」（协调会话另开 change），其余编号写「待定」：
+    1. 重新生成情报会清掉人工审核结论（Lucas 2026-11-22 点名）：`src/lib/files/intelligence-extractor.ts:346-369` 重算写库时把 `reportStatus` 改回 `ai_generated`，清空审核人 / 时间 / 备注 / 评分，不留痕；「重新分析」与「上传新文件 + 逐步处理」（`files/process-next`）都走这里。改成保留已有审核结论，或先留痕。并入（多维审查，权限 应修）：情报卡「重新分析」点了就跑、没有确认框；修之前先加确认框，建议文案「重新分析会用当前的文件重新生成情报，并清空现有的审核结论（审核状态、审核人、备注、评分），清空后找不回来。确定重新分析吗？」。
     2. 技能与情报生成调模型不带组织，月度 AI 费用预检对一键投标方案 `run-step` 与情报生成都不生效：技能上下文没有 `orgId`（`src/lib/agent/types.ts:72-78`），`src/lib/agent/skills/quote.ts:135`、`src/lib/agent/skills/email-draft.ts:117`、`src/lib/files/intelligence-extractor.ts:96` 调模型不传，预检（`src/lib/ai/client.ts:173-184`）要 `orgId` 与 `userId` 都在才查。
     3. 重新生成情报按调用者的可见范围重建全项目共享的相似项目：先删后建（`src/lib/projects/similarity.ts:204-217`），候选只取调用者能看到的同组织项目（`:35-49`）；项目成员但不是组织成员的人点一次「重新分析」，所有人看到的相似项目名单都变短。
     4. 已离开组织、但项目成员关系仍 active 的人照样过项目读权限，仍是项目负责人的还过写权限：`src/lib/projects/access.ts:81`、`:152`、`:160` 不看组织成员身份，影响全部项目接口。
     5. 没有所属组织的项目里，项目管理员不过写权限：`src/lib/projects/access.ts:93-106` 只在项目有 `orgId` 时认项目管理员；要不要放开待定。
-    6. 情报审核结论的修改不写审计：`PATCH /api/projects/:id/intelligence/review`（`src/app/api/projects/[id]/intelligence/review/route.ts:77`）改状态 / 备注 / 评分不留记录，只在改成通过 / 需修改 / 已交付时记审核人（`:124-131`）。
-    7. 删掉 `POST /api/projects/:id/ai-bid-package` 里守卫之后不会再命中的「项目不存在」查询（`src/app/api/projects/[id]/ai-bid-package/route.ts:14-20`）。
+    6. 情报审核结论的修改不写审计：`PATCH /api/projects/:id/intelligence/review`（`src/app/api/projects/[id]/intelligence/review/route.ts:84`）改状态 / 备注 / 评分不留记录，只在改成通过 / 需修改 / 已交付时记审核人（`:133-140`）。
+    7. 删掉 `POST /api/projects/:id/ai-bid-package` 里守卫之后不会再命中的「项目不存在」查询（`src/app/api/projects/[id]/ai-bid-package/route.ts:29-35`）。
     8. 能读项目的人（含只读成员、不是项目成员的组织管理员）能从询价与报价接口拿到价格与内部成本：`GET …/inquiries`（`src/lib/inquiry/service.ts:191-199`，供应商单价 / 总价）、旧报价单 `GET …/quotes/:quoteId`（`src/app/api/projects/[id]/quotes/[quoteId]/route.ts:9-25`，`costPrice`、`internalCost`、`profitMargin`），新报价引擎的「内部成本」级别对所有项目角色开放（`src/lib/quote-engine/access.ts:31`、`:43`）；要不要按财务查看权裁剪待定（design「留给 GATE」第 1 条的事实部分）。
+    9. （FIX-23，协调会话另开 change）`GET /api/agent/tasks/recent`（`src/app/api/agent/tasks/recent/route.ts`）给非平台管理员原始报错与价格，且不重查项目权限（多维审查：安全 1、权限 1）。
+    10. 问青砚工具 `project_get_tender_summary`（`src/lib/agent-core/tools/enterprise-readonly.ts:348`）只要求组织 active 成员就能读情报推荐、风险与 `ourBidPrice`，与本 change 的项目读权限口径不一（多维审查：权限 2）。
+    11. 项目 ID 带 U+0000 时所有项目接口 500：`findProjectForAccess`（`src/lib/projects/access.ts:11-25`）把它原样交给 Postgres，报 22021；应按「项目不存在」404（多维审查：安全 5）。
+    12. 「AI 投标方案已生成」高优先级通知发给全体项目成员（`src/app/api/projects/[id]/ai-bid-package/run-step/route.ts` 的 `notifyProjectMembers`），但一键投标方案面板只给平台管理员看，成员点开看不到内容；要不要只发给发起人或平台管理员待定（多维审查：权限 可选）。
+    13. 守卫前预处理名单里的 3 个处理函数改成「取完参数第一步就是守卫」：`src/app/api/projects/[id]/route.ts` `PATCH`（运行环境闸）、`finance/expenses/[expenseId]/route.ts` `PATCH`、`quote-engine/[quoteId]/status/route.ts` `POST`（按请求体选守卫级别：先过读权限守卫，再在分支里按级别判）；改完删掉 `project-routes-guard.test.ts` 的 `PRE_GUARD_PREP` 对应条目（design D9 第 11 条）。
 
-  verify：报告文件存在，含上面每一项；TASKFLOW 里 FIX-21 状态为 `[~]`；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于「改动前的数 + 8」（改动前先数一次写进报告；main `01e444b9` 上是 0）
+  verify：报告文件存在，含上面每一项；TASKFLOW 里 FIX-21 状态为 `[~]`；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于「改动前的数 + 12」，另有 `| FIX-23 |` 一行（改动前先数一次写进报告；main `01e444b9` 上是 0）
 
 ## Workflow follow-up
 
