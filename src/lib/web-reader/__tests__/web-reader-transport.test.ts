@@ -6,8 +6,10 @@
  *
  * 运行：npx tsx src/lib/web-reader/__tests__/web-reader-transport.test.ts
  */
+import { readFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import zlib from "node:zlib";
 import { NetError, type NetRequest } from "../read-page";
 import { createNodeNet } from "../transport";
@@ -26,6 +28,9 @@ function ok(name: string, cond: boolean, detail?: unknown) {
 
 type Seen = { method: string; url: string; headers: http.IncomingHttpHeaders };
 
+/** 4 GiB 全零经 brotli 压缩后的 3233 字节（生成方式见 design D13；以 base64 存放） */
+const BR_BOMB = Buffer.from(readFileSync(join(process.cwd(), "src/lib/web-reader/__tests__/fixtures/br-zeros-4gib.b64"), "utf8"), "base64");
+
 async function main() {
   const seen: Seen[] = [];
   const server = http.createServer((req, res) => {
@@ -40,6 +45,9 @@ async function main() {
     } else if (path === "/bomb") {
       res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
       res.end(zlib.gzipSync(Buffer.alloc(20 * 1024 * 1024, 0x61)));
+    } else if (path === "/brbomb") {
+      res.writeHead(200, { "content-type": "text/html", "content-encoding": "br" });
+      res.end(BR_BOMB);
     } else if (path === "/badgzip") {
       res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
       res.end(Buffer.from("this is not gzip at all"));
@@ -98,6 +106,18 @@ async function main() {
     ok("gzip 解开", new TextDecoder().decode(gz.body) === "<p>gzipped award</p>");
     const bomb = await net.request(req(`${base}/bomb`));
     ok("压缩炸弹：解压后按上限截断并标截断", bomb.body.length === 1024 * 1024 && bomb.truncated === true, bomb.body.length);
+    {
+      const t1 = Date.now();
+      const br = await net.request(req(`${base}/brbomb`, { maxBytes: 2 * 1024 * 1024 }));
+      ok("brotli 炸弹（3 KB → 4 GiB）：很快按上限截断", br.truncated === true && br.body.length === 2 * 1024 * 1024 && Date.now() - t1 < 5000, [br.body.length, Date.now() - t1]);
+      // 截断后解压流必须一起销毁：之后 1.5 秒里本进程几乎不占 CPU（修之前每 2 秒约 1.8 秒 CPU）
+      await new Promise((r) => setTimeout(r, 100));
+      const c0 = process.cpuUsage();
+      await new Promise((r) => setTimeout(r, 1500));
+      const c1 = process.cpuUsage(c0);
+      const cpuMs = Math.round((c1.user + c1.system) / 1000);
+      ok("截断后不在后台继续解压（1.5 秒内 CPU < 300 ms）", cpuMs < 300, cpuMs);
+    }
     await expectNetError("坏的 gzip：连接错误", net.request(req(`${base}/badgzip`)), "network");
     const red = await net.request(req(`${base}/redirect`));
     ok("不跟跳转：原样返回 302 与 location", red.status === 302 && red.headers.location === "/plain");

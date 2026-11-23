@@ -12,6 +12,7 @@ import {
   checkPublicUrl,
   classifySite,
   detectAccessWall,
+  embeddedHostsOf,
   isAllowedByRobots,
   isBlockedAddress,
   isLoginUrl,
@@ -24,6 +25,7 @@ import {
   readOrgSiteOverride,
   reasonMessageZh,
   robotsPatternMatches,
+  siteKeyOfHost,
 } from "../pure";
 
 let passed = 0;
@@ -210,6 +212,35 @@ console.log("补充：登录地址、meta refresh、Retry-After");
   ok("Retry-After 认不出：1.5 / -1 / 10, 20 / 非 GMT 日期", ["1.5", "-1", "10, 20", "2026-11-23T00:00:20Z"].every((v) => parseRetryAfterSeconds(v, now) === null));
 }
 
+
+console.log("第三轮挑错后补：robots 产品名、重复斜杠、meta refresh 引号、嵌入主机名、新原因文案");
+{
+  const g1 = parseRobots("User-agent: QingyanResearchBot 1.0\nDisallow: /\n\nUser-agent: *\nAllow: /");
+  ok("「User-agent: QingyanResearchBot 1.0」也是本机器人的组", !isAllowedByRobots(g1, "/any"));
+  const g2 = parseRobots("User-agent: qingyanresearchbot/2\nDisallow: /x");
+  ok("产品名不分大小写、带版本号", !isAllowedByRobots(g2, "/x/1"));
+  const g3 = parseRobots("User-agent: *\nDisallow: /private");
+  ok("「//private/a」不能绕过 Disallow: /private", !isAllowedByRobots(g3, "//private/a") && !isAllowedByRobots(g3, "/private/a") && isAllowedByRobots(g3, "/public//x"));
+  ok("重复斜杠在查询里不改", isAllowedByRobots(g3, "/public?u=//private"));
+  const base = new URL("https://x.gov/page");
+  ok("meta refresh 目标带单引号也认得", metaRefreshTarget(`<meta http-equiv="refresh" content="0; URL='/account/login'">`, base)?.toString() === "https://x.gov/account/login");
+  ok("meta refresh 目标带双引号也认得", metaRefreshTarget(`<meta http-equiv='refresh' content='0; url="/user/login"'>`, base)?.pathname === "/user/login");
+  ok("嵌入主机名：路径里的完整网址", JSON.stringify(embeddedHostsOf(new URL("https://r.jina.ai/https://www.gov.example/a"))) === '["gov.example"]');
+  ok("嵌入主机名：查询里编码过的网址（两层编码）", embeddedHostsOf(new URL("https://p.example/x?u=https%253A%252F%252Fgov.example%252Fa")).includes("gov.example"));
+  ok("嵌入主机名：不含网址自己的主机", embeddedHostsOf(new URL("https://www.gov.example/gov.example/a")).length === 0);
+  ok("嵌入主机名：数字不当主机名", embeddedHostsOf(new URL("https://p.example/v1.2/3.4")).length === 0);
+  const t0 = Date.now();
+  embeddedHostsOf(new URL("https://p.example/" + "a.".repeat(2000) + "?q=" + "1.".repeat(2000)));
+  ok("嵌入主机名：超长网址也很快（< 200 ms）", Date.now() - t0 < 200, Date.now() - t0);
+  ok("站点键：去大小写、末尾点、www.、空白", siteKeyOfHost(" WWW.Gov.Example. ") === "gov.example");
+  for (const h of ["r.jina.ai", "gov-example.translate.goog", "webcache.googleusercontent.com", "web.archive.org", "archive.ph", "12ft.io"]) {
+    ok(`预置不碰：${h}`, classifySite(h, PRESET_SITE_POLICY) === "deny");
+  }
+  ok("取 robots 次数到上限的文案说的是读取规则、以「未读」结尾", reasonMessageZh("robots_limit").includes("读取规则") && reasonMessageZh("robots_limit").endsWith("未读"));
+  ok("被挡站到上限的文案以「未读」结尾", reasonMessageZh("blocked_sites_limit").endsWith("未读"));
+  ok("不支持的类型文案不再提纯文本与 PDF", !/纯文本|PDF/.test(reasonMessageZh("unsupported_type")));
+}
+
 console.log("守卫：读网页的唯一入口");
 {
   const root = process.cwd();
@@ -225,9 +256,10 @@ console.log("守卫：读网页的唯一入口");
         walk(full);
         continue;
       }
-      if (!/\.(ts|tsx|js|mjs|cjs)$/.test(name)) continue;
+      if (!/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(name)) continue;
       const rel = relative(root, full).split(sep).join("/");
-      if (rel.startsWith("src/lib/web-reader/") || rel.includes("/__tests__/")) continue;
+      // 只有 web-reader 自己的目录（含它的测试）可以直接用内部模块；别处的测试也不例外
+      if (rel.startsWith("src/lib/web-reader/")) continue;
       const src = readFileSync(full, "utf8");
       let bad = /createResearchReadSessionWithDeps|createNodeNet\b|writeWebReadAudit|loadResearchJobRow|loadTreeHistory/.test(src);
       // 审计动作字面量只许出现在 web-reader 目录（别处不能伪造读页审计）

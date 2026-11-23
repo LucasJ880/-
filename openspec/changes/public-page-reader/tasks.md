@@ -17,7 +17,11 @@
 - [x] 4.1 读页会话（Job 校验、定时任务拒绝、开关）、会话缓存与站点节拍、额度、真实传输（`http` / `https.request` + 连接时校验地址 + 解压与 2 MB 截断 + 15 秒）、重试与被挡规则、HTML / 文本抽取（PDF 不解析）、网址检查、内部状态与审计历史、审计；新增 `web-reader.test.ts`、`web-reader-edges.test.ts`（假网络与虚拟时钟）、`web-reader-transport.test.ts`（本机服务）并注册（verify：三份都通过，覆盖 spec 里对应的全部场景）
 - [x] 4.2 新增 `web-reader-context-db.isolated.test.ts`（隔离库：调研 Job / 一键分析 Job / 别的组织的 Job / 缺发起人；审计落库且不含正文）并注册（verify：`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/web-reader/__tests__/web-reader-context-db.isolated.test.ts` 通过）
 
-## 5. 门禁与报告
+## 5. 第三轮挑错修订
 
-- [x] 5.1 全量门禁与零变化核对（verify：`npm test` 只有 main 基线上同样的失败；`npm run test:ci`（不连库，同 CI）、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh` 通过；全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `trade/email-forward-parse.ts` 外为空；`git diff origin/main -- prisma/ vercel.json next.config.ts src/lib/workforce-runtime/` 为空）
-- [x] 5.2 写 `docs/QINGYAN_TREE-1_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含门禁结果、多维审查与交叉验证结论、没验证到的地方与回退办法；TASKFLOW 的 TREE-0、TREE-1 两行为 `[~]`；交接文档更新）
+- [x] 5.0 第三轮挑错的 17 条（design D13）：抓取代理 / 快照 / 翻译代理预置不碰 + 网址里嵌着被挡站 / 不碰站的按被挡 / 不读；树账本（同一 Job 的会话共用额度、分支数、取 robots 次数、被挡站）；审计历史超过 2000 行不再读页；审计加 `robotsFetches` 与 `fromCache`，缓存被挡也写一条；每支被挡站上限 24；截断时销毁解压流；只读 HTML、`%PDF-` 字节不读；网址检查只认 true；被挡站归一；robots 组名与重复斜杠；meta refresh 引号；`robots_limit` 文案；缓存写失败照写审计；守卫扫 `.mts` / `.cts`；规格补「不经代理换地址」「其它状态码」（verify：`web-reader-edges.test.ts`、`web-reader-pure.test.ts`、`web-reader-transport.test.ts`（含 brotli 炸弹 CPU 用例，去掉修复时失败）、`web-reader-context-db.isolated.test.ts` 通过；`openspec validate public-page-reader --strict` 通过）
+
+## 6. 门禁与报告
+
+- [x] 6.1 全量门禁与零变化核对（verify：`npm test` 只有 main 基线上同样的失败；`npm run test:ci`（不连库，同 CI）、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh` 通过；全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `trade/email-forward-parse.ts` 外为空；`git diff origin/main -- prisma/ vercel.json next.config.ts src/lib/workforce-runtime/` 为空）
+- [x] 6.2 写 `docs/QINGYAN_TREE-1_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含门禁结果、多维审查与交叉验证结论、没验证到的地方与回退办法；TASKFLOW 的 TREE-0、TREE-1 两行为 `[~]`；交接文档更新）

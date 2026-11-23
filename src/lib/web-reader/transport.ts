@@ -14,7 +14,7 @@ import http from "node:http";
 import https from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import zlib from "node:zlib";
-import type { Readable } from "node:stream";
+import type { Readable, Transform } from "node:stream";
 import { isBlockedAddress } from "./pure";
 import { NetError, type NetRequest, type NetResponse, type ResolvedAddress, type WebReaderNet } from "./read-page";
 
@@ -53,7 +53,7 @@ const makeGuardedLookup = (blocked: AddressGuard): LookupFunction => (hostname, 
   });
 };
 
-function decoderFor(encoding: string | undefined): NodeJS.ReadWriteStream | null {
+function decoderFor(encoding: string | undefined): Transform | null {
   const e = (encoding ?? "").trim().toLowerCase();
   if (e === "gzip" || e === "x-gzip") return zlib.createGunzip();
   if (e === "deflate") return zlib.createInflate();
@@ -73,11 +73,14 @@ function requestOnce(req: NetRequest, blocked: AddressGuard, guardedLookup: Look
   const mod = req.url.protocol === "https:" ? https : http;
   return new Promise<NetResponse>((resolve, reject) => {
     let settled = false;
+    // 截断、超时、出错时把响应与解压流一起销毁：只销毁响应的话，已收到的压缩数据还会在后台继续解压占 CPU
+    let teardown: () => void = () => undefined;
     const done = (fn: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       fn();
+      teardown();
     };
     const r = mod.request(
       req.url,
@@ -87,6 +90,13 @@ function requestOnce(req: NetRequest, blocked: AddressGuard, guardedLookup: Look
         const headers = flattenHeaders(res.headers);
         const decoder = decoderFor(headers["content-encoding"]);
         const stream: Readable = decoder ? (res.pipe(decoder) as unknown as Readable) : res;
+        teardown = () => {
+          if (decoder) {
+            res.unpipe(decoder);
+            decoder.destroy();
+          }
+          res.destroy();
+        };
         const chunks: Buffer[] = [];
         let total = 0;
         let truncated = false;
@@ -98,7 +108,6 @@ function requestOnce(req: NetRequest, blocked: AddressGuard, guardedLookup: Look
             total += room;
             truncated = true;
             done(() => resolve({ status, headers, body: new Uint8Array(Buffer.concat(chunks)), truncated }));
-            res.destroy();
             return;
           }
           chunks.push(chunk);

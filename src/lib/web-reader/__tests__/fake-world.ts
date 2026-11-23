@@ -61,7 +61,7 @@ export function makeWorld(addresses: Record<string, string[]> = {}) {
     audits,
     now: () => time,
     /** 这棵树过去的读页审计（建会话时读出） */
-    history: [] as Array<{ branchKey: string; attempts: number; blockedSite: string | null }>,
+    history: [] as Array<{ branchKey: string; attempts: number; robotsFetches: number; blockedSite: string | null }>,
     /** 审计写入方式：默认像真实写库一样走宏任务（setImmediate） */
     auditMode: "macrotask" as "macrotask" | "microtask",
     net: {

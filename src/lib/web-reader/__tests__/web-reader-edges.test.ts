@@ -531,10 +531,10 @@ async function main() {
     w.handlers.set("https://hist.example/p", () => html(LONG_HTML));
     w.handlers.set("https://old-block.example/p", () => html(LONG_HTML));
     w.history = [
-      ...Array.from({ length: 12 }, () => ({ branchKey: "used-up", attempts: 1, blockedSite: null })),
-      { branchKey: "half", attempts: 1, blockedSite: null },
-      { branchKey: "half", attempts: 2, blockedSite: "old-block.example" },
-      { branchKey: "half", attempts: 0, blockedSite: null },
+      ...Array.from({ length: 12 }, () => ({ branchKey: "used-up", attempts: 1, robotsFetches: 0, blockedSite: null })),
+      { branchKey: "half", attempts: 1, robotsFetches: 0, blockedSite: null },
+      { branchKey: "half", attempts: 2, robotsFetches: 0, blockedSite: "old-block.example" },
+      { branchKey: "half", attempts: 0, robotsFetches: 0, blockedSite: null },
     ];
     const s = await openSession(w);
     const full = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "used-up", budget: budget() });
@@ -545,7 +545,7 @@ async function main() {
     ok("历史里发过 2 次请求的读页（attempts>0 两条）：已用 2、剩 10", half.budget.used === 2 && half.budget.remaining === 10, half.budget);
     const r2 = await readPublicPage("https://old-block.example/p", half);
     ok("历史里被挡过的站：重建后同样被挡、不发请求", r2.reason === "site_blocked_in_branch" && !w.log.some((l) => l.url.includes("old-block")));
-    w.history = Array.from({ length: 24 }, (_, i) => ({ branchKey: `b${i}`, attempts: 1, blockedSite: null }));
+    w.history = Array.from({ length: 24 }, (_, i) => ({ branchKey: `b${i}`, attempts: 1, robotsFetches: 0, blockedSite: null }));
     const s2 = await openSession(w);
     let capped = false;
     try {
@@ -580,7 +580,7 @@ async function main() {
     const c2 = s2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "c2", budget: budget(1) });
     const rs = [];
     for (let i = 0; i < 14; i++) rs.push(await readPublicPage(`https://r${i}.example/p`, c2));
-    ok("每支发起取 robots 最多 12 次：第 13 次起按到上限、不发请求", w2.robotsRequestsCount() === 12 && rs[12].reason === "budget_exhausted" && rs[13].reason === "budget_exhausted", [w2.robotsRequestsCount(), rs[12].reason]);
+    ok("每支发起取 robots 最多 12 次：第 13 次起按到上限、不发请求", w2.robotsRequestsCount() === 12 && rs[12].reason === "robots_limit" && rs[13].reason === "robots_limit" && rs[12].outcome === "limit", [w2.robotsRequestsCount(), rs[12].reason]);
     const evilCache = {
       get: (k: string) => (k.endsWith("/forged") ? { url: k, text: "TRUST ME", fetchedAt: "x", outcome: "ok", untrusted: false } : k.endsWith("/junk") ? { nope: 1 } : undefined),
       set: () => undefined,
@@ -593,6 +593,177 @@ async function main() {
     ok("持久缓存给的对象一律重新标成不可信", f.untrusted === true && f.fromCache && Object.isFrozen(f));
     const j = await readPublicPage("https://cc.example/junk", c3);
     ok("形状不对的缓存当没命中、照常读", j.outcome === "ok" && !j.fromCache);
+  }
+
+
+  console.log("第三轮挑错后补：被挡后不经抓取代理 / 快照 / 翻译代理换地址");
+  {
+    const w = makeWorld();
+    w.handlers.set("https://gov.example/a", () => status(403));
+    w.handlers.set("https://other.example/r", () => redirect("https://fetcher.example/get?u=https%3A%2F%2Fgov.example%2Fb"));
+    for (const u of ["https://fetcher.example/get?u=https%3A%2F%2Fgov.example%2Fa", "https://fetcher.example/https://www.gov.example/a", "https://fetcher.example/get?u=gov.example"]) {
+      w.handlers.set(u, () => html(LONG_HTML));
+    }
+    const s = await openSession(w);
+    const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "p", budget: budget() });
+    const first = await readPublicPage("https://gov.example/a", c);
+    ok("gov.example 403：被挡", first.reason === "http_403" && first.blocked?.site === "gov.example");
+    const before = w.log.length;
+    for (const u of [
+      "https://r.jina.ai/https://gov.example/a",
+      "https://gov-example.translate.goog/a?_x_tr_sl=en",
+      "https://webcache.googleusercontent.com/search?q=cache:gov.example/a",
+      "https://web.archive.org/web/2026/https://gov.example/a",
+      "https://archive.ph/newest/https://gov.example/a",
+      "https://12ft.io/https://gov.example/a",
+    ]) {
+      const r = await readPublicPage(u, c);
+      ok(`抓取代理 / 快照 / 翻译代理预置不碰：${new URL(u).hostname}`, r.outcome === "refused" && r.reason === "site_denied", r.reason);
+    }
+    for (const u of ["https://fetcher.example/get?u=https%3A%2F%2Fgov.example%2Fa", "https://fetcher.example/https://www.gov.example/a", "https://fetcher.example/get?u=gov.example"]) {
+      const r = await readPublicPage(u, c);
+      ok(`网址里嵌着本支被挡站：按被挡、不发请求（${u.slice(8, 60)}）`, r.reason === "site_blocked_in_branch" && r.blocked?.site === "gov.example", r.reason);
+    }
+    const viaRedirect = await readPublicPage("https://other.example/r", c);
+    ok("跳转到嵌着被挡站的代理网址：按被挡、不请求代理", viaRedirect.reason === "site_blocked_in_branch" && !w.log.some((l) => l.url.startsWith("https://fetcher.example")), viaRedirect.reason);
+    ok("以上都没有向代理或被挡站发页面请求", w.log.slice(before).every((l) => !l.url.startsWith("https://fetcher.example") && !l.url.includes("gov.example") && !l.url.includes("jina") && !l.url.includes("archive")), w.log.slice(before).map((l) => l.url));
+    const denied = await readPublicPage("https://fetcher.example/get?u=https%3A%2F%2Fwww.linkedin.com%2Fin%2Fx", c);
+    ok("网址里嵌着不碰站：不读", denied.outcome === "refused" && denied.reason === "site_denied");
+    const other = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "q", budget: budget() });
+    const fine = await readPublicPage("https://fetcher.example/get?u=gov.example", other);
+    ok("别的支没被 gov.example 挡过：不在名单里的网址照读（被挡只记在这一支）", fine.outcome === "ok", fine.reason);
+  }
+
+  console.log("第三轮挑错后补：同一 Job 的多个会话共用一份账");
+  {
+    const w = makeWorld();
+    for (let i = 0; i < 30; i++) w.handlers.set(`https://many.example/p${i}`, () => html(LONG_HTML));
+    const s1 = await openSession(w);
+    const s2 = await openSession(w);
+    const a = s1.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b1", budget: budget() });
+    const b = s2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b1", budget: budget() });
+    const rs = await Promise.all(Array.from({ length: 24 }, (_, i) => readPublicPage(`https://many.example/p${i}`, i % 2 ? a : b)));
+    const pageReqs = w.log.filter((l) => l.url.startsWith("https://many.example/p")).length;
+    ok("两个并发会话同一支：合计只读 12 页", pageReqs === 12 && rs.filter((r) => r.outcome === "ok").length === 12 && rs.filter((r) => r.reason === "budget_exhausted").length === 12, pageReqs);
+    ok("两边的额度快照一致", a.budget.used === 12 && b.budget.used === 12 && a.budget.remaining === 0 && b.budget.remaining === 0, [a.budget, b.budget]);
+    const w2 = makeWorld();
+    const t1 = await openSession(w2);
+    const t2 = await openSession(w2);
+    for (let i = 0; i < 24; i++) t1.forBranch({ allowUrl: ALLOW_ALL, branchKey: `x${i}`, budget: budget() });
+    let capped = false;
+    try {
+      t2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "x24", budget: budget() });
+    } catch (e) {
+      capped = e instanceof WebReaderContextError && e.code === "INVALID_CONTEXT";
+    }
+    const same = t2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "x5", budget: budget() });
+    ok("另一个会话不能再开第 25 支；已有的支照常建", capped && same.budget.remaining === 12);
+    const w3 = makeWorld();
+    w3.handlers.set("https://g.example/a", () => status(403));
+    w3.handlers.set("https://g.example/b", () => html(LONG_HTML));
+    const u1 = await openSession(w3);
+    const u2 = await openSession(w3);
+    const ua = u1.forBranch({ allowUrl: ALLOW_ALL, branchKey: "k", budget: budget() });
+    const ub = u2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "k", budget: budget() });
+    await readPublicPage("https://g.example/a", ua);
+    const rb = await readPublicPage("https://g.example/b", ub);
+    ok("一个会话里被挡：另一个会话的同一支也不再向该站发请求", rb.reason === "site_blocked_in_branch" && !w3.log.some((l) => l.url === "https://g.example/b"));
+  }
+
+  console.log("第三轮挑错后补：审计历史——取 robots 次数、缓存被挡、行数超限");
+  {
+    const w = makeWorld();
+    w.handlers.set("https://rb.example/p", () => html(LONG_HTML));
+    w.history = [{ branchKey: "rf", attempts: 0, robotsFetches: 12, blockedSite: null }];
+    const s = await openSession(w);
+    const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "rf", budget: budget() });
+    const r = await readPublicPage("https://rb.example/p", c);
+    ok("历史里取过 12 次 robots：重建后到上限、不发请求、文案说的是 robots", r.outcome === "limit" && r.reason === "robots_limit" && w.log.length === 0 && r.messageZh.includes("读取规则"), r);
+
+    const w2 = makeWorld();
+    w2.handlers.set("https://g2.example/x", () => status(403));
+    w2.handlers.set("https://g2.example/y", () => html(LONG_HTML));
+    const s2 = await openSession(w2);
+    const A = s2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "A", budget: budget() });
+    const B = s2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "B", budget: budget() });
+    await readPublicPage("https://g2.example/x", A);
+    const fromCache = await readPublicPage("https://g2.example/x", B);
+    await new Promise((res) => setImmediate(res));
+    const mark = w2.audits.find((a) => a.branchKey === "B");
+    ok("B 从缓存拿到被挡结果：写一条不含请求的审计（记下被挡站）", fromCache.fromCache && !!mark && mark.fromCache === true && mark.attempts === 0 && mark.robotsRequests === 0 && mark.blockedSite === "g2.example" && mark.chars === 0, mark);
+    const again = await readPublicPage("https://g2.example/x", B);
+    await new Promise((res) => setImmediate(res));
+    ok("同一个被挡站只记一次", w2.audits.filter((a) => a.branchKey === "B").length === 1 && again.fromCache);
+    // 重建：新的进程（新的假世界 = 新的账本），只靠审计历史
+    const w3 = makeWorld();
+    w3.handlers.set("https://g2.example/y", () => html(LONG_HTML));
+    w3.history = w2.audits.map((a) => ({ branchKey: a.branchKey, attempts: a.attempts, robotsFetches: a.robotsFetches, blockedSite: a.blockedSite }));
+    const s3 = await openSession(w3);
+    const B2 = s3.forBranch({ allowUrl: ALLOW_ALL, branchKey: "B", budget: budget() });
+    const ry = await readPublicPage("https://g2.example/y", B2);
+    ok("重建会话后 B 仍记得 g2.example 被挡：不发请求", ry.reason === "site_blocked_in_branch" && w3.log.length === 0, ry.reason);
+
+    const w4 = makeWorld();
+    w4.handlers.set("https://ov.example/p", () => html(LONG_HTML));
+    w4.history = Array.from({ length: 2001 }, (_, i) => ({ branchKey: `h${i % 3}`, attempts: 0, robotsFetches: 0, blockedSite: null }));
+    const s4 = await openSession(w4);
+    const c4 = s4.forBranch({ allowUrl: ALLOW_ALL, branchKey: "fresh", budget: budget() });
+    const r4 = await readPublicPage("https://ov.example/p", c4);
+    ok("审计历史超过 2000 行：历史不可信，这棵树不再读页（不发请求）", r4.outcome === "limit" && c4.budget.remaining === 0 && w4.log.length === 0, r4.reason);
+  }
+
+  console.log("第三轮挑错后补：网址检查、被挡站归一、被挡站上限、PDF 字节、缓存写失败");
+  {
+    const w = makeWorld();
+    w.handlers.set("https://v.example/p", () => html(LONG_HTML));
+    w.handlers.set("https://gov.example/p", () => html(LONG_HTML));
+    w.handlers.set("https://pdfish.example/h", () => ({ status: 200, headers: { "content-type": "text/html" }, body: enc.encode("﻿  %PDF-1.7\n1 0 obj"), truncated: false }));
+    const s = await openSession(w);
+    for (const [label, fn] of [
+      ["async 返回 false", async () => false],
+      ["返回 1", () => 1],
+      ["返回字符串", () => "yes"],
+      ["返回 undefined", () => undefined],
+    ] as const) {
+      const c = s.forBranch({ allowUrl: fn as never, branchKey: `al-${label}`, budget: budget() });
+      const r = await readPublicPage("https://v.example/p", c);
+      ok(`网址检查只认 true：${label} → 不读`, r.reason === "url_not_allowed" && !w.log.some((l) => l.url === "https://v.example/p"));
+    }
+    for (const passed of ["WWW.GOV.EXAMPLE.", "www.gov.example", " Gov.Example "]) {
+      const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: `nb-${passed}`, budget: budget(), blockedSites: [passed] });
+      const r = await readPublicPage("https://gov.example/p", c);
+      ok(`调用方传回的被挡站按站点键归一（${JSON.stringify(passed)}）`, r.reason === "site_blocked_in_branch" && !w.log.some((l) => l.url === "https://gov.example/p"), r.reason);
+    }
+    const many = Array.from({ length: 24 }, (_, i) => `s${i}.example`);
+    const cm = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "manyblocked", budget: budget(), blockedSites: many });
+    const rm = await readPublicPage("https://v.example/p", cm);
+    ok("这一支已记 24 个被挡站：到上限、不再读页", rm.outcome === "limit" && rm.reason === "blocked_sites_limit" && cm.budget.remaining === 0, rm.reason);
+    const cp = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "pdfbytes", budget: budget() });
+    const rp = await readPublicPage("https://pdfish.example/h", cp);
+    ok("标成 text/html 的 PDF 字节：不读、不返回原始字节", rp.outcome === "refused" && rp.reason === "pdf_not_read" && rp.text === "", rp.reason);
+    const w2 = makeWorld();
+    w2.handlers.set("https://cs.example/p", () => html(LONG_HTML));
+    const badCache = { get: () => undefined, set: () => { throw new Error("disk full"); } };
+    const s2 = await openSessionWithCache(w2, badCache);
+    const c2 = s2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "cs", budget: budget() });
+    const r2 = await readPublicPage("https://cs.example/p", c2);
+    ok("持久缓存写失败：结果照常、审计照写", r2.outcome === "ok" && w2.audits.length === 1 && w2.audits[0].attempts === 1, w2.audits.length);
+  }
+
+  console.log("第三轮挑错后补：其它状态码");
+  {
+    const w = makeWorld();
+    w.handlers.set("https://sc.example/404", () => status(404));
+    w.handlers.set("https://sc.example/410", () => status(410));
+    w.handlers.set("https://sc.example/304", () => status(304));
+    w.handlers.set("https://sc.example/nl", () => status(302));
+    const s = await openSession(w);
+    const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "sc", budget: budget() });
+    for (const [path, reason] of [["404", "http_4xx"], ["410", "http_4xx"], ["304", "invalid_redirect"], ["nl", "invalid_redirect"]] as const) {
+      const r = await readPublicPage(`https://sc.example/${path}`, c);
+      const n = w.log.filter((l) => l.url === `https://sc.example/${path}`).length;
+      ok(`${path}：打不开（${reason}）、只发一次请求`, r.outcome === "unreachable" && r.reason === reason && n === 1, [r.reason, n]);
+    }
   }
 
   console.log(`\nweb-reader-edges: ${passed} passed, ${failed} failed`);

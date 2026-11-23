@@ -347,7 +347,7 @@
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
 | TREE-0 | 登记例外：`openspec/config.yaml` 硬纪律第 7 条「例外二」（分支子代理自行决定搜索与读页，及各处模型调用的上限）与两条范围反转（读公开网页全文；给出建议报价区间）；本节登记；任务书入库（随 TREE-1 的 PR） | — | TREE-1 的 PR 里 `openspec/config.yaml` 与本节的 diff | [~] |
-| TREE-1 | 读公开网页 `src/lib/web-reader/`：只在人发起的调研 Job 里读；表明身份、不登录、不带凭证；被挡即停、临时故障最多重试 2 次、429 按对方等待时间；每支最多 12 次读页、同站 2 秒间隔；同址只读一次；内网与跳转逐跳校验；站点名单与 robots；PDF 页数 / 时间 / 解压上限 | TREE-0 | OpenSpec change `public-page-reader`；报告 `docs/QINGYAN_TREE-1_REPORT.md` | [~] |
+| TREE-1 | 读公开网页 `src/lib/web-reader/`：只在人发起的调研 Job 里读；表明身份、不登录、不带凭证；被挡即停、临时故障最多重试 2 次、429 按对方等待时间；每支最多 12 次读页、同站 2 秒间隔；同址只读一次；内网与跳转逐跳校验；站点名单与 robots；被挡后不经代理换地址；只读 HTML（PDF 不在本层解析，由人补页） | TREE-0 | OpenSpec change `public-page-reader`；报告 `docs/QINGYAN_TREE-1_REPORT.md` | [~] |
 | TREE-2 | 调研树骨架：独立的调研 Job（失败不触发「AI 分析未完成」），服务端写死的两波图，有上限的分支循环（被挡换来源），交接单 `research-handoff/v1`，表驱动的分叉规则，树干写进情报室 `summaryJson.researchTree` | TREE-1 | OpenSpec change `research-tree-runtime`；报告 `docs/QINGYAN_TREE-2_REPORT.md` | [ ] |
 | TREE-3 | 三个子代理：条款员（等效品 / 指定品牌 / 加拿大含量，带页码）、往期同标员、同类项目员；单价换算与可比度打分（纯函数） | TREE-2 | OpenSpec change `research-branches-awards`；报告 `docs/QINGYAN_TREE-3_REPORT.md` | [ ] |
 | TREE-4 | 交叉验证八条规则：① 另一步骤核对、不带原推理；② 重读网址逐字回查金额 / 数量 / 公司名；③ 两个不同域名或一个官方来源；④ 公司名三档；⑤ 口径不明另标；⑥ 只有已核实的进区间、矛盾的并排；⑦ 核对换模型；⑧ 人可剔除并重算 | TREE-2 | OpenSpec change `research-cross-verify`；报告 `docs/QINGYAN_TREE-4_REPORT.md` | [ ] |

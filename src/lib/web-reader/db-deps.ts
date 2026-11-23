@@ -50,8 +50,10 @@ export async function writeWebReadAudit(entry: WebReadAuditEntry): Promise<void>
       reason: entry.reason,
       attempts: entry.attempts,
       robotsRequests: entry.robotsRequests,
+      robotsFetches: entry.robotsFetches,
       site: entry.site,
       blockedSite: entry.blockedSite,
+      fromCache: entry.fromCache,
     },
   });
 }
@@ -66,13 +68,16 @@ export async function loadOrgSettingsJson(orgId: string): Promise<unknown> {
   return (await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } }))?.settingsJson ?? null;
 }
 
-/** 这棵树过去的读页审计（按 jobId）：重建会话时恢复每支的已用额度与被挡站、数分支 */
+/**
+ * 这棵树过去的读页审计（按 jobId）：重建会话时恢复每支的已用额度、取 robots 次数与被挡站、数分支。
+ * 多取一行：超过上限时调用方据此判为历史不可信（这棵树不再读页），不按部分历史放行。
+ */
 export async function loadTreeHistory(orgId: string, jobId: string): Promise<TreeHistoryRow[]> {
   const rows = await db.auditLog.findMany({
     where: { orgId, action: WEB_READ_AUDIT_ACTION, targetType: "research_job", targetId: jobId },
     select: { afterData: true },
     orderBy: { createdAt: "asc" },
-    take: WEB_READER_LIMITS.HISTORY_MAX_ROWS,
+    take: WEB_READER_LIMITS.HISTORY_MAX_ROWS + 1,
   });
   const out: TreeHistoryRow[] = [];
   for (const r of rows) {
@@ -81,15 +86,15 @@ export async function loadTreeHistory(orgId: string, jobId: string): Promise<Tre
       try {
         d = JSON.parse(d);
       } catch {
-        continue;
+        d = null;
       }
     }
-    if (!d || typeof d !== "object") continue;
-    const a = d as Record<string, unknown>;
-    if (typeof a.branchKey !== "string") continue;
+    const a = d && typeof d === "object" ? (d as Record<string, unknown>) : {};
+    // 读不出的行也占一个位置（计入行数上限），只是不归到任何一支
     out.push({
-      branchKey: a.branchKey,
+      branchKey: typeof a.branchKey === "string" ? a.branchKey : "",
       attempts: typeof a.attempts === "number" ? a.attempts : 0,
+      robotsFetches: typeof a.robotsFetches === "number" ? a.robotsFetches : 0,
       blockedSite: typeof a.blockedSite === "string" ? a.blockedSite : null,
     });
   }

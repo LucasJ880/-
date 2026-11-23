@@ -80,6 +80,20 @@
 - **WHEN** 某站点在这一支里被挡过一次（首次请求即被挡、或从缓存取到被挡结果、或并发的另一个读取刚被挡），再读同站另一个网址
 - **THEN** 直接返回「被挡」（原因：这一支里该站点已被挡），不发请求、不扣额度（`web-reader.test.ts`、`web-reader-edges.test.ts`）
 
+### Requirement: 不经代理换地址
+被挡之后系统 SHALL NOT 经第三方抓取代理、网页快照或翻译代理换地址读同一个站：这类服务（如 r.jina.ai、translate.goog、webcache.googleusercontent.com、web.archive.org、archive.ph、12ft.io）SHALL 预置在「不碰」里；网址的路径或查询里（百分号编码最多解两层）嵌着这一支被挡过的站或其子域名时，SHALL 按「这一支里该站点已被挡」处理、不发请求；嵌着「不碰」站时 SHALL 返回「不读」。每一跳都这样查。
+
+#### Scenario: 经代理换地址
+- **WHEN** gov.example 返回 403 后，同一支读 `https://r.jina.ai/https://gov.example/a` 等预置代理网址、`https://fetcher.example/get?u=https%3A%2F%2Fgov.example%2Fa`、一个跳转到这种网址的页面；以及嵌着 LinkedIn 的代理网址
+- **THEN** 预置代理与嵌着 LinkedIn 的返回「不读」，嵌着 gov.example 的返回「被挡」（站点 gov.example），代理与 gov.example 上都没有请求；别的支读不在名单里的代理网址照读（`web-reader-edges.test.ts`、`web-reader-pure.test.ts`）
+
+### Requirement: 其它状态码
+HTTP 404、410 等其它 4xx（401、403、407、429 之外）与 1xx，系统 SHALL 返回「打不开」（原因：页面不存在或已下线）、不重试。3xx 系统 SHALL 只跟 301、302、303、307、308 且带 Location 的；其它 3xx（如 300、304）或没有 Location 的 SHALL 返回「打不开」（原因：跳转地址无效）、不请求别处。
+
+#### Scenario: 其它状态码
+- **WHEN** 读页目标返回 404、410、300、没有 Location 的 302
+- **THEN** 都返回「打不开」，各只发出一次请求（`web-reader.test.ts`、`web-reader-edges.test.ts`）
+
 ### Requirement: 临时故障有限重试
 超时、连接中断与 HTTP 5xx 系统 SHALL 视为临时故障，最多重试 2 次，两次重试前的等待 SHALL 递增（1 秒、3 秒）；仍失败 SHALL 返回「打不开」。HTTP 429 只在对方给出等待时间（纯数字秒数，或带 GMT 的 HTTP 日期）且不超过 30 秒时，系统 SHALL 等够后再试一次；没有给出、认不出、超过 30 秒或再试仍为 429 时 SHALL 返回「被挡」。重试、等待、站点排队与等候别的支同址结果都 SHALL NOT 超过调用方给的截止时间，到时返回「打不开」（原因：这一轮处理时间到了）；单次请求的超时被截止时间缩短后超时的，同样按「时间到了」处理。
 
@@ -107,11 +121,19 @@
 - **THEN** 前几种都被拒绝；最后一种仍只按原额度读（`web-reader-edges.test.ts`）
 
 ### Requirement: 额度跨会话与分支上限
-建会话时 SHALL 从这棵树的读页审计里恢复每支已发过请求的读页次数与被挡站，所以同一 Job 重建会话也不会清零；每棵树 SHALL 最多 24 个分支（审计里已有的加上本会话的）；每支发起取 robots 的次数 SHALL 不超过 12 次，超了按到上限。
+每支的已用读页数、取 robots 次数与被挡站 SHALL 按 Job 记一份账：同一进程里同一 Job 的多个会话（含并发的）共用，建会话时再与这棵树的读页审计取大，所以重建会话不清零、并发会话不翻倍。每棵树 SHALL 最多 24 支；每支取 robots SHALL 不超过 12 次，超了返回「到上限」（原因：取读取规则的次数到上限）；每支被挡站到 24 个 SHALL 不再读页。审计历史超过 2000 行 SHALL 视为不可信，这棵树不再读页。跨进程同时处理同一 Job 不在本层防范（由调研 Job 的运行时保证同一时间只有一处处理）。
 
 #### Scenario: 重建会话不清零
-- **WHEN** 审计里某一支已发过请求的读页有 12 次、另一支有 2 次且有一个被挡站，同一 Job 重建会话；审计里已有 24 支时再建第 25 支
-- **THEN** 前者额度为 0、读不了；后者已用 2、被挡站照样被挡；第 25 支被拒（`web-reader-edges.test.ts`、`web-reader-context-db.isolated.test.ts`）
+- **WHEN** 审计里某一支已发过请求的读页有 12 次、另一支有 2 次且有一个被挡站、第三支取过 12 次 robots、第四支从缓存拿到过被挡结果，同一 Job 在新进程里重建会话；审计里已有 24 支时再建第 25 支
+- **THEN** 第一支额度为 0；第二支已用 2、被挡站照样被挡；第三支到上限、不发请求；第四支的被挡站照样被挡；第 25 支被拒（`web-reader-edges.test.ts`、`web-reader-context-db.isolated.test.ts`）
+
+#### Scenario: 并发会话不翻倍
+- **WHEN** 同一 Job 同时开两个会话，各给同一支 12 次额度并发读 24 个网址；两个会话合计开第 25 支；一个会话里该支被某站挡了，另一个会话的同一支读该站
+- **THEN** 合计只发 12 个页面请求；第 25 支被拒；后者不发请求（`web-reader-edges.test.ts`）
+
+#### Scenario: 历史超限
+- **WHEN** 审计里这棵树有 2001 行；或别支 1500 行之后某一支又有 12 次读页
+- **THEN** 前者这棵树任何一支都读不了、不发请求；后者那一支额度为 0（`web-reader-edges.test.ts`、`web-reader-context-db.isolated.test.ts`）
 
 ### Requirement: 同站间隔
 同一进程内对同一站点（主机名去掉 `www.`）的任意两次请求（含 robots 请求、重试与跳转），开始时间之间 SHALL 至少间隔 2 秒，并行的多支、多个会话都一样。
@@ -121,7 +143,7 @@
 - **THEN** 该站点上任意两次请求的开始时间相差不少于 2 秒（`web-reader.test.ts`、`web-reader-edges.test.ts`）
 
 ### Requirement: 同一读页会话内同一网址只读一次
-调用方 SHALL NOT 能改会话与上下文里影响判断的任何状态（站点名单、被挡站、截止时间、审计归属都在读页层内部；对外给的是冻结的只读外观与快照）。同一读页会话（一棵树的一次处理）内，系统 SHALL 把每个网址（去掉片段、主机名小写并去掉末尾的点、去掉默认端口后）第一次读取的结果记下；第二次读同一网址 SHALL 直接返回第一次的结果，SHALL NOT 发请求、SHALL NOT 扣额度；两支并发读同一网址 SHALL 只发一次请求。「到上限」「这一支里该站点已被挡」「时间到了」「网址检查不过」这几种与调用方状态有关的结果 SHALL NOT 记下，也 SHALL NOT 给别的支共用（别的支按自己的状态再读）。跨处理的去重由调用方传入持久缓存实现；从调用方的缓存取到的对象 SHALL 先校验形状（不合格当没命中），并一律重新标成不可信。返回的结果对象 SHALL 不可修改。
+调用方 SHALL NOT 能改会话与上下文里影响判断的任何状态（站点名单、被挡站、截止时间、审计归属都在读页层内部；对外给的是冻结的只读外观与快照）。同一读页会话（一棵树的一次处理）内，系统 SHALL 把每个网址（去掉片段、主机名小写并去掉末尾的点、去掉默认端口后）第一次读取的结果记下；第二次读同一网址 SHALL 直接返回第一次的结果，SHALL NOT 发请求、SHALL NOT 扣额度；两支并发读同一网址 SHALL 只发一次请求。「到上限」「这一支里该站点已被挡」「时间到了」「网址检查不过」这几种与调用方状态有关的结果 SHALL NOT 记下，也 SHALL NOT 给别的支共用（别的支按自己的状态再读）。跨处理的去重由调用方传入持久缓存实现；从调用方的缓存取到的对象 SHALL 先校验形状（不合格当没命中），并一律重新标成不可信；写调用方缓存失败 SHALL NOT 影响结果与审计。返回的结果对象 SHALL 不可修改。
 
 #### Scenario: 同址去重
 - **WHEN** 两支先后读 `https://Example.gov:443/a#x` 与 `https://example.gov/a`；或两支并发读同一网址
@@ -136,7 +158,7 @@
 - **THEN** 「不碰」照旧、被挡站照旧不发请求、审计归属不变、NaN 被拒、额度只按第一次读到的值（`web-reader-edges.test.ts`）
 
 ### Requirement: 站点名单
-系统 SHALL 按站点名单处理每个站点（每一跳都查）：「不碰」里的站点 SHALL 直接不读、不发请求，预置至少包括 1688 详情页、MERX 与青砚自己的站点（qingyan.ca、qingyan.ai、vercel.app 预览域名）；「按人发起处理」里的站点 SHALL NOT 读取 robots 声明，读页额度与其它站点相同，预置 ImportYeti；其余站点（含「可以读」）按 robots 声明读。组织设置 SHALL 只能把站点加进「不碰」或「可以读」，「不碰」永远优先，SHALL NOT 把预置「不碰」的站点放出来，SHALL NOT 新增「按人发起处理」的站点。
+系统 SHALL 按站点名单处理每个站点（每一跳都查）：「不碰」里的站点 SHALL 直接不读、不发请求，预置至少包括 1688 详情页、MERX、第三方抓取代理 / 快照 / 翻译代理与青砚自己的站点（qingyan.ca、qingyan.ai、vercel.app 预览域名）；「按人发起处理」里的站点 SHALL NOT 读取 robots 声明，读页额度与其它站点相同，预置 ImportYeti；其余站点（含「可以读」）按 robots 声明读。组织设置 SHALL 只能把站点加进「不碰」或「可以读」，「不碰」永远优先，SHALL NOT 把预置「不碰」的站点放出来，SHALL NOT 新增「按人发起处理」的站点。
 
 #### Scenario: 不碰的站
 - **WHEN** 读 `https://detail.1688.com/offer/1.html` 或 `https://www.merx.com/x`，或组织设置把某站点（含 ImportYeti）加进「不碰」后读该站
@@ -147,11 +169,11 @@
 - **THEN** 不请求它的 robots 声明，直接读页面，并照常扣额度（`web-reader.test.ts`）
 
 ### Requirement: robots 声明
-不在「按人发起处理」名单里的站点，系统 SHALL 先读它的 robots 声明并遵守：按「QingyanResearchBot」组，没有则「*」组（产品名后的版本号忽略）；规则与路径按 UTF-8 百分号编码归一后比较（百分号编码的非保留字符先解码）；最长匹配优先、同长「允许」优先；路径含查询串。robots 读不到（404 等 4xx，含 401 / 403）时视为全部允许；返回 429、5xx、超时、连接失败，或规则超过 5000 条、单条模式超过 512 字时 SHALL 视为读取失败、全部不许读；一次匹配的计算量超过上限 SHALL 按不许读处理。读取失败与读到的规则在同一读页会话内共用。
+不在「按人发起处理」名单里的站点，系统 SHALL 先读它的 robots 声明并遵守：按「QingyanResearchBot」组，没有则「*」组（组名只取开头的字母、下划线与连字符，不分大小写，后面的版本号等忽略）；规则与路径按 UTF-8 百分号编码归一后比较（百分号编码的非保留字符先解码）；最长匹配优先、同长「允许」优先；路径含查询串，路径里有重复斜杠时合并前后两种写法都允许才读。robots 读不到（404 等 4xx，含 401 / 403）时视为全部允许；返回 429、5xx、超时、连接失败，或规则超过 5000 条、单条模式超过 512 字时 SHALL 视为读取失败、全部不许读；一次匹配的计算量超过上限 SHALL 按不许读处理。读取失败与读到的规则在同一读页会话内共用。
 
 #### Scenario: robots
-- **WHEN** 站点 robots 对「*」写了 `Disallow: /private`；读 `/private/a` 与 `/public/b`；另一站点 robots 返回 503；`www.canada.ca` 的 robots 不许读 `/x`
-- **THEN** `/private/a` 返回「被挡」且没有页面请求，`/public/b` 读到正文；robots 返回 503 的站点返回「被挡」；`www.canada.ca/x` 返回「被挡」（`web-reader.test.ts`、`web-reader-edges.test.ts`、`web-reader-pure.test.ts`）
+- **WHEN** 站点 robots 对「*」写了 `Disallow: /private`；读 `/private/a`、`//private/a` 与 `/public/b`；另一站点 robots 返回 503；`www.canada.ca` 的 robots 不许读 `/x`；robots 写 `User-agent: QingyanResearchBot 1.0` + `Disallow: /`
+- **THEN** `/private/a` 与 `//private/a` 不许读，`/public/b` 读到正文；robots 返回 503 的站点返回「被挡」；`www.canada.ca/x` 返回「被挡」；最后一种按本机器人的组不许读（`web-reader.test.ts`、`web-reader-edges.test.ts`、`web-reader-pure.test.ts`）
 
 ### Requirement: robots 的跳转
 robots 的跳转 SHALL 只跟到别处的 `/robots.txt`（最多 5 次），跳到别的页面或登录地址视为没有 robots 且 SHALL NOT 请求它；跳到 IP 地址 SHALL NOT 请求、按读取失败处理；跳到「不碰」站 SHALL NOT 请求、按读取失败处理；跳到这一支被挡过的站 SHALL NOT 请求、按「这一支里该站点已被挡」处理，这个结论 SHALL NOT 给别的支共用。等别的支取 robots 的时间 SHALL 受本支截止时间约束。
@@ -165,22 +187,22 @@ robots 的跳转 SHALL 只跟到别处的 `/robots.txt`（最多 5 次），跳�
 - **THEN** 后者到自己的截止就返回「时间到了」（`web-reader-edges.test.ts`）
 
 ### Requirement: 读到什么
-系统 SHALL 只接收 HTML、XHTML 与纯文本：HTML 与 XHTML 转成纯文本，PDF 见「PDF 不在本层解析」，其它类型 SHALL 返回「不读」。单次请求（含读完正文）超过 15 秒 SHALL 视为超时。正文（解压后）超过 2 MB 时 SHALL 只取前 2 MB 并标「已截断」。返回的正文 SHALL 清掉 U+0000、落单代理字符、Unicode 标签字符、双向控制符与零宽字符。
+系统 SHALL 只接收 HTML 与 XHTML，转成纯文本；PDF 见「PDF 不在本层解析」；纯文本与其它类型 SHALL 返回「不读」。单次请求（含读完正文）超过 15 秒 SHALL 视为超时。正文（解压后）超过 2 MB 时 SHALL 只取前 2 MB 并标「已截断」。返回的正文 SHALL 清掉 U+0000、落单代理字符、Unicode 标签字符、双向控制符与零宽字符。
 
 #### Scenario: 超长正文与不支持的类型
-- **WHEN** 读一个 3 MB 的 HTML 页面；读一个 `image/png`；读一个 gzip 压缩后 300 KB、解压后 20 MB 的响应
-- **THEN** 前者读到正文且标「已截断」；`image/png` 返回「不读」；压缩炸弹按 2 MB 截断（`web-reader.test.ts`、`web-reader-transport.test.ts`）
+- **WHEN** 读一个 3 MB 的 HTML 页面；读一个 `image/png` 与一个 `text/plain`；读一个 gzip 压缩后 300 KB、解压后 20 MB 的响应；读一个 3 KB、解压后 4 GiB 的 brotli 响应
+- **THEN** 前者读到正文且标「已截断」；`image/png` 与 `text/plain` 返回「不读」；两个压缩炸弹都按上限截断，截断后不在后台继续解压（`web-reader.test.ts`、`web-reader-transport.test.ts`）
 
 #### Scenario: 不可见字符
 - **WHEN** 页面正文里有 Unicode 标签字符、双向控制符、零宽字符与 `&#xD800;`
 - **THEN** 返回的正文里都没有（`web-reader-edges.test.ts`）
 
 ### Requirement: PDF 不在本层解析
-网址路径以 `.pdf` 结尾的，系统 SHALL 不读、不发请求（连 robots 也不取）；返回的类型是 PDF 的，系统 SHALL NOT 解析正文、返回「不读」（原因写明请用「我来补一页」上传）。进程内解析 PDF 限不住解析成本（构造的小文件就能占住几秒到几十秒、上 GB 内存），在能做到进程隔离之前本层 SHALL NOT 解析 PDF。
+网址路径以 `.pdf` 结尾的，系统 SHALL 不读、不发请求（连 robots 也不取）；返回的类型是 PDF、或正文开头是 `%PDF-`（不管标的什么类型）的，系统 SHALL NOT 解析、SHALL NOT 返回正文，返回「不读」（原因写明请用「我来补一页」上传）。进程内解析 PDF 限不住解析成本（构造的小文件就能占住几秒到几十秒、上 GB 内存），在能做到进程隔离之前本层 SHALL NOT 解析 PDF。
 
 #### Scenario: PDF
-- **WHEN** 读一个以 `.pdf` 结尾的网址；读一个返回 `application/pdf` 的网址
-- **THEN** 前者不读、没有任何请求；后者不读、正文为空（`web-reader.test.ts`、`web-reader-edges.test.ts`）
+- **WHEN** 读一个以 `.pdf` 结尾的网址；读一个返回 `application/pdf` 的网址；读一个标成 `text/html`、正文是 PDF 字节的网址
+- **THEN** 前者不读、没有任何请求；后两者不读、正文为空（`web-reader.test.ts`、`web-reader-edges.test.ts`）
 
 ### Requirement: 返回结构
 返回结果 SHALL 带 `untrusted: true`、请求的网址、最终网址（实际请求过的最后一个网址，一个请求都没发时为空）、读取时间、正文、是否截断、被挡原因与站点（没被挡为空）、结果类别（读到 / 被挡 / 打不开 / 不读 / 到上限）、原因与一句中文、HTTP 状态、页面请求数与 robots 请求数、是否来自缓存。
@@ -190,21 +212,21 @@ robots 的跳转 SHALL 只跟到别处的 `/robots.txt`（最多 5 次），跳�
 - **THEN** 都带 `untrusted: true` 与上述字段；被挡的带原因与站点；跳到 `data:` 的最终网址是最后一个实际请求过的网址（`web-reader.test.ts`、`web-reader-edges.test.ts`）
 
 ### Requirement: 结果与原因文案
-系统 SHALL 为结果类别提供唯一一份中文名：读到、被挡、打不开、不读、到上限；SHALL 为每个原因提供唯一一句中文，被挡句以「未读取」结尾、不读句以「不读」结尾，原因句里 SHALL NOT 出现「robots」这样的技术词；读页额度用完的那句 SHALL 为「读页次数到上限，未读」（整支一级的「到上限，未查完」由调研树写）。
+系统 SHALL 为结果类别提供唯一一份中文名：读到、被挡、打不开、不读、到上限；SHALL 为每个原因提供唯一一句中文，被挡句以「未读取」结尾、不读句以「不读」结尾，原因句里 SHALL NOT 出现「robots」这样的技术词；读页额度用完的那句 SHALL 为「读页次数到上限，未读」，取读取规则次数到上限与被挡站到上限各有一句（整支一级的「到上限，未查完」由调研树写）。
 
 #### Scenario: 文案
 - **WHEN** 取各类别与各原因的中文
 - **THEN** 与上面的规定一致（`web-reader-pure.test.ts`）
 
 ### Requirement: 调用方的网址检查
-建立某一支的读页上下文时，调用方 SHALL 给一个网址检查（不给就拒绝建立）；对调用方给出的每个网址，检查不过时系统 SHALL 返回「不读」（原因：网址不是从搜索结果或已读页面里来的）、不发请求、不扣额度。该检查 SHALL 只用于调用方给出的网址，SHALL NOT 用于对方返回的跳转目标。
+建立某一支的读页上下文时，调用方 SHALL 给一个网址检查（不给就拒绝建立）；对调用方给出的每个网址，检查只有返回 `true` 才算通过（返回 Promise 或别的值都不算），不过时系统 SHALL 返回「不读」（原因：网址不是从搜索结果或已读页面里来的）、不发请求、不扣额度。该检查 SHALL 只用于调用方给出的网址，SHALL NOT 用于对方返回的跳转目标。
 
 #### Scenario: 网址检查
-- **WHEN** 检查只放行 `ok.example`，读 `https://evil.example/?q=…` 与 `https://ok.example/p`；另一次建上下文时不给检查
-- **THEN** 前者不读、没有请求、额度不变；后者照读；不给检查的建立失败（`web-reader-edges.test.ts`）
+- **WHEN** 检查只放行 `ok.example`，读 `https://evil.example/?q=…` 与 `https://ok.example/p`；另一次建上下文时不给检查；检查是 async 函数、或返回 1 / 字符串 / undefined
+- **THEN** 前者不读、没有请求、额度不变；后者照读；不给检查的建立失败；后几种都不读（`web-reader-edges.test.ts`）
 
 ### Requirement: 审计不记正文
-每次实际发出过请求（页面请求或 robots 请求）的读页，系统 SHALL 写一条审计，内容只有分支、网址、最终网址（各不超过 2048 字）、结果类别、HTTP 状态、正文字数、是否截断、原因、页面请求数、robots 请求数、站点与被挡站，记在发起人名下、指向调研 Job；这些审计同时是重建会话时恢复额度与被挡站的依据。仓库里读网页模块以外 SHALL NOT 写这个审计动作。审计、日志与错误信息 SHALL NOT 包含页面正文、请求头或响应头。
+每次发出过请求、或这一支发起过取 robots 的读页，以及这一支从缓存拿到被挡结果而新记下被挡站时，系统 SHALL 写一条审计，内容只有分支、网址、最终网址（各不超过 2048 字）、结果类别、HTTP 状态、正文字数、是否截断、原因、页面请求数、robots 请求数、取 robots 次数、站点、被挡站与是否来自缓存，记在发起人名下、指向调研 Job；这些审计同时是重建会话时恢复账的依据。仓库里读网页模块以外 SHALL NOT 写这个审计动作。审计、日志与错误信息 SHALL NOT 包含页面正文、请求头或响应头。
 
 #### Scenario: 审计内容
 - **WHEN** 读到一个正文含「SECRET-BODY-TEXT」的页面；读一个只请求了 robots（返回 503）就被挡的页面

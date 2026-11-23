@@ -45,7 +45,10 @@ export type RefusedReason =
   | "unsupported_type"
   | "pdf_not_read";
 
-export type PageReadReason = BlockedReason | UnreachableReason | RefusedReason | "budget_exhausted";
+/** 到上限的原因：读页次数、取 robots 的次数、被挡站数（每支） */
+export type LimitReason = "budget_exhausted" | "robots_limit" | "blocked_sites_limit";
+
+export type PageReadReason = BlockedReason | UnreachableReason | RefusedReason | LimitReason;
 
 export type PageReadResult = {
   untrusted: true;

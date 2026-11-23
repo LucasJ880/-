@@ -142,6 +142,42 @@ export function hostOf(url: URL): string {
   return url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
 }
 
+/** 站点键（主机名字符串）：小写、去方括号、去末尾的点、去开头的 www.（调用方传回的被挡站也按它归一） */
+export function siteKeyOfHost(host: string): string {
+  return host.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "").replace(/^www\./, "");
+}
+
+const EMBEDDED_HOST_RE = /(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}/g;
+/** 嵌入主机名的扫描范围与个数上限（防止超长网址占 CPU） */
+const EMBEDDED_SCAN_MAX_CHARS = 4096;
+const EMBEDDED_MAX_HOSTS = 64;
+
+/**
+ * 网址的路径与查询里嵌着的主机名（站点键，去重；不含网址自己的主机）。用于识别「经抓取代理 / 快照 / 翻译代理
+ * 换地址读同一个站」：`https://proxy.example/https://gov.example/a`、`?url=gov.example%2Fa` 都能认出 gov.example。
+ * 百分号编码最多解两层。
+ */
+export function embeddedHostsOf(url: URL): string[] {
+  let s = (url.pathname + url.search).slice(0, EMBEDDED_SCAN_MAX_CHARS).toLowerCase();
+  for (let i = 0; i < 2; i++) {
+    try {
+      const d = decodeURIComponent(s.replace(/\+/g, " "));
+      if (d === s) break;
+      s = d;
+    } catch {
+      break;
+    }
+  }
+  const own = siteKeyOfHost(hostOf(url));
+  const out = new Set<string>();
+  for (const m of s.matchAll(EMBEDDED_HOST_RE)) {
+    const k = siteKeyOfHost(m[0]);
+    if (k && k !== own) out.add(k);
+    if (out.size >= EMBEDDED_MAX_HOSTS) break;
+  }
+  return [...out];
+}
+
 /** 主机名本身就是 IP 字面量时返回它 */
 export function ipLiteralOf(url: URL): string | null {
   const h = hostOf(url);
@@ -168,6 +204,33 @@ export const PRESET_SITE_POLICY: SitePolicy = Object.freeze({
     "qingyan.ca",
     "qingyan.ai",
     "vercel.app",
+    // 第三方抓取代理、网页快照与翻译代理：经它们读别的站等于「换地址、换代理」（任务书规则 4 不做）。
+    // 名单列不全；通用的防线是「网址里嵌着被挡站 / 不碰站的主机名」也按被挡 / 不碰处理（embeddedHostsOf）
+    "translate.goog",
+    "translate.google.com",
+    "translate.googleusercontent.com",
+    "webcache.googleusercontent.com",
+    "jina.ai",
+    "12ft.io",
+    "1ft.io",
+    "smry.ai",
+    "archive.org",
+    "archive.ph",
+    "archive.is",
+    "archive.today",
+    "archive.li",
+    "archive.vn",
+    "archive.md",
+    "archive.fo",
+    "ghostarchive.org",
+    "cachedview.nl",
+    "mementoweb.org",
+    "translatetheweb.com",
+    "microsofttranslator.com",
+    "croxyproxy.com",
+    "proxysite.com",
+    "hidester.com",
+    "kproxy.com",
   ]),
   humanInitiated: Object.freeze(["importyeti.com"]),
   allow: Object.freeze(["canada.ca", "gc.ca", "canadabuys.canada.ca"]),
@@ -273,8 +336,9 @@ export function parseRobots(text: string): RobotsGroup[] {
         current = { agents: [], rules: [] };
         groups.push(current);
       }
-      // 只取产品名（「QingyanResearchBot/1.0」也算本机器人）
-      current.agents.push(value.split("/")[0].trim().toLowerCase());
+      // 只取产品名（RFC 9309：开头的字母、下划线、连字符；「QingyanResearchBot/1.0」「QingyanResearchBot 1.0」都算本机器人）
+      const v = value.trim();
+      current.agents.push(v.startsWith("*") ? "*" : (/^[A-Za-z_-]+/.exec(v)?.[0] ?? "").toLowerCase());
       lastWasAgent = true;
       continue;
     }
@@ -330,6 +394,15 @@ export function robotsPatternMatches(pattern: string, path: string, budget?: { s
 export function isAllowedByRobots(groups: readonly RobotsGroup[], rawPathWithQuery: string): boolean {
   const pathWithQuery = canonRobotsPath(rawPathWithQuery);
   if (pathWithQuery === "/robots.txt") return true;
+  // 「//private/a」这类重复斜杠：多数服务器当作 /private/a，两种写法都要被允许才读
+  const q = pathWithQuery.indexOf("?");
+  const pathPart = q < 0 ? pathWithQuery : pathWithQuery.slice(0, q);
+  const collapsed = pathPart.replace(/\/{2,}/g, "/") + (q < 0 ? "" : pathWithQuery.slice(q));
+  if (collapsed !== pathWithQuery && !allowedByRobotsCanon(groups, collapsed)) return false;
+  return allowedByRobotsCanon(groups, pathWithQuery);
+}
+
+function allowedByRobotsCanon(groups: readonly RobotsGroup[], pathWithQuery: string): boolean {
   const budget = { steps: ROBOTS_MATCH_STEP_BUDGET };
   const token = ROBOTS_PRODUCT_TOKEN.toLowerCase();
   let matched = groups.filter((g) => g.agents.includes(token));
@@ -447,7 +520,7 @@ export function metaRefreshTarget(html: string, base: URL): URL | null {
   const head = html.slice(0, 200_000);
   const m = /<meta\b[^>]{0,300}http-equiv\s*=\s*["']?refresh["']?[^>]{0,500}>/i.exec(head);
   if (!m) return null;
-  const c = /content\s*=\s*["']?\s*\d*\s*[;,]?\s*url\s*=\s*([^"'>\s]{1,2048})/i.exec(m[0]);
+  const c = /content\s*=\s*["']?\s*\d*\s*[;,]?\s*url\s*=\s*["']?([^"'>\s]{1,2048})/i.exec(m[0]);
   if (!c) return null;
   try {
     return new URL(c[1], base);
@@ -516,9 +589,11 @@ const REASON_ZH: Record<PageReadReason, string> = {
   login_url: "这是登录地址，不读",
   ip_literal: "网址是 IP 地址而不是网站域名，不读",
   url_not_allowed: "这个网址不是从搜索结果或已读页面里来的，不读",
-  unsupported_type: "不是网页、纯文本或 PDF，不读",
+  unsupported_type: "不是网页（HTML），不读",
   pdf_not_read: "PDF 不在线解析（安全原因），请用「我来补一页」上传，这里不读",
   budget_exhausted: "读页次数到上限，未读",
+  robots_limit: "这一支查网站读取规则的次数到上限，未读",
+  blocked_sites_limit: "这一支被挡的网站已达上限，未读",
 };
 
 export function reasonMessageZh(reason: PageReadReason | null): string {

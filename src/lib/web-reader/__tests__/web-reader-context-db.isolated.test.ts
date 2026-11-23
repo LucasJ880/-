@@ -126,7 +126,7 @@ async function main() {
     ok(a?.userId === USER && a?.targetType === "research_job", "审计记在发起人名下、指向调研 Job");
     ok(after.url === "https://example.gov/award" && after.httpStatus === 200 && after.chars === page.text.length && typeof after.chars === "number" && after.outcome === "ok" && after.branchKey === "prior_award", "审计含网址、状态、字数", { after, textLength: page.text.length });
     ok(!JSON.stringify(audits).includes("SECRET-BODY-TEXT"), "审计里搜不到正文");
-    ok(Object.keys(after).sort().join(",") === "attempts,blockedSite,branchKey,chars,finalUrl,httpStatus,outcome,reason,robotsRequests,site,truncated,url", "审计 afterData 的键固定", Object.keys(after));
+    ok(Object.keys(after).sort().join(",") === "attempts,blockedSite,branchKey,chars,finalUrl,fromCache,httpStatus,outcome,reason,robotsFetches,robotsRequests,site,truncated,url", "审计 afterData 的键固定", Object.keys(after));
 
     // 重建会话：已用额度与被挡站从审计历史恢复（同一 Job、同一支）
     const forbid = "https://forbid.example/p";
@@ -136,17 +136,60 @@ async function main() {
       if (req.url.hostname === "forbid.example") return { status: 403, headers: { "content-type": "text/html" }, body: new Uint8Array(), truncated: false };
       return { status: 200, headers: { "content-type": "text/html" }, body: enc.encode(`<p>${"Award notice. ".repeat(200)}</p>`), truncated: false };
     } } };
-    const deps403 = { ...deps, reader: reader403 };
-    const s2 = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: research }, deps403);
+    // 每次重建都换一个新的时钟对象 = 新进程的账本：只能靠库里的审计历史恢复
+    const freshDeps = () => ({ ...deps, reader: { ...reader403, clock: { now: () => Date.now(), sleep: async () => undefined } } });
+    const s2 = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: research }, freshDeps());
     const c2 = s2.forBranch({ branchKey: "prior_award", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
     ok(c2.budget.used === 1 && c2.budget.remaining === 11, "重建会话：上一次发过请求的读页计入已用", c2.budget);
     const blockedRead = await readPublicPage(forbid, c2);
     ok(blockedRead.reason === "http_403" && blockedRead.blocked?.site === "forbid.example", "这次读到 403");
-    const s3 = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: research }, deps403);
+    const s3 = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: research }, freshDeps());
     const c3 = s3.forBranch({ branchKey: "prior_award", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
     const before = requests.length;
     const again = await readPublicPage("https://forbid.example/other", c3);
     ok(again.reason === "site_blocked_in_branch" && requests.length === before && c3.budget.used === 2, "再重建：被挡站从审计恢复、不再发请求；已用 2", { again: again.reason, budget: c3.budget });
+
+    // 第三轮挑错后补：缓存被挡也写审计、取 robots 次数从审计恢复、历史行数超限
+    const cacheMarkJob = await mkJob(ORG, USER, MARK);
+    const sm = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: cacheMarkJob }, freshDeps());
+    const cA = sm.forBranch({ branchKey: "A", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
+    const cB = sm.forBranch({ branchKey: "B", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
+    await readPublicPage(forbid, cA);
+    const viaCache = await readPublicPage(forbid, cB);
+    const markRows = await db.auditLog.findMany({ where: { orgId: ORG, action: WEB_READ_AUDIT_ACTION, targetId: cacheMarkJob } });
+    const marks = markRows.map((r) => JSON.parse(String(r.afterData)) as Record<string, unknown>).filter((d) => d.branchKey === "B");
+    ok(viaCache.fromCache && marks.length === 1 && marks[0].fromCache === true && marks[0].attempts === 0 && marks[0].blockedSite === "forbid.example", "B 从缓存拿到被挡：库里有一条不含请求的审计", marks);
+    const sm2 = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: cacheMarkJob }, freshDeps());
+    const cB2 = sm2.forBranch({ branchKey: "B", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
+    const before2 = requests.length;
+    const rB = await readPublicPage("https://forbid.example/third", cB2);
+    ok(rB.reason === "site_blocked_in_branch" && requests.length === before2 && cB2.budget.used === 0, "重建后 B 仍记得被挡站、不发请求、没扣额度", { r: rB.reason, b: cB2.budget });
+
+    const robotsJob = await mkJob(ORG, USER, MARK);
+    for (let i = 0; i < 2; i++) {
+      await writeWebReadAudit({ orgId: ORG, userId: USER, jobId: robotsJob, branchKey: "R", url: `https://r${i}.example/p`, finalUrl: null, outcome: "blocked", httpStatus: null, chars: 0, truncated: false, reason: "robots_disallow", attempts: 0, robotsRequests: 1, robotsFetches: 6, site: `r${i}.example`, blockedSite: `r${i}.example`, fromCache: false });
+    }
+    const sr = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: robotsJob }, freshDeps());
+    const cR = sr.forBranch({ branchKey: "R", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
+    const before3 = requests.length;
+    const rR = await readPublicPage("https://fresh-robots.example/p", cR);
+    ok(rR.reason === "robots_limit" && requests.length === before3, "库里这一支已取过 12 次 robots：重建后到上限、不发请求", rR.reason);
+
+    const bigJob = await mkJob(ORG, USER, MARK);
+    const noise = Array.from({ length: 1500 }, (_, i) => ({ userId: USER, orgId: ORG, action: WEB_READ_AUDIT_ACTION, targetType: "research_job", targetId: bigJob, afterData: JSON.stringify({ branchKey: `n${i % 20}`, attempts: 0, robotsFetches: 0, blockedSite: null }) }));
+    await db.auditLog.createMany({ data: noise });
+    for (let i = 0; i < 12; i++) {
+      await writeWebReadAudit({ orgId: ORG, userId: USER, jobId: bigJob, branchKey: "victim", url: `https://v.example/${i}`, finalUrl: `https://v.example/${i}`, outcome: "ok", httpStatus: 200, chars: 10, truncated: false, reason: null, attempts: 1, robotsRequests: 0, robotsFetches: 0, site: "v.example", blockedSite: null, fromCache: false });
+    }
+    const sb = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: bigJob }, freshDeps());
+    const cv = sb.forBranch({ branchKey: "victim", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
+    ok(cv.budget.used === 12 && cv.budget.remaining === 0, "1500 行别支的历史在前：后写的 12 次读页照样恢复（不丢新行）", cv.budget);
+    await db.auditLog.createMany({ data: noise.slice(0, 500) });
+    const sb2 = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: bigJob }, freshDeps());
+    const cn = sb2.forBranch({ branchKey: "brand-new", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
+    const before4 = requests.length;
+    const rn = await readPublicPage("https://v.example/new", cn);
+    ok(rn.outcome === "limit" && cn.budget.remaining === 0 && requests.length === before4, "历史超过 2000 行：这棵树不再读页（不按部分历史放行）", { r: rn.reason, b: cn.budget });
   } finally {
     await db.auditLog.deleteMany({ where: { orgId: { in: [ORG, other.orgId] } } }).catch(() => undefined);
     await db.agentRunEvent.deleteMany({ where: { runId: { in: jobIds } } }).catch(() => undefined);

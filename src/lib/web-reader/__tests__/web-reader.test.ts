@@ -487,12 +487,12 @@ async function main() {
     const none = await readPublicPage("https://doc.example/none", ctx);
     ok("image/png 与没有类型：拒绝", img.outcome === "refused" && img.reason === "unsupported_type" && none.reason === "unsupported_type");
     const txt = await readPublicPage("https://doc.example/t.txt", ctx);
-    ok("纯文本：读到、归一、清掉 U+0000", txt.outcome === "ok" && txt.text === "Line 1\n\nLine 2", txt.text);
+    ok("纯文本：不读（只读 HTML，其它类型拒绝）", txt.outcome === "refused" && txt.reason === "unsupported_type" && txt.text === "", txt);
     const h = await readPublicPage("https://doc.example/h", ctx);
     ok("HTML：去掉 head 与 script，表格用制表符", h.text.includes("Award") && h.text.includes("Vendor\tACME") && !h.text.includes("evil"), h.text);
     const latin = await readPublicPage("https://doc.example/latin", ctx);
     ok("按 charset 解码", latin.text === "Café", latin.text);
-    ok("结果带 untrusted 与各字段", [big, h, txt].every((r) => r.untrusted === true && typeof r.fetchedAt === "string" && r.finalUrl !== null && r.blocked === null));
+    ok("结果带 untrusted 与各字段", [big, h].every((r) => r.untrusted === true && typeof r.fetchedAt === "string" && r.finalUrl !== null && r.blocked === null));
   }
 
   console.log("审计不记正文");
@@ -515,7 +515,7 @@ async function main() {
     const a = w.audits[0];
     ok("审计含网址、状态、字数、发起人与 Job", !!a && a.url === "https://aud.example/p" && a.httpStatus === 200 && a.chars === r.text.length && a.userId === "u1" && a.jobId === "job1" && a.outcome === "ok");
     ok("审计与日志里搜不到正文", !JSON.stringify(w.audits).includes("SECRET-BODY-TEXT") && !logs.join("\n").includes("SECRET-BODY-TEXT"));
-    ok("审计字段固定（没有正文 / 头）", !!a && Object.keys(a).sort().join(",") === "attempts,blockedSite,branchKey,chars,finalUrl,httpStatus,jobId,orgId,outcome,reason,robotsRequests,site,truncated,url,userId");
+    ok("审计字段固定（没有正文 / 头）", !!a && Object.keys(a).sort().join(",") === "attempts,blockedSite,branchKey,chars,finalUrl,fromCache,httpStatus,jobId,orgId,outcome,reason,robotsFetches,robotsRequests,site,truncated,url,userId");
   }
 
   console.log(`\nweb-reader: ${passed} passed, ${failed} failed`);
