@@ -195,7 +195,9 @@ function documentsStatusZh(f: BidPageFacts): string {
 }
 
 function actionOf(rule: BidPageRule, f: BidPageFacts): { labelZh: string; target: BidPageTarget } {
-  const t = rule === "bid_decided" && f.quote.bid.lineMode === true ? "quote" : BID_PAGE_RULE_TARGET[rule];
+  // 我方报价是逐行报价时，「已定」去 ②（按招标方价格表导出在那里）；只对看得到金额的人（② 对其余人是锁着的，做法也不让他们推断出来）
+  if (rule === "bid_decided" && f.canViewAmounts && f.quote.bid.lineMode === true) return { labelZh: "去导出价格表", target: { kind: "section", section: "quote" } };
+  const t = BID_PAGE_RULE_TARGET[rule];
   if (t === "requirements") return { labelZh: "去「招标要求」", target: { kind: "tab", tab: "requirements" } };
   return { labelZh: SECTION_GO_ZH[t], target: { kind: "section", section: t } };
 }

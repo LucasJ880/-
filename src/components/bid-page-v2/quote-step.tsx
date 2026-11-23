@@ -14,6 +14,7 @@ import { formatMoneyZh } from "@/lib/bid-page-v2/next-step";
 import {
   BUSINESS_TYPES,
   BUSINESS_TYPE_ZH,
+  CURRENCY_NAME_ZH,
   LINE_EVIDENCE_KINDS,
   LINE_EVIDENCE_LABELS_ZH,
   LINE_MODE_MAX_ROWS,
@@ -21,7 +22,11 @@ import {
   QUOTE_STATUS_ZH,
   parseNumInput,
   piecesPerUnit,
+  quoteDisplayName,
+  remainingPasteText,
   rowsFromParsed,
+  uomLabelZh,
+  currencyLabelZh,
   type BusinessType,
   type ExportAvailability,
   type InquiryQuoteOption,
@@ -49,28 +54,42 @@ export const QUOTE_STEP_TEXT = {
   proModeOnly: "供货加安装、长期供货协议在专业模式里做，建好后会打开专业模式",
   proMode: "专业模式",
   openInProMode: "在专业模式里打开",
+  openLineInProMode: "用专业模式打开",
   submitInProMode: "提交、批准在专业模式里做",
-  dirty: "有没保存的修改：下面的数字是上次保存时的，保存后更新",
-  marginNote: "毛利率已扣提成；目标毛利率是提成前、按售价算的，所以这里会比目标低",
+  dirty: "有修改还没保存：下面的数字是上次保存时的，保存后更新",
+  marginNote: "毛利率已扣销售提成，所以比目标毛利率低（目标毛利率按扣提成前算）",
   exportButton: "按招标方价格表导出",
   draftPrompt: "发现这台电脑上有未保存到系统的成本草稿，导入到这份报价？",
-  frozen: "这份报价已定或已结束，内容锁定；要改请在专业模式里另起新版",
+  draftSkip: "不导入（草稿留在这台电脑上，不会删，也不再提示）",
   readOnly: "你可以看这份报价，但没有编辑权限；要修改请找项目负责人",
   noEditList: "新建、修改报价需要项目编辑权限，请找项目负责人",
   exportNote: "导出的是逐行表里的行（品名、数量、单位以表里为准），交出去之前请与招标方的价格表核对",
-  landedNote: "到手单位成本 = 这一行按货值分到的直接成本与关税（含专业模式里加的其它直接成本）÷ 数量",
+  landedNote: "到手单位成本 = 这一行的货值，加上按货值摊到这一行的海运费、报关费、国内运费、关税，再除以数量（专业模式里加的其它直接成本也摊进来）",
+  marginColNote: "行毛利率 =（行合计 − 这一行按货值分到的全部成本，含资金使用、管理费、现金备用金、销售提成）÷ 行合计；单价取到分以后，各行和顶部毛利率会略有不同",
+  sharedNote: "海运费、报关费、国内运费、关税都算进报价合计（所以每行我方单价也跟着变）；它们在各行之间按货值分，分到多少显示在「到手单位成本」那一列",
+  landedDefine: "到手成本 = 货值 + 海运费 + 报关费 + 国内运费 + 关税",
+  formula: "报价 = 不含销售提成的成本 ÷（1 − 目标毛利率）；专业模式里加了按售价算的费用时，分母再减去这些比例。销售提成再从毛利里扣",
+  targetEmpty: "目标毛利率还没填，按 0% 算",
+  pasteSummary: "粘贴价格表（从 Excel 选中这几列复制、粘贴即可：行号、品名、数量、单位、包装数（可不填）；第一行是表头也没关系）",
+  conflictHint: "你这次的修改还在框里：先把要改的记下来，点「收起」再「打开」看最新内容，然后重新填",
+  discard: "放弃修改",
 } as const;
+
+/** 锁定的报价：带上状态名（「已定」在这一页指「定为我方报价」，已批准但没选上的也锁着） */
+export const frozenNoteZh = (status: string) => `这份报价「${QUOTE_STATUS_ZH[status] ?? status}」，内容锁定；要改请在专业模式里另起新版`;
 
 export const LINE_TABLE_HEADERS = ["品名", "数量", "供应商报价（原币）", "到手单位成本（加元）", "我方单价", "行合计", "毛利率"] as const;
 
 export const PRESET_EXPLAIN_ZH = {
-  financing: "（直接成本 + 关税）× 年化比例 ÷ 12 × 月数，不足一月按一月",
-  admin: "自含算法：基数 ÷（1 − 比例）− 基数，基数 = 直接成本 + 关税 + 资金使用；3% 时 100 → 103.09",
-  cashAllowance: "（直接成本 + 关税）× 比例",
-  commission: "（报价 − 提成前的成本）× 比例，计入成本；所以顶部毛利率比目标毛利率低",
+  financing: "到手成本 × 年化比例 ÷ 12 × 月数，不足一月按一月",
+  admin: "管理费按含自身算：比例 3% 时，成本 100 → 103.09（管理费是 3.09，不是 3）。这里的成本 = 到手成本 + 资金使用",
+  cashAllowance: "到手成本 × 比例",
+  commission: "（报价 − 不含销售提成的成本）× 比例，算进成本",
 } as const;
 
 const money = (v: number | null | undefined, ccy = "CAD") => (v == null ? "—" : formatMoneyZh(v, ccy));
+/** 到手单位成本：不到 1 元时写 4 位（只取到分会失真） */
+const unitMoney = (v: number | null | undefined) => (v != null && v !== 0 && Math.abs(v) < 1 && Number.isFinite(v) ? `${v.toFixed(4)} ${CURRENCY_NAME_ZH.CAD}` : money(v));
 const pct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? "—" : `${(Math.round(v * 10) / 10).toFixed(1)}%`);
 
 function Note({ children, tone = "muted", testId }: { children: ReactNode; tone?: "muted" | "warn" | "error"; testId?: string }) {
@@ -96,7 +115,7 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
         <ul className="divide-y divide-border/60 rounded-xl border border-border/60">
           {view.quotes.map((q) => (
             <li key={q.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 text-sm" data-testid="quote-step-row">
-              <span className="font-medium">{q.name ?? q.quoteNumber ?? "未命名报价"}</span>
+              <span className="font-medium">{quoteDisplayName(q)}</span>
               <span className="text-muted">第 {q.version} 版 · {QUOTE_STATUS_ZH[q.status] ?? q.status}</span>
               <span className="text-muted">{q.entryMode === "LINE" ? "逐行报价" : QUOTE_STEP_TEXT.proMode}</span>
               <span>报价合计 {money(q.sellingPrice, q.currency)}</span>
@@ -108,7 +127,7 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
                   </button>
                 ) : null}
                 <a className="text-accent underline-offset-2 hover:underline" href={q.proModeHref} data-testid="quote-step-pro-link">
-                  {q.entryMode === "LINE" ? QUOTE_STEP_TEXT.proMode : QUOTE_STEP_TEXT.openInProMode}
+                  {q.entryMode === "LINE" ? QUOTE_STEP_TEXT.openLineInProMode : QUOTE_STEP_TEXT.openInProMode}
                 </a>
               </span>
             </li>
@@ -124,7 +143,7 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
               <label className="mt-1 flex items-center gap-2">
                 <input type="radio" checked readOnly /> {QUOTE_STEP_TEXT.lineOption}
               </label>
-              {view.scheduleLineCount > 0 ? <div className="mt-1 text-xs text-muted">已有价格表 {view.scheduleLineCount} 行，建好后自动带进来</div> : <div className="mt-1 text-xs text-muted">还没有保存的价格表，建好后可以粘贴、从招标分析带入或手加行</div>}
+              {view.scheduleLineCount > 0 ? <div className="mt-1 text-xs text-muted">已有价格表 {view.scheduleLineCount} 行，新建后自动带进来</div> : <div className="mt-1 text-xs text-muted">还没有保存的价格表，新建后可以粘贴、从招标分析带入或加一行</div>}
             </div>
             <div>
               <div className="font-medium">{QUOTE_STEP_TEXT.askBusiness}</div>
@@ -148,7 +167,7 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
                     setName("");
                   }
                 }}>
-                {creating ? "正在建…" : "建好"}
+                {creating ? "正在新建…" : "新建"}
               </button>
               <button type="button" className="text-muted" onClick={() => setShowForm(false)}>
                 取消
@@ -189,6 +208,7 @@ export function ExportBar({ projectId, availability }: { projectId: string; avai
 
 export function LineTotals({ view, dirty }: { view: LineModeView; dirty: boolean }) {
   const c = view.computed;
+  const commissionOn = view.state.presets.commission.included && (view.state.presets.commission.ratePct ?? 0) > 0;
   return (
     <div className="space-y-2" data-testid="line-totals">
       {dirty ? <Note tone="warn">{QUOTE_STEP_TEXT.dirty}</Note> : null}
@@ -207,14 +227,16 @@ export function LineTotals({ view, dirty }: { view: LineModeView; dirty: boolean
               </div>
             ))}
           </div>
-          <div className="text-xs text-muted">{QUOTE_STEP_TEXT.marginNote}</div>
+          {commissionOn ? <div className="text-xs text-muted">{QUOTE_STEP_TEXT.marginNote}</div> : null}
+          {view.state.targetMarginPct == null ? <div className="text-xs text-muted">{QUOTE_STEP_TEXT.targetEmpty}</div> : null}
           {c.allocation.diff != null && c.allocation.diff !== 0 ? (
             <Note tone="warn" testId="line-diff">
-              逐行合计 {money(c.allocation.linesTotal)} 比报价合计 {money(c.totals.sellingPrice)} {c.allocation.diff > 0 ? "多" : "少"} {money(Math.abs(c.allocation.diff))}：每行单价取到分后乘数量造成（最多差 {money(c.allocation.diffBound)}）。导出给招标方的是逐行合计。
+              逐行合计 {money(c.allocation.linesTotal)} 比报价合计 {money(c.totals.sellingPrice)} {c.allocation.diff > 0 ? "多" : "少"} {money(Math.abs(c.allocation.diff))}：每行单价四舍五入到分再乘数量，合起来会和报价合计差一点（最多差 {money(c.allocation.diffBound)}）。系统记的我方报价是报价合计；导出给招标方的价格表用逐行合计。
             </Note>
           ) : null}
           {c.warnings.map((w) => (
-            <Note key={w.code} tone="warn">
+            // 没有预备金是常态（判断点 5 不默认带），写成灰色说明，不当警告
+            <Note key={w.code} tone={w.code === "NO_CONTINGENCY" ? "muted" : "warn"}>
               {w.messageZh}
             </Note>
           ))}
@@ -278,7 +300,7 @@ function CurrencySelect({ value, onChange, disabled, label }: { value: string; o
     <select aria-label={label} className="rounded border border-border px-1 py-1" disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)}>
       {CURRENCIES.map((c) => (
         <option key={c} value={c}>
-          {c}
+          {currencyLabelZh(c)}
         </option>
       ))}
     </select>
@@ -300,7 +322,7 @@ function InquiryPicker({ options, row, onPick, disabled }: { options: InquiryQuo
         <option key={o.inquiryItemId} value={o.inquiryItemId} disabled={o.unitPrice == null || !(CURRENCIES as readonly string[]).includes(o.currency)}>
           {o.supplierName} · 第 {o.roundNumber} 轮 ·{" "}
           {!(CURRENCIES as readonly string[]).includes(o.currency)
-            ? `币种「${o.currency}」不在报价币种里，请手填`
+            ? `币种「${o.currency}」用不了，请手填`
             : o.unitPrice == null
               ? o.totalPrice == null
                 ? "回复里没有金额，请手填单价"
@@ -342,15 +364,17 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
   }, [view]);
 
   // 旧的本地成本草稿：只读一次；提示过的不再提示（标记不含金额）
+  // 表里还没有行时不提示（一行都对不上，提示却会被用掉）；有了行、保存后再判一次
+  const savedRowCount = view.state.rows.length;
   useEffect(() => {
     if (!editable) return;
     try {
-      const d = draftToPrompt(window.localStorage.getItem(costDraftPromptedKey(projectId)), window.localStorage.getItem(costDraftStorageKey(projectId)), parseCostDraft);
-      if (d) setDraft(d);
+      const d = draftToPrompt(window.localStorage.getItem(costDraftPromptedKey(projectId)), window.localStorage.getItem(costDraftStorageKey(projectId)), parseCostDraft, savedRowCount);
+      setDraft(d);
     } catch {
       /* 读不了本地存储就不提示 */
     }
-  }, [projectId, editable]);
+  }, [projectId, editable, savedRowCount]);
 
   const markPrompted = () => {
     try {
@@ -408,7 +432,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
     <div key={`${view.quote.updatedAt}-${resetKey}`} className="space-y-4 rounded-xl border border-border/60 px-4 py-3" data-testid="line-editor">
       <div className="flex flex-wrap items-center gap-3">
         <div className="font-medium">
-          逐行报价 · {view.quote.name ?? view.quote.quoteNumber ?? "未命名报价"} · 第 {view.quote.version} 版 · {QUOTE_STATUS_ZH[view.quote.status] ?? view.quote.status}
+          逐行报价 · {quoteDisplayName(view.quote)} · 第 {view.quote.version} 版 · {QUOTE_STATUS_ZH[view.quote.status] ?? view.quote.status}
         </div>
         <a className="text-xs text-accent underline-offset-2 hover:underline" href={view.proModeHref}>
           {QUOTE_STEP_TEXT.submitInProMode}
@@ -420,7 +444,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
           {moreOpen ? (
             <div className="absolute right-0 z-10 mt-1 w-32 rounded border border-border bg-card-bg py-1 text-sm shadow" role="menu">
               <a role="menuitem" className="block px-3 py-1 hover:bg-accent-soft" href={view.proModeHref} data-testid="line-editor-pro-mode">
-                {QUOTE_STEP_TEXT.proMode}
+                {QUOTE_STEP_TEXT.openLineInProMode}
               </a>
             </div>
           ) : null}
@@ -430,7 +454,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
         </button>
       </div>
 
-      {view.quote.frozen ? <Note>{QUOTE_STEP_TEXT.frozen}</Note> : !view.capabilities.canEdit ? <Note>{QUOTE_STEP_TEXT.readOnly}</Note> : null}
+      {view.quote.frozen ? <Note>{frozenNoteZh(view.quote.status)}</Note> : !view.capabilities.canEdit ? <Note>{QUOTE_STEP_TEXT.readOnly}</Note> : null}
       {view.notices.map((n) => (
         <Note key={n} tone="warn">
           {n}
@@ -450,14 +474,14 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                 const r = importCostDraft(state, draft);
                 setState(r.state);
                 setDirty(true);
-                setDraftNotes([`已带入第 ${r.importedRows.join("、") || "（无）"} 行，请核对后点「保存」`, ...r.skipped.map((s) => `没带入：${s}`)]);
+                setDraftNotes(r.notes);
                 markPrompted();
               }}
             >
               导入
             </button>
             <button type="button" className="text-muted underline" onClick={markPrompted}>
-              不导入
+              {QUOTE_STEP_TEXT.draftSkip}
             </button>
           </span>
         </Note>
@@ -494,7 +518,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                       {(LINE_UOMS as readonly string[]).includes(r.uom) ? null : <option value={r.uom}>{r.uom}（不在列表里）</option>}
                       {LINE_UOMS.map((u) => (
                         <option key={u} value={u}>
-                          {u}
+                          {uomLabelZh(u)}
                         </option>
                       ))}
                     </select>
@@ -502,17 +526,18 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                   </td>
                   <td className="space-y-1 px-2 py-1">
                     <div className="flex items-center gap-1">
-                      <NumInput label={`第 ${i + 1} 行供应商报价`} value={r.unitPrice} disabled={!editable} onChange={(v) => setRow(i, { unitPrice: v, inquiryItemId: null, supplierId: null })} />
-                      <CurrencySelect label={`第 ${i + 1} 行币种`} value={r.currency} disabled={!editable} onChange={(c) => update((s) => ensureFx({ ...s, rows: s.rows.map((x, j) => (j === i ? { ...x, currency: c, inquiryItemId: null, supplierId: null } : x)) }, c))} />
+                      <NumInput label={`第 ${i + 1} 行供应商报价`} value={r.unitPrice} disabled={!editable} onChange={(v) => setRow(i, { unitPrice: v, inquiryItemId: null, supplierId: null, supplierName: null })} />
+                      <CurrencySelect label={`第 ${i + 1} 行币种`} value={r.currency} disabled={!editable} onChange={(c) => update((s) => ensureFx({ ...s, rows: s.rows.map((x, j) => (j === i ? { ...x, currency: c, inquiryItemId: null, supplierId: null, supplierName: null } : x)) }, c))} />
                     </div>
-                    {canPiece ? (
-                      <select aria-label={`第 ${i + 1} 行报价口径`} className="rounded border border-border px-1 py-1 text-xs" disabled={!editable} value={r.basis} onChange={(e) => setRow(i, { basis: e.target.value as LineRow["basis"], inquiryItemId: null })}>
+                    {canPiece || r.basis === "PER_PIECE" ? (
+                      // 按件但这一行已不能按件（例如改了单位）：照样显示口径，好改回按招标单位
+                      <select aria-label={`第 ${i + 1} 行报价口径`} className="rounded border border-border px-1 py-1 text-xs" disabled={!editable} value={r.basis} onChange={(e) => setRow(i, { basis: e.target.value as LineRow["basis"], inquiryItemId: null, supplierId: null, supplierName: null })}>
                         <option value="PER_TENDER_UOM">按招标单位</option>
-                        <option value="PER_PIECE">按件（× {r.packCount}）</option>
+                        <option value="PER_PIECE">{canPiece ? `按件（× ${r.packCount}）` : "按件（这一行没有包装数，不能按件）"}</option>
                       </select>
                     ) : null}
                     {r.inquiryItemId ? (
-                      <div className="text-xs text-muted">来自询价回复：{r.supplierName ?? "供应商"}（{r.currency}，请与回复核对单位与币种）</div>
+                      <div className="text-xs text-muted">来自询价回复：{r.supplierName ?? "供应商"}（{CURRENCY_NAME_ZH[r.currency] ?? r.currency}，请与回复核对单位与币种）</div>
                     ) : r.unitPrice != null ? (
                       <select aria-label={`第 ${i + 1} 行证据类别`} className="rounded border border-border px-1 py-1 text-xs" disabled={!editable} value={r.evidenceKind ?? ""} onChange={(e) => setRow(i, { evidenceKind: (e.target.value || null) as LineRow["evidenceKind"] })}>
                         <option value="">选证据类别（必选）</option>
@@ -530,11 +555,11 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                       onPick={(o) =>
                         o && o.unitPrice != null
                           ? update((s) => ensureFx({ ...s, rows: s.rows.map((x, j) => (j === i ? { ...x, unitPrice: o.unitPrice, currency: o.currency, inquiryItemId: o.inquiryItemId, supplierId: o.supplierId, supplierName: o.supplierName, evidenceKind: null } : x)) }, o.currency))
-                          : setRow(i, { inquiryItemId: null, supplierId: null })
+                          : setRow(i, { inquiryItemId: null, supplierId: null, supplierName: null })
                       }
                     />
                   </td>
-                  <td className="px-2 py-1 whitespace-nowrap">{a ? money(a.landedUnitCostCad) : "—"}</td>
+                  <td className="px-2 py-1 whitespace-nowrap">{a ? unitMoney(a.landedUnitCostCad) : "—"}</td>
                   <td className="px-2 py-1 whitespace-nowrap">{a ? money(a.unitPrice) : "—"}</td>
                   <td className="px-2 py-1 whitespace-nowrap">{a ? money(a.extended) : "—"}</td>
                   <td className="px-2 py-1 whitespace-nowrap">{a ? pct(a.marginPct) : "—"}</td>
@@ -550,7 +575,14 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
             })}
           </tbody>
         </table>
-        {state.rows.length === 0 ? <Note>还没有行：粘贴价格表、从招标分析带入，或加一行</Note> : <div className="mt-1 text-xs text-muted">{QUOTE_STEP_TEXT.landedNote}</div>}
+        {state.rows.length === 0 ? (
+          <Note>还没有行：粘贴价格表、从招标分析带入，或加一行</Note>
+        ) : (
+          <div className="mt-1 space-y-0.5 text-xs text-muted">
+            <div>{QUOTE_STEP_TEXT.landedNote}</div>
+            <div>{QUOTE_STEP_TEXT.marginColNote}</div>
+          </div>
+        )}
       </div>
 
       {editable ? (
@@ -564,7 +596,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
             加一行
           </button>
           <details>
-            <summary className="cursor-pointer text-muted">粘贴价格表（每行：行号、品名、数量、单位、包装数，用制表符或逗号隔开）</summary>
+            <summary className="cursor-pointer text-muted">{QUOTE_STEP_TEXT.pasteSummary}</summary>
             {view.seed?.prefill ? (
               <div className="mt-2 space-y-1">
                 <div className="text-xs text-muted">{view.seed.prefill.messageZh}</div>
@@ -584,9 +616,15 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                 const source = view.seed?.prefill?.text && paste === view.seed.prefill.text ? "analysis" : "paste";
                 const room = LINE_MODE_MAX_ROWS - state.rows.length;
                 const added = rowsFromParsed(parsed.lines, source).slice(0, Math.max(0, room));
-                update((s) => ({ ...s, rows: [...s.rows, ...added] }));
-                setPasteIssues([...parsed.issues.map((x) => x.messageZh), ...(parsed.lines.length > room ? [`超过 ${LINE_MODE_MAX_ROWS} 行，后面 ${parsed.lines.length - room} 行没导入`] : [])]);
-                setPaste("");
+                if (added.length) update((s) => ({ ...s, rows: [...s.rows, ...added] }));
+                // 粘贴框的说法统一成表头的「品名」
+                setPasteIssues([
+                  ...parsed.issues.map((x) => x.messageZh.replace("缺少说明", "缺少品名")),
+                  ...(parsed.issues.length ? ["没导入的行留在框里，改好后再点「导入这些行」"] : []),
+                  ...(parsed.lines.length > room ? [`超过 ${LINE_MODE_MAX_ROWS} 行，后面 ${parsed.lines.length - room} 行没导入`] : []),
+                ]);
+                // 只去掉已导入的行，没导入的留在框里改了再导
+                setPaste(remainingPasteText(paste, parsed.issues.map((x) => x.row)));
               }}
             >
               导入这些行
@@ -604,10 +642,10 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
         <legend className="px-1 text-xs text-muted">共用参数（空着 = 这项没有）</legend>
         {usedCurrencies.map((ccy) => (
           <div key={ccy} className="flex flex-wrap items-center gap-2">
-            <span>汇率：1 {ccy} =</span>
+            <span>汇率：1 {currencyLabelZh(ccy)} =</span>
             <NumInput label={`${ccy} 汇率`} value={state.fx[ccy]?.rate ?? null} disabled={!editable} onChange={(v) => update((s) => ({ ...s, fx: { ...s.fx, [ccy]: { rate: v, source: s.fx[ccy]?.source ?? null } } }))} />
             <span>加元，来源</span>
-            <input aria-label={`${ccy} 汇率来源`} className="w-40 rounded border border-border px-2 py-1" maxLength={40} disabled={!editable} value={state.fx[ccy]?.source ?? ""} onChange={(e) => update((s) => ({ ...s, fx: { ...s.fx, [ccy]: { rate: s.fx[ccy]?.rate ?? null, source: e.target.value || null } } }))} />
+            <input aria-label={`${ccy} 汇率来源`} placeholder="例：中国银行 11 月 20 日牌价" className="w-48 rounded border border-border px-2 py-1" maxLength={40} disabled={!editable} value={state.fx[ccy]?.source ?? ""} onChange={(e) => update((s) => ({ ...s, fx: { ...s.fx, [ccy]: { rate: s.fx[ccy]?.rate ?? null, source: e.target.value || null } } }))} />
           </div>
         ))}
         <div className="flex flex-wrap items-center gap-2">
@@ -632,11 +670,12 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
           <NumInput label="国内运费" value={state.shared.domesticFreight.amount} disabled={!editable} onChange={(v) => update((s) => ({ ...s, shared: { ...s.shared, domesticFreight: { ...s.shared.domesticFreight, amount: v } } }))} />
           <CurrencySelect label="国内运费币种" value={state.shared.domesticFreight.currency} disabled={!editable} onChange={(c) => update((s) => ensureFx({ ...s, shared: { ...s.shared, domesticFreight: { ...s.shared.domesticFreight, currency: c } } }, c))} />
         </div>
-        <div className="text-xs text-muted">海运、报关、国内运费、关税按各行货值分摊到每行，只影响「到手单位成本」那一列的显示。</div>
+        <div className="text-xs text-muted">{QUOTE_STEP_TEXT.sharedNote}</div>
       </fieldset>
 
       <fieldset className="space-y-2 rounded-lg border border-border/60 px-3 py-2 text-sm" data-testid="line-presets">
         <legend className="px-1 text-xs text-muted">预置（每个项目可改、可关）</legend>
+        <div className="text-xs text-muted">{QUOTE_STEP_TEXT.landedDefine}</div>
         <PresetRow label="资金使用" explain={PRESET_EXPLAIN_ZH.financing} included={state.presets.financing.included} disabled={!editable} onToggle={(b) => update((s) => ({ ...s, presets: { ...s.presets, financing: { ...s.presets.financing, included: b } } }))}>
           <span>年化</span>
           <NumInput label="资金使用年化比例" value={state.presets.financing.ratePct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, financing: { ...s.presets.financing, ratePct: v } } }))} className="w-16" />
@@ -652,22 +691,23 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
           <NumInput label="现金备用金比例" value={state.presets.cashAllowance.ratePct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, cashAllowance: { ...s.presets.cashAllowance, ratePct: v } } }))} className="w-16" />
           <span>%</span>
         </PresetRow>
-        <PresetRow label="提成" explain={PRESET_EXPLAIN_ZH.commission} included={state.presets.commission.included} disabled={!editable} onToggle={(b) => update((s) => ({ ...s, presets: { ...s.presets, commission: { ...s.presets.commission, included: b } } }))}>
+        <PresetRow label="销售提成" explain={PRESET_EXPLAIN_ZH.commission} included={state.presets.commission.included} disabled={!editable} onToggle={(b) => update((s) => ({ ...s, presets: { ...s.presets, commission: { ...s.presets.commission, included: b } } }))}>
           <span>毛利 ×</span>
-          <NumInput label="提成比例" value={state.presets.commission.ratePct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, commission: { ...s.presets.commission, ratePct: v } } }))} className="w-16" />
+          <NumInput label="销售提成比例" value={state.presets.commission.ratePct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, commission: { ...s.presets.commission, ratePct: v } } }))} className="w-16" />
           <span>%</span>
         </PresetRow>
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
           <span>目标毛利率（按售价）：</span>
           <NumInput label="目标毛利率" value={state.targetMarginPct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, targetMarginPct: v }))} className="w-16" />
-          <span>%　报价 = 提成前的成本 ÷（1 − 目标毛利率），提成再从毛利里扣</span>
+          <span>%</span>
+          <span className="basis-full text-xs text-muted">{QUOTE_STEP_TEXT.formula}</span>
         </div>
       </fieldset>
 
       {view.others.length > 0 ? (
         <Note testId="line-others">
-          另有 {view.others.length} 条其它成本行（在专业模式里加的），已算进四个数：
-          {view.others.map((o) => `${o.description}${o.included ? `（${money(o.amount)}）` : "（不计入）"}`).join("、")}
+          另有 {view.others.length} 条其它成本行（在专业模式里加的）：
+          {view.others.map((o) => `${o.description}${o.included ? `（${money(o.amount)}）` : "（不计入）"}`).join("、")}。标了金额的已算进上面的报价合计和成本合计。
         </Note>
       ) : null}
 
@@ -681,7 +721,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
               ))}
             </ul>
           ) : null}
-          {error.conflict ? <div className="mt-1">关掉这份报价再打开，就是最新的内容。</div> : null}
+          {error.conflict ? <div className="mt-1">{QUOTE_STEP_TEXT.conflictHint}</div> : null}
         </Note>
       ) : null}
       {invalid.size > 0 ? (
@@ -706,7 +746,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                 setResetKey((k) => k + 1);
               }}
             >
-              不保存，恢复
+              {QUOTE_STEP_TEXT.discard}
             </button>
           ) : null}
         </div>

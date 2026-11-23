@@ -10,7 +10,7 @@
  * 词表与两个既有词表逐项相同（`QUOTE_EVIDENCE_KINDS`、`PRICE_SCHEDULE_UOMS`——那两处引 Prisma，进不了浏览器），由测试对照。
  */
 import { z } from "zod";
-import { QUOTE_CURRENCIES } from "@/lib/quote-engine/contract";
+import { QUOTE_CURRENCIES, engineConfigSchema } from "@/lib/quote-engine/contract";
 
 export const BID_LINE_META_KEY = "bidLine" as const;
 export const BID_LINE_META_VERSION = 1 as const;
@@ -33,6 +33,37 @@ export const LINE_EVIDENCE_LABELS_ZH: Record<LineEvidenceKind, string> = {
 
 /** 与 `tender-price-schedule/contract.ts` 的 PRICE_SCHEDULE_UOMS 逐项相同 */
 export const LINE_UOMS = ["Each", "Pack", "Box", "Roll", "Pair", "Set", "Case", "Bag", "kg", "m", "ft", "sqft"] as const;
+/** 单位保留招标方价格表的原文（导出原样写回），下拉里附中文（任务书附录 A） */
+export const LINE_UOM_ZH: Record<(typeof LINE_UOMS)[number], string> = {
+  Each: "个",
+  Pack: "包",
+  Box: "盒",
+  Roll: "卷",
+  Pair: "双",
+  Set: "套",
+  Case: "箱",
+  Bag: "袋",
+  kg: "千克",
+  m: "米",
+  ft: "英尺",
+  sqft: "平方英尺",
+};
+export const uomLabelZh = (u: string) => {
+  const zh = (LINE_UOM_ZH as Record<string, string>)[u];
+  return zh ? `${u}（${zh}）` : u;
+};
+
+/** 币种中文名（与「下一步」金额写法同一张表） */
+export const CURRENCY_NAME_ZH: Record<string, string> = { CAD: "加元", USD: "美元", CNY: "人民币", EUR: "欧元", GBP: "英镑" };
+export const currencyLabelZh = (c: string) => (CURRENCY_NAME_ZH[c] ? `${CURRENCY_NAME_ZH[c]}（${c}）` : c);
+
+/** 数量、金额的上限：超出库里 Decimal 的位数会写库失败（只为挡住明显填错的数） */
+export const LINE_QUANTITY_MAX = 100_000_000;
+export const LINE_PACK_COUNT_MAX = 100_000;
+export const LINE_PRICE_MAX = 100_000_000;
+export const LINE_ROW_AMOUNT_MAX = 1_000_000_000_000;
+export const LINE_FX_RATE_MAX = 10_000;
+export const LINE_SHARED_AMOUNT_MAX = 10_000_000_000;
 
 /** 成组单位（与 `tender-price-schedule/contract.ts` 的 GROUPED_UOMS 相同）：按件报价必须有包装数 */
 export const LINE_GROUPED_UOMS = ["Pack", "Box", "Roll", "Set", "Case", "Bag"] as const;
@@ -47,12 +78,18 @@ export type LineQuoteBasis = (typeof LINE_QUOTE_BASES)[number];
 
 export const LINE_ROW_SOURCES = ["schedule", "analysis", "paste", "manual"] as const;
 export type LineRowSource = (typeof LINE_ROW_SOURCES)[number];
-export const LINE_ROW_SOURCE_ZH: Record<LineRowSource, string> = { schedule: "价格表", analysis: "招标分析带入", paste: "粘贴", manual: "手加" };
 
 export const SHARED_KEYS = ["ocean_freight", "customs", "duty", "domestic_freight"] as const;
 export type SharedKey = (typeof SHARED_KEYS)[number];
 export const PRESET_KEYS = ["financing", "admin", "cash_allowance", "commission"] as const;
 export type PresetKey = (typeof PRESET_KEYS)[number];
+
+/** 逐行报价 = 做法字段是 LINE，且是只供货报价（逐行只配只供货；别的类型即使带了这个字段也按专业模式打开） */
+export function isLineModeQuote(q: { engineJson: unknown; quoteType: string }): boolean {
+  if (q.quoteType !== "SUPPLY_ONLY") return false;
+  const parsed = engineConfigSchema.safeParse(q.engineJson ?? {});
+  return parsed.success && parsed.data.entryMode === "LINE";
+}
 
 /* ------------------------------ 行身份（metadata.bidLine） ------------------------------ */
 
@@ -181,6 +218,13 @@ export type SaveLineModeRequest = z.infer<typeof saveLineModeRequestSchema>;
 export type LineModeIssue = { rowNo: number | null; messageZh: string };
 
 const squash = (s: string) => s.replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim();
+/** 小数位不超过 n（与库里 Decimal 的位数一致；0.00004 这类会被取成 0 的数也在这里挡住） */
+const fitsDecimals = (v: number, n: number) => {
+  const t = String(Math.abs(v));
+  if (/e-/i.test(t)) return false;
+  if (/e\+/i.test(t)) return true;
+  return (t.split(".")[1] ?? "").length <= n;
+};
 
 /**
  * 业务校验（结构由 zod 先过）：中文说明指到第几行；全部问题一次列出，不猜不改。
@@ -195,11 +239,19 @@ export function validateLineModeState(state: LineModeState): { ok: true; state: 
     if (!description) issues.push({ rowNo, messageZh: `第 ${rowNo} 行要填品名` });
     else if (description.length > LINE_DESCRIPTION_MAX) issues.push({ rowNo, messageZh: `第 ${rowNo} 行品名最多 ${LINE_DESCRIPTION_MAX} 字` });
     if (!(r.quantity > 0)) issues.push({ rowNo, messageZh: `第 ${rowNo} 行数量要大于 0` });
+    else if (!fitsDecimals(r.quantity, 4)) issues.push({ rowNo, messageZh: `第 ${rowNo} 行数量最多 4 位小数` });
+    else if (r.quantity > LINE_QUANTITY_MAX) issues.push({ rowNo, messageZh: `第 ${rowNo} 行数量太大（最多 ${LINE_QUANTITY_MAX.toLocaleString("en-US")}），请检查` });
     if (!(LINE_UOMS as readonly string[]).includes(r.uom)) issues.push({ rowNo, messageZh: `第 ${rowNo} 行的单位要从列表里选` });
-    if (r.packCount != null && r.packCount < 1) issues.push({ rowNo, messageZh: `第 ${rowNo} 行包装数要是正整数` });
-    if (r.unitPrice != null && r.unitPrice < 0) issues.push({ rowNo, messageZh: `第 ${rowNo} 行报价不能是负数` });
-    if (r.basis === "PER_PIECE" && piecesPerUnit(r.uom, r.packCount) == null) issues.push({ rowNo, messageZh: `第 ${rowNo} 行单位是 ${r.uom}，按件报价要先填包装数，否则请按招标单位报价` });
-    if (r.unitPrice != null && !r.inquiryItemId && !r.evidenceKind) issues.push({ rowNo, messageZh: `第 ${rowNo} 行手填的报价要选证据类别（已签报价 / 平台标价 / 零售价 / 估计）` });
+    if (r.packCount != null && (r.packCount < 1 || r.packCount > LINE_PACK_COUNT_MAX)) issues.push({ rowNo, messageZh: `第 ${rowNo} 行包装数要是 1 到 ${LINE_PACK_COUNT_MAX.toLocaleString("en-US")} 之间的整数` });
+    if (r.unitPrice != null && r.unitPrice < 0) issues.push({ rowNo, messageZh: `第 ${rowNo} 行的供应商报价不能是负数` });
+    else if (r.unitPrice != null && r.unitPrice > LINE_PRICE_MAX) issues.push({ rowNo, messageZh: `第 ${rowNo} 行的供应商报价太大（最多 ${LINE_PRICE_MAX.toLocaleString("en-US")}），请检查` });
+    else if (r.unitPrice != null && r.quantity > 0 && r.unitPrice * r.quantity * (r.basis === "PER_PIECE" ? piecesPerUnit(r.uom, r.packCount) ?? 1 : 1) > LINE_ROW_AMOUNT_MAX) {
+      issues.push({ rowNo, messageZh: `第 ${rowNo} 行金额太大（数量 × 单价超过一万亿），请检查数量和单价` });
+    }
+    if (r.basis === "PER_PIECE" && piecesPerUnit(r.uom, r.packCount) == null) {
+      issues.push({ rowNo, messageZh: `第 ${rowNo} 行单位是 ${r.uom}、没有包装数，不能按件报价：请改成按招标单位报价，或删掉这一行、在粘贴框里写上包装数后重新导入` });
+    }
+    if (r.unitPrice != null && !r.inquiryItemId && !r.evidenceKind) issues.push({ rowNo, messageZh: `第 ${rowNo} 行的供应商报价是手填的，要选证据类别（已签报价 / 平台标价 / 零售价 / 估计）` });
     if (r.unitPrice != null && r.currency !== "CAD") usedCurrencies.add(r.currency);
     return {
       ...r,
@@ -213,8 +265,10 @@ export function validateLineModeState(state: LineModeState): { ok: true; state: 
   const s = state.shared;
   const nonNeg = (v: number | null, label: string) => {
     if (v != null && v < 0) issues.push({ rowNo: null, messageZh: `${label}不能是负数` });
+    else if (v != null && v > LINE_SHARED_AMOUNT_MAX) issues.push({ rowNo: null, messageZh: `${label}太大，请检查` });
   };
   nonNeg(s.oceanFreight.containers, "海运柜数");
+  if (s.oceanFreight.containers != null && s.oceanFreight.containers > 0 && !fitsDecimals(s.oceanFreight.containers, 4)) issues.push({ rowNo: null, messageZh: "海运柜数最多 4 位小数" });
   nonNeg(s.oceanFreight.perContainer, "每柜海运费");
   nonNeg(s.customs.amount, "报关费");
   nonNeg(s.domesticFreight.amount, "国内运费");
@@ -225,23 +279,24 @@ export function validateLineModeState(state: LineModeState): { ok: true; state: 
 
   const p = state.presets;
   const pct = (v: number | null, label: string, max = 100) => {
-    if (v != null && (v < 0 || v >= max)) issues.push({ rowNo: null, messageZh: `${label}要在 0 到 ${max} 之间（不含 ${max}）` });
+    if (v != null && (v < 0 || v >= max)) issues.push({ rowNo: null, messageZh: `${label}要大于等于 0、小于 ${max}` });
   };
   pct(p.financing.ratePct, "资金使用年化比例");
   pct(p.admin.ratePct, "管理费比例");
   pct(p.cashAllowance.ratePct, "现金备用金比例");
-  pct(p.commission.ratePct, "提成比例");
-  if (p.financing.months != null && (p.financing.months <= 0 || p.financing.months > 120)) issues.push({ rowNo: null, messageZh: "资金使用月数要在 1 到 120 之间" });
+  pct(p.commission.ratePct, "销售提成比例");
+  if (p.financing.months != null && (p.financing.months <= 0 || p.financing.months > 120)) issues.push({ rowNo: null, messageZh: "资金使用月数要大于 0、不超过 120（不足一月按一月）" });
   pct(state.targetMarginPct, "目标毛利率");
 
   const fx: Record<string, FxEntry> = {};
   for (const [ccy, e] of Object.entries(state.fx)) {
     if (ccy === "CAD") continue;
     if (!(QUOTE_CURRENCIES as readonly string[]).includes(ccy)) {
-      issues.push({ rowNo: null, messageZh: `不认识的币种 ${ccy}` });
+      issues.push({ rowNo: null, messageZh: `币种 ${ccy} 用不了，请改成加元 / 人民币 / 美元 / 欧元 / 英镑之一` });
       continue;
     }
-    if (e.rate != null && !(e.rate > 0)) issues.push({ rowNo: null, messageZh: `${ccy} 汇率要大于 0` });
+    if (e.rate != null && !(e.rate > 0)) issues.push({ rowNo: null, messageZh: `${currencyLabelZh(ccy)}汇率要大于 0` });
+    else if (e.rate != null && e.rate > LINE_FX_RATE_MAX) issues.push({ rowNo: null, messageZh: `${currencyLabelZh(ccy)}汇率太大，请检查（1 ${ccy} = 多少加元）` });
     fx[ccy] = { rate: e.rate, source: e.source ? squash(e.source).slice(0, 40) || null : null };
   }
   for (const ccy of usedCurrencies) if (!fx[ccy]) fx[ccy] = { rate: null, source: null };
@@ -295,7 +350,7 @@ export type InquiryQuoteOption = {
 export type OtherCostLineView = { id: string; description: string; category: string; amount: number | null; included: boolean };
 
 export type LineModeView = {
-  quote: { id: string; name: string | null; quoteNumber: string | null; version: number; status: string; currency: string; updatedAt: string; frozen: boolean };
+  quote: { id: string; name: string | null; quoteNumber: string | null; quoteType: string; version: number; status: string; currency: string; updatedAt: string; frozen: boolean };
   capabilities: { canEdit: boolean; canApprove: boolean };
   state: LineModeState;
   /** 读取时的提示（例如同一币种有不同汇率、专业模式里删过共用参数行） */
@@ -346,6 +401,16 @@ export const createQuoteRequestSchema = z.object({
   name: z.string().max(160).nullable().optional(),
 });
 
+/** 报价类型 → 中文（列表、编辑器里报价没起名字时用） */
+export const QUOTE_TYPE_ZH: Record<string, string> = { SUPPLY_ONLY: "只供货", PROJECT_SUPPLY_INSTALL: "供货加安装", STANDING_OFFER: "长期供货协议" };
+
+/** 报价显示名：有名字用名字；没有就用「业务类型 + 报价 · 报价编号」（不显示内部标题，那里可能是英文类型码） */
+export function quoteDisplayName(q: { name: string | null; quoteNumber: string | null; quoteType: string }): string {
+  if (q.name?.trim()) return q.name.trim();
+  const kind = `${QUOTE_TYPE_ZH[q.quoteType] ?? ""}报价`;
+  return q.quoteNumber ? `${kind} · ${q.quoteNumber}` : kind;
+}
+
 export const proModeHrefOf = (projectId: string, quoteId: string) => `/projects/${encodeURIComponent(projectId)}/quote-engine/${encodeURIComponent(quoteId)}`;
 
 /** 引擎错误 / 警告码 → 中文（逐行报价里看到的） */
@@ -355,24 +420,26 @@ export function engineErrorZh(code: string, fallback: string): string {
       return "有外币的行还没填汇率：先在共用参数里填汇率";
     case "MARGIN_TOO_HIGH":
     case "REVENUE_PCT_TOTAL_TOO_HIGH":
-      return "目标毛利率加上按售价计的比例到了 100% 及以上，算不出报价";
+      return "目标毛利率太高：加上专业模式里按售价算的费用，合计到了 100% 或以上，算不出报价。请调低目标毛利率";
     case "PRICING_RATE_INVALID":
-      return "目标毛利率无效";
+      return "目标毛利率要填 0 到 100 之间的数（不含 100）";
     case "DIVISION_BY_ZERO":
-      return "算报价时出现除以零";
+      return "有一项比例填到了 100% 或以上，算不出报价：请检查目标毛利率和下面几项比例";
     default:
-      return fallback;
+      // 引擎的其它报错多半来自专业模式里加的行，原文带英文与内部词，不在这里照搬（fallback 只给排查用，不显示）
+      void fallback;
+      return "有一条成本行填得不对（多半是在专业模式里加的那条），这里算不出：请在专业模式里打开这份报价检查";
   }
 }
 
 export function engineWarningZh(code: string, fallback: string): string {
   switch (code) {
     case "LINE_UNPRICED":
-      return "有行还没填报价或参数（按 0 计）；没填完的报价不能提交和批准";
+      return "有的行还没填供应商报价（或某项比例空着），暂按 0 算；填完才能提交、批准";
     case "NO_CONTINGENCY":
-      return "没有预备金（需要的话在专业模式里加）";
+      return "没有预备金（用来兜下错单、漏单的钱，和上面的现金备用金不是一回事）；需要的话在专业模式里加";
     case "NEGATIVE_MARGIN":
-      return "报价低于成本（亏损）";
+      return "报价低于成本（亏损）：请调高目标毛利率或检查成本";
     default:
       return fallback;
   }
@@ -399,6 +466,16 @@ export function rowsFromParsed(lines: readonly ParsedLike[], source: LineRowSour
     supplierName: null,
     rowSource: source,
   }));
+}
+
+/**
+ * 粘贴框导入后留在框里的文字：只去掉已导入的行，没导入的（缺单位、数量不是数字……）留着改了再导。
+ * `issueRows` 是 `parseSchedulePaste` 报问题的行号（按非空行从 1 数，含表头）。
+ */
+export function remainingPasteText(text: string, issueRows: readonly number[]): string {
+  const rows = text.split(/\r?\n/).map((r) => r.replace(/\s+$/, "")).filter((r) => r.trim().length > 0);
+  const keep = new Set(issueRows);
+  return rows.filter((_, i) => keep.has(i + 1)).join("\n");
 }
 
 export const QUOTE_STATUS_ZH: Record<string, string> = {

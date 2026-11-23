@@ -11,7 +11,7 @@
  */
 import { db } from "@/lib/db";
 import { isLegacyGarbledGeneratedDoc } from "@/lib/projects/generate/legacy-doc-filter";
-import { engineConfigSchema } from "@/lib/quote-engine/contract";
+import { isLineModeQuote } from "./quote-line/service";
 import { resolveTenderBid } from "@/lib/quote-engine/tender-bid";
 import { loadWebNextStepInput, type NextStepProject } from "@/lib/tender-next-step/service";
 import { countInquiry } from "./inquiry-count";
@@ -66,8 +66,9 @@ export async function loadBidPageFacts(input: { project: NextStepProject; userId
     const q = resolution.quote;
     const price = q?.sellingPrice;
     // 我方报价是不是逐行报价（BIDPAGE-3）：只读做法字段，决定「已定」的按钮去 ② 还是 ③
-    const bidQuote = status === "AUTHORITATIVE" && q ? await db.projectQuote.findFirst({ where: { id: q.id, projectId }, select: { engineJson: true } }) : null;
-    const lineMode = !!bidQuote && engineConfigSchema.safeParse(bidQuote.engineJson ?? {}).data?.entryMode === "LINE";
+    // 只给看得到金额的人读（② 对其余人锁着，去处不随做法变）
+    const bidQuote = access.canViewAmounts && status === "AUTHORITATIVE" && q ? await db.projectQuote.findFirst({ where: { id: q.id, projectId, orgId }, select: { engineJson: true, quoteType: true } }) : null;
+    const lineMode = !!bidQuote && isLineModeQuote(bidQuote);
     bid = {
       status,
       version: q?.version ?? null,

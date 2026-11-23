@@ -6,11 +6,12 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { Prisma } from "@prisma/client";
 import { QUOTE_EVIDENCE_KINDS, QUOTE_EVIDENCE_LABELS_ZH } from "@/lib/tender-bid-cost/contract";
 import { GROUPED_UOMS, PRICE_SCHEDULE_UOMS } from "@/lib/tender-price-schedule/contract";
 import { QUOTE_BASES } from "@/lib/tender-price-schedule/unit-conversion";
-import { QUOTE_ENGINE_CALC_VERSION, engineConfigSchema, type CostLineInput } from "@/lib/quote-engine/contract";
+import { QUOTE_ENGINE_CALC_VERSION, engineConfigSchema, quoteHeaderSchema, type CostLineInput } from "@/lib/quote-engine/contract";
 import { computeQuote, round2 } from "@/lib/quote-engine/calc";
 import { templateSupplyOnlyLines } from "@/lib/quote-engine/templates";
 import { emptyCostDraft, parseCostDraft } from "@/lib/tender-bid-workspace/cost-draft";
@@ -21,17 +22,20 @@ import {
   LINE_GROUPED_UOMS,
   LINE_QUOTE_BASES,
   LINE_UOMS,
+  isLineModeQuote as isLineModeQuoteContract,
   parseNumInput,
+  quoteDisplayName,
   readBidLineMeta,
+  remainingPasteText,
   rowsFromParsed,
   validateLineModeState,
   type LineModeState,
   type LineRow,
 } from "../quote-line/contract";
-import { costLinesToState, defaultLineModeState, lineModeTemplate, seedRowsFromSchedule, stateToWrites, type CostLineWrite, type DbCostLine } from "../quote-line/mapping";
+import { costLinesToState, defaultLineModeState, linePrefillMessageZh, lineModeTemplate, seedRowsFromSchedule, stateToWrites, type CostLineWrite, type DbCostLine } from "../quote-line/mapping";
 import { allocateFromEngine, diffBoundOf, exportUnitPrices } from "../quote-line/allocation";
 import { importCostDraft, draftHasLines, draftToPrompt } from "../quote-line/draft-import";
-import { buildLineComputed, isLineModeQuote } from "../quote-line/service";
+import { buildLineComputed, csvSafeText, isLineModeQuote } from "../quote-line/service";
 import { BID_PAGE_RULE_TARGET, decideBidPageNextStep, type BidPageFacts } from "../next-step";
 
 let pass = 0;
@@ -158,13 +162,29 @@ console.log("\n━━━ 1. 词表、做法字段与模板对照 ━━━");
     { standingOffer: { supplierCostPerPiece: 2, supplierCurrency: "CNY", fxRate: 0.19, piecesPerBox: 10, boxesPerContainer: 100 }, marginRiskPct: { high: 5, medium: 10 } },
     { tax: { hstPct: 13 }, somethingUnknown: 1, legacy: { a: 1 } },
   ];
-  ok(samples.every((s) => eq(engineConfigSchema.parse(s), oldSchema.parse(s))), "没有做法字段的配置：解析结果与改前的校验逐字段相同（含未知键被剥除）");
+  ok(
+    samples.every((s) => {
+      const a = engineConfigSchema.parse(s) as Record<string, unknown>;
+      const b = oldSchema.parse(s) as Record<string, unknown>;
+      return isDeepStrictEqual(a, b) && !Object.keys(a).includes("entryMode");
+    }),
+    "没有做法字段的配置：解析结果与改前的校验深度相同、键集合相同（不多出 entryMode 键；未知键被剥除）",
+  );
+  const hdr = quoteHeaderSchema.parse({ engine: { entryMode: "LINE", tax: { hstPct: 13 } } }).engine as Record<string, unknown>;
+  ok(!Object.keys(hdr).includes("entryMode") && (hdr.tax as { hstPct: number }).hstPct === 13, "专业模式保存（报价表头）不收做法字段：手工请求带 entryMode 也写不进去（开关关时与改前相同）", hdr);
+  const dbEngine = engineConfigSchema.parse({ tax: { hstPct: 13 }, entryMode: "LINE" });
+  const patched = [{ entryMode: null }, { entryMode: "LUMP_SUM" }, {}].map((e) => engineConfigSchema.parse({ ...dbEngine, ...quoteHeaderSchema.parse({ engine: e }).engine }).entryMode);
+  ok(patched.every((m) => m === "LINE"), "库里已是逐行报价：专业模式保存传 null / 不认识的值 / 空配置，合并后做法都还在", patched);
   ok(engineConfigSchema.parse({ tax: {}, entryMode: "LINE" }).entryMode === "LINE", "做法字段 LINE 被接受并保留");
   const unknown = engineConfigSchema.safeParse({ tax: { hstPct: 13 }, scenarios: [{ key: "a", labelZh: "进攻", method: "MARGIN_ON_REVENUE", rate: 8 }], entryMode: "LUMP_SUM" });
   ok(unknown.success && unknown.data.entryMode === undefined && unknown.data.tax?.hstPct === 13 && unknown.data.scenarios?.length === 1, "不认识的做法值（如回退后留下的 LUMP_SUM）：只丢掉这个字段，税与情景照旧，整份配置不失败", unknown);
   const merged = engineConfigSchema.parse({ ...engineConfigSchema.parse({ tax: {}, entryMode: "LINE" }), ...engineConfigSchema.parse({}) });
   ok(merged.entryMode === "LINE", "专业模式保存时回写空配置 {}：合并后做法字段还在（updateEngineQuote 的合并顺序）");
-  ok(isLineModeQuote({ engineJson: { entryMode: "LINE" } }) && !isLineModeQuote({ engineJson: { tax: {} } }) && !isLineModeQuote({ engineJson: null }), "有做法字段才是逐行报价；旧报价（没有字段）按专业模式打开");
+  ok(
+    isLineModeQuote({ engineJson: { entryMode: "LINE" }, quoteType: "SUPPLY_ONLY" }) && !isLineModeQuote({ engineJson: { tax: {} }, quoteType: "SUPPLY_ONLY" }) && !isLineModeQuote({ engineJson: null, quoteType: "SUPPLY_ONLY" }),
+    "有做法字段才是逐行报价；旧报价（没有字段）按专业模式打开",
+  );
+  ok(!isLineModeQuote({ engineJson: { entryMode: "LINE" }, quoteType: "PROJECT_SUPPLY_INSTALL" }) && !isLineModeQuote({ engineJson: { entryMode: "LINE" }, quoteType: "STANDING_OFFER" }) && isLineModeQuote === isLineModeQuoteContract, "不是只供货的报价即使带了做法字段也按专业模式打开（逐行只配只供货）");
 
   const t = templateSupplyOnlyLines();
   const lt = lineModeTemplate();
@@ -247,16 +267,34 @@ console.log("\n━━━ 3. 专业模式改过以后 ━━━");
   const a = lines.find((l) => (readBidLineMeta(l.metadata) as { lineNo?: number })?.lineNo === 1)!;
   const edited = lines.map((l) => (l.id === a.id ? { ...l, unitCost: new Prisma.Decimal(55) } : l));
   const r = costLinesToState(edited, { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: new Prisma.Decimal(25) });
-  ok(r.state.rows[0].unitPrice === 55 && r.state.rows[0].basis === "PER_TENDER_UOM" && r.notices.some((n) => n.includes("第 1 行的单价在专业模式里改过")), "专业模式改了单价：按改后的价（招标单位）读出并提示");
+  ok(r.state.rows[0].unitPrice === 55 && r.state.rows[0].basis === "PER_TENDER_UOM" && r.notices.some((n) => n.includes("第 1 行的供应商报价在专业模式里改过")), "专业模式改了单价：按改后的价（招标单位）读出并提示");
   const fxDiff = lines.map((l) => (readBidLineMeta(l.metadata)?.role === "shared" && l.sourceCurrency === "CNY" ? { ...l, fxRate: new Prisma.Decimal(0.2) } : l));
   const r2 = costLinesToState(fxDiff, { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: new Prisma.Decimal(25) });
-  ok(r2.state.fx.CNY.rate === 0.19 && r2.notices.some((n) => n.includes("CNY 在不同的行上填了不同的汇率")), "同一币种不同汇率：读第一个并提示保存后统一");
+  ok(r2.state.fx.CNY.rate === 0.19 && r2.notices.some((n) => n.includes("人民币（CNY）在不同的行上填了不同的汇率")), "同一币种不同汇率：读第一个并提示保存后统一");
   const noCommission = lines.filter((l) => (readBidLineMeta(l.metadata) as { key?: string })?.key !== "commission");
   const r3 = costLinesToState(noCommission, { pricingMethod: "MARKUP_ON_COST", pricingRate: new Prisma.Decimal(10) });
   ok(r3.state.presets.commission.included === false && r3.notices.some((n) => n.includes("提成")) && r3.state.targetMarginPct === null && r3.notices.some((n) => n.includes("成本加成")), "专业模式删了预置行 / 改了定价方式：按关掉读出、目标毛利率空着，并提示");
   const excluded = lines.map((l) => (l.id === a.id ? { ...l, included: false } : (readBidLineMeta(l.metadata) as { key?: string })?.key === "duty" ? { ...l, calculationBase: "DIRECT_COST" } : l));
   const r4 = costLinesToState(excluded, { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: new Prisma.Decimal(25) });
-  ok(r4.notices.some((n) => n.includes("第 1 行在专业模式里设成了不计入")) && r4.notices.some((n) => n.includes("关税") && n.includes("改回原来的算法")), "专业模式把货品行设成不计入、改了关税的基数：读出时提示，保存时会改回", r4.notices);
+  ok(r4.notices.some((n) => n.includes("第 1 行在专业模式里设成了不计入")) && r4.notices.some((n) => n.includes("「关税」") && n.includes("改回原来的算法")), "专业模式把货品行设成不计入、改了关税的基数：读出时提示（用短名），保存时会改回", r4.notices);
+  // 海运按柜：专业模式改了「数量」→ 按 数量 × 柜数 读出，保存后金额不变
+  const oceanQty = lines.map((l) => ((readBidLineMeta(l.metadata) as { key?: string })?.key === "ocean_freight" ? { ...l, quantity: new Prisma.Decimal(2) } : l));
+  const r5 = costLinesToState(oceanQty, { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: new Prisma.Decimal(25) });
+  const before5 = buildLineComputed(fakeQuote(oceanQty, { pricingRate: 25 }));
+  const after5 = buildLineComputed(fakeQuote(persist(r5.state, oceanQty), { pricingRate: 25 }));
+  ok(
+    r5.state.shared.oceanFreight.containers === 2 && r5.notices.some((n) => n.includes("海运费那一行的数量在专业模式里改成了 2")) && before5.computed.ok && after5.computed.ok && before5.computed.totals.sellingPrice === after5.computed.totals.sellingPrice,
+    "专业模式改了海运行的数量：读成 2 柜并提示，原样保存后报价不变",
+    { r5: r5.state.shared.oceanFreight, notices: r5.notices },
+  );
+  // 柜数 0 / 不计入：每柜的数照库里显示，不从界面上消失
+  const oceanOff = persist({ ...sampleState(), shared: { ...sampleState().shared, oceanFreight: { containers: 0, perContainer: 3000, currency: "CAD" } } });
+  const r6 = costLinesToState(oceanOff, { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: new Prisma.Decimal(25) });
+  ok(r6.state.shared.oceanFreight.containers === null && r6.state.shared.oceanFreight.perContainer === 3000, "柜数 0 = 这项没有：保存后柜数空着，每柜 3,000 还显示着", r6.state.shared.oceanFreight);
+  // 专业模式里加的其它行用了另一个人民币汇率：照实提示，保存不碰它
+  const otherFx = [...lines, { ...toDb({ ...stateToWrites(defaultLineModeState([]), []).creates[0], description: "合成其它人民币费用", category: "OTHER", calculationType: "FIXED", unitCost: 100, sourceCurrency: "CNY", fxRate: 0.2, included: true, metadata: {} }), metadata: null }];
+  const r7 = costLinesToState(otherFx, { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: new Prisma.Decimal(25) });
+  ok(r7.notices.some((n) => n.includes("合成其它人民币费用") && n.includes("0.2") && n.includes("0.19")), "专业模式里加的其它行用了另一个汇率：提示，在这里保存不会改它", r7.notices);
 }
 
 /* ------------------------------ 4. 四个数与引擎相同；分摊 ------------------------------ */
@@ -327,6 +365,17 @@ console.log("\n━━━ 4. 四个数只取引擎；按引擎结果分摊 ━━
     }
   }
   ok(okAll, "60 组随机合成数据（外币、小数数量、未定价行、其它成本行）：到手成本之和等于引擎，逐行合计差额不超过上限，行合计 = 单价 × 数量", bad.slice(0, 3));
+  // 报价填 0 的行：单价 0、行合计 0、能导出（不是「—」）
+  const zero = persist({ ...sampleState(), rows: [...sampleState().rows, row({ description: "合成赠品", quantity: 5, unitPrice: 0, currency: "CAD", evidenceKind: "SIGNED_QUOTE" })] });
+  const bz = buildLineComputed(fakeQuote(zero, { pricingRate: 25 }));
+  ok(
+    bz.computed.ok && bz.computed.allocation.lines[2].unitPrice === 0 && bz.computed.allocation.lines[2].extended === 0 && bz.computed.allocation.lines[2].marginPct === null && exportUnitPrices(bz.computed.allocation)[3] === "0.00" && bz.computed.allocation.lines[0].unitPrice === 36.78,
+    "报价填 0 的行：单价 0.00、行合计 0.00、可以导出；别的行不受影响",
+    bz.computed.ok ? bz.computed.allocation.lines : bz.computed,
+  );
+  // 到手单位成本留 4 位
+  const tiny = allocateFromEngine([{ costLineId: "a", lineNo: 1, quantity: 1000, priced: true }], { lines: [{ id: "a", amount: 12.3 } as never], directCost: 12.3, percentOfCostTotal: 0, sellingPrice: 15, estimatedCost: 12.3 });
+  ok(tiny.lines[0].landedUnitCostCad === 0.0123, "到手单位成本留 4 位（单价不到 1 分的货品不被取成 0.01）", tiny.lines[0]);
   const none = allocateFromEngine([{ costLineId: "x", lineNo: 1, quantity: 3, priced: false }], { lines: [], directCost: 0, percentOfCostTotal: 0, sellingPrice: 0, estimatedCost: 0 });
   ok(none.lines[0].unitPrice === null && none.linesTotal === null && none.diff === null, "一行都没报价：不分摊，各行显示「—」");
 }
@@ -338,25 +387,35 @@ console.log("\n━━━ 5. 保存前的校验 ━━━");
   ok(validateLineModeState(s).ok, "合成状态通过校验");
   const noEvidence = { ...s, rows: [s.rows[0], { ...s.rows[1], evidenceKind: null }] };
   const v1 = validateLineModeState(noEvidence);
-  ok(!v1.ok && v1.issues.some((i) => i.rowNo === 2 && i.messageZh.includes("第 2 行手填的报价要选证据类别")), "手填没选证据类别 → 指出第 2 行");
+  ok(!v1.ok && v1.issues.some((i) => i.rowNo === 2 && i.messageZh.includes("第 2 行的供应商报价是手填的，要选证据类别")), "手填没选证据类别 → 指出第 2 行");
   const picked = { ...s, rows: [{ ...s.rows[0], evidenceKind: null, inquiryItemId: "ii_1" }] };
   ok(validateLineModeState(picked).ok, "从询价回复点选的行不需要证据类别");
   const piece = { ...s, rows: [{ ...s.rows[1], packCount: null }] };
   const v2 = validateLineModeState(piece);
-  ok(!v2.ok && v2.issues[0].messageZh.includes("按件报价要先填包装数"), "成组单位按件报价但没有包装数 → 拒绝");
+  ok(!v2.ok && v2.issues[0].messageZh.includes("不能按件报价") && v2.issues[0].messageZh.includes("改成按招标单位报价"), "成组单位按件报价但没有包装数 → 拒绝");
   const eachPiece = { ...s, rows: [{ ...s.rows[0], basis: "PER_PIECE" as const }] };
   ok(validateLineModeState(eachPiece).ok, "非成组单位（Each）按件报价可以（每单位 1 件）");
   const bads = validateLineModeState({ ...s, rows: [row({ description: "  ", quantity: 0, uom: "Dozen", unitPrice: -1, evidenceKind: "ESTIMATE" })], fx: { CNY: { rate: 0, source: null } }, targetMarginPct: 100 });
-  ok(!bads.ok && ["要填品名", "数量要大于 0", "单位要从列表里选", "报价不能是负数", "CNY 汇率要大于 0", "目标毛利率"].every((m) => bads.issues.some((i) => i.messageZh.includes(m))), "空品名 / 数量 0 / 不认识的单位 / 负价 / 汇率 0 / 毛利率 100 一次全列出", !bads.ok ? bads.issues : null);
+  ok(!bads.ok && ["要填品名", "数量要大于 0", "单位要从列表里选", "供应商报价不能是负数", "人民币（CNY）汇率要大于 0", "目标毛利率"].every((m) => bads.issues.some((i) => i.messageZh.includes(m))), "空品名 / 数量 0 / 不认识的单位 / 负价 / 汇率 0 / 毛利率 100 一次全列出", !bads.ok ? bads.issues : null);
   const usd = validateLineModeState({ ...s, rows: [row({ quantity: 1, unitPrice: 5, currency: "USD", evidenceKind: "ESTIMATE" })], fx: {} });
   ok(usd.ok && usd.state.fx.USD?.rate === null, "用了没登记的外币：补一个空汇率（之后引擎会提示先填汇率），不报错");
+  const decimals = validateLineModeState({ ...s, rows: [row({ quantity: 2.12345, unitPrice: 1, evidenceKind: "ESTIMATE" }), row({ quantity: 0.00004, unitPrice: 1, evidenceKind: "ESTIMATE" }), row({ quantity: 2.1235, unitPrice: 1, evidenceKind: "ESTIMATE" })] });
+  ok(!decimals.ok && decimals.issues.filter((i) => i.messageZh.includes("数量最多 4 位小数")).map((i) => i.rowNo).join() === "1,2", "数量超过 4 位小数（含 0.00004 这种存进库会变 0 的）指出第几行；4 位以内可以", !decimals.ok ? decimals.issues : null);
+  const huge = validateLineModeState({ ...s, rows: [row({ quantity: 1e9, unitPrice: 1, evidenceKind: "ESTIMATE" }), row({ quantity: 1, unitPrice: 1e9, evidenceKind: "ESTIMATE" }), row({ quantity: 50_000_000, unitPrice: 50_000, evidenceKind: "ESTIMATE" })], fx: { CNY: { rate: 1e6, source: null } } });
+  ok(!huge.ok && ["第 1 行数量太大", "第 2 行的供应商报价太大", "第 3 行金额太大", "汇率太大"].every((m) => huge.issues.some((i) => i.messageZh.includes(m))), "数量、单价、行金额、汇率超出库里能存的位数：校验时挡下（不让写库报 500）", !huge.ok ? huge.issues : null);
 }
 
 /* ------------------------------ 6. 粘贴与旧草稿 ------------------------------ */
 console.log("\n━━━ 6. 粘贴、旧的本地成本草稿 ━━━");
 {
-  const parsed = parseSchedulePaste("行号\t品名\t数量\t单位\n1\t合成窗帘\t12\tEach\n2\t合成配件\t十二\tBox\n3\t合成卷\t4\tRoll\t25");
+  const pasteText = "行号\t品名\t数量\t单位\n1\t合成窗帘\t12\tEach\n2\t合成配件\t十二\tBox\n3\t合成卷\t4\tRoll\t25\n4\t合成没单位\t3\t";
+  const parsed = parseSchedulePaste(pasteText);
   const rows = rowsFromParsed(parsed.lines, "paste");
+  ok(remainingPasteText(pasteText, parsed.issues.map((x) => x.row)) === "2\t合成配件\t十二\tBox\n4\t合成没单位\t3", "粘贴框导入后只去掉已导入的行：数量不是数字、缺单位的行留在框里改了再导", remainingPasteText(pasteText, parsed.issues.map((x) => x.row)));
+  const pre = (rows: Array<{ uom: string; sameAsLine: number | null }>, skipped = 0) => linePrefillMessageZh({ state: "ready", messageZh: "（投标工作区那句）", rows: rows as never, skipped: Array.from({ length: skipped }) as never, truncatedFrom: null });
+  const m1 = pre([{ uom: "Each", sameAsLine: null }, { uom: "", sameAsLine: null }, { uom: "Box", sameAsLine: 1 }], 1);
+  ok(m1.startsWith("招标分析里找到 3 行带数量的（其中 1 行没单位，导入前在粘贴框里补上）") && m1.includes("1 行与前面的行完全相同") && m1.includes("另有 1 条") && m1.includes("点下面按钮填进粘贴框") && !m1.includes("尺寸") && !m1.includes("保存时会被略过"), "从招标分析带入：逐行报价自己的说明（没有尺寸、认证要求列；没单位的行导入前补上）", m1);
+  ok(linePrefillMessageZh({ state: "no_analysis", messageZh: "原句", rows: [], skipped: [], truncatedFrom: null }) === "原句", "没有可用的分析：沿用原来的说明");
   ok(rows.length === 2 && rows[1].packCount === 25 && rows.every((r) => r.rowSource === "paste") && parsed.issues.some((i) => i.messageZh.includes("第 3 行") && i.messageZh.includes("不是数字")), "粘贴：数量不是数字的那一行不导入、写明第几行，其它行导入", { rows, issues: parsed.issues });
 
   const base = { ...sampleState(), targetMarginPct: null, rows: sampleState().rows.map((r) => ({ ...r, unitPrice: null, evidenceKind: null })) };
@@ -365,11 +424,19 @@ console.log("\n━━━ 6. 粘贴、旧的本地成本草稿 ━━━");
   draft.lines["2"] = { ...draft.lines["1"], unitPrice: "3", basis: "PER_PIECE", evidenceKind: "nonsense" };
   draft.fx = { CNY: { rate: "0.195", source: "合成来源", asOf: "" } };
   draft.pricingRatePct = "22";
-  ok(draftHasLines(draft) && !draftHasLines(emptyCostDraft()), "有报价的草稿才提示，空草稿不提示");
+  ok(draftHasLines(draft) && !draftHasLines(emptyCostDraft()) && !draftHasLines(draft, 0), "有报价的草稿才提示，空草稿不提示；表里一行都没有时不提示");
   const imp = importCostDraft(base, draft);
   ok(eq(imp.importedRows, [1, 2]) && imp.state.rows[0].unitPrice === 48.5 && imp.state.rows[0].evidenceKind === "PLATFORM_LISTED" && imp.state.rows[1].basis === "PER_PIECE" && imp.state.rows[1].evidenceKind === "ESTIMATE", "按行号带入报价、口径、证据类别（认不出的证据记为估计）");
   ok(imp.state.fx.CNY.rate === 0.195 && imp.state.fx.CNY.source === "合成来源" && imp.state.targetMarginPct === 22, "带入汇率与来源；目标毛利率只在报价还没填时带入");
-  ok(imp.skipped.some((x) => x.includes("关税率")) && imp.skipped.some((x) => x.includes("进口 GST")), "写明没带入的项（逐行关税率、进口 GST）");
+  ok(imp.notes.some((x) => x.includes("关税率") && x.includes("没带入")) && imp.notes.some((x) => x.includes("进口 GST")) && imp.notes[0] === "已带入 2 行（第 1、2 行），请核对后点「保存」" && imp.notes.some((x) => x.includes("第 2 行草稿没写证据类别，按「估计」带入了")), "写明带入了哪几行、没带入的项（逐行关税率、进口 GST）、证据类别按估计带入的行；每条自己说清楚", imp.notes);
+  ok(!imp.notes.some((x) => x.includes("不是从存下的价格表来的")), "行来自存下的价格表：不多说「按行号对上」");
+  const pasted = { ...base, rows: base.rows.map((r) => ({ ...r, rowSource: "paste" as const })) };
+  ok(importCostDraft(pasted, draft).notes.some((x) => x.includes("按行号对上的：请逐行核对品名")), "行是粘贴 / 招标分析带入的：提示按行号对上、要逐行核对品名");
+  const priced = { ...base, rows: [{ ...base.rows[0], unitPrice: 60, evidenceKind: "SIGNED_QUOTE" as const }, base.rows[1]] };
+  const pi = importCostDraft(priced, draft);
+  ok(eq(pi.importedRows, [2]) && pi.state.rows[0].unitPrice === 60 && pi.notes.some((x) => x.includes("第 1 行已经有供应商报价，草稿里的没带入")), "表里已经填了供应商报价的行不覆盖，写明哪几行", pi.notes);
+  const none = importCostDraft({ ...base, rows: [base.rows[0]] }, (() => { const d = emptyCostDraft(); d.lines["5"] = { ...draft.lines["1"] }; return d; })());
+  ok(none.importedRows.length === 0 && none.notes[0].includes("草稿里没有能对上的行") && !none.notes[0].includes("（无）"), "一行都对不上：照实说什么都没带入（不写「第 （无） 行」）", none.notes);
   const keep = importCostDraft({ ...base, targetMarginPct: 30 }, draft);
   ok(keep.state.targetMarginPct === 30, "报价已经填了目标毛利率：草稿不覆盖");
   ok(base.rows[0].unitPrice === null, "导入不改原来的状态对象（纯函数）");
@@ -380,13 +447,21 @@ console.log("\n━━━ 6. 粘贴、旧的本地成本草稿 ━━━");
   });
   ok(wrong.length === 0, "数字输入框：「12.」「0.」按已写出的数算（小数点不被吞掉），千分位逗号可以，「-」「abc」「1.2.3」不合法", wrong);
   const raw = JSON.stringify(draft);
-  ok(draftToPrompt(null, raw, parseCostDraft)?.lines["1"].unitPrice === "48.5" && draftToPrompt("1", raw, parseCostDraft) === null && draftToPrompt(null, null, parseCostDraft) === null && draftToPrompt(null, JSON.stringify(emptyCostDraft()), parseCostDraft) === null && draftToPrompt(null, "{坏的", parseCostDraft) === null, "要不要提示：有填了报价的草稿且没提示过才提示；提示过、没有草稿、空草稿、读不出的草稿都不提示");
+  ok(
+    draftToPrompt(null, raw, parseCostDraft, 2)?.lines["1"].unitPrice === "48.5" &&
+      draftToPrompt("1", raw, parseCostDraft, 2) === null &&
+      draftToPrompt(null, null, parseCostDraft, 2) === null &&
+      draftToPrompt(null, JSON.stringify(emptyCostDraft()), parseCostDraft, 2) === null &&
+      draftToPrompt(null, "{坏的", parseCostDraft, 2) === null &&
+      draftToPrompt(null, raw, parseCostDraft, 0) === null,
+    "要不要提示：有填了报价的草稿、没提示过、表里有对得上的行才提示；提示过、没有草稿、空草稿、读不出的草稿、表还是空的都不提示",
+  );
   const odd = emptyCostDraft();
   odd.lines["1"] = { ...draft.lines["1"], currency: "rmb" };
   odd.lines["2"] = { ...draft.lines["1"], currency: "usd" };
   odd.fx = { usd: { rate: "1.35", source: "", asOf: "" } };
   const oddImp = importCostDraft(base, odd);
-  ok(eq(oddImp.importedRows, [2]) && oddImp.state.rows[1].currency === "USD" && oddImp.state.fx.USD?.rate === 1.35 && oddImp.skipped.some((x) => x.includes("rmb")), "草稿币种转大写；不在报价币种里的（rmb）那一行不带入并写明", oddImp);
+  ok(eq(oddImp.importedRows, [2]) && oddImp.state.rows[1].currency === "USD" && oddImp.state.fx.USD?.rate === 1.35 && oddImp.notes.some((x) => x.includes("rmb")), "草稿币种转大写；不在报价币种里的（rmb）那一行不带入并写明", oddImp);
 }
 
 /* ------------------------------ 7a. 「下一步」已定的去处 ------------------------------ */
@@ -403,13 +478,15 @@ console.log("\n━━━ 7a. 「已定」按我方报价的做法去 ② / ③ �
     canViewAmounts: true,
   });
   const yes = decideBidPageNextStep(factsOf(true));
+  const hidden = decideBidPageNextStep({ ...factsOf(true), canViewAmounts: false });
   const no = decideBidPageNextStep(factsOf(false));
   const unknown = decideBidPageNextStep(factsOf(undefined));
-  ok(yes.rule === "bid_decided" && yes.action.labelZh === "去「定报价」" && yes.expanded === "quote", "我方报价是逐行报价：「导出价格表 / 生成投标文件」去 ②（导出在 ② 底部）", yes);
+  ok(yes.rule === "bid_decided" && yes.action.labelZh === "去导出价格表" && yes.expanded === "quote" && eq(yes.action.target, { kind: "section", section: "quote" }), "我方报价是逐行报价：「导出价格表 / 生成投标文件」去 ②，按钮写「去导出价格表」（不叫已定的人再去「定报价」）", yes);
+  ok(hidden.rule === "bid_decided" && hidden.action.labelZh === "去「出文件」" && hidden.expanded === "documents", "看不到金额的人：即使是逐行报价也照旧去 ③（② 对他们锁着；去处不随做法变）", hidden);
   ok(no.action.labelZh === "去「出文件」" && no.expanded === "documents" && unknown.action.labelZh === "去「出文件」" && unknown.expanded === "documents", "不是逐行报价、或不知道：照旧去 ③", [no.action, unknown.action]);
   ok(BID_PAGE_RULE_TARGET.bid_decided === "documents", "对应表里「已定」的默认去处仍是 ③（BIDPAGE-1 原样）");
   const summarySvc = stripComments(read("src/lib/bid-page-v2/service.ts"));
-  ok(/select: \{ engineJson: true \}/.test(summarySvc) && /entryMode === "LINE"/.test(summarySvc) && /lineMode,/.test(summarySvc), "汇总只多读我方报价的做法字段（不读成本行）");
+  ok(/access\.canViewAmounts && status === "AUTHORITATIVE" && q \? await db\.projectQuote\.findFirst\(\{ where: \{ id: q\.id, projectId, orgId \}, select: \{ engineJson: true, quoteType: true \} \}\)/.test(summarySvc) && /isLineModeQuote\(bidQuote\)/.test(summarySvc) && /lineMode,/.test(summarySvc), "汇总只给看得到金额的人多读我方报价的做法字段与类型（按项目与组织限定，不读成本行）");
 }
 
 /* ------------------------------ 7. 接口与组件源码 ------------------------------ */
@@ -433,7 +510,11 @@ console.log("\n━━━ 7. 接口写法与不写的地方 ━━━");
   const gate = stripComments(read("src/lib/bid-page-v2/quote-line/api-gate.ts"));
   const i404 = gate.indexOf("isBidPageV2EnabledForOrg(access.orgId)");
   const iFin = gate.indexOf("resolveFinancePrivilege(access.user, access.orgId, access.project.ownerId)");
-  ok(i404 > 0 && iFin > i404 && /workDomain !== "tender"/.test(gate) && /!finance\.canReadAll\) return NextResponse\.json\(\{ error: LINE_MODE_AMOUNTS_FORBIDDEN_ZH \}, \{ status: 403 \}\)/.test(gate), "门：先开关与招投标项目（404），再财务查看权（403）");
+  const svcSrc = stripComments(read("src/lib/bid-page-v2/quote-line/service.ts"));
+  const iInt = gate.indexOf("if (!access.canViewInternal) return NextResponse.json({ error: LINE_MODE_AMOUNTS_FORBIDDEN_ZH }, { status: 403 })");
+  ok(i404 > 0 && iInt > i404 && iFin > iInt && /workDomain !== "tender"/.test(gate) && /!finance\.canReadAll\) return NextResponse\.json\(\{ error: LINE_MODE_AMOUNTS_FORBIDDEN_ZH \}, \{ status: 403 \}\)/.test(gate), "门：先开关与招投标项目（404），再内部成本权限与财务查看权（403；写接口也返回成本，所以也要内部成本权限）");
+  ok(["=SUM(A1)", "+1", "-2", "@x", "\tA"].every((t) => csvSafeText(t) === `'${t}`) && csvSafeText("合成卷帘 A") === "合成卷帘 A" && /description: csvSafeText\(r\.description\)/.test(svcSrc), "导出的品名以 = + - @ 制表符开头时前面加 '（表格软件不把它当公式）；其余原样");
+  ok(quoteDisplayName({ name: null, quoteNumber: "Q-1", quoteType: "PROJECT_SUPPLY_INSTALL" }) === "供货加安装报价 · Q-1" && quoteDisplayName({ name: " 合成 ", quoteNumber: "Q-1", quoteType: "SUPPLY_ONLY" }) === "合成" && !/q\.title/.test(svcSrc), "报价显示名：有名字用名字；没有就写业务类型中文 + 报价编号（不显示内部标题里的英文类型码）");
   const svc = stripComments(read("src/lib/bid-page-v2/quote-line/service.ts"));
   ok(!/quoteLineItem|lineItems\s*:\s*\{\s*create/.test(svc) && !/bidIntelligenceRoom/.test(svc) && !/saveWorkspaceBlocks/.test(svc), "服务不写给客户报价单的明细行、不写投标工作区");
   ok(/computeForQuote\(q\)/.test(svc) && !/computeCostScenario|prepareLine|finalizeLine/.test(svc), "数只来自报价引擎（computeForQuote），不用 tender-bid-cost 的逐行核算");

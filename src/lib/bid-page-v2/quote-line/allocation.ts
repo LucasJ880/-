@@ -7,6 +7,7 @@
  *   - 我方单价 = 报价合计 × s_i ÷ 数量，四舍五入到分（`priceLine`，与导出同一个函数）；行合计 = 单价 × 数量；
  *   - 行毛利率 =（行合计 − 该行分到的成本）÷ 行合计。
  * 逐行合计与报价合计之差来自每行单价取到分，不超过 Σ(数量 × 0.005)（数量带小数的行再各加 0.005）。
+ * 填了报价、但货值是 0 的行（报价填 0，或小到取整后为 0）：单价 0、行合计 0、分到的成本 0，照样能导出；它不参与按货值分摊。
  */
 import { Prisma } from "@prisma/client";
 import { roundMoney, ZERO } from "@/lib/project-finance/money";
@@ -42,6 +43,7 @@ export function allocateFromEngine(goods: readonly AllocationGoodsLine[], calc: 
   const amountOf = new Map(calc.lines.map((l) => [l.id, l.amount]));
   const g = goods.map((x) => ({ ...x, goodsCad: x.priced ? new Prisma.Decimal(amountOf.get(x.costLineId) ?? 0) : ZERO }));
   const sharing = g.filter((x) => x.priced && x.goodsCad.gt(ZERO));
+  const zeroPriced = g.filter((x) => x.priced && !x.goodsCad.gt(ZERO));
   const totalGoods = sharing.reduce((a, x) => a.plus(x.goodsCad), ZERO);
   const diffBound = diffBoundOf(goods);
   const empty = (x: (typeof g)[number]) => ({ lineNo: x.lineNo, goodsCad: x.priced ? toNum2(x.goodsCad) : null, landedCostCad: null, landedUnitCostCad: null, unitPrice: null, extended: null, marginPct: null });
@@ -54,9 +56,10 @@ export function allocateFromEngine(goods: readonly AllocationGoodsLine[], calc: 
   if (!landed.ok || !cost.ok) return { lines: g.map(empty), linesTotal: null, diff: null, diffBound };
 
   const selling = new Prisma.Decimal(calc.sellingPrice);
-  const priced = priceSchedule(
-    sharing.map((x) => ({ lineNo: x.lineNo, quantity: x.quantity, unitPrice: selling.times(x.goodsCad).div(totalGoods).div(x.quantity) })),
-  );
+  const priced = priceSchedule([
+    ...sharing.map((x) => ({ lineNo: x.lineNo, quantity: x.quantity, unitPrice: selling.times(x.goodsCad).div(totalGoods).div(x.quantity) })),
+    ...zeroPriced.map((x) => ({ lineNo: x.lineNo, quantity: x.quantity, unitPrice: ZERO })),
+  ]);
   const pricedBy = new Map(priced.lines.map((p) => [p.lineNo, p]));
 
   const lines = g.map((x) => {
@@ -69,7 +72,8 @@ export function allocateFromEngine(goods: readonly AllocationGoodsLine[], calc: 
       lineNo: x.lineNo,
       goodsCad: toNum2(x.goodsCad),
       landedCostCad: toNum2(landedCost),
-      landedUnitCostCad: toNum2(landedCost.div(x.quantity)),
+      // 到手单位成本留 4 位（单价不到 1 元的货品只取到分会失真）；界面上小于 1 时才显示 4 位
+      landedUnitCostCad: Number(landedCost.div(x.quantity).toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP)),
       unitPrice: Number(p.unitPrice),
       extended: Number(p.extended),
       marginPct,

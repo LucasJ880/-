@@ -286,7 +286,8 @@ export const quoteHeaderSchema = z.object({
   pricingMethod: z.enum(PRICING_METHODS).optional(),
   pricingRate: num(),
   internalNotes: z.string().max(4000).nullable().optional(),
-  engine: engineConfigSchema.optional(),
+  // 做法只由新页面新建时写（BIDPAGE-3）；专业模式保存不收这个字段，库里原有的值合并时保留
+  engine: engineConfigSchema.omit({ entryMode: true }).optional(),
 });
 
 export type QuoteValidationError = { code: string; message: string; lineId?: string; tierId?: string };

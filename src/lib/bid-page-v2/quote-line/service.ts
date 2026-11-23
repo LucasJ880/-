@@ -31,7 +31,11 @@ import { exportOfficialPriceSchedule } from "@/lib/tender-price-schedule/officia
 import { allocateFromEngine, exportUnitPrices } from "./allocation";
 import {
   BUSINESS_TYPE_TO_QUOTE_TYPE,
+  QUOTE_STATUS_ZH,
+  currencyLabelZh,
   engineErrorZh,
+  isLineModeQuote,
+  readBidLineMeta,
   engineWarningZh,
   proModeHrefOf,
   validateLineModeState,
@@ -43,16 +47,24 @@ import {
   type QuoteListView,
   type SaveLineModeRequest,
 } from "./contract";
-import { costLinesToState, defaultLineModeState, seedRowsFromSchedule, stateToWrites, type CostLineWrite } from "./mapping";
+import { costLinesToState, defaultLineModeState, linePrefillMessageZh, seedRowsFromSchedule, stateToWrites, type CostLineWrite } from "./mapping";
 
 export type LineCaps = { canEdit: boolean; canApprove: boolean };
 
+const QUOTE_CHANGED_ZH = "这份报价刚被别人改过（也可能是你在专业模式里改的），这次没保存";
+const frozenZh = (status: string) => `这份报价「${QUOTE_STATUS_ZH[status] ?? status}」，内容锁定；要改请在专业模式里另起新版`;
+
+/**
+ * 导出的 CSV 会被人用表格软件打开：以 = + - @ 或制表符、回车开头的品名会被当成公式，前面加一个 ' 让它按文字显示
+ *（品名可能来自招标分析抽出的外部文件；共用的 `official-export.ts` 不改）。
+ */
+export function csvSafeText(s: string): string {
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+
 const D = (v: number | null | undefined) => (v == null ? null : new Prisma.Decimal(v.toFixed(8)));
 
-export function isLineModeQuote(q: { engineJson: unknown }): boolean {
-  const parsed = engineConfigSchema.safeParse(q.engineJson ?? {});
-  return parsed.success && parsed.data.entryMode === "LINE";
-}
+export { isLineModeQuote };
 
 /** 投标工作区里存下、且校验通过的价格表（不看投标工作区开关，只读它存下的块） */
 export async function usableSchedule(projectId: string): Promise<PriceScheduleLine[] | null> {
@@ -99,10 +111,16 @@ async function ourBidQuoteId(projectId: string, orgId: string): Promise<OurBid> 
 export async function exportAvailability(projectId: string, orgId: string, known?: OurBid): Promise<ExportAvailability> {
   const bid = known ?? (await ourBidQuoteId(projectId, orgId));
   if (!bid.id) {
-    return { available: false, reasonZh: bid.status === "QUOTE_REVISION_PENDING" ? "我方报价有新版还没定：新版批准并定为我方报价后才能导出" : "报价定为我方报价后才能导出" };
+    return {
+      available: false,
+      reasonZh:
+        bid.status === "QUOTE_REVISION_PENDING"
+          ? "我方报价有新版还没定：新版批准并定为我方报价后才能导出（提交、批准、定为我方报价目前在专业模式里做）"
+          : "报价定为我方报价后才能导出（提交、批准、定为我方报价目前在专业模式里做）",
+    };
   }
-  const q = await db.projectQuote.findFirst({ where: { id: bid.id, projectId }, select: { id: true, version: true, engineJson: true } });
-  if (!q || !isLineModeQuote(q)) return { available: false, reasonZh: "我方报价不是逐行报价做的，不能按价格表导出" };
+  const q = await db.projectQuote.findFirst({ where: { id: bid.id, projectId, orgId }, select: { id: true, version: true, engineJson: true, quoteType: true } });
+  if (!q || !isLineModeQuote(q)) return { available: false, reasonZh: "我方报价是在专业模式里做的，这里只能导出逐行报价；要按价格表导出，请用逐行报价做一份并定为我方报价" };
   return { available: true, quoteId: q.id, version: q.version };
 }
 
@@ -111,7 +129,7 @@ export async function listLineQuotes(input: { projectId: string; orgId: string; 
     db.projectQuote.findMany({
       where: { projectId: input.projectId, quoteType: { not: "CUSTOM" } },
       orderBy: [{ updatedAt: "desc" }],
-      select: { id: true, name: true, title: true, quoteNumber: true, version: true, status: true, quoteType: true, currency: true, engineJson: true, summaryJson: true, updatedAt: true },
+      select: { id: true, name: true, quoteNumber: true, version: true, status: true, quoteType: true, currency: true, engineJson: true, summaryJson: true, updatedAt: true },
     }),
     ourBidQuoteId(input.projectId, input.orgId),
     usableSchedule(input.projectId),
@@ -120,7 +138,7 @@ export async function listLineQuotes(input: { projectId: string; orgId: string; 
     const sp = (q.summaryJson as { sellingPrice?: unknown } | null)?.sellingPrice;
     return {
       id: q.id,
-      name: q.name ?? q.title ?? null,
+      name: q.name,
       quoteNumber: q.quoteNumber,
       version: q.version,
       status: q.status,
@@ -158,7 +176,7 @@ export async function createLineQuote(input: { projectId: string; orgId: string;
       quoteNumber: await nextQuoteNumber(input.orgId, input.projectId),
       name,
       version: 1,
-      title: name ?? "逐行报价 v1",
+      title: name ?? "逐行报价",
       currency: "CAD",
       status: "draft",
       pricingMethod: "MARGIN_ON_REVENUE",
@@ -207,7 +225,7 @@ async function inquiryQuotesOf(projectId: string): Promise<InquiryQuoteOption[]>
 function assertLineMode(q: QuoteRecord) {
   if (!isLineModeQuote(q)) throw new QuoteEngineError("NOT_LINE_MODE", "这份报价不是逐行报价，请在专业模式里打开", 409);
   // 逐行表的汇率、金额都按加元写；专业模式里把报价币种改掉了，就只能在专业模式里做
-  if (q.currency !== "CAD") throw new QuoteEngineError("NOT_LINE_MODE", `这份报价的币种在专业模式里改成了 ${q.currency}，逐行报价只按加元做，请在专业模式里打开`, 409);
+  if (q.currency !== "CAD") throw new QuoteEngineError("NOT_LINE_MODE", `这份报价的币种在专业模式里改成了${currencyLabelZh(q.currency)}，逐行报价只按加元做，请在专业模式里打开`, 409);
 }
 
 /** 由一份报价算出逐行视图里的状态、结果与分摊（读、保存后、导出共用） */
@@ -246,12 +264,12 @@ export async function loadLineView(input: { projectId: string; orgId: string; qu
     read.state.rows.length === 0
       ? Promise.all([usableSchedule(input.projectId), loadSchedulePrefill({ projectId: input.projectId, orgId: input.orgId })]).then(([s, p]) => ({
           scheduleLineCount: s?.length ?? 0,
-          prefill: { state: p.state, messageZh: p.messageZh, text: p.text },
+          prefill: { state: p.state, messageZh: linePrefillMessageZh(p), text: p.text },
         }))
       : Promise.resolve(null),
   ]);
   return {
-    quote: { id: q.id, name: q.name ?? q.title ?? null, quoteNumber: q.quoteNumber, version: q.version, status: q.status, currency: q.currency, updatedAt: q.updatedAt.toISOString(), frozen: (FROZEN_STATUSES as readonly string[]).includes(q.status) },
+    quote: { id: q.id, name: q.name, quoteNumber: q.quoteNumber, quoteType: q.quoteType, version: q.version, status: q.status, currency: q.currency, updatedAt: q.updatedAt.toISOString(), frozen: (FROZEN_STATUSES as readonly string[]).includes(q.status) },
     capabilities: input.caps,
     state: read.state,
     notices: read.notices,
@@ -265,8 +283,17 @@ export async function loadLineView(input: { projectId: string; orgId: string; qu
 
 /* ---------------------------------- 存 ---------------------------------- */
 
-/** 点选询价回复的行：回复必须是本项目已报价的那一条，价与币种与回复一致；供应商一律取自库里 */
-async function resolveInquiryRows(projectId: string, state: LineModeState): Promise<LineModeState> {
+/**
+ * 点选询价回复的行：回复必须是本项目已报价的那一条，价与币种与回复一致；供应商一律取自库里。
+ * 不是点选的行：供应商不取提交的——只沿用库里同一条货品行原有的（那一行原来也不是点选来的，例如专业模式里填的），否则为空。
+ */
+async function resolveInquiryRows(projectId: string, state: LineModeState, current: QuoteRecord["costLines"]): Promise<LineModeState> {
+  const manualGoods = new Map(
+    current.flatMap((l) => {
+      const meta = readBidLineMeta(l.metadata);
+      return meta?.role === "goods" && !meta.inquiryItemId ? [[l.id, l] as const] : [];
+    }),
+  );
   const ids = [...new Set(state.rows.flatMap((r) => (r.inquiryItemId ? [r.inquiryItemId] : [])))];
   const items = ids.length
     ? await db.inquiryItem.findMany({
@@ -277,7 +304,10 @@ async function resolveInquiryRows(projectId: string, state: LineModeState): Prom
   const byId = new Map(items.map((i) => [i.id, i]));
   const issues: Array<{ rowNo: number; messageZh: string }> = [];
   const rows = state.rows.map((r, i) => {
-    if (!r.inquiryItemId) return { ...r, supplierId: null };
+    if (!r.inquiryItemId) {
+      const kept = r.costLineId ? manualGoods.get(r.costLineId) : undefined;
+      return { ...r, supplierId: kept?.supplierId ?? null, supplierName: kept?.supplierName ?? null };
+    }
     const it = byId.get(r.inquiryItemId);
     if (!it) {
       issues.push({ rowNo: i + 1, messageZh: `第 ${i + 1} 行选的询价回复找不到了（可能已取消），请重新选或改成手填` });
@@ -285,7 +315,7 @@ async function resolveInquiryRows(projectId: string, state: LineModeState): Prom
     }
     const replied = it.unitPrice == null ? null : Number(it.unitPrice);
     if (replied == null || r.unitPrice !== replied || r.currency !== it.currency) {
-      issues.push({ rowNo: i + 1, messageZh: `第 ${i + 1} 行的报价与选中的询价回复不一致；改了价就请改成手填并选证据类别` });
+      issues.push({ rowNo: i + 1, messageZh: `第 ${i + 1} 行的供应商报价和选中的询价回复对不上（回复可能改过）：请重新选一次，或改成手填并选证据类别` });
       return r;
     }
     return { ...r, supplierId: it.supplierId, supplierName: it.supplier.name };
@@ -297,16 +327,16 @@ async function resolveInquiryRows(projectId: string, state: LineModeState): Prom
 export async function saveLineView(input: { projectId: string; orgId: string; quoteId: string; userId: string; caps: LineCaps; request: SaveLineModeRequest }): Promise<LineModeView> {
   const q = await getQuote(input.quoteId, input.projectId);
   assertLineMode(q);
-  if ((FROZEN_STATUSES as readonly string[]).includes(q.status)) throw new QuoteEngineError("QUOTE_FROZEN", "这份报价已定或已结束，内容锁定；要改请在专业模式里另起新版", 409);
-  if (q.updatedAt.toISOString() !== input.request.baseUpdatedAt) throw new QuoteEngineError("QUOTE_CHANGED", "这份报价刚被别人改过，请刷新后再改", 409);
+  if ((FROZEN_STATUSES as readonly string[]).includes(q.status)) throw new QuoteEngineError("QUOTE_FROZEN", frozenZh(q.status), 409);
+  if (q.updatedAt.toISOString() !== input.request.baseUpdatedAt) throw new QuoteEngineError("QUOTE_CHANGED", QUOTE_CHANGED_ZH, 409);
   const checked = validateLineModeState(input.request.state);
   if (!checked.ok) throw new QuoteEngineError("VALIDATION", checked.issues[0].messageZh, 400, { issues: checked.issues });
   // 专业模式里把定价方式改成了别的：逐行保存会改回按售价毛利；没填目标毛利率就保存会变成零毛利，先拦下
   if (q.pricingMethod !== "MARGIN_ON_REVENUE" && checked.state.targetMarginPct == null) {
-    const msg = "定价方式在专业模式里改过：逐行报价按售价毛利定价，请先填目标毛利率再保存";
+    const msg = "定价方式在专业模式里改过：逐行报价只按目标毛利率（按售价）定价，请先填目标毛利率再保存";
     throw new QuoteEngineError("VALIDATION", msg, 400, { issues: [{ rowNo: null, messageZh: msg }] });
   }
-  const state = await resolveInquiryRows(input.projectId, checked.state);
+  const state = await resolveInquiryRows(input.projectId, checked.state, q.costLines);
   const writes = stateToWrites(state, q.costLines);
   const before = { sellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null };
   await db.$transaction(async (tx) => {
@@ -315,11 +345,11 @@ export async function saveLineView(input: { projectId: string; orgId: string; qu
       where: { id: q.id, updatedAt: q.updatedAt, status: { notIn: [...FROZEN_STATUSES] } },
       data: { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: D(state.targetMarginPct) },
     });
-    if (cas.count !== 1) throw new QuoteEngineError("QUOTE_CHANGED", "这份报价刚被别人改过，请刷新后再改", 409);
+    if (cas.count !== 1) throw new QuoteEngineError("QUOTE_CHANGED", QUOTE_CHANGED_ZH, 409);
     if (writes.deleteIds.length) await tx.quoteCostLine.deleteMany({ where: { quoteId: q.id, id: { in: writes.deleteIds } } });
     for (const u of writes.updates) {
       const res = await tx.quoteCostLine.updateMany({ where: { id: u.id, quoteId: q.id }, data: writeData(q.orgId, u.data) });
-      if (res.count !== 1) throw new QuoteEngineError("QUOTE_CHANGED", "这份报价刚被别人改过，请刷新后再改", 409);
+      if (res.count !== 1) throw new QuoteEngineError("QUOTE_CHANGED", QUOTE_CHANGED_ZH, 409);
     }
     for (const c of writes.creates) await tx.quoteCostLine.create({ data: { ...writeData(q.orgId, c), quoteId: q.id } });
   });
@@ -347,7 +377,7 @@ export async function exportLineQuote(input: { projectId: string; orgId: string;
   assertLineMode(q);
   const { read, computed } = buildLineComputed(q);
   if (!computed.ok) throw new QuoteEngineError("EXPORT_UNAVAILABLE", computed.errorsZh[0] ?? "报价算不出，不能导出", 409);
-  const lines: PriceScheduleLine[] = read.state.rows.map((r, i) => ({ lineNo: i + 1, description: r.description, quantity: r.quantity, uom: r.uom, packCount: r.packCount ?? undefined }));
+  const lines: PriceScheduleLine[] = read.state.rows.map((r, i) => ({ lineNo: i + 1, description: csvSafeText(r.description), quantity: r.quantity, uom: r.uom, packCount: r.packCount ?? undefined }));
   const result = exportOfficialPriceSchedule(lines, exportUnitPrices(computed.allocation));
   if (!result.ok) throw new QuoteEngineError("EXPORT_UNAVAILABLE", result.messageZh, 409);
   const safe = (q.quoteNumber ?? q.id).replace(/[^A-Za-z0-9_-]+/g, "-");

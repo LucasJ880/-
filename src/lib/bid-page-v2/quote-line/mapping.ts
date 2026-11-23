@@ -9,9 +9,11 @@
  */
 import { Prisma } from "@prisma/client";
 import type { PriceScheduleLine } from "@/lib/tender-price-schedule/contract";
+import type { SchedulePrefillResponse } from "@/lib/tender-bid-workspace/schedule-prefill";
 import { templateSupplyOnlyLines } from "@/lib/quote-engine/templates";
 import {
   COST_LINE_DESCRIPTION_MAX,
+  currencyLabelZh,
   LINE_EVIDENCE_LABELS_ZH,
   LINE_UOMS,
   mergeBidLineMeta,
@@ -115,10 +117,13 @@ export const SHARED_DESCRIPTION_ZH: Record<SharedKey, string> = {
 };
 export const PRESET_DESCRIPTION_ZH: Record<PresetKey, string> = {
   financing: "资金使用（到手成本 × 年化比例 ÷ 12 × 月数）",
-  admin: "管理费（自含：基数 ÷（1 − 比例）− 基数，100 → 103.09）",
+  admin: "管理费（含自身，3% 时 100 → 103.09）",
   cash_allowance: "现金备用金（到手成本 × 比例）",
-  commission: "提成（毛利 × 比例，计入成本）",
+  commission: "销售提成（毛利 × 比例，算进成本）",
 };
+/** 提示里用的短名（不把带公式的说明整句塞进引号） */
+const SHARED_SHORT_ZH: Record<SharedKey, string> = { ocean_freight: "海运费", customs: "报关费", duty: "关税", domestic_freight: "国内运费" };
+const PRESET_SHORT_ZH: Record<PresetKey, string> = { financing: "资金使用", admin: "管理费", cash_allowance: "现金备用金", commission: "销售提成" };
 
 const SHARED_SORT: Record<SharedKey, number> = { domestic_freight: 1010, ocean_freight: 1020, customs: 1030, duty: 1040 };
 const PRESET_SORT: Record<PresetKey, number> = { financing: 2010, admin: 2020, cash_allowance: 2030, commission: 2040 };
@@ -254,7 +259,12 @@ function sharedWrite(state: LineModeState, key: SharedKey, existing: DbCostLine 
   if (key === "ocean_freight") {
     // 柜数 0 按「这项没有」处理（引擎要求按柜计的行箱数大于 0）
     const on = s.oceanFreight.perContainer != null && s.oceanFreight.containers != null && s.oceanFreight.containers > 0;
-    vals = on ? { quantity: null, unitCost: s.oceanFreight.perContainer, rate: null, duration: s.oceanFreight.containers, sourceCurrency: s.oceanFreight.currency, included: true } : { ...keep, included: false };
+    // 不计入时：填了每柜的数就记下它（柜数 0 时每柜的数不从界面上消失），否则保留库里原有的
+    vals = on
+      ? { quantity: null, unitCost: s.oceanFreight.perContainer, rate: null, duration: s.oceanFreight.containers, sourceCurrency: s.oceanFreight.currency, included: true }
+      : s.oceanFreight.perContainer != null
+        ? { ...keep, unitCost: s.oceanFreight.perContainer, sourceCurrency: s.oceanFreight.currency, included: false }
+        : { ...keep, included: false };
   } else if (key === "customs" || key === "domestic_freight") {
     const p = key === "customs" ? s.customs : s.domesticFreight;
     vals = p.amount != null ? { quantity: null, unitCost: p.amount, rate: null, duration: null, sourceCurrency: p.currency, included: true } : { ...keep, included: false };
@@ -381,12 +391,12 @@ export function costLinesToState(
       // 专业模式里直接改了单价：按改后的价（招标单位）读出
       unitPrice = stored;
       basis = "PER_TENDER_UOM";
-      if (stored != null || expected != null) notices.push(`第 ${rowNo} 行的单价在专业模式里改过，这里按改后的价显示（按招标单位）`);
+      if (stored != null || expected != null) notices.push(`第 ${rowNo} 行的供应商报价在专业模式里改过，这里按改后的价显示（已换成按招标单位）`);
     }
     const description = clip(meta.description, COST_LINE_DESCRIPTION_MAX) === l.description ? meta.description : l.description;
     if (description !== meta.description) notices.push(`第 ${rowNo} 行的品名在专业模式里改过，这里按改后的显示`);
-    if (!l.included) notices.push(`第 ${rowNo} 行在专业模式里设成了不计入；逐行保存时会重新计入`);
-    if (l.category !== t.goods.category || l.calculationType !== t.goods.calculationType) notices.push(`第 ${rowNo} 行的类别或算法在专业模式里改过；逐行保存时会改回货品按件计`);
+    if (!l.included) notices.push(`第 ${rowNo} 行在专业模式里设成了不计入；在这里保存时会重新计入`);
+    if (l.category !== t.goods.category || l.calculationType !== t.goods.calculationType) notices.push(`第 ${rowNo} 行的类别或算法在专业模式里改过；在这里保存时会改回「货品：数量 × 单价」`);
     return {
       costLineId: l.id,
       description,
@@ -408,15 +418,22 @@ export function costLinesToState(
   const algoChanged = (l: DbCostLine, tpl: TemplateSeed) => l.category !== tpl.category || l.calculationType !== tpl.calculationType || (l.calculationBase ?? null) !== (tpl.calculationBase ?? null);
   for (const key of ["ocean_freight", "customs", "duty", "domestic_freight"] as const) {
     const l = sh[key];
-    if (!l) notices.push(`「${SHARED_DESCRIPTION_ZH[key]}」这一行在专业模式里删掉了，保存时会重新建一条（空着就不计入）`);
+    if (!l) notices.push(`「${SHARED_SHORT_ZH[key]}」这一行在专业模式里删掉了，在这里保存时会重新建一条（空着就不计入）`);
     else {
       if (l.included) noteFx(l);
-      if (algoChanged(l, t.shared[key])) notices.push(`「${SHARED_DESCRIPTION_ZH[key]}」的类别或算法在专业模式里改过；逐行保存时会改回原来的算法`);
+      if (algoChanged(l, t.shared[key])) notices.push(`「${SHARED_SHORT_ZH[key]}」的类别或算法在专业模式里改过；在这里保存时会改回原来的算法`);
     }
   }
   for (const key of ["financing", "admin", "cash_allowance", "commission"] as const) {
     const l = idx.preset[key];
-    if (l && algoChanged(l, t.preset[key])) notices.push(`「${PRESET_DESCRIPTION_ZH[key]}」的类别或算法在专业模式里改过；逐行保存时会改回原来的算法`);
+    if (l && algoChanged(l, t.preset[key])) notices.push(`「${PRESET_SHORT_ZH[key]}」的类别或算法在专业模式里改过；在这里保存时会改回原来的算法`);
+  }
+  // 海运按柜：引擎算的是 数量（缺省 1）× 柜数 × 每柜；专业模式里改了「数量」时，这里按两者相乘读成柜数，保存后金额不变
+  const oceanRaw = sh.ocean_freight ?? null;
+  const oceanQty = num(oceanRaw?.quantity);
+  const oceanContainers = oceanRaw && oceanRaw.included ? (oceanQty != null && oceanQty !== 1 ? to4(new Prisma.Decimal(oceanQty).times(num(oceanRaw.duration) ?? 0)) : num(oceanRaw.duration)) : null;
+  if (oceanRaw && oceanRaw.included && oceanQty != null && oceanQty !== 1) {
+    notices.push(`海运费那一行的数量在专业模式里改成了 ${oceanQty}，这里按「数量 × 柜数」显示为 ${oceanContainers} 柜；在这里保存时会写成 ${oceanContainers} 柜 × 每柜，金额不变`);
   }
   const on = (l: DbCostLine | undefined) => (l && l.included ? l : null);
   const ocean = on(sh.ocean_freight);
@@ -428,7 +445,7 @@ export function costLinesToState(
   const presetOf = (key: PresetKey) => {
     const l = pr[key];
     if (!l) {
-      notices.push(`「${PRESET_DESCRIPTION_ZH[key]}」这一行在专业模式里删掉了，这里先按关掉显示`);
+      notices.push(`「${PRESET_SHORT_ZH[key]}」这一行在专业模式里删掉了，这里先按关掉显示`);
       return { ratePct: t.preset[key].rate ?? null, included: false, months: t.preset[key].duration ?? null };
     }
     return { ratePct: num(l.rate), included: l.included, months: num(l.duration) };
@@ -436,16 +453,24 @@ export function costLinesToState(
   const fin = presetOf("financing");
 
   for (const [ccy, rates] of fxSeen) {
-    if (rates.size > 1) notices.push(`${ccy} 在不同的行上填了不同的汇率（${[...rates].join("、")}），这里显示第一个，保存后统一成一个`);
+    if (rates.size > 1) notices.push(`${currencyLabelZh(ccy)}在不同的行上填了不同的汇率（${[...rates].join("、")}），这里显示第一个，保存后统一成一个`);
   }
-  if (quote.pricingMethod !== "MARGIN_ON_REVENUE") notices.push("定价方式在专业模式里改成了成本加成；逐行报价按售价毛利定价，保存时会改回");
+  // 专业模式里加的其它成本行不归逐行表管：它们用了另一个汇率时照实说，保存不会改它们
+  for (const o of idx.others) {
+    if (!o.included || o.sourceCurrency === "CAD") continue;
+    const r = num(o.fxRate);
+    const mine = fx[o.sourceCurrency]?.rate ?? null;
+    if (r != null && mine != null && r !== mine) notices.push(`专业模式里加的「${o.description}」用的${currencyLabelZh(o.sourceCurrency)}汇率是 ${r}，和这里的 ${mine} 不一样；在这里保存不会改它，需要统一的话在专业模式里改`);
+  }
+  if (quote.pricingMethod !== "MARGIN_ON_REVENUE") notices.push("定价方式在专业模式里改成了成本加成率（按成本）；逐行报价只按目标毛利率（按售价）定价：请先填目标毛利率再保存，保存后会改回");
 
   return {
     state: {
       rows,
       fx,
       shared: {
-        oceanFreight: { containers: num(ocean?.duration), perContainer: num(ocean?.unitCost), currency: ocean?.sourceCurrency ?? "CAD" },
+        // 柜数 0 / 空着 = 这项没有（不计入），每柜的数仍照库里显示，不让它从界面上消失
+        oceanFreight: { containers: ocean ? oceanContainers : null, perContainer: num(oceanRaw?.unitCost), currency: oceanRaw?.sourceCurrency ?? "CAD" },
         customs: { amount: num(customs?.unitCost), currency: customs?.sourceCurrency ?? "CAD" },
         domesticFreight: { amount: num(dom?.unitCost), currency: dom?.sourceCurrency ?? "CAD" },
         dutyPct: num(duty?.rate),
@@ -462,4 +487,22 @@ export function costLinesToState(
     others: idx.others,
     notices,
   };
+}
+
+/**
+ * 逐行报价里「从招标分析带入」那句说明（投标工作区那句有几处不适用：逐行表没有尺寸、认证要求列，没单位的行是在导入时被挡下）。
+ */
+export function linePrefillMessageZh(p: Pick<SchedulePrefillResponse, "state" | "messageZh" | "rows" | "skipped" | "truncatedFrom">): string {
+  if (p.state !== "ready") return p.messageZh;
+  const n = p.rows.length;
+  const m = p.skipped.length;
+  if (n === 0 && m === 0) return "招标分析里没有抽到带数量的行，没有可以带入的。请从招标方的价格表里复制、粘贴。";
+  if (n === 0) return `招标分析里有 ${m} 条数量线索，但数量取不准或说法不一致，一行都没放进来。请从招标方的价格表里复制、粘贴。`;
+  const noUom = p.rows.filter((r) => !r.uom).length;
+  const same = p.rows.filter((r) => r.sameAsLine !== null).length;
+  const parts = [`招标分析里找到 ${n} 行带数量的${noUom > 0 ? `（其中 ${noUom} 行没单位，导入前在粘贴框里补上）` : ""}`];
+  if (same > 0) parts.push(`${same} 行与前面的行完全相同，可能是重复`);
+  if (m > 0) parts.push(`另有 ${m} 条数量取不准或说法不一致，没放进来`);
+  if (p.truncatedFrom) parts.push(`分析里共有 ${p.truncatedFrom} 条数量线索，只取了前面的`);
+  return `${parts.join("；")}。点下面按钮填进粘贴框，核对后点「导入这些行」。这些行是从招标文件里抽出来的，可能有漏有错，请对照招标文件。`;
 }
