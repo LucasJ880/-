@@ -208,3 +208,46 @@ export function sanitizeListStepError<T extends { status: string; error?: string
   const hasError = step.status === "error" || step.status === "failed" || !!step.error;
   return { ...step, error: hasError ? SAFE_STEP_ERROR_MESSAGE : null };
 }
+
+type AgentStepInternalField = (typeof AGENT_STEP_INTERNAL_FIELDS)[number];
+
+/** 列表步骤投影的结果：内部字段（若在步骤上出现）可能为 null，其余键类型不变 */
+export type ListStepInternalsView<T> = {
+  [K in keyof T]: K extends AgentStepInternalField ? T[K] | null : T[K];
+};
+
+/**
+ * 列表视图的步骤内部字段（FIX-23，GET /api/agent/tasks/recent）——
+ * 平台管理员原样返回；其余人把 AGENT_STEP_INTERNAL_FIELDS 里在该步骤上出现的键逐个置 null：
+ * 键保留（与业务视图 checkReportJson: null 同口径），其余键不动，不新增键。
+ * 原始 error 不在内部字段清单里，本函数管不到：调用方的 select 不得选它（授权布线契约测试断言）。
+ */
+export function sanitizeListStepInternals<T extends object>(
+  step: T,
+  diagnostic: boolean,
+): ListStepInternalsView<T> {
+  if (diagnostic) return step as ListStepInternalsView<T>;
+  const out: Record<string, unknown> = { ...(step as Record<string, unknown>) };
+  for (const field of AGENT_STEP_INTERNAL_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(out, field)) out[field] = null;
+  }
+  return out as ListStepInternalsView<T>;
+}
+
+/** 列表条数：最近任务（GET /api/agent/tasks/recent）缺省 10、封顶 20 */
+export const RECENT_TASKS_LIMIT = { fallback: 10, max: 20 } as const;
+/** 列表条数：项目任务列表（GET /api/agent/tasks?projectId=）缺省 20、封顶 100 */
+export const PROJECT_TASKS_LIMIT = { fallback: 20, max: 100 } as const;
+
+/**
+ * 列表的 limit 参数（FIX-23）：去首尾空白后是十进制正整数（/^[1-9]\d*$/）才用，否则按 fallback；再封顶 max。
+ * `0x10`、`1e1`、`5.0`、`+3`、负数、0、小数、空串、缺省都按 fallback——负数原样给 Prisma 的 take 会从排序末尾取、绕过上限。
+ */
+export function parseListLimit(
+  raw: string | null | undefined,
+  opts: { fallback: number; max: number },
+): number {
+  const text = (raw ?? "").trim();
+  const n = /^[1-9]\d*$/.test(text) ? Number(text) : opts.fallback;
+  return Math.min(n, opts.max);
+}
