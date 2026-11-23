@@ -18,21 +18,34 @@ import type { Readable } from "node:stream";
 import { isBlockedAddress } from "./pure";
 import { NetError, type NetRequest, type NetResponse, type ResolvedAddress, type WebReaderNet } from "./read-page";
 
+/** 域名解析超时（对方的权威 DNS 不应答时不让读页卡在系统解析器上） */
+const DNS_TIMEOUT_MS = 5_000;
+
 async function resolveAll(host: string): Promise<ResolvedAddress[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const list = await dns.promises.lookup(host, { all: true, verbatim: true });
+    const list = await Promise.race([
+      dns.promises.lookup(host, { all: true, verbatim: true }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("dns timeout")), DNS_TIMEOUT_MS);
+      }),
+    ]);
     return list.map((a) => ({ address: a.address, family: a.family === 6 ? 6 : 4 }));
   } catch {
     throw new NetError("dns", "域名解析失败");
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-const guardedLookup: LookupFunction = (hostname, options, callback) => {
+type AddressGuard = (ip: string) => boolean;
+
+const makeGuardedLookup = (blocked: AddressGuard): LookupFunction => (hostname, options, callback) => {
   dns.lookup(hostname, { all: true, verbatim: true }, (err, addresses) => {
     if (err) return callback(err, "", 4);
     const list = addresses as dns.LookupAddress[];
     if (list.length === 0) return callback(new NetError("dns", "域名解析失败") as NodeJS.ErrnoException, "", 4);
-    if (list.some((a) => isBlockedAddress(a.address))) {
+    if (list.some((a) => blocked(a.address))) {
       return callback(new NetError("private_address", "地址不是公网地址") as NodeJS.ErrnoException, "", 4);
     }
     if ((options as dns.LookupOptions).all) return (callback as unknown as (e: null, a: dns.LookupAddress[]) => void)(null, list);
@@ -54,9 +67,9 @@ function flattenHeaders(h: http.IncomingHttpHeaders): Record<string, string | un
   return out;
 }
 
-function requestOnce(req: NetRequest): Promise<NetResponse> {
+function requestOnce(req: NetRequest, blocked: AddressGuard, guardedLookup: LookupFunction): Promise<NetResponse> {
   const literal = isIP(req.url.hostname.replace(/^\[|\]$/g, "")) ? req.url.hostname.replace(/^\[|\]$/g, "") : null;
-  if (literal && isBlockedAddress(literal)) return Promise.reject(new NetError("private_address", "地址不是公网地址"));
+  if (literal && blocked(literal)) return Promise.reject(new NetError("private_address", "地址不是公网地址"));
   const mod = req.url.protocol === "https:" ? https : http;
   return new Promise<NetResponse>((resolve, reject) => {
     let settled = false;
@@ -108,6 +121,11 @@ function requestOnce(req: NetRequest): Promise<NetResponse> {
   });
 }
 
-export function createNodeNet(): WebReaderNet {
-  return { resolve: resolveAll, request: requestOnce };
+/**
+ * 真实传输。`isBlockedAddress` 只给测试换（在本机起服务测正常路径）；生产一律用默认的内网判断。
+ */
+export function createNodeNet(opts: { isBlockedAddress?: AddressGuard } = {}): WebReaderNet {
+  const blocked = opts.isBlockedAddress ?? isBlockedAddress;
+  const lookup = makeGuardedLookup(blocked);
+  return { resolve: resolveAll, request: (req) => requestOnce(req, blocked, lookup) };
 }

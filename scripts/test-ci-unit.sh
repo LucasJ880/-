@@ -514,6 +514,9 @@ npx tsx src/lib/text/__tests__/html-to-text.test.ts
 npx tsx src/lib/web-reader/__tests__/web-reader-pure.test.ts
 npx tsx src/lib/web-reader/__tests__/web-reader.test.ts
 NODE_ENV=test npx tsx src/lib/web-reader/__tests__/web-reader-context-db.isolated.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-edges.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-transport.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-pdf.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx

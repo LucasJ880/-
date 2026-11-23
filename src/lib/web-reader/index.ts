@@ -3,7 +3,7 @@
  *
  * 读网页只有一个函数：`readPublicPage(url, ctx)`。上下文只能这样建：
  *   const session = await createResearchReadSession({ orgId, jobId });   // 从库里核对调研 Job
- *   const ctx = session.forBranch({ branchKey, budget: { remaining: 12, used: 0 }, deadlineAt });
+ *   const ctx = session.forBranch({ branchKey, budget: { remaining: 12, used: 0 }, deadlineAt, allowUrl });
  *   const page = await readPublicPage(url, ctx);                         // page.untrusted === true
  * 定时任务、没有调研 Job、开关关着时 createResearchReadSession 抛错，不发任何请求。
  */
@@ -19,16 +19,30 @@ import {
   type WebReadAuditEntry,
   type WebReaderClock,
 } from "./read-page";
+import { extractPdfTextGuarded } from "./pdf";
 import { createNodeNet } from "./transport";
 
 export { readPublicPage, WebReaderContextError, WEB_READER_LIMITS, WEB_READER_USER_AGENT } from "./read-page";
 export type { ReadBudget, ResearchReadContext, ResearchReadSession, TreePageCache } from "./read-page";
 export type { PageReadOutcome, PageReadReason, PageReadResult, BlockedReason, ResearchJobMarker } from "./types";
+export { OUTCOME_ZH, reasonMessageZh } from "./pure";
 export { HUMAN_RESEARCH_TRIGGERS } from "./types";
 
 const realClock: WebReaderClock = {
   now: () => Date.now(),
-  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  sleep: (ms, signal) =>
+    new Promise<void>((resolve) => {
+      if (signal?.aborted) return resolve();
+      const t = setTimeout(resolve, ms);
+      signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(t);
+          resolve();
+        },
+        { once: true },
+      );
+    }),
 };
 
 /** 审计只记网址、状态、字数；不记正文与请求 / 响应头 */
@@ -49,20 +63,15 @@ export async function writeWebReadAudit(entry: WebReadAuditEntry): Promise<void>
       truncated: entry.truncated,
       reason: entry.reason,
       attempts: entry.attempts,
+      robotsRequests: entry.robotsRequests,
       site: entry.site,
     },
   });
 }
 
-async function extractPdfPages(bytes: Uint8Array): Promise<string[]> {
-  const { extractText } = await import("unpdf");
-  const { text } = await extractText(new Uint8Array(bytes), { mergePages: false });
-  return Array.isArray(text) ? text.map((t) => String(t ?? "")) : [String(text ?? "")];
-}
-
-/** 读调研 Job 的行（只取校验要用的三列） */
+/** 读调研 Job 的行（只取校验要用的四列） */
 export async function loadResearchJobRow(id: string): Promise<ResearchJobRow | null> {
-  return db.agentRun.findUnique({ where: { id }, select: { id: true, orgId: true, metadata: true } });
+  return db.agentRun.findUnique({ where: { id }, select: { id: true, orgId: true, status: true, metadata: true } });
 }
 
 /** 读组织设置（站点名单的组织覆盖在 settingsJson.researchTree.sites） */
@@ -74,6 +83,11 @@ export async function createResearchReadSession(input: CreateResearchReadContext
   return createResearchReadSessionWithDeps(input, {
     loadJob: loadResearchJobRow,
     loadOrgSettings: loadOrgSettingsJson,
-    reader: { net: createNodeNet(), clock: realClock, audit: writeWebReadAudit, extractPdf: extractPdfPages },
+    reader: {
+      net: createNodeNet(),
+      clock: realClock,
+      audit: writeWebReadAudit,
+      extractPdf: (bytes, opts) => extractPdfTextGuarded(bytes, opts),
+    },
   });
 }

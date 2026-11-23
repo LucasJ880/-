@@ -342,15 +342,15 @@
 
 ### Phase F（续）— 情报调研树
 
-任务书：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md`（Sunny 线，Evan 2026-11-22：按项目分叉去查往期同标、同类项目与条款，查到的数过交叉验证才算数，给出建议单价区间；最深 5 层、最多 24 个分支、每支 16 次搜索加 12 次读页）。规则：**主干派活，分支去查，查到的每一个数都要过核对才算数；骨架怎么分叉由规则定，分支里怎么查由子代理定；对外发的照旧人批**。全部在开关 `TENDER_RESEARCH_TREE_ENABLED` + `TENDER_RESEARCH_TREE_ORG_ALLOWLIST` 之后（默认关）。按上线顺序合并；八个 PR 由实现者在多维审查与交叉验证之后自行合并（Evan 2026-11-22 20:08 授权）。交接：`docs/QINGYAN_TREE_HANDOFF.md`。
+任务书：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md`（Sunny 线，Evan 2026-11-22：按项目分叉去查往期同标、同类项目与条款，查到的数过交叉验证才算数，给出建议报价区间（按单价）；最深 5 层、最多 24 个分支、每支 16 次搜索加 12 次读页）。规则：**主干派活，分支去查，查到的每一个数都要过核对才算数；骨架怎么分叉由规则定，分支里怎么查由子代理定；对外发的照旧人批**。全部在开关 `TENDER_RESEARCH_TREE_ENABLED` + `TENDER_RESEARCH_TREE_ORG_ALLOWLIST` 之后（默认关）。按上线顺序合并；八个 PR 由实现者在多维审查与交叉验证之后自行合并（Evan 2026-11-22 20:08 授权）。交接：`docs/QINGYAN_TREE_HANDOFF.md`。
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| TREE-0 | 登记例外：`openspec/config.yaml` 硬纪律第 7 条「例外二」（分支子代理自行决定搜索与读页及各处上限）与两条范围反转（读公开网页全文；给出建议报价区间）；本节登记；任务书入库（随 TREE-1 的 PR） | — | TREE-1 的 PR 里 `openspec/config.yaml` 与本节的 diff | [~] |
-| TREE-1 | 读公开网页 `src/lib/web-reader/`：只在人发起的调研 Job 里读；表明身份、不登录、不带凭证；被挡即停、临时故障最多重试 2 次、429 按对方等待时间；每支额度与同站 2 秒间隔；同址只读一次；内网与跳转逐跳校验；站点名单与 robots | TREE-0 | OpenSpec change `public-page-reader`；报告 `docs/QINGYAN_TREE-1_REPORT.md` | [~] |
+| TREE-0 | 登记例外：`openspec/config.yaml` 硬纪律第 7 条「例外二」（分支子代理自行决定搜索与读页，及各处模型调用的上限）与两条范围反转（读公开网页全文；给出建议报价区间）；本节登记；任务书入库（随 TREE-1 的 PR） | — | TREE-1 的 PR 里 `openspec/config.yaml` 与本节的 diff | [~] |
+| TREE-1 | 读公开网页 `src/lib/web-reader/`：只在人发起的调研 Job 里读；表明身份、不登录、不带凭证；被挡即停、临时故障最多重试 2 次、429 按对方等待时间；每支最多 12 次读页、同站 2 秒间隔；同址只读一次；内网与跳转逐跳校验；站点名单与 robots；PDF 页数 / 时间 / 解压上限 | TREE-0 | OpenSpec change `public-page-reader`；报告 `docs/QINGYAN_TREE-1_REPORT.md` | [~] |
 | TREE-2 | 调研树骨架：独立的调研 Job（失败不触发「AI 分析未完成」），服务端写死的两波图，有上限的分支循环（被挡换来源），交接单 `research-handoff/v1`，表驱动的分叉规则，树干写进情报室 `summaryJson.researchTree` | TREE-1 | OpenSpec change `research-tree-runtime`；报告 `docs/QINGYAN_TREE-2_REPORT.md` | [ ] |
 | TREE-3 | 三个子代理：条款员（等效品 / 指定品牌 / 加拿大含量，带页码）、往期同标员、同类项目员；单价换算与可比度打分（纯函数） | TREE-2 | OpenSpec change `research-branches-awards`；报告 `docs/QINGYAN_TREE-3_REPORT.md` | [ ] |
-| TREE-4 | 交叉验证八条规则：另一步骤重读网址逐字回查、两个来源或官方来源、公司名三档、口径不明、只有已核实的进区间、换模型、人可剔除 | TREE-2 | OpenSpec change `research-cross-verify`；报告 `docs/QINGYAN_TREE-4_REPORT.md` | [ ] |
+| TREE-4 | 交叉验证八条规则：① 另一步骤核对、不带原推理；② 重读网址逐字回查金额 / 数量 / 公司名；③ 两个不同域名或一个官方来源；④ 公司名三档；⑤ 口径不明另标；⑥ 只有已核实的进区间、矛盾的并排；⑦ 核对换模型；⑧ 人可剔除并重算 | TREE-2 | OpenSpec change `research-cross-verify`；报告 `docs/QINGYAN_TREE-4_REPORT.md` | [ ] |
 | TREE-5 | 树干结论与情报页签「调研树」卡：证据表、建议区间与中位数（不少于 3 条已核实才出）、每支状态、重新查、这条不对 | TREE-3、TREE-4 | OpenSpec change `research-trunk-view`；报告 `docs/QINGYAN_TREE-5_REPORT.md` | [ ] |
 | TREE-6 | 一键送页：粘贴网址与文字、截图 / PDF、书签小工具；记为「人工提供，未复读」，按单一来源对待 | TREE-5 | OpenSpec change `research-page-intake`；报告 `docs/QINGYAN_TREE-6_REPORT.md` | [ ] |
 | TREE-7 | 查不到金额时「起草资料申请」：带参数进 PROC-1 的申请卡草稿，不提交 | TREE-5 | OpenSpec change `research-records-request-draft`；报告 `docs/QINGYAN_TREE-7_REPORT.md` | [ ] |

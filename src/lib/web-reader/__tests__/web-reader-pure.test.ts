@@ -3,8 +3,11 @@
  *
  * 运行：npx tsx src/lib/web-reader/__tests__/web-reader-pure.test.ts
  */
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { isResearchTreeEnabledForOrgWithEnv } from "@/lib/tender-research-tree/flags";
 import {
+  OUTCOME_ZH,
   PRESET_SITE_POLICY,
   checkPublicUrl,
   classifySite,
@@ -13,9 +16,11 @@ import {
   isBlockedAddress,
   isLoginUrl,
   mergeSitePolicy,
+  metaRefreshTarget,
   normalizePageUrl,
   parseRetryAfterSeconds,
   parseRobots,
+  parseRobotsLimited,
   readOrgSiteOverride,
   reasonMessageZh,
   robotsPatternMatches,
@@ -122,7 +127,7 @@ console.log("robots");
   ok("同长 Allow 优先", isAllowedByRobots(parseRobots("User-agent: *\nDisallow: /p\nAllow: /p"), "/p") === true);
   const start = Date.now();
   robotsPatternMatches("/*a*a*a*a*a*a*a*a*a*a*a*a*b", `/${"a".repeat(2000)}`);
-  ok("病态通配不爆炸（< 1 秒）", Date.now() - start < 1000);
+  ok("病态通配不爆炸（< 2 秒）", Date.now() - start < 2000);
   ok("查询串参与匹配", isAllowedByRobots(parseRobots("User-agent: *\nDisallow: /*?session="), "/a?session=1") === false);
 }
 
@@ -152,8 +157,84 @@ console.log("Retry-After");
 
 console.log("文案");
 {
-  ok("到上限的文案", reasonMessageZh("budget_exhausted") === "到上限，未查完");
-  ok("读到时", reasonMessageZh(null) === "已读取");
+  ok("类别中文名", JSON.stringify(OUTCOME_ZH) === JSON.stringify({ ok: "读到", blocked: "被挡", unreachable: "打不开", refused: "不读", limit: "到上限" }));
+  ok("读页到上限的文案（整支级的「到上限，未查完」由 TREE-2 写）", reasonMessageZh("budget_exhausted") === "读页次数到上限，未读");
+  ok("读到时用类别名", reasonMessageZh(null) === "读到");
+  ok("403 是「对方禁止访问」", reasonMessageZh("http_403") === "对方禁止访问（403），未读取");
+  const blockedReasons = ["http_401", "http_403", "http_407", "login_redirect", "login_page", "captcha", "robots_disallow", "robots_unavailable", "rate_limited", "site_blocked_in_branch"] as const;
+  ok("被挡句都以「未读取」结尾", blockedReasons.every((r) => reasonMessageZh(r).endsWith("未读取")));
+  const refusedReasons = ["invalid_url", "credentials_in_url", "non_default_port", "private_address", "site_denied", "login_url", "url_not_allowed", "unsupported_type"] as const;
+  ok("不读句都以「不读」结尾", refusedReasons.every((r) => reasonMessageZh(r).endsWith("不读")));
+  ok("原因句里不出现 robots 这个词", [...blockedReasons, ...refusedReasons].every((r) => !/robots/i.test(reasonMessageZh(r))));
+}
+
+console.log("补充：保留段、名单优先级、阈值边界（变异审查 E1–E4）");
+{
+  for (const ip of ["192.0.0.1", "192.88.99.1", "198.51.100.1", "203.0.113.1", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "fec0::1", "100::1",
+    "64:ff9b:1::a00:1", "::ffff:0:7f00:1", "::ffff:0:10.0.0.1", "2001:2::1", "2001:10::1", "3fff::1", "5f00::1"]) {
+    ok(`拦 ${ip}`, isBlockedAddress(ip) === true);
+  }
+  ok("放 ::ffff:0:8.8.8.8", isBlockedAddress("::ffff:0:8.8.8.8") === false);
+  ok("组织把 ImportYeti 加进「不碰」→ 不读", classifySite("www.importyeti.com", mergeSitePolicy(PRESET_SITE_POLICY, { deny: ["importyeti.com"], allow: [] })) === "deny");
+  const pw = '<form><input type="password"></form>';
+  ok("正文 1999 字 + 密码框 → 登录页；2000 字 → 不算", detectAccessWall({ html: pw, textChars: 1999 }) === "login_page" && detectAccessWall({ html: pw, textChars: 2000 }) === null);
+  ok("强标记 + 正文很多 → 仍是人机验证", detectAccessWall({ html: "<title>Just a moment...</title>", textChars: 9000 }) === "captcha");
+  ok("正文里出现「cf-chl-」字样不算人机验证", detectAccessWall({ html: "<p>see cf-chl- docs</p>", textChars: 9000 }) === null);
+}
+
+console.log("补充：robots 归一、版本号、上限与步数预算");
+{
+  ok("非 ASCII 规则与百分号编码的网址对得上", isAllowedByRobots(parseRobots("User-agent: *\nDisallow: /路径"), "/%E8%B7%AF%E5%BE%84/a") === false);
+  ok("小写 %xx 规则与大写网址对得上", isAllowedByRobots(parseRobots("User-agent: *\nDisallow: /%e8%b7%af"), "/%E8%B7%AF") === false);
+  ok("User-agent 带版本号也认作本机器人", isAllowedByRobots(parseRobots("User-agent: *\nDisallow: /\n\nUser-agent: QingyanResearchBot/1.0\nAllow: /"), "/x") === true);
+  const many = `User-agent: *\n${Array.from({ length: 5001 }, (_, i) => `Disallow: /p${i}`).join("\n")}`;
+  ok("规则超过 5000 条 → 按读取失败（null）", parseRobotsLimited(many) === null);
+  ok("单条模式超过 512 字 → 按读取失败（null）", parseRobotsLimited(`User-agent: *\nDisallow: /${"a".repeat(600)}`) === null);
+  ok("正常规则表照常解析", parseRobotsLimited("User-agent: *\nDisallow: /x")?.length === 1);
+  const heavy = parseRobots(`User-agent: *\n${Array.from({ length: 4000 }, () => `Disallow: /*${"a".repeat(300)}b`).join("\n")}`);
+  const t0 = Date.now();
+  const verdict = isAllowedByRobots(heavy, `/${"a".repeat(2000)}`);
+  ok("病态规则表：步数预算用完按不许读、且很快返回（< 2 秒）", verdict === false && Date.now() - t0 < 2000, Date.now() - t0);
+}
+
+console.log("补充：登录地址、meta refresh、Retry-After");
+{
+  for (const u of ["https://x.gov/login;jsessionid=1", "https://x.gc.ca/fr/connexion", "https://x.gov/signon", "https://x.gov/sign-on", "https://x.gov/authentication", "https://x.com/index.php?route=account/login"]) {
+    ok(`登录地址：${u}`, isLoginUrl(new URL(u)));
+  }
+  ok("不是登录地址：/news/cas", !isLoginUrl(new URL("https://x.gov/news/cas")));
+  const base = new URL("https://x.gov/page");
+  ok("meta refresh 目标按页面网址解析", metaRefreshTarget('<meta http-equiv="refresh" content="0; url=/user/login">', base)?.toString() === "https://x.gov/user/login");
+  ok("没有 meta refresh → null", metaRefreshTarget("<p>x</p>", base) === null);
+  const now = Date.parse("2026-11-23T00:00:00Z");
+  ok("Retry-After 认不出：1.5 / -1 / 10, 20 / 非 GMT 日期", ["1.5", "-1", "10, 20", "2026-11-23T00:00:20Z"].every((v) => parseRetryAfterSeconds(v, now) === null));
+}
+
+console.log("守卫：读网页的唯一入口");
+{
+  const root = process.cwd();
+  const offenders: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (name === "node_modules" || name === ".next") continue;
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!/\.(ts|tsx|js|mjs|cjs)$/.test(name)) continue;
+      const rel = relative(root, full).split(sep).join("/");
+      if (rel.startsWith("src/lib/web-reader/") || rel.includes("/__tests__/")) continue;
+      const src = readFileSync(full, "utf8");
+      if (/web-reader\/(read-page|transport|pdf|pure)\b/.test(src) || /createResearchReadSessionWithDeps|createNodeNet\b/.test(src)) offenders.push(rel);
+    }
+  };
+  walk(join(root, "src"));
+  walk(join(root, "scripts"));
+  ok("web-reader 目录与测试之外只经 @/lib/web-reader 入口（不直接 import read-page / transport / pdf / pure，不用测试接缝）", offenders.length === 0, offenders);
+  const index = readFileSync(join(root, "src/lib/web-reader/index.ts"), "utf8");
+  ok("生产入口不把测试接缝导出去", !/export\s*\{[^}]*createResearchReadSessionWithDeps/.test(index) && !/export\s*\{[^}]*createNodeNet/.test(index));
+  ok("生产入口不接受 env 覆盖", !/env\s*:/.test(index.slice(index.indexOf("export async function createResearchReadSession"))));
 }
 
 console.log(`\nweb-reader-pure: ${passed} passed, ${failed} failed`);

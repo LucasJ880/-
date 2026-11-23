@@ -44,19 +44,22 @@ async function main() {
   const jobIds: string[] = [];
   const env = { TENDER_RESEARCH_TREE_ENABLED: "1", TENDER_RESEARCH_TREE_ORG_ALLOWLIST: `${ORG},${other.orgId}` };
 
-  async function mkJob(orgId: string, userId: string, marker: unknown) {
+  /** 标记照 TREE-2 的写法经 createWorkforceJob 的 extraMetadata 写入（只收原始值）；patch 用来模拟坏数据 */
+  async function mkJob(orgId: string, userId: string, extra: Record<string, unknown> | undefined, patch?: Record<string, unknown>) {
     const created = await createWorkforceJob({
       orgId, userId, role: "sales", goal: "调研往期同标", channel: "workforce", projectId: null, workDomain: "tender",
+      ...(extra ? { extraMetadata: extra } : {}),
     } as Parameters<typeof createWorkforceJob>[0]);
     if (!created.ok) throw new Error(`createWorkforceJob failed: ${JSON.stringify(created)}`);
     jobIds.push(created.jobId);
-    if (marker !== undefined) {
+    if (patch) {
       const row = await db.agentRun.findUniqueOrThrow({ where: { id: created.jobId }, select: { metadata: true } });
       const meta = (row.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, unknown>;
-      await db.agentRun.update({ where: { id: created.jobId }, data: { metadata: { ...meta, researchTree: marker } as object } });
+      await db.agentRun.update({ where: { id: created.jobId }, data: { metadata: { ...meta, ...patch } as object } });
     }
     return created.jobId;
   }
+  const MARK = { researchTree: true, researchTreeVersion: 1, researchTrigger: "human_start" };
 
   const requests: string[] = [];
   const enc = new TextEncoder();
@@ -92,19 +95,22 @@ async function main() {
   try {
     const analysisJob = await mkJob(ORG, USER, undefined);
     await expectError("一键分析 Job（没有调研标记）被拒", ORG, analysisJob, "NOT_RESEARCH_JOB");
-    const noUser = await mkJob(ORG, USER, { version: 1, initiatedByUserId: "", trigger: "human_start" });
+    const noUser = await mkJob(ORG, USER, MARK, { initiatedByUserId: "" });
     await expectError("缺发起人被拒", ORG, noUser, "NOT_HUMAN_INITIATED");
-    const cronJob = await mkJob(ORG, USER, { version: 1, initiatedByUserId: USER, trigger: "scheduled" });
+    const cronJob = await mkJob(ORG, USER, { ...MARK, researchTrigger: "scheduled" });
     await expectError("发起方式不是人被拒", ORG, cronJob, "NOT_HUMAN_INITIATED");
-    const otherJob = await mkJob(other.orgId, other.ownerUserId, { version: 1, initiatedByUserId: other.ownerUserId, trigger: "human_start" });
+    const doneJob = await mkJob(ORG, USER, MARK);
+    await db.agentRun.update({ where: { id: doneJob }, data: { status: "completed" } });
+    await expectError("已结束的调研 Job 被拒", ORG, doneJob, "JOB_FINISHED");
+    const otherJob = await mkJob(other.orgId, other.ownerUserId, MARK);
     await expectError("别的组织的 Job 被拒", ORG, otherJob, "JOB_ORG_MISMATCH");
     await expectError("不存在的 Job 被拒", ORG, "no_such_job", "JOB_NOT_FOUND");
     ok(requests.length === 0, "以上都没有任何请求");
 
     await db.organization.update({ where: { id: ORG }, data: { settingsJson: { researchTree: { sites: { deny: ["blocked-by-org.example"] } } } } });
-    const research = await mkJob(ORG, USER, { version: 1, initiatedByUserId: USER, trigger: "human_start" });
+    const research = await mkJob(ORG, USER, MARK);
     const session = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: research }, deps);
-    ok(session.initiatedByUserId === USER && session.jobId === research, "调研 Job 建出会话");
+    ok(session.initiatedByUserId === USER && session.jobId === research, "经 extraMetadata 写标记的调研 Job 建出会话；发起人取运行时写的 initiatedByUserId");
     const ctx = session.forBranch({ branchKey: "prior_award", budget: { remaining: 12, used: 0 } });
     const denied = await readPublicPage("https://blocked-by-org.example/x", ctx);
     ok(denied.outcome === "refused" && denied.reason === "site_denied", "组织设置里的「不碰」生效");
@@ -119,6 +125,7 @@ async function main() {
     ok(a?.userId === USER && a?.targetType === "research_job", "审计记在发起人名下、指向调研 Job");
     ok(after.url === "https://example.gov/award" && after.httpStatus === 200 && after.chars === page.text.length && typeof after.chars === "number" && after.outcome === "ok" && after.branchKey === "prior_award", "审计含网址、状态、字数", { after, textLength: page.text.length });
     ok(!JSON.stringify(audits).includes("SECRET-BODY-TEXT"), "审计里搜不到正文");
+    ok(Object.keys(after).sort().join(",") === "attempts,branchKey,chars,finalUrl,httpStatus,outcome,reason,robotsRequests,site,truncated,url", "审计 afterData 的键固定", Object.keys(after));
   } finally {
     await db.auditLog.deleteMany({ where: { orgId: { in: [ORG, other.orgId] } } }).catch(() => undefined);
     await db.agentRunEvent.deleteMany({ where: { runId: { in: jobIds } } }).catch(() => undefined);

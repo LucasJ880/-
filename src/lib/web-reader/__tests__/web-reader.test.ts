@@ -100,10 +100,17 @@ function makeWorld(opts: { addresses?: Record<string, string[]> } = {}) {
   };
   const clock = {
     now: () => time,
-    sleep: (ms: number) =>
+    sleep: (ms: number, signal?: AbortSignal) =>
       new Promise<void>((resolve) => {
         sleeps.push(ms);
-        timers.push({ at: time + ms, resolve });
+        if (signal?.aborted) return resolve();
+        const timer = { at: time + ms, resolve };
+        timers.push(timer);
+        signal?.addEventListener("abort", () => {
+          const i = timers.indexOf(timer);
+          if (i >= 0) timers.splice(i, 1);
+          resolve();
+        }, { once: true });
         pump();
       }),
   };
@@ -122,11 +129,8 @@ function makeWorld(opts: { addresses?: Record<string, string[]> } = {}) {
 }
 
 const ENV_ON = { TENDER_RESEARCH_TREE_ENABLED: "1", TENDER_RESEARCH_TREE_ORG_ALLOWLIST: "org1" };
-const RESEARCH_JOB: ResearchJobRow = {
-  id: "job1",
-  orgId: "org1",
-  metadata: { workDomain: "tender", researchTree: { version: 1, initiatedByUserId: "u1", trigger: "human_start" } },
-};
+const RESEARCH_META = { workDomain: "tender", initiatedByUserId: "u1", researchTree: true, researchTreeVersion: 1, researchTrigger: "human_start" };
+const RESEARCH_JOB: ResearchJobRow = { id: "job1", orgId: "org1", status: "running", metadata: RESEARCH_META };
 
 async function session(
   world: ReturnType<typeof makeWorld>,
@@ -142,7 +146,7 @@ async function session(
         net: world.net,
         clock: world.clock,
         audit: async (e) => void world.audits.push(e),
-        extractPdf: async (bytes) => [new TextDecoder().decode(bytes)],
+        extractPdf: async (bytes) => ({ ok: true, text: new TextDecoder().decode(bytes), truncated: false, pagesRead: 1, totalPages: 1 }),
       },
     },
   );
@@ -168,12 +172,12 @@ async function main() {
     await expectContextError("定时任务上下文被拒", session(w, { scheduled: true }), "SCHEDULED_CONTEXT");
     await expectContextError(
       "发起方式不是人（cron）被拒",
-      session(w, { job: { ...RESEARCH_JOB, metadata: { researchTree: { version: 1, initiatedByUserId: "u1", trigger: "cron" } } } }),
+      session(w, { job: { ...RESEARCH_JOB, metadata: { ...RESEARCH_META, researchTrigger: "cron" } } }),
       "NOT_HUMAN_INITIATED",
     );
     await expectContextError(
       "缺发起人被拒",
-      session(w, { job: { ...RESEARCH_JOB, metadata: { researchTree: { version: 1, initiatedByUserId: " ", trigger: "human_start" } } } }),
+      session(w, { job: { ...RESEARCH_JOB, metadata: { ...RESEARCH_META, initiatedByUserId: " " } } }),
       "NOT_HUMAN_INITIATED",
     );
     await expectContextError("没有 Job 被拒", session(w, { jobId: null }), "MISSING_JOB");
@@ -182,8 +186,12 @@ async function main() {
     await expectContextError("别的组织的 Job 被拒", session(w, { job: { ...RESEARCH_JOB, orgId: "org2" } }), "JOB_ORG_MISMATCH");
     await expectContextError("开关没开被拒", session(w, { env: {} }), "FEATURE_DISABLED");
     await expectContextError("组织不在名单被拒", session(w, { env: { TENDER_RESEARCH_TREE_ENABLED: "1", TENDER_RESEARCH_TREE_ORG_ALLOWLIST: "org9" } }), "FEATURE_DISABLED");
-    const okSession = await session(w, { job: { ...RESEARCH_JOB, metadata: { researchTree: { version: 1, initiatedByUserId: "u1", trigger: "requirements_confirmed" } } } });
-    ok("确认招标要求发起的调研 Job 可以建", okSession.trigger === "requirements_confirmed");
+    await expectContextError("Job 已结束被拒", session(w, { job: { ...RESEARCH_JOB, status: "completed" } }), "JOB_FINISHED");
+    await expectContextError("标记不是 true（对象形式的旧写法）被拒", session(w, { job: { ...RESEARCH_JOB, metadata: { ...RESEARCH_META, researchTree: { version: 1 } } } }), "NOT_RESEARCH_JOB");
+    await expectContextError("标记版本不认识被拒", session(w, { job: { ...RESEARCH_JOB, metadata: { ...RESEARCH_META, researchTreeVersion: 2 } } }), "UNKNOWN_MARKER_VERSION");
+    await expectContextError("workDomain 不是 tender 被拒", session(w, { job: { ...RESEARCH_JOB, metadata: { ...RESEARCH_META, workDomain: "general" } } }), "NOT_RESEARCH_JOB");
+    const okSession = await session(w, { job: { ...RESEARCH_JOB, metadata: { ...RESEARCH_META, researchTrigger: "requirements_confirmed" } } });
+    ok("确认招标要求发起的调研 Job 可以建，发起人取运行时写的 initiatedByUserId", okSession.trigger === "requirements_confirmed" && okSession.initiatedByUserId === "u1");
     try {
       await readPublicPage("https://example.gov/a", { session: okSession, branchKey: "x", budget: budget(), blockedSites: new Set(), deadlineAt: null } as unknown as ResearchReadContext);
       ok("手拼的上下文被拒", false);
@@ -288,10 +296,10 @@ async function main() {
       const ctx = s.forBranch({ branchKey: `b-${reason}`, budget: budget() });
       const r = await readPublicPage(url, ctx);
       const n = w.pageRequests().filter((l) => l.url === url).length;
-      ok(`${reason}：被挡、写明原因、只请求一次`, r.outcome === "blocked" && r.blocked?.reason === reason && !!r.blocked?.messageZh && n === 1, { r, n });
+      ok(`${reason}：被挡、写明原因与挡住我们的站、只请求一次`, r.outcome === "blocked" && r.blocked?.reason === reason && !!r.blocked?.messageZh && r.blocked?.site === new URL(url).hostname && n === 1, { r, n });
     }
     ok("跳转到登录地址：没有请求登录地址", !w.log.some((l) => l.url.includes("/user/login")));
-    ok("被挡没有任何等待（不重试）", w.sleeps.every((ms) => ms <= WEB_READER_LIMITS.SAME_SITE_INTERVAL_MS));
+    ok("被挡没有重试等待（没有 1 秒 / 3 秒的重试间隔）", w.sleeps.every((ms) => !(WEB_READER_LIMITS.TRANSIENT_RETRY_DELAYS_MS as readonly number[]).includes(ms)), w.sleeps);
     const ctx = s.forBranch({ branchKey: "same", budget: budget() });
     w.handlers.set("https://forbid.example/q", () => html(`<p>${LONG_TEXT}</p>`));
     await readPublicPage("https://forbid.example/p", ctx); // 缓存命中：同样被挡，记入这一支
@@ -302,7 +310,10 @@ async function main() {
     const fresh = await readPublicPage("https://forbid.example/q", other);
     ok("别的支不受影响", fresh.outcome === "ok");
     const direct = await readPublicPage("https://site.example/account/login", other);
-    ok("直接给的登录地址：拒绝、不发请求、不记为该站被挡", direct.outcome === "refused" && direct.reason === "login_url" && !w.log.some((l) => l.url.includes("account/login")) && !other.blockedSites.has("site.example"));
+    ok("直接给的登录地址：不读、不发请求、不记为该站被挡", direct.outcome === "refused" && direct.reason === "login_url" && !w.log.some((l) => l.url.includes("account/login")) && !other.blockedSites.has("site.example"));
+    w.handlers.set("https://site.example/news", () => html(`<p>${LONG_TEXT}</p>`));
+    const sameSite = await readPublicPage("https://site.example/news", other);
+    ok("之后同站别的网址照读", sameSite.outcome === "ok");
   }
 
   console.log("临时故障有限重试");
@@ -358,7 +369,7 @@ async function main() {
     const ctx2 = s.forBranch({ branchKey: "c", budget: budget(), deadlineAt: w.now() + 500 });
     const before = w.log.length;
     const r2 = await readPublicPage("https://dl2.example/p", ctx2);
-    ok("已经到截止时间：不发请求", r2.reason === "deadline" && w.pageRequests().length === before - w.robotsRequests().length + 0 && r2.attempts === 0, r2);
+    ok("已经到截止时间：不发请求", r2.reason === "deadline" && w.log.length === before && r2.attempts === 0, r2);
   }
 
   console.log("限量与站点间隔");
@@ -369,7 +380,7 @@ async function main() {
     const ctx = s.forBranch({ branchKey: "b", budget: budget(2) });
     const rs = [];
     for (const p of ["a", "b", "c"]) rs.push(await readPublicPage(`https://lim.example/${p}`, ctx));
-    ok("额度 2：前两个读到、第三个到上限", rs[0].outcome === "ok" && rs[1].outcome === "ok" && rs[2].outcome === "limit" && rs[2].messageZh === "到上限，未查完");
+    ok("额度 2：前两个读到、第三个到上限", rs[0].outcome === "ok" && rs[1].outcome === "ok" && rs[2].outcome === "limit" && rs[2].messageZh === "读页次数到上限，未读");
     ok("第三个没有请求", !w.log.some((l) => l.url.endsWith("/c")) && ctx.budget.remaining === 0 && ctx.budget.used === 2);
 
     const w2 = makeWorld();
@@ -498,7 +509,7 @@ async function main() {
     const a = w.audits[0];
     ok("审计含网址、状态、字数、发起人与 Job", !!a && a.url === "https://aud.example/p" && a.httpStatus === 200 && a.chars === r.text.length && a.userId === "u1" && a.jobId === "job1" && a.outcome === "ok");
     ok("审计与日志里搜不到正文", !JSON.stringify(w.audits).includes("SECRET-BODY-TEXT") && !logs.join("\n").includes("SECRET-BODY-TEXT"));
-    ok("审计字段固定（没有正文 / 头）", !!a && Object.keys(a).sort().join(",") === "attempts,branchKey,chars,finalUrl,httpStatus,jobId,orgId,outcome,reason,site,truncated,url,userId");
+    ok("审计字段固定（没有正文 / 头）", !!a && Object.keys(a).sort().join(",") === "attempts,branchKey,chars,finalUrl,httpStatus,jobId,orgId,outcome,reason,robotsRequests,site,truncated,url,userId");
   }
 
   console.log(`\nweb-reader: ${passed} passed, ${failed} failed`);
