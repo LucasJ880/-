@@ -11,6 +11,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
 import { putPrivateBlob } from "@/lib/files/blob-access";
+import { toStorableJson, toStorableParseError, toStorableText } from "@/lib/files/extracted-text";
 import { extractPdfPagesFromBuffer, parseDocumentPagesAndStore } from "@/lib/tender-auto-analysis/page-parse";
 import type { LlmInvoker } from "@/lib/tender-understanding/llm";
 import { FROZEN_STATUSES, type CostLinePayload } from "../contract";
@@ -158,6 +159,9 @@ export async function createImportFromUpload(input: {
     } else {
       extraction = extractRowsFromWorkbook(input.file.buffer, { confirmedCurrency: supplierCurrency, sourceType });
     }
+    // FIX-14：抽取结果先整份清掉写不进库的字符（xlsx 单元格的 _x0000_ 读出来是 U+0000；按字数截断可能劈开一对代理字符），
+    // 之后对可引用单元（工作表名要与 FIX-13 清理过的单元标签对得上）、送 AI 归类用的都是这一份
+    extraction = toStorableJson(extraction);
     // 可引用单元（best-effort；失败不影响导入）
     const parsed = await parseDocumentPagesAndStore(doc.id, { contentHash }).catch(() => null);
     if (parsed && parsed.ok) {
@@ -174,6 +178,9 @@ export async function createImportFromUpload(input: {
       const res = await classifyLowConfidenceRows(extraction.rows, { invoker: input.ai.invoker });
       aiUpdated = res.updated;
     }
+    // FIX-14：写导入记录之前整份（含元数据与供应商名）再清理一遍——AI 归类改过的说明在上面才定（classify-ai.ts 截 300 字）
+    extraction = toStorableJson(extraction);
+    const supplierName = record.supplierName ?? extraction.supplierNameGuess ?? null;
     const status: ImportStatus = "REVIEW_REQUIRED";
     record = await db.quoteCostImport.update({
       where: { id: record.id },
@@ -182,14 +189,15 @@ export async function createImportFromUpload(input: {
         extractionVersion: IMPORT_EXTRACTION_VERSION,
         extractedJson: JSON.parse(JSON.stringify(extraction)) as Prisma.InputJsonValue,
         reviewJson: JSON.parse(JSON.stringify({ rows: extraction.rows })) as Prisma.InputJsonValue,
-        supplierName: record.supplierName ?? extraction.supplierNameGuess ?? null,
+        supplierName: supplierName === null ? null : toStorableText(supplierName),
         quoteDate: record.quoteDate ?? (extraction.quoteDateGuess ? new Date(extraction.quoteDateGuess) : null),
-        metadataJson: { ...(record.metadataJson as Record<string, unknown>), detectedCurrency: extraction.detectedCurrency, notes: extraction.notes, sheets: extraction.sheets, pages: extraction.pages, aiUpdated, rowCount: extraction.rows.length, unresolvedCurrencyRows: extraction.rows.filter((r) => r.include && !r.sourceCurrency).length, reconciliation: extraction.reconciliation, profitRowsExcluded: extraction.rows.filter((r) => r.warnings.includes("PROFIT_PRICING_RULE_RECOMMENDED")).length, ambiguousAmountRows: extraction.rows.filter((r) => r.warnings.includes("AMBIGUOUS_AMOUNT_COLUMN")).length } as Prisma.InputJsonValue,
+        metadataJson: toStorableJson({ ...(record.metadataJson as Record<string, unknown>), detectedCurrency: extraction.detectedCurrency, notes: extraction.notes, sheets: extraction.sheets, pages: extraction.pages, aiUpdated, rowCount: extraction.rows.length, unresolvedCurrencyRows: extraction.rows.filter((r) => r.include && !r.sourceCurrency).length, reconciliation: extraction.reconciliation, profitRowsExcluded: extraction.rows.filter((r) => r.warnings.includes("PROFIT_PRICING_RULE_RECOMMENDED")).length, ambiguousAmountRows: extraction.rows.filter((r) => r.warnings.includes("AMBIGUOUS_AMOUNT_COLUMN")).length }) as Prisma.InputJsonValue,
       },
     });
     return { record, extraction };
   } catch (e) {
-    const message = e instanceof Error ? e.message.slice(0, 500) : "抽取失败";
+    // FIX-14：与项目文件解析失败原因同样收口——不超过 500 字、写入前清理（报错文字也可能带 U+0000 或截断劈开代理对）
+    const message = e instanceof Error ? toStorableParseError(e.message) : "抽取失败";
     record = await db.quoteCostImport.update({ where: { id: record.id }, data: { status: "FAILED", errorMessage: message } });
     await audit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: IMPORT_AUDIT_ACTIONS.QUOTE_IMPORT_FAILED, importId: record.id, after: { message } });
     return { record, extraction: null };

@@ -288,6 +288,40 @@ async function main() {
       ok(facts.length >= 2 && facts.every((f) => !unstorable(f.value) && !unstorable(f.normalizedValue) && !unstorable(f.sourceLocation ?? "")), "抽出的每条事实的值、规范值与原文行都不含 U+0000", facts);
       ok(step?.status === "done" && (after.status === "NEEDS_INPUT" || after.status === "PLAN_READY"), "「分析输入」这一步完成，任务状态按缺字段照常变为 NEEDS_INPUT / PLAN_READY（改动前这一步停在进行中）", { step: step?.status, job: after.status });
     });
+
+    /* ============================ 5. 报价成本表导入 ============================ */
+    await section("报价成本表导入", async () => {
+      const { createImportFromUpload } = await import("@/lib/quote-engine/import/import-service");
+      const P = await mkProject();
+      const quote = await db.projectQuote.create({ data: { projectId: P, orgId: ORG, createdById: OWNER, status: "draft" } });
+      const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const upload = (filename: string, buffer: Buffer) =>
+        createImportFromUpload({ orgId: ORG, projectId: P, quoteId: quote.id, userId: OWNER, file: { buffer, filename, safeName: filename, ext: "xlsx", mime: XLSX_MIME, size: buffer.length }, supplierCurrency: "CAD", ai: { enabled: false } });
+      type Row = { sourceDescription: string; evidence: { snippet: string; sheet: string | null; pageNumber: number | null; unitLabel: string | null } };
+      const rowsOf = (v: unknown) => ((v as { rows?: Row[] } | null)?.rows ?? []);
+      const HEAD = ["Description", "Qty", "Unit", "Unit Cost (CAD)", "Total"];
+
+      // (a) 说明格「Flag\u0000 nylon 3x5」
+      const a = await upload("costs-nul.xlsx", buildXlsx([{ name: "Costs", rows: [HEAD, [`Flag${NUL} nylon 3x5`, 100, "pcs", 12.5, 1250]] }]));
+      const aRows = rowsOf(a.record.reviewJson);
+      ok(a.record.status === "REVIEW_REQUIRED" && aRows[0]?.sourceDescription === "Flag  nylon 3x5" && rowsOf(a.record.extractedJson)[0]?.evidence.snippet.startsWith("Flag  nylon 3x5"),
+        "导入 xlsx、说明格「Flag\\u0000 nylon 3x5」：状态为「待审核」，该行说明为「Flag  nylon 3x5」（改动前写导入记录报 22P05，显示「抽取失败：…」）", { status: a.record.status, errorMessage: a.record.errorMessage, row: aRows[0]?.sourceDescription });
+
+      // (b) 说明超过 300 字、第 300 字处劈开表情符号
+      const b = await upload("costs-long.xlsx", buildXlsx([{ name: "Costs", rows: [HEAD, [`${"d".repeat(299)}😀 nylon flag with grommets`, 1, "lot", 300, 300]] }]));
+      const bRow = rowsOf(b.record.reviewJson)[0];
+      ok(b.record.status === "REVIEW_REQUIRED" && bRow?.sourceDescription.length === 300 && bRow.sourceDescription.endsWith(`d${FFFD}`) && bRow.evidence.snippet.endsWith(`d${FFFD}`),
+        "说明第 300 字处劈开表情符号：状态为「待审核」，入库的说明与原文片段以 U+FFFD 结尾（改动前 InvalidArg，导入失败）", { status: b.record.status, errorMessage: b.record.errorMessage, tail: bRow ? JSON.stringify(bRow.sourceDescription.slice(-3)) : null });
+
+      // (c) 工作表名带 U+0000：仍对上可引用单元
+      const c = await upload("costs-sheet.xlsx", buildXlsx([{ name: `Cost${NUL}s`, rows: [HEAD, ["Nylon flag 3x5", 10, "pcs", 12.5, 125]] }]));
+      const cRow = rowsOf(c.record.reviewJson)[0];
+      ok(c.record.status === "REVIEW_REQUIRED" && cRow?.evidence.sheet === "Cost s" && cRow.evidence.pageNumber != null && (cRow.evidence.unitLabel ?? "").startsWith("Sheet「Cost s」"),
+        "工作表名带 U+0000：该表的行照常带上可引用单元的页号与标签（与项目文件解析清理后的单元标签对得上）", { status: c.record.status, errorMessage: c.record.errorMessage, evidence: cRow?.evidence });
+      for (const [label, r] of [["a", a], ["b", b], ["c", c]] as const) {
+        ok(r.record.status === "REVIEW_REQUIRED" && !unstorable(r.record.extractedJson) && !unstorable(r.record.reviewJson) && !unstorable(r.record.metadataJson) && !unstorable(r.record.supplierName ?? ""), `导入 ${label}：入库的抽取结果、复核数据、元数据与供应商名不含 U+0000 与落单代理字符`);
+      }
+    });
   } catch (e) {
     fail++;
     console.error("  ✗ 测试中途抛错", errText(e));
@@ -307,6 +341,10 @@ async function main() {
     await d.marketResearchRun.deleteMany({ where: { orgId: ORG } });
     await d.agentSkill.deleteMany({ where: { orgId: ORG } });
     await d.productContentJob.deleteMany({ where: { orgId: ORG } });
+    await d.quoteCostImport.deleteMany({ where: { orgId: ORG } });
+    await d.projectDocumentPage.deleteMany({ where: { document: { projectId: { in: projectIds } } } });
+    await d.projectDocument.deleteMany({ where: { projectId: { in: projectIds } } });
+    await d.projectQuote.deleteMany({ where: { projectId: { in: projectIds } } });
     await d.notification.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { orgId: ORG }] } });
     await d.inquiryItem.deleteMany({ where: { inquiry: { projectId: { in: projectIds } } } });
     await d.projectInquiry.deleteMany({ where: { projectId: { in: projectIds } } });

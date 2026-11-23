@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as XLSX from "xlsx";
 import { LINE_A, LINE_B, buildCheckboxPdf, buildPdf } from "@/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf";
-import { hasUnstorableChars } from "../extracted-text";
+import { hasUnstorableChars, toStorableJson } from "../extracted-text";
 import { INBOUND_CONTRACT_VERSION, type InboundQuote } from "@/lib/tender-rfq/inbound-contract";
 import { buildInboundText, parseInboundQuote, type ParseCompleteFn, type ParsedQuote } from "@/lib/tender-rfq/inbound-parse";
 import { planInquiryItemUpdate, type ExistingInquiryItem } from "@/lib/tender-rfq/inbound-apply";
@@ -369,12 +369,41 @@ async function productContentSection() {
     "接线：文字、语音转写、文件（PDF / Excel）、网页四种来源都经这同一处进入事实抽取", calls);
 }
 
+async function costImportSection() {
+  console.log("\n— 报价成本表导入 —");
+  const { extractRowsFromWorkbook } = await import("@/lib/quote-engine/import/parse-xlsx");
+  const longDesc = `${"d".repeat(299)}😀 nylon flag with grommets`;
+  const buf = buildXlsx([{ name: "Costs", rows: [["Description", "Qty", "Unit", "Unit Cost (CAD)", "Total"], [`Flag${NUL} nylon 3x5`, 100, "pcs", 12.5, 1250], [longDesc, 1, "lot", 300, 300]] }]);
+  const raw = extractRowsFromWorkbook(buf, { confirmedCurrency: "CAD", sourceType: "XLSX" });
+  ok(raw.rows.length === 2 && raw.rows[0].sourceDescription.includes(NUL) && /[\uD800-\uDBFF]$/.test(raw.rows[1].sourceDescription),
+    "前提：抽取结果里一行说明带 U+0000、一行说明在第 300 字处以落单的高位代理字符结尾（改动前就这样写进导入记录）", raw.rows.map((r) => r.sourceDescription.slice(-3)));
+  const clean = toStorableJson(raw);
+  ok(clean.rows[0].sourceDescription === "Flag  nylon 3x5" && clean.rows[0].evidence.snippet.startsWith("Flag  nylon 3x5"), "xlsx 说明格「Flag\\u0000 nylon 3x5」：清理后的说明与原文片段为「Flag  nylon 3x5」", clean.rows[0]);
+  ok(clean.rows[1].sourceDescription.length === 300 && clean.rows[1].sourceDescription.endsWith(`d${FFFD}`) && clean.rows[1].evidence.snippet.endsWith(`d${FFFD}`), "说明超过 300 字、第 300 字处劈开表情符号：说明与原文片段以 U+FFFD 结尾", { desc: JSON.stringify(clean.rows[1].sourceDescription.slice(-3)), snippet: JSON.stringify(clean.rows[1].evidence.snippet.slice(-3)) });
+  ok(clean.rows.every((r, i) => r.unitCost === raw.rows[i].unitCost && r.quantity === raw.rows[i].quantity && r.sourceAmount === raw.rows[i].sourceAmount && r.include === raw.rows[i].include && JSON.stringify(r.warnings) === JSON.stringify(raw.rows[i].warnings)),
+    "金额、数量、勾选与警告不变（只替换字符）");
+  ok(!hasUnstorableChars(JSON.stringify(clean)) && JSON.stringify(toStorableJson(extractRowsFromWorkbook(buildXlsx([{ name: "Plain", rows: [["Description", "Qty", "Unit", "Unit Cost (CAD)", "Total"], ["Flag 😀 3x5", 1, "pcs", 2, 2]] }]), { confirmedCurrency: "CAD" }))) === JSON.stringify(extractRowsFromWorkbook(buildXlsx([{ name: "Plain", rows: [["Description", "Qty", "Unit", "Unit Cost (CAD)", "Total"], ["Flag 😀 3x5", 1, "pcs", 2, 2]] }]), { confirmedCurrency: "CAD" })),
+    "清理后的抽取结果能入库；不含这两类字符的抽取结果逐字不变");
+
+  // 接线断言
+  const code = src("src/lib/quote-engine/import/import-service.ts");
+  const body = code.slice(code.indexOf("export async function createImportFromUpload("), code.indexOf("export async function updateImportReview("));
+  const first = body.indexOf("extraction = toStorableJson(extraction);");
+  const second = body.indexOf("extraction = toStorableJson(extraction);", first + 1);
+  ok(first > body.indexOf("extractRowsFromWorkbook(input.file.buffer") && first > body.indexOf("extractRowsFromPdfPages(") && first < body.indexOf("parseDocumentPagesAndStore(doc.id") && first < body.indexOf("attachSheetEvidence(") && first < body.indexOf("classifyLowConfidenceRows("),
+    "接线：抽取结果出来之后马上整份清理，在对可引用单元与 AI 归类之前");
+  ok(second > body.indexOf("classifyLowConfidenceRows(") && second < body.indexOf("record = await db.quoteCostImport.update({") && /supplierName: supplierName === null \? null : toStorableText\(supplierName\)/.test(body) && body.includes("metadataJson: toStorableJson({"),
+    "接线：写导入记录之前整份抽取结果、元数据与供应商名再清理一遍");
+  ok(body.includes('const message = e instanceof Error ? toStorableParseError(e.message) : "抽取失败";') && !body.includes("e.message.slice(0, 500)"), "接线：写失败原因的那一处经 toStorableParseError 收口（500 字上限 + 清理）");
+}
+
 async function main() {
   console.log("FIX-14 extracted-text other paths（不用数据库）");
   await inquirySection();
   await procurementSection();
   await chatSection();
   await productContentSection();
+  await costImportSection();
   console.log(`\nFIX-14 extracted-text other paths: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

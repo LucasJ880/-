@@ -25,7 +25,7 @@
 
 ## 5. 报价成本表导入
 
-- [ ] 5.1 `src/lib/quote-engine/import/import-service.ts` 抽取结果出来之后过一次遍历函数（在匹配可引用单元与 AI 归类之前）、写导入记录之前整份与供应商名再过一次，`catch` 里的失败原因改用 `toStorableParseError`；两个测试文件补用例（xlsx 说明格「Flag\u0000 nylon 3x5」、超过 300 字的说明在第 300 字处劈开表情符号（不用库的测抽取结果，隔离库的测导入状态「待审核」与入库内容）、工作表名带 U+0000 时仍带上可引用单元、失败原因收口的接线断言；隔离库跑 `createImportFromUpload`，先在改动前看到状态 `FAILED`、`errorMessage` 含 `22P05`）；verify：两个新测试全过，`npx tsx src/lib/quote-engine/__tests__/quote-import.test.ts` 照旧通过
+- [x] 5.1 `src/lib/quote-engine/import/import-service.ts` 抽取结果出来之后过一次遍历函数（在匹配可引用单元与 AI 归类之前）、写导入记录之前整份与供应商名再过一次，`catch` 里的失败原因改用 `toStorableParseError`；两个测试文件补用例（xlsx 说明格「Flag\u0000 nylon 3x5」、超过 300 字的说明在第 300 字处劈开表情符号（不用库的测抽取结果，隔离库的测导入状态「待审核」与入库内容）、工作表名带 U+0000 时仍带上可引用单元、失败原因收口的接线断言；隔离库跑 `createImportFromUpload`，先在改动前看到状态 `FAILED`、`errorMessage` 含 `22P05`）；verify：两个新测试全过，`npx tsx src/lib/quote-engine/__tests__/quote-import.test.ts` 照旧通过
 
 ## 6. 验收
 
