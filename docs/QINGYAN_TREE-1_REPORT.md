@@ -39,9 +39,9 @@
 
 在干净的 worktree 里跑（`gate.sh`：`npx prisma migrate deploy` 到隔离库后依次跑下面各项），对照同一台机器上 main 的全量基线。
 
-| 项 | 本分支 `01206fae`（基于 main `22a87fb7`） | main `22a87fb7` 基线 |
+| 项 | 本分支最终提交 `5c455f13`（基于 main `f332dd91`） | main `f332dd91` 基线 |
 |---|---|---|
-| `npm test` | 717/728 通过，11 失败 | 710/721 通过，11 失败 |
+| `npm test` | 718/729 通过，11 失败 | 711/722 通过，11 失败 |
 | 失败列表 | 与基线逐条相同（Autopilot A2-P0、Mention Gateway M2-A Identity DB、Phase3A-3 / 3A-4 ×2 / 3A-5、Quote Operations PDF 分页、Sunny 工艺单 DB、T4 授标矩阵、RFQ-AUTO-2 自动起草 DB、MAIL-2 来信观察 DB） | — |
 | `npm run test:ci`（不连库，同 CI） | CI unit subset PASS | — |
 | `npm run typecheck` | 通过 | — |
@@ -52,7 +52,7 @@
 | `openspec validate --specs --strict` | 149/149 | — |
 | `git diff origin/main -- prisma/ vercel.json src/lib/workforce-runtime/ .claude/launch.json` | 空 | — |
 
-多出的 7 个通过就是本 PR 新增的 7 份测试。首轮（审查前的 `70b4e162`，基于 `451bb0d3`）：713/723、10 项失败，与当时的基线逐条相同。「Mention Gateway M2-A Identity DB」在新基线里也失败（旧基线里没有），与本 PR 无关（本 PR 不碰 mention-gateway）。
+多出的 7 个通过就是本 PR 新增的 7 份测试。前几轮：审查前的 `70b4e162`（基于 `451bb0d3`）713/723、10 项失败；多维审查修订后的 `01206fae`（基于 `22a87fb7`）717/728、11 项失败——每轮都与当时的 main 基线逐条相同。GitHub CI（validate-lint-typecheck-test-build）在 `5c455f13` 上通过；Vercel 预发预览构建成功。「Mention Gateway M2-A Identity DB」在新基线里也失败（旧基线里没有）：挑错交叉验证员查明是同一个隔离库被上一轮留下了数据（`Unique constraint (orgId, channel)`），换干净库就过；与本 PR 无关（本 PR 不碰 mention-gateway）。
 
 零变化（没有调用方）：全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `src/lib/trade/email-forward-parse.ts` 外为空；审查员⑥另用引用图可达性证明新模块从 1072 个应用入口 0 可达。
 
