@@ -6,7 +6,7 @@
 | 项 | 值 |
 |---|---|
 | 最后更新 | 2026-11-23（第 6 次：TREE-2 #575 已合并、归档小 PR；TREE-3 实现与九维度审查已改、待变基后门禁与挑错；TREE-4 实现与八维度审查已改） |
-| 当前 main | `58508ecc`（#575 TREE-2 合并，2026-11-23）。TREE-1 合并提交 `99bd7e18`、归档 #567 `86a85724` |
+| 当前 main | `e77e2c72`（#583 TREE-2 归档，2026-11-23）；TREE-2 合并提交 `58508ecc`。TREE-1 合并提交 `99bd7e18`、归档 #567 `86a85724` |
 | 工作分支 | `claude/awesome-maxwell-9wh9m6`（会话指定的唯一可推送分支；八个 PR 依次从它开：上一个合并后把它重置到最新 main 再做下一个） |
 | 授权 | Evan 2026-11-22 20:08：TREE-0 ～ TREE-8 全权交给实现者，PR 自行合并，条件是至少七维度子 agent 独立审查 + 一个挑错子 agent 亲自重跑验证 + 每条意见有去向 + 基于最新 main 重跑门禁。**不在授权内**：改预发 / 生产环境变量与开关、买付费数据、对外发送、改数据库结构、改任务运行时、绕过访问限制 |
 
@@ -16,8 +16,8 @@
 |---|---|---|---|
 | TREE-0 | （随 TREE-1） | 已合并 | 同 TREE-1 |
 | TREE-1 | `public-page-reader` | 已合并（2026-11-23，合并提交 `99bd7e18`）；已归档进 `openspec/specs/tender/public-page-reader/spec.md` | PR [LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559)；归档 [LucasJ880/-#567](https://github.com/LucasJ880/-/pull/567) |
-| TREE-2 | `research-tree-runtime` | 已合并（2026-11-23，合并提交 `58508ecc`，PR 头 `7236a466`）；归档进 `openspec/specs/tender/research-tree/spec.md`（归档小 PR 从工作分支开） | PR [LucasJ880/-#575](https://github.com/LucasJ880/-/pull/575) |
-| TREE-3 | `research-branches-awards` | 四件套 + 实现 + 九维度审查已改（`docs/QINGYAN_TREE-3_REPORT.md` §5）；等 TREE-2 归档合并后变基、全量门禁、挑错交叉验证、开 PR | 本地分支 `tree3-wip`（worktree `/home/user/qy-tree3`，未推送；已叠在 TREE-2 最终头上） |
+| TREE-2 | `research-tree-runtime` | 已合并（2026-11-23，合并提交 `58508ecc`，PR 头 `7236a466`）；已归档进 `openspec/specs/tender/research-tree/spec.md` | PR [LucasJ880/-#575](https://github.com/LucasJ880/-/pull/575)；归档 [LucasJ880/-#583](https://github.com/LucasJ880/-/pull/583)（`e77e2c72`） |
+| TREE-3 | `research-branches-awards` | 审查中：四件套 + 实现 + 九维度审查已改（`docs/QINGYAN_TREE-3_REPORT.md` §5）；已变基到 main `e77e2c72`（TREE-2 归档 #583 合并后）；全量门禁与挑错交叉验证进行中 | 工作分支 `claude/awesome-maxwell-9wh9m6`，PR 见报告头部 |
 | TREE-4 | `research-cross-verify` | 四件套 + 实现 + 八维度审查已改（`docs/QINGYAN_TREE-4_REPORT.md` §5，在 TREE-4 分支上）；排在 TREE-3 之后 | 本地分支 `tree4-wip`（worktree `/home/user/qy-tree4`，未推送；叠在 `tree3-wip` 上） |
 | TREE-5 | `research-trunk-view` | 未开始 | — |
 | TREE-6 | `research-page-intake` | 未开始 | — |

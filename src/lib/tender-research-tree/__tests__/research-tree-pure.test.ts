@@ -12,7 +12,7 @@ import {
   RESEARCH_STEP_IDS,
   TEXT_ZH,
   branchOutcome,
-  comparableAwardCount,
+  unitPriceRecordCount,
   decideWave2Full,
   decideWave2Relaxed,
   handoffFromOutput,
@@ -36,6 +36,10 @@ import {
   TENDER_WORKFORCE_TOOL_NAMES,
 } from "@/lib/tender-workforce/tools";
 import { RESEARCH_HANDOFF_VERSION, type FoundFact, type ResearchHandoffV1 } from "../types";
+import { assembleRecords } from "../awards";
+
+/** 授标支交单时由代码组装记录（TREE-3）：测试的交接单照同一个函数组装 */
+const CMP_CTX = { buyer: "City of Example", quantity: null, refYear: 2026, specTokens: ["bin"] };
 
 let pass = 0;
 let fail = 0;
@@ -49,21 +53,29 @@ function ok(cond: boolean, name: string, detail?: unknown) {
   }
 }
 
-function fact(factType: string, value: string, url = "https://example.gov/a", excerpt = value): FoundFact {
-  return { factType, value, url, excerpt, fetchedAt: "2026-11-23T00:00:00.000Z", source: "web" };
+function fact(factType: string, value: string, url = "https://example.gov/a", excerpt = value, group?: string): FoundFact {
+  return { factType, value, url, excerpt, fetchedAt: "2026-11-23T00:00:00.000Z", source: "web", ...(group ? { group } : {}) };
+}
+
+/** 一笔能算单价的同类授标：同一网址同一组的合同额与数量 */
+function award(id: string, url = "https://example.gov/a", amount = "230,000", qty = "10,000"): FoundFact[] {
+  return [fact("award_amount", amount, url, `total ${amount} for ${qty} units`, id), fact("quantity", qty, url, `total ${amount} for ${qty} units`, id)];
 }
 
 function handoff(stepId: keyof typeof BRANCH_DEFS, found: FoundFact[], extra: Partial<ResearchHandoffV1> = {}): ResearchHandoffV1 {
   const def = BRANCH_DEFS[stepId];
+  const records = def.kind === "clauses" ? [] : assembleRecords(found, def.kind === "prior_awards" ? "prior_award" : "comparable_award", CMP_CTX);
   return {
     version: RESEARCH_HANDOFF_VERSION,
     branchKey: def.stepId,
     kind: def.kind,
     labelZh: def.labelZh,
-    status: found.length ? "found" : "none",
-    statusZh: statusLineZh(found.length ? "found" : "none", found.length),
+    status: records.length ? "found" : "none",
+    statusZh: statusLineZh(records.length ? "found" : "none", records.length),
     reasonZh: null,
     found,
+    records,
+    clauses: null,
     notFound: found.length ? [] : [{ reason: "none", messageZh: TEXT_ZH.none }],
     suggestedBranches: [],
     usage: { searches: 2, reads: 1, modelCalls: 3, blockedSites: 0, elapsedMs: 10 },
@@ -109,11 +121,12 @@ console.log("\n[分叉规则真值表]");
   const rows: Array<{ name: string; prior: ResearchHandoffV1 | null; similar: FoundFact[]; full: FoundFact[]; wave2a: boolean; wave2b: boolean; reverse: string[] }> = [
     { name: "② 没交单、③ 0 条", prior: null, similar: [], full: [], wave2a: true, wave2b: true, reverse: [] },
     { name: "② 0 条、③ 0 条", prior: handoff(P, []), similar: [], full: [], wave2a: true, wave2b: true, reverse: [] },
-    { name: "② 有往期但无中标方、③ 2 条", prior: handoff(P, [fact("prior_tender", "RFP 2023-11")]), similar: [fact("comparable_award", "a"), fact("comparable_award", "b")], full: [], wave2a: false, wave2b: true, reverse: [] },
-    { name: "② 有中标方、③ 3 条", prior: handoff(P, [fact("winner", "Acme Bins Ltd")]), similar: [fact("comparable_award", "a"), fact("comparable_award", "b"), fact("comparable_award", "c")], full: [], wave2a: false, wave2b: false, reverse: ["Acme Bins Ltd"] },
-    { name: "② 没查到、③ 1 条 + 全量 2 条", prior: handoff(P, []), similar: [fact("comparable_award", "a")], full: [fact("comparable_award", "b", "https://x.gov/b"), fact("comparable_award", "c", "https://x.gov/c")], wave2a: true, wave2b: false, reverse: [] },
-    { name: "③ 重复的同一条不算两条", prior: handoff(P, []), similar: [fact("comparable_award", "a"), fact("comparable_award", "a")], full: [fact("comparable_award", "a")], wave2a: true, wave2b: true, reverse: [] },
-    { name: "③ 别的事实类型不算同类授标", prior: handoff(P, []), similar: [fact("award_amount", "1"), fact("buyer", "x"), fact("quantity", "2")], full: [], wave2a: true, wave2b: true, reverse: [] },
+    { name: "② 有往期但无中标方、③ 2 条", prior: handoff(P, [fact("prior_tender", "RFP 2023-11")]), similar: [...award("a"), ...award("b")], full: [], wave2a: false, wave2b: true, reverse: [] },
+    { name: "② 有中标方、③ 3 条", prior: handoff(P, [fact("winner", "Acme Bins Ltd")]), similar: [...award("a"), ...award("b"), ...award("c")], full: [], wave2a: false, wave2b: false, reverse: ["Acme Bins Ltd"] },
+    { name: "② 没查到、③ 1 条 + 全量 2 条", prior: handoff(P, []), similar: award("a"), full: [...award("b", "https://x.gov/b"), ...award("c", "https://x.gov/c")], wave2a: true, wave2b: false, reverse: [] },
+    { name: "③ 同一网址同一组的不算两条（含补查里重复的）", prior: handoff(P, []), similar: [...award("a"), ...award("a")], full: award("a"), wave2a: true, wave2b: true, reverse: [] },
+    { name: "③ 算不出单价的不算（只有采购方、只有金额）", prior: handoff(P, []), similar: [fact("buyer", "x", "https://x.gov/q"), fact("award_amount", "230,000", "https://x.gov/r")], full: [], wave2a: true, wave2b: true, reverse: [] },
+    { name: "② 只有零散事实（只有采购方）算没查到", prior: handoff(P, [fact("buyer", "City of Example")]), similar: [...award("a"), ...award("b"), ...award("c")], full: [], wave2a: true, wave2b: false, reverse: [] },
   ];
   for (const r of rows) {
     const a = decideWave2Full(r.prior);
@@ -122,10 +135,13 @@ console.log("\n[分叉规则真值表]");
     ok(JSON.stringify(pendingReverseOf(r.prior)) === JSON.stringify(r.reverse), `${r.name}：待反查 ${JSON.stringify(r.reverse)}`);
   }
   ok(decideWave2Full(handoff(P, [fact("winner", "A")])).reasonZh === "无需追查：往期同标查到了 1 条", "不跑时的理由写明查到了几条");
-  ok(decideWave2Relaxed([handoff(S, [fact("comparable_award", "a"), fact("comparable_award", "b"), fact("comparable_award", "c")])]).reasonZh === "无需追查：同类授标已有 3 条", "乙不跑的理由");
-  ok(/只有 1 条/.test(decideWave2Relaxed([handoff(S, [fact("comparable_award", "a")])]).reasonZh), "乙跑的理由写明只有几条");
-  ok(comparableAwardCount([handoff(S, [fact("comparable_award", "Acme 10000 bins")]), handoff(F, [fact("comparable_award", "acme 10000 BINS")])]) === 1, "同类授标去重不分大小写");
-  ok(comparableAwardCount([null, handoff(S, [fact("comparable_award", "a")])]) === 1, "条数：缺单当 0");
+  ok(decideWave2Relaxed([handoff(S, [...award("a"), ...award("b"), ...award("c")])]).reasonZh === "无需追查：同类授标已有 3 条能算单价", "乙不跑的理由");
+  ok(/只有 1 条/.test(decideWave2Relaxed([handoff(S, award("a"))]).reasonZh), "乙跑的理由写明只有几条");
+  ok(unitPriceRecordCount([handoff(S, award("A1")), handoff(F, award("a1"))]) === 1, "同类记录去重：组名不分大小写、跨支同一条只算一次");
+  ok(unitPriceRecordCount([null, handoff(S, award("a"))]) === 1, "条数：缺单当 0");
+  const oldShape = { ...handoff(S, award("a")) } as Partial<ResearchHandoffV1>;
+  delete oldShape.records;
+  ok(unitPriceRecordCount([oldShape as ResearchHandoffV1]) === 0, "TREE-2 的旧单（没有 records）按空处理");
   ok(
     JSON.stringify(
       pendingReverseOf(
@@ -269,7 +285,7 @@ console.log("\n[事实逐字核对]");
 {
   const page = "Contract awarded to Acme Bins Ltd. Total value: $230,000.00 for 10,000 units (2023). Cells: 1 250 000";
   const types = BRANCH_DEFS[RESEARCH_STEP_IDS.priorAwards].factTypes;
-  const numeric = ["award_amount", "quantity", "award_year", "comparable_award"];
+  const numeric = ["award_amount", "quantity", "award_year"];
   const chk = (factType: string, value: unknown, excerpt: unknown) => checkFact({ factType, value, excerpt }, page, types, numeric);
   ok(chk("award_amount", "$230,000.00", "Total value: $230,000.00 for 10,000 units").ok, "摘录逐字在正文里、值逐字在摘录里、数字对得上 → 收");
   ok(chk("winner", "Acme Bins Ltd", "contract   AWARDED to acme bins ltd.").ok, "空白压成一个、不分大小写");
@@ -280,7 +296,7 @@ console.log("\n[事实逐字核对]");
   const r2b = chk("winner", "Beta Corp", "Contract awarded to Acme Bins Ltd");
   ok(!r2b.ok && r2b.why === "value_not_in_excerpt", "不含数字的值也要逐字在摘录里（Beta Corp 配 Acme 的摘录 → 丢）");
   const r3 = chk("comparable_award", "x", "Contract awarded");
-  ok(!r3.ok && r3.why === "type_not_allowed", "类型不是这一支的 → 丢");
+  ok(!r3.ok && r3.why === "type_not_allowed", "类型不是这一支的 → 丢（TREE-3 起「同类授标」这一类型已去掉）");
   const r4 = chk("winner", "Acme", "a".repeat(201));
   ok(!r4.ok && r4.why === "too_long", "摘录超过 200 字 → 丢（不截断改写）");
   const r5 = chk("winner", 5, "Acme");
@@ -365,22 +381,27 @@ console.log("\n[树干摘要只放摘要]");
     startedAt: "2026-11-23T00:00:00.000Z",
     finishedAt: "2026-11-23T00:10:00.000Z",
     priorEvidence: {
-      research_clauses: { researchHandoff: staticHandoff(BRANCH_DEFS.research_clauses, "unavailable", TEXT_ZH.clausesNotWired) },
+      research_clauses: { researchHandoff: staticHandoff(BRANCH_DEFS.research_clauses, "unavailable", TEXT_ZH.clausesNoDocs) },
       research_prior_awards: { researchHandoff: prior },
-      research_similar: { researchHandoff: handoff(RESEARCH_STEP_IDS.similar, [fact("comparable_award", "10000 bins 230000", "https://y.gov/z", "10000 bins 230000")]) },
+      research_similar: { researchHandoff: handoff(RESEARCH_STEP_IDS.similar, award("a1", "https://y.gov/z")) },
       research_wave2_full: { researchHandoff: staticHandoff(BRANCH_DEFS.research_wave2_full, "not_needed", "无需追查：往期同标查到了 2 条") },
       // 第二波乙没交单（不该发生）：照样汇总
     },
   });
   ok(summary.branches.length === 5 && summary.branches.map((b) => b.key).join(",") === BRANCH_STEP_IDS.join(","), "五支都在");
-  ok(summary.branches[1]!.foundCount === 2 && summary.branches[2]!.foundCount === 1, "条数");
+  ok(
+    summary.branches[1]!.foundCount === 1 && summary.branches[1]!.recordCount === 1 && summary.branches[2]!.foundCount === 1 && summary.branches[0]!.recordCount === 0,
+    "条数是记录数（往期同一页的中标方与金额是一条）",
+    summary.branches.map((b) => [b.foundCount, b.recordCount]),
+  );
+  ok(summary.clauses === null, "条款一支没有结论：摘要里条款为 null");
   ok(summary.branches[4]!.status === "unavailable", "缺单的支记未接通，树干照样汇总");
   ok(JSON.stringify(summary.pendingReverse) === JSON.stringify(["Acme Bins Ltd"]), "待反查列出中标方");
   ok(summary.usage.searches === 4 && summary.usage.modelCalls === 6, "全树用量相加", summary.usage);
   ok(summary.branches.every((b) => !("blockedSites" in b.usage)) && !("blockedSites" in summary.usage), "树干不列被挡站数（被挡明细只在分支里）");
   ok(summary.branches[1]!.labelZh === "往期同标" && summary.branches[3]!.reasonZh === "无需追查：往期同标查到了 2 条" && summary.branches[3]!.statusZh === "无需追查", "每支有中文名、短状态与理由");
   const json = JSON.stringify(summary);
-  ok(!/https?:|230,000|230000|\$|Total value|awarded to/.test(json), "摘要里没有网址、金额与摘录", json.slice(0, 400));
+  ok(!/https?:|230,000|230000|23\.00|\$|Total value|awarded to/.test(json), "摘要里没有网址、金额、单价与摘录", json.slice(0, 400));
 }
 
 /* ── 登记与守卫 ── */

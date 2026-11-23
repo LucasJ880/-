@@ -10,6 +10,7 @@ import { useState } from "react";
 import { FileQuestion } from "lucide-react";
 import { TenderAnalysisPanel } from "@/components/tender-analysis/analysis-panel";
 import { BidFitMatrixCard } from "@/components/tender-analysis/bid-fit-matrix-card";
+import { ResearchClausesCard } from "@/components/tender-analysis/research-clauses-card";
 import { AnalysisProgressBanner } from "@/components/tender-analysis/analysis-progress-banner";
 import { ProjectQuestionDialog } from "@/components/project-question/project-question-dialog";
 import { ProjectQuestionStatusList } from "@/components/project-question/project-question-status-list";
@@ -29,6 +30,9 @@ export function RequirementsTab({ projectId, canManage, projectStatus }: Require
 
       {/* 批次一：投标合规矩阵（已有/可开发/需Partner/需RFI/No-Go 一眼观） */}
       <BidFitMatrixCard projectId={projectId} canManage={canManage} />
+
+      {/* TREE-3：调研树条款员的结论（只读；开关关或还没有调研树时不显示） */}
+      <ResearchClausesCard projectId={projectId} />
 
       <div className="rounded-xl border border-border bg-card-bg p-4 sm:p-5">
         <TenderAnalysisPanel

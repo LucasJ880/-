@@ -14,7 +14,8 @@ import { allowReadableUrl } from "@/lib/tender-research-tree/guards";
 import { runResearchTrunk } from "@/lib/tender-research-tree/trunk";
 import type { CursorRow, CursorWrite, ResearchProjectRow, ResearchStore } from "@/lib/tender-research-tree/deps";
 import { RESEARCH_STEP_IDS, TEXT_ZH } from "@/lib/tender-research-tree/fork-rules";
-import type { ResearchHandoffV1 } from "@/lib/tender-research-tree/types";
+import type { FoundFact, ResearchHandoffV1 } from "@/lib/tender-research-tree/types";
+import { assembleRecords } from "@/lib/tender-research-tree/awards";
 
 let pass = 0;
 let fail = 0;
@@ -38,8 +39,10 @@ const PROJECT: ResearchProjectRow = {
   id: "p1",
   orgId: ORG,
   workDomain: "tender",
-  name: "Waste Bins Supply 2026-2029",
-  clientOrganization: "City of Example",
+  // TREE-3 起往期同标会先查联邦合同公开数据（检索词从项目名与采购方的英文里取）；本文件测的是通用循环，
+  // 项目名与采购方用中文，联邦数据一步取不到检索词、不发（那一步在 tree3-research-branches.test.ts 里测）
+  name: "垃圾桶采购 2026-2029",
+  clientOrganization: "示例市",
   solicitationNumber: "RFT-2026-117",
   location: "Ontario",
   category: "Goods",
@@ -110,6 +113,15 @@ function makeHarness(opts: {
       storeCalls.push("writeRoomSummary");
       return true;
     },
+    // TREE-3：条款员读标书、授标支读数量与合同期（本文件只测通用循环，给空的）
+    loadTenderPages: async () => {
+      storeCalls.push("loadTenderPages");
+      return { documentCount: 0, emptyDocumentCount: 0, scannedPages: 0, pages: [] };
+    },
+    loadRequirementFacts: async () => {
+      storeCalls.push("loadRequirementFacts");
+      return { quantity: null, contractDays: null };
+    },
   };
   const deps: BranchRunDeps = {
     store,
@@ -119,6 +131,11 @@ function makeHarness(opts: {
       search: async (q) => {
         searches.push(q);
         return opts.search ? opts.search(q) : { status: "EMPTY", hits: [], httpStatus: 200 };
+      },
+      // TREE-3：往期同标先查联邦合同公开数据；本文件测通用循环，联邦数据一律没有结果（每次仍算一次搜索）
+      openData: async (q) => {
+        searches.push(`open_data:${q}`);
+        return { ok: true, rows: [], note: null };
       },
       invokerFor: () => async (req) => {
         prompts.push(req);
@@ -416,11 +433,25 @@ async function main() {
   {
     const h = makeHarness({ search: () => HITS });
     const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.clauses), h.deps));
-    ok(ho.status === "unavailable" && ho.notFound[0]?.messageZh === TEXT_ZH.clausesNotWired && h.searches.length + h.prompts.length + h.world.log.length + h.rows.length === 0, "条款一支：交「未接通」，零外部请求零写入");
+    // TREE-3：条款一支由条款员查；这里项目没有标书 → 「未接通」、零外部请求，只记一条交单游标（条款员各情形见 tree3-research-branches.test.ts）
+    ok(
+      ho.status === "unavailable" && ho.notFound[0]?.messageZh === TEXT_ZH.clausesNoDocs && h.searches.length + h.prompts.length + h.world.log.length === 0 && h.rows.every((r) => r.kind === "finish"),
+      "条款一支（没有标书）：交「未接通」，零外部请求",
+      h.rows.map((r) => r.kind),
+    );
   }
   {
-    const prior = (found: number) => ({ researchHandoff: { version: "research-handoff/v1", found: Array.from({ length: found }, (_, i) => ({ factType: "winner", value: `W${i}`, url: A, excerpt: "x", fetchedAt: "t", source: "web" })), notFound: [], suggestedBranches: [] } });
-    const sim = (n: number, tag = "s") => ({ researchHandoff: { version: "research-handoff/v1", found: Array.from({ length: n }, (_, i) => ({ factType: "comparable_award", value: `${tag}${i}`, url: `${A}?${tag}${i}`, excerpt: "x", fetchedAt: "t", source: "web" })), notFound: [], suggestedBranches: [] } });
+    // TREE-3：分叉规则按授标记录数（往期同标的记录、能算单价的同类记录）
+    const fct = (factType: string, value: string, url: string, group: string): FoundFact => ({ factType, value, url, excerpt: `${value} x`, fetchedAt: "t", source: "web", group });
+    const ctxCmp = { buyer: null, quantity: null, refYear: 2026, specTokens: [] };
+    const prior = (n: number) => {
+      const found = Array.from({ length: n }, (_, i) => fct("winner", `W${i}`, A, `g${i}`));
+      return { researchHandoff: { version: "research-handoff/v1", kind: "prior_awards", found, records: assembleRecords(found, "prior_award", ctxCmp), notFound: [], suggestedBranches: [] } };
+    };
+    const sim = (n: number, tag = "s") => {
+      const found = Array.from({ length: n }, (_, i) => [fct("award_amount", "230,000", `${A}?${tag}${i}`, "a"), fct("quantity", "10,000", `${A}?${tag}${i}`, "a")]).flat();
+      return { researchHandoff: { version: "research-handoff/v1", kind: "similar", found, records: assembleRecords(found, "comparable_award", ctxCmp), notFound: [], suggestedBranches: [] } };
+    };
     const h = makeHarness({ search: () => HITS, decide: () => ({ next: { action: "finish" } }) });
     const a = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.wave2Full, { priorEvidence: { research_prior_awards: prior(1), research_similar: sim(0) } }), h.deps));
     ok(a.status === "not_needed" && h.prompts.length === 0, "② 查到了：第二波甲「无需追查」，不调模型", a);

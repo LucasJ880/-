@@ -34,7 +34,8 @@ function ok(cond: boolean, name: string, detail?: unknown) {
 const A = "https://www.example-city.ca/awards/2023-bins";
 const S1 = "https://procurement.example-region.ca/awards/bins-2024";
 const R1 = "https://bids.example-county.gov/award-results/containers";
-const PAGES: Record<string, { html: string; facts: Array<{ factType: string; value: string; excerpt: string }> }> = {
+// TREE-3：同类授标由同一组的合同额、数量、年份组成（代码组装成记录、算单价），不再有「同类授标」这一事实类型
+const PAGES: Record<string, { html: string; facts: Array<{ factType: string; value: string; excerpt: string; group?: string }> }> = {
   [A]: {
     html: "<html><body><p>The City of Example awarded contract RFT-2023-044 to Acme Bins Ltd. Total value: $230,000.00 for 10,000 waste bins.</p></body></html>",
     facts: [
@@ -44,13 +45,19 @@ const PAGES: Record<string, { html: string; facts: Array<{ factType: string; val
   },
   [S1]: {
     html: "<html><body><p>Region of Example: 8,000 waste bins awarded for $200,000 in 2024.</p></body></html>",
-    facts: [{ factType: "comparable_award", value: "8,000 waste bins awarded for $200,000 in 2024", excerpt: "Region of Example: 8,000 waste bins awarded for $200,000 in 2024." }],
+    facts: [
+      { factType: "quantity", value: "8,000", excerpt: "Region of Example: 8,000 waste bins awarded for $200,000 in 2024.", group: "s1" },
+      { factType: "award_amount", value: "$200,000", excerpt: "Region of Example: 8,000 waste bins awarded for $200,000 in 2024.", group: "s1" },
+      { factType: "award_year", value: "2024", excerpt: "Region of Example: 8,000 waste bins awarded for $200,000 in 2024.", group: "s1" },
+    ],
   },
   [R1]: {
     html: "<html><body><p>County award: 12,500 refuse containers, $262,500 (2022).</p><p>Second award: 4,000 carts, $96,000 (2021).</p></body></html>",
     facts: [
-      { factType: "comparable_award", value: "12,500 refuse containers, $262,500 (2022)", excerpt: "County award: 12,500 refuse containers, $262,500 (2022)." },
-      { factType: "comparable_award", value: "4,000 carts, $96,000 (2021)", excerpt: "Second award: 4,000 carts, $96,000 (2021)." },
+      { factType: "quantity", value: "12,500", excerpt: "County award: 12,500 refuse containers, $262,500 (2022).", group: "r1" },
+      { factType: "award_amount", value: "$262,500", excerpt: "County award: 12,500 refuse containers, $262,500 (2022).", group: "r1" },
+      { factType: "quantity", value: "4,000", excerpt: "Second award: 4,000 carts, $96,000 (2021).", group: "r2" },
+      { factType: "award_amount", value: "$96,000", excerpt: "Second award: 4,000 carts, $96,000 (2021).", group: "r2" },
     ],
   },
 };
@@ -90,8 +97,14 @@ async function main() {
   for (const [u, p] of Object.entries(PAGES)) world.handlers.set(u, () => html(p.html));
   const searches: string[] = [];
   const modelCalls: Array<{ tag: string }> = [];
+  const openDataQueries: string[] = [];
   let failTag: string | null = null;
   __setResearchTreeDepsForTest({
+    // TREE-3：往期同标先查联邦合同公开数据（假的：没有结果；测试里一律不发真实请求）
+    openData: async (q) => {
+      openDataQueries.push(q);
+      return { ok: true, rows: [], note: null };
+    },
     search: async (q) => {
       searches.push(q);
       const url = q.startsWith("prior") ? A : q.startsWith("relaxed") ? R1 : q.startsWith("similar") ? S1 : null;
@@ -107,7 +120,7 @@ async function main() {
       const hit = /^\d+\. (\S+)/m.exec(latest)?.[1];
       if (pageUrl && PAGES[pageUrl]) decision = { facts: PAGES[pageUrl]!.facts, next: { action: "finish" } };
       else if (hit) decision = { next: { action: "read", url: hit } };
-      else if (latest.includes("这是第一轮")) decision = { next: { action: "search", query: `${tag} waste bins contract award` } };
+      else if (latest.includes("这是第一轮") || latest.includes("联邦合同公开数据")) decision = { next: { action: "search", query: `${tag} waste bins contract award` } };
       else decision = { next: { action: "finish" } };
       return { content: JSON.stringify(decision), model: "fake-model", elapsedMs: 1 };
     },
@@ -179,9 +192,14 @@ async function main() {
     const ho = (k: string) => handoff(steps[k]?.outputJson);
     ok(ho("research_clauses")?.status === "unavailable", "① 条款交「未接通」");
     ok(ho("research_prior_awards")?.status === "found" && ho("research_prior_awards")!.found.length === 2, "② 往期同标查到 2 条", ho("research_prior_awards"));
-    ok(ho("research_similar")?.status === "found" && ho("research_similar")!.found.length === 1, "③ 同类项目（限量）查到 1 条");
+    ok(ho("research_similar")?.status === "found" && (ho("research_similar")!.records ?? []).length === 1 && ho("research_similar")!.records![0]!.unitPrice === "25.00", "③ 同类项目（限量）查到 1 条（单价 25.00）", ho("research_similar")?.records);
     ok(ho("research_wave2_full")?.status === "not_needed", "② 查到了：第二波甲无需追查");
-    ok(ho("research_wave2_relaxed")?.status === "found" && ho("research_wave2_relaxed")!.found.length === 2, "③ 只有 1 条：第二波乙放宽后查到 2 条", ho("research_wave2_relaxed"));
+    ok(
+      ho("research_wave2_relaxed")?.status === "found" && (ho("research_wave2_relaxed")!.records ?? []).map((r) => r.unitPrice).join(",") === "21.00,24.00",
+      "③ 只有 1 条能算单价：第二波乙放宽后查到 2 条（单价 21.00、24.00）",
+      ho("research_wave2_relaxed"),
+    );
+    ok(openDataQueries.length > 0 && (ho("research_prior_awards")?.usage.searches ?? 0) === 1 + openDataQueries.length, "往期同标先查了联邦数据（假的），每次算一次搜索", { q: openDataQueries, u: ho("research_prior_awards")?.usage });
     const sumCalls = ["research_prior_awards", "research_similar", "research_wave2_relaxed"].reduce((n, k) => n + (ho(k)?.usage.modelCalls ?? 0), 0);
     ok(modelCalls.length === sumCalls && modelCalls.length === 9, "模型请求只来自分支循环（3 支 × 3 轮），运行时自己没有调模型", { calls: modelCalls.length, sumCalls });
     ok(searches.length === 3, "搜索 3 次", searches);
@@ -302,10 +320,11 @@ async function main() {
     const m0 = modelCalls.length;
     const q0 = searches.length;
     const n0 = world.log.length;
+    const o0 = openDataQueries.length;
     const st6 = await runToEnd(job6);
     const steps6 = await stepOutputs(job6);
     ok(st6 === "completed" && Object.keys(steps6).filter((k) => k !== "research_trunk").every((k) => handoff(steps6[k]?.outputJson)?.status === "flag_off"), "每一支都交「开关已关」", st6);
-    ok(modelCalls.length === m0 && searches.length === q0 && world.log.length === n0, "零模型请求、零搜索、零读页");
+    ok(modelCalls.length === m0 && searches.length === q0 && world.log.length === n0 && openDataQueries.length === o0, "零模型请求、零搜索、零联邦数据查询、零读页");
     ok((await db.auditLog.count({ where: { orgId: ORG, action: { in: ["research.branch_step", "research.web_read"] }, targetId: job6 } })) === 0, "零审计");
     const offChanged = changedTables(offBefore, await snapshot());
     ok(offChanged.every((t) => RUNTIME_TABLES.includes(t)), "开关关：整库只有运行时自己的表有变化", offChanged);

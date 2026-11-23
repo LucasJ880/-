@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireProjectWriteAccess } from "@/lib/projects/access";
+import { requireProjectReadAccess, requireProjectWriteAccess } from "@/lib/projects/access";
 import { isResearchTreeEnabledForOrg } from "@/lib/tender-research-tree/flags";
 import { startResearchTree } from "@/lib/tender-research-tree/start";
+import { loadResearchTreeView } from "@/lib/tender-research-tree/view";
 
 /**
  * TREE-2 情报调研树 — 人发起
@@ -10,7 +11,15 @@ import { startResearchTree } from "@/lib/tender-research-tree/start";
  *   → { jobId, reused, status }
  *
  * 第一步、不带条件地校验项目写权限（发起会花模型与搜索的钱，口径同一键分析的发起）；项目没有组织或开关对该组织
- * 关着 → 404，不建 Job、不发任何外部请求；只收招投标项目（否则 409）。读取接口在 TREE-5。
+ * 关着 → 404，不建 Job、不发任何外部请求；只收招投标项目（否则 409）。
+ *
+ * TREE-3 情报调研树 — 读取（只读）
+ *
+ * GET /api/projects/[id]/research-tree
+ *   → { job: { id, status, createdAt } | null, clauses: { state: "pending" } | { state: "done", status, statusZh, reasonZh, messagesZh, findings } | null }
+ *
+ * 第一步、不带条件地校验项目读权限；项目没有组织或开关关着 → 404（招标要求页的条款卡片据此不显示）。
+ * 只给条款结果（标书文件名、页码、标书摘录与答案），不给金额、网页内容与网址；TREE-5 在这里加整棵树。
  */
 
 const NOT_FOUND = { error: "未找到" } as const;
@@ -68,5 +77,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "AI 任务额度不够（今日次数或同时运行数到上限），请稍后再试或联系管理员" }, { status: 429 });
     }
     return NextResponse.json({ error: "开始调研失败，请稍后重试" }, { status: 500 });
+  }
+}
+
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+
+  const orgId = access.project.orgId;
+  if (!orgId || !isResearchTreeEnabledForOrg(orgId)) {
+    return NextResponse.json(NOT_FOUND, { status: 404 });
+  }
+  try {
+    return NextResponse.json(await loadResearchTreeView(orgId, access.project.id));
+  } catch {
+    return NextResponse.json({ error: "调研结果暂时读不出来，请稍后再试" }, { status: 500 });
   }
 }

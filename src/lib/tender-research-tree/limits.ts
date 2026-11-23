@@ -40,6 +40,22 @@ export const RESEARCH_TREE_LIMITS = Object.freeze({
   /** 待反查、未追的线索的条数上限 */
   MAX_PENDING_REVERSE: 10,
   MAX_UNCHASED_LEADS: 20,
+  /** 每支最多几条授标记录（TREE-3） */
+  MAX_RECORDS_PER_BRANCH: 20,
+  /** 往期同标查联邦合同公开数据：最多几个检索词（每个算一次搜索） */
+  OPEN_DATA_QUERIES: 2,
+  /** 联邦数据：同一采购方的行最多转成几条记录 */
+  OPEN_DATA_RECORDS: 5,
+  /** 联邦数据：最多几行交给模型看 */
+  OPEN_DATA_ROWS_FOR_MODEL: 10,
+  /** 条款员：最多几段、每个命中前后各取几字、合计多少字 */
+  CLAUSE_SNIPPETS: 16,
+  CLAUSE_SNIPPET_RADIUS: 300,
+  CLAUSE_TOTAL_CHARS: 12_000,
+  /** 条款员：每问最多几条引文 */
+  CLAUSE_CITATIONS_PER_QUESTION: 3,
+  /** 条款员：每棵树最多几次模型请求（config 第 7 条例外二、任务书 TREE-3：一次） */
+  CLAUSE_MODEL_REQUESTS_PER_TREE: 1,
 });
 
 /** 截止与让出（毫秒） */
@@ -59,6 +75,8 @@ export const RESEARCH_TREE_TIMING = Object.freeze({
   MODEL_TIMEOUT_MS: 60_000,
   /** 单次搜索的超时上限 */
   SEARCH_TIMEOUT_MS: 25_000,
+  /** 联邦合同公开数据单次查询的超时（从发出到读完正文；数据接口自己的 25 秒只管到响应头） */
+  OPEN_DATA_TIMEOUT_MS: 25_000,
   /** 模型请求的输出上限（token） */
   MODEL_MAX_TOKENS: 1_500,
 });

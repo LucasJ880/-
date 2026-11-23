@@ -1,8 +1,9 @@
 /**
  * 情报调研树的树干（`tender_research_trunk` 的处理函数）：确定性汇总五个分支的交接单，不调模型。
  *
- * 写进情报室 summaryJson.researchTree 的只有摘要：每支的状态、条数、未查到原因与用量，待反查的中标方名，
- * 未追的线索，全树用量。不放金额、摘录、正文与网址（详情留在各支步骤的结果里，TREE-5 的读取接口按 jobId 取）。
+ * 写进情报室 summaryJson.researchTree 的只有摘要：每支的状态、条数、记录数、未查到原因与用量，条款三问的答案，
+ * 待反查的中标方名，未追的线索，全树用量。不放金额、单价、摘录、页码、正文与网址（详情留在各支步骤的结果里，
+ * 读取接口按 jobId 取）。
  * 项目还没有情报室时不新建（新建会让情报页签出现一个空房间），结果里写明没写入。
  */
 
@@ -15,16 +16,20 @@ import {
   BRANCH_STEP_IDS,
   RESEARCH_STEP_IDS,
   TEXT_ZH,
+  foundCountOf,
   handoffFromOutput,
   pendingReverseOf,
+  recordsOf,
   statusLineZh,
   unchasedLeadsOf,
 } from "./fork-rules";
+import { CLAUSE_ANSWERS, CLAUSE_QUESTION_KEYS } from "./clauses";
 import {
   RESEARCH_TREE_SUMMARY_VERSION,
   type ResearchHandoffV1,
   type ResearchTreeSummaryV1,
   type TrunkBranchSummary,
+  type TrunkClausesSummary,
   type TrunkUsage,
 } from "./types";
 
@@ -41,6 +46,18 @@ function addUsage(a: TrunkUsage, b: TrunkUsage): TrunkUsage {
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
 const REASONS: ReadonlySet<string> = new Set(["none", "unavailable", "blocked", "limit"]);
+
+/** 条款三问的答案（只收枚举里有的；没有条款结论为 null） */
+function clausesSummaryOf(h: ResearchHandoffV1 | null): TrunkClausesSummary | null {
+  const qs = h?.clauses?.questions;
+  if (!Array.isArray(qs)) return null;
+  const out = {} as TrunkClausesSummary;
+  for (const key of CLAUSE_QUESTION_KEYS) {
+    const a = qs.find((q) => q && q.key === key)?.answer;
+    out[key] = typeof a === "string" && a in CLAUSE_ANSWERS[key] ? a : "not_stated";
+  }
+  return out;
+}
 
 /** 纯函数：从五个上游的输出算出树干摘要（不含金额、摘录、正文与网址；文字只取代码写的那几句） */
 export function summarizeTree(input: {
@@ -60,9 +77,10 @@ export function summarizeTree(input: {
         kind: def.kind,
         labelZh: def.labelZh,
         status: "unavailable",
-        statusZh: statusLineZh("unavailable", 0),
+        statusZh: statusLineZh("unavailable", 0, def.kind),
         reasonZh: null,
         foundCount: 0,
+        recordCount: 0,
         notFound: [{ reason: "unavailable", messageZh: TEXT_ZH.internalError }],
         usage: { ...ZERO_USAGE },
       };
@@ -72,9 +90,10 @@ export function summarizeTree(input: {
       kind: def.kind,
       labelZh: def.labelZh,
       status: h.status,
-      statusZh: statusLineZh(h.status, h.found.length),
+      statusZh: statusLineZh(h.status, foundCountOf(h), def.kind),
       reasonZh: typeof h.reasonZh === "string" ? h.reasonZh.slice(0, 200) : null,
-      foundCount: h.found.length,
+      foundCount: foundCountOf(h),
+      recordCount: recordsOf(h).length,
       notFound: h.notFound
         .filter((n) => REASONS.has(n.reason) && typeof n.messageZh === "string")
         .map((n) => ({ reason: n.reason, messageZh: n.messageZh.slice(0, 200) })),
@@ -95,6 +114,7 @@ export function summarizeTree(input: {
     branches,
     pendingReverse: pendingReverseOf(handoffs.get(RESEARCH_STEP_IDS.priorAwards) ?? null),
     unchasedLeads: unchasedLeadsOf([...handoffs.values()]),
+    clauses: clausesSummaryOf(handoffs.get(RESEARCH_STEP_IDS.clauses) ?? null),
     usage: branches.reduce((acc, b) => addUsage(acc, b.usage), { ...ZERO_USAGE }),
   };
 }

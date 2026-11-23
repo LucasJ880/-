@@ -5,6 +5,9 @@
  * 跨处理切片续跑：每一次模型请求、搜索与读页之前先经租约防栅栏记一条审计（research.branch_step），续跑时从审计
  * 恢复；快到截止就让出。任何问题（模型不可用、搜索未接通、被挡、到上限、读库出错）都交一张写明原因的交接单、
  * 正常完成步骤；只有「不是调研 Job」「计划里没有这一步」这类不该发生的情况返回失败。租约丢了原样抛出交给运行时。
+ *
+ * TREE-3：条款一支交给条款员（clauses-run.ts）；往期同标在第一轮模型请求之前先查联邦合同公开数据；授标支的事实
+ * 由代码组装成授标记录（awards.ts），单价、口径、币种与可比度都由代码算。
  */
 
 import type { AdapterContext, AdapterResult } from "@/lib/agent-runtime-v2/adapters";
@@ -32,11 +35,31 @@ import {
   decideWave2Full,
   decideWave2Relaxed,
   dedupeFacts,
+  factKey,
   handoffFromOutput,
+  recordsOf,
   staticHandoff,
   statusLineZh,
   type BranchDef,
 } from "./fork-rules";
+import {
+  PROJECT_SPEC_TOKENS_MAX,
+  assembleRecords,
+  decToFixed,
+  mergeRecords,
+  openDataRecords,
+  projectQuantityDec,
+  refreshComparability,
+  specTokens,
+  type ComparabilityContext,
+  type OpenDataRow,
+} from "./awards";
+import { openDataLinesOf, openDataPlanFor, type OpenDataPlanEntry } from "./federal";
+import { mergeOpenDataLines } from "./cursor";
+import { sanitizeUntrusted } from "./prompt";
+import { createHash } from "node:crypto";
+import { runClausesBranch } from "./clauses-run";
+import { branchDone as done, branchYield as yieldSlice } from "./results";
 import { allowReadableUrl, checkFact, internalNumberTokens, outboundBlockReason, OUTBOUND_BLOCK_ZH, urlBlockReason } from "./guards";
 import { RESEARCH_TREE_LIMITS, RESEARCH_TREE_TIMING, effectiveBranchLimits, effectiveTreeLimits, type BranchLimits } from "./limits";
 import {
@@ -49,7 +72,15 @@ import {
   type PublicProjectFacts,
 } from "./prompt";
 import { restoreCursorState, treeReadIndex, type BranchCursorState, type CursorKind, type TreeReadEntry } from "./cursor";
-import { CURSOR_TAKE, externalDeps, productionStore, type ResearchExternalDeps, type ResearchProjectRow, type ResearchStore } from "./deps";
+import {
+  CURSOR_TAKE,
+  externalDeps,
+  productionStore,
+  type RequirementFactsRow,
+  type ResearchExternalDeps,
+  type ResearchProjectRow,
+  type ResearchStore,
+} from "./deps";
 import { RESEARCH_HANDOFF_VERSION, type FoundFact, type ResearchHandoffV1 } from "./types";
 
 export type BranchRunDeps = { external: ResearchExternalDeps; store: ResearchStore };
@@ -86,39 +117,54 @@ export function checkResearchJob(job: { orgId: string; status?: string; metadata
   return { ok: true, projectId, initiatedByUserId };
 }
 
-/** 交给模型的项目公开资料（只这几项） */
-export function publicProjectFacts(p: ResearchProjectRow): PublicProjectFacts {
-  const clean = (s: string | null) => (s && s.trim() ? s.trim().slice(0, 200) : null);
+/**
+ * 交给模型的项目公开资料（只这几项；数量只给一个数，合同期只给天数，规格关键词由代码从项目名与类别取）。
+ * 项目名、采购方等可能是从标书摘要自动回填的外来文字：同样清洗（块边界、零宽、控制字符）
+ */
+export function publicProjectFacts(p: ResearchProjectRow, req: RequirementFactsRow | null = null): PublicProjectFacts {
+  const clean = (s: string | null) => (s && s.trim() ? sanitizeUntrusted(s.trim(), 200).trim() || null : null);
+  const q = projectQuantityDec(req?.quantity ?? null);
+  const days = req?.contractDays;
   return {
-    name: p.name.trim().slice(0, 200),
+    name: sanitizeUntrusted(p.name.trim(), 200).trim(),
     buyer: clean(p.clientOrganization),
     solicitationNumber: clean(p.solicitationNumber),
     location: clean(p.location),
     category: clean(p.category),
     closeYear: p.closeDate ? p.closeDate.getUTCFullYear() : null,
+    quantity: q ? decToFixed(q, Math.min(q.scale, 3)) : null,
+    contractDays: typeof days === "number" && Number.isFinite(days) && days > 0 ? Math.round(days) : null,
+    specKeywords: specTokens([p.name, p.category], PROJECT_SPEC_TOKENS_MAX).map((t) => sanitizeUntrusted(t, 40)),
   };
 }
 
-/* ───────────────────────────── 结果 ───────────────────────────── */
+/**
+ * 模型给的组名 → 组键：小写、空白换成连字符、只留字母数字下划线连字符（「Lot 1」→「lot-1」）。清的时候删过字符、
+ * 或长过 12 字，就在截下的前 12 字后面加原文的哈希（「Contract 2024-001」与「…-002」、「Lot 1.1」与「Lot 11」不会被
+ * 并成一组）；清完是空的（例如全是中文）只用哈希。
+ */
+export function groupKeyOf(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  // 先去掉不可见的格式字符与末尾的标点（「Lot 1.」与「Lot 1」是同一组），哈希按小写、空白归一后的写法算
+  // （「CONTRACT 2024-001」与「Contract 2024-001」是同一组）
+  const norm = raw.normalize("NFKC").replace(/\p{Cf}/gu, "").trim().replace(/[.,;:。，；：]+$/u, "").trim();
+  if (!norm) return undefined;
+  const full = norm.toLowerCase().replace(/\s+/g, "-");
+  const stripped = full.replace(/[^a-z0-9_-]/g, "");
+  const hash = createHash("sha256").update(full).digest("hex").slice(0, 8);
+  if (!stripped) return `g${hash}`;
+  if (stripped === full && stripped.length <= 12) return stripped;
+  return `${stripped.slice(0, 12)}~${hash}`;
+}
 
-function done(handoff: ResearchHandoffV1): AdapterResult {
+/** 可比度的项目一侧：采购方、数量、参照年（截标年份，没有就今年）、规格关键词（项目名与类别，最多 5 个） */
+export function comparabilityContextOf(p: ResearchProjectRow, req: RequirementFactsRow | null, nowMs: number): ComparabilityContext {
   return {
-    ok: true,
-    data: {
-      researchSummary: {
-        branchKey: handoff.branchKey,
-        status: handoff.status,
-        statusZh: handoff.statusZh,
-        foundCount: handoff.found.length,
-        usage: handoff.usage,
-      },
-      researchHandoff: handoff,
-    },
+    buyer: p.clientOrganization && p.clientOrganization.trim() ? p.clientOrganization.trim() : null,
+    quantity: projectQuantityDec(req?.quantity ?? null),
+    refYear: p.closeDate ? p.closeDate.getUTCFullYear() : new Date(nowMs).getUTCFullYear(),
+    specTokens: specTokens([p.name, p.category], PROJECT_SPEC_TOKENS_MAX),
   };
-}
-
-function yieldSlice(branchKey: string, ticks: number): AdapterResult {
-  return { ok: true, continuation: { reason: "TIME_BUDGET_YIELD", phase: `branch:${branchKey}`, ticks } };
 }
 
 /* ───────────────────────────── 入口 ───────────────────────────── */
@@ -148,7 +194,7 @@ export async function runResearchBranch(ctx: AdapterContext, deps: BranchRunDeps
   const jc = checkResearchJob(job, ctx.orgId);
   if (!jc.ok) return { ok: false, error: jc.error };
 
-  if (def.notWired) return done(staticHandoff(def, "unavailable", TEXT_ZH.clausesNotWired));
+  if (def.notWired) return done(staticHandoff(def, "unavailable", TEXT_ZH.notWired));
 
   // 第二波：按分叉规则决定跑不跑
   let alreadyCovered: string[] = [];
@@ -197,6 +243,41 @@ export async function runResearchBranch(ctx: AdapterContext, deps: BranchRunDeps
   }
 
   const limits = effectiveBranchLimits(def.scale, settings);
+  const state = restoreCursorState(rows, def.stepId);
+
+  // ① 条款：条款员（不联网，至多一次模型请求）
+  if (def.kind === "clauses") {
+    const rec = cursorRecorder({ ctx, def, store, fence, initiatedByUserId: jc.initiatedByUserId, state, now: ext.now });
+    const budgetDeadline = ctx.executionBudget?.deadlineAt;
+    try {
+      return await runClausesBranch({
+        ctx,
+        def,
+        ext,
+        store,
+        projectId: jc.projectId,
+        initiatedByUserId: jc.initiatedByUserId,
+        limits,
+        state,
+        record: rec,
+        sliceDeadline:
+          typeof budgetDeadline === "number" && Number.isFinite(budgetDeadline) ? budgetDeadline : ext.now() + RESEARCH_TREE_TIMING.DEFAULT_SLICE_MS,
+      });
+    } catch (err) {
+      if (err instanceof LostLeaseError) throw err;
+      const h = staticHandoff(def, "unavailable", err instanceof StopBranch ? err.unavailableZh : TEXT_ZH.internalError);
+      return done({ ...h, usage: { ...h.usage, modelCalls: state.modelCalls } });
+    }
+  }
+
+  // 授标支：数量与合同期（读不出就当没有，不挡这一支）
+  let req: RequirementFactsRow = { quantity: null, contractDays: null };
+  try {
+    req = await store.loadRequirementFacts(jc.projectId);
+  } catch {
+    // 照常查，只是可比度的「数量相近」为不明
+  }
+
   const loop = new BranchLoop({
     ctx,
     def,
@@ -208,14 +289,15 @@ export async function runResearchBranch(ctx: AdapterContext, deps: BranchRunDeps
     initiatedByUserId: jc.initiatedByUserId,
     alreadyCovered,
     reasonZh,
-    state: restoreCursorState(rows, def.stepId),
+    req,
+    state,
     treeReads: treeReadIndex(rows, def.stepId),
     historyOverflow: rows.length > RESEARCH_TREE_LIMITS.CURSOR_MAX_ROWS,
   });
   return loop.run();
 }
 
-/** 第二波的「已经查过的」：上游收下的事实（类型与值）与读过的网址 */
+/** 第二波的「已经查过的」：上游收下的事实（类型与值）、记录的网址与读过的网址 */
 function coveredFrom(handoffs: ReadonlyArray<ResearchHandoffV1 | null>): string[] {
   const out: string[] = [];
   const urls = new Set<string>();
@@ -224,9 +306,51 @@ function coveredFrom(handoffs: ReadonlyArray<ResearchHandoffV1 | null>): string[
       out.push(`${f.factType}：${f.value}`);
       urls.add(f.url);
     }
+    for (const r of recordsOf(h)) if (r.source === "web") urls.add(r.url);
   }
   for (const u of urls) out.push(`读过：${u}`);
   return out.slice(0, 40);
+}
+
+/* ───────────────────────────── 游标 ───────────────────────────── */
+
+class StopBranch extends Error {
+  constructor(readonly unavailableZh: string) {
+    super(unavailableZh);
+  }
+}
+
+/** 先写后发：每条游标都经租约防栅栏写入（栅栏同时断言租约还在）；写不进去就停（租约丢了原样抛出） */
+function cursorRecorder(i: {
+  ctx: AdapterContext;
+  def: BranchDef;
+  store: ResearchStore;
+  fence: RunFence;
+  initiatedByUserId: string;
+  state: BranchCursorState;
+  now: () => number;
+}): (kind: CursorKind, data: Record<string, unknown>) => Promise<void> {
+  return async (kind, data) => {
+    const seq = i.state.nextSeq++;
+    const at = i.now();
+    if (i.state.firstAt === null) i.state.firstAt = at;
+    try {
+      await i.fence.guard((client) =>
+        i.store.writeCursorRow(client, {
+          orgId: i.ctx.orgId,
+          userId: i.initiatedByUserId,
+          jobId: i.ctx.runId,
+          branchKey: i.def.stepId,
+          seq,
+          kind,
+          data: { ...data, at },
+        }),
+      );
+    } catch (err) {
+      if (err instanceof LostLeaseError) throw err;
+      throw new StopBranch(TEXT_ZH.internalError);
+    }
+  };
 }
 
 /* ───────────────────────────── 循环 ───────────────────────────── */
@@ -242,6 +366,8 @@ type LoopInput = {
   initiatedByUserId: string;
   alreadyCovered: string[];
   reasonZh: string | null;
+  /** 招标要求里的数量与合同期（交给模型与可比度用） */
+  req: RequirementFactsRow;
   state: BranchCursorState;
   /** 这棵树里别的支请求过的网址（同一网址在一棵树内只读一次） */
   treeReads: Map<string, TreeReadEntry>;
@@ -252,12 +378,6 @@ type Latest = BranchPromptInput["latest"];
 
 /** 本片里刚读到、还没交给模型提取的页 */
 type FreshPage = { url: string; requestedUrl: string; text: string; fetchedAt: string; truncated: boolean; factsAllowed: boolean };
-
-class StopBranch extends Error {
-  constructor(readonly unavailableZh: string) {
-    super(unavailableZh);
-  }
-}
 
 /** 主机名去掉开头的 www.：用来判断跳转有没有换站 */
 function siteHostOf(u: string): string {
@@ -283,6 +403,12 @@ class BranchLoop {
   private limitHit: boolean;
   private unavailableZh: string | null = null;
   private stopped = false;
+  private readonly cmp: ComparabilityContext;
+  /** 往期同标：联邦数据要查的检索词（其它支为空） */
+  private readonly openDataPlan: OpenDataPlanEntry[];
+  /** 往期同标：联邦数据为什么没查（没开通 / 没有检索词 / 被闸拦下）；查了为 null */
+  private readonly openDataNote: string | null;
+  private readonly recordCursor: (kind: CursorKind, data: Record<string, unknown>) => Promise<void>;
 
   constructor(private readonly i: LoopInput) {
     this.sliceStarted = i.ext.now();
@@ -294,6 +420,33 @@ class BranchLoop {
     this.internalNumbers = internalNumberTokens([i.project.estimatedValue, i.project.ourBidPrice, i.project.winningBidPrice]);
     this.searchConfigured = isExternalIntelEnabled(i.ext.env as NodeJS.ProcessEnv) && hasWebSearchKey(i.ext.env as NodeJS.ProcessEnv);
     this.limitHit = i.state.limitHit;
+    this.cmp = comparabilityContextOf(i.project, i.req, this.sliceStarted);
+    this.recordCursor = cursorRecorder({
+      ctx: i.ctx,
+      def: i.def,
+      store: i.store,
+      fence: i.fence,
+      initiatedByUserId: i.initiatedByUserId,
+      state: i.state,
+      now: i.ext.now,
+    });
+    if (i.def.kind === "prior_awards") {
+      if (!isExternalIntelEnabled(i.ext.env as NodeJS.ProcessEnv)) {
+        this.openDataPlan = [];
+        this.openDataNote = TEXT_ZH.openDataOff;
+      } else {
+        this.openDataPlan = openDataPlanFor(i.project, this.internalNumbers);
+        this.openDataNote =
+          this.openDataPlan.length === 0 ? TEXT_ZH.openDataNoQuery : this.openDataPlan.every((e) => e.blocked) ? TEXT_ZH.openDataBlocked : null;
+      }
+    } else {
+      this.openDataPlan = [];
+      this.openDataNote = null;
+    }
+    // 联邦数据的行在模型第一次交回可用的决定之前一直交给模型（续跑、请求失败、撞到截止都不丢）
+    if (i.state.openDataLines.length > 0) {
+      this.latest = { kind: "open_data", lines: i.state.openDataLines, recorded: i.state.openDataRecords.length };
+    }
     if (i.state.unextractedPage) {
       this.latest = {
         kind: "note",
@@ -334,27 +487,67 @@ class BranchLoop {
     return !this.readerUnavailable && !this.readsSpent() && this.unreadUrls().length > 0;
   }
 
-  /** 先写后发：每条游标都经租约防栅栏写入（栅栏同时断言租约还在）；写不进去就停（租约丢了原样抛出） */
-  private async record(kind: CursorKind, data: Record<string, unknown>): Promise<void> {
-    const seq = this.st.nextSeq++;
-    const at = this.i.ext.now();
-    if (this.st.firstAt === null) this.st.firstAt = at;
-    try {
-      await this.i.fence.guard((client) =>
-        this.i.store.writeCursorRow(client, {
-          orgId: this.i.ctx.orgId,
-          userId: this.i.initiatedByUserId,
-          jobId: this.i.ctx.runId,
-          branchKey: this.i.def.stepId,
-          seq,
-          kind,
-          data: { ...data, at },
-        }),
-      );
-    } catch (err) {
-      if (err instanceof LostLeaseError) throw err;
-      throw new StopBranch(TEXT_ZH.internalError);
+  private record(kind: CursorKind, data: Record<string, unknown>): Promise<void> {
+    return this.recordCursor(kind, data);
+  }
+
+  /** 往期同标：还没查的联邦数据检索词（第一轮模型请求之前；已经请求过模型就不再查；按序号与检索词文字都比） */
+  private nextOpenData(): OpenDataPlanEntry | null {
+    if (this.st.modelCalls > 0) return null;
+    for (const e of this.openDataPlan) {
+      if (e.blocked || this.st.openDataSent.has(e.index) || this.st.openDataSentQueries.has(e.query)) continue;
+      return e;
     }
+    return null;
+  }
+
+  /** 联邦数据查一次，最多等到「数据接口超时」与「这一片剩余时间 − 余量」中较早的那个；出错或超时都当作没查成 */
+  private async queryOpenData(query: string): Promise<{ ok: boolean; rows: OpenDataRow[]; note: string | null }> {
+    const timeoutMs = Math.max(1_000, Math.min(RESEARCH_TREE_TIMING.OPEN_DATA_TIMEOUT_MS, this.remainingMs() - RESEARCH_TREE_TIMING.CALL_MARGIN_MS));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.i.ext.openData(query, this.i.ext.env, { timeoutMs }),
+        new Promise<{ ok: boolean; rows: OpenDataRow[]; note: string | null }>((resolve) => {
+          timer = setTimeout(() => resolve({ ok: false, rows: [], note: "查询超时" }), timeoutMs);
+        }),
+      ]);
+    } catch {
+      return { ok: false, rows: [], note: "查询出错" };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** 查一次联邦合同公开数据：先记游标、算一次搜索；同一采购方、规格对得上的行转成记录（全支最多 5 条）；全部行交给模型看 */
+  private async doOpenData(e: OpenDataPlanEntry): Promise<void> {
+    await this.record("search_sent", { query: e.query, source: "open_data", openDataIndex: e.index });
+    this.st.searches += 1;
+    this.st.openDataSent.add(e.index);
+    this.st.openDataSentQueries.add(e.query);
+    this.st.history.push(`查联邦合同公开数据「${e.query.slice(0, 120)}」`);
+    const r = await this.queryOpenData(e.query);
+    const fetchedAt = new Date(this.i.ext.now()).toISOString();
+    const before = new Set(this.st.openDataRecords.map((x) => x.recordId));
+    const room = Math.max(0, RESEARCH_TREE_LIMITS.OPEN_DATA_RECORDS - this.st.openDataRecords.length);
+    const recs = r.ok ? openDataRecords(r.rows, this.cmp, fetchedAt).filter((x) => !before.has(x.recordId)).slice(0, room) : [];
+    const merged = mergeOpenDataLines(this.st.openDataLines, r.ok ? openDataLinesOf(r.rows) : []);
+    await this.record("open_data_result", {
+      ok: r.ok,
+      rows: r.ok ? r.rows.length : 0,
+      records: recs,
+      // 合并后的行（续跑时整份恢复给模型；每行不超过 200 字，最多 10 行）
+      lines: merged,
+      ...(r.ok ? {} : { messageZh: String(r.note ?? "查询失败").slice(0, 120) }),
+    });
+    this.st.openDataRecords.push(...recs);
+    this.st.openDataLines = merged;
+    if (r.ok) this.st.openDataSuccesses += 1;
+    else this.st.openDataFailures += 1;
+    this.st.history.push(
+      r.ok ? `  → 联邦数据 ${r.rows.length} 行（同一采购方、规格对得上的 ${recs.length} 行记为记录）` : `  → 联邦数据没查成：${String(r.note ?? "").slice(0, 80)}`,
+    );
+    this.latest = { kind: "open_data", lines: merged, recorded: this.st.openDataRecords.length };
   }
 
   async run(): Promise<AdapterResult> {
@@ -365,6 +558,20 @@ class BranchLoop {
         return await this.finish();
       }
       for (;;) {
+        // 往期同标：第一轮模型请求之前先查联邦合同公开数据（每次算一次搜索）
+        const od = this.nextOpenData();
+        if (od) {
+          if (this.st.searches >= this.i.limits.searches) {
+            // 搜索次数用完：这个检索词不查，记一行（续跑时同样跳过，到上限也照样成立）
+            await this.record("blocked_query", { target: "search", budget: true, openDataIndex: od.index, messageZh: TEXT_ZH.openDataBudget });
+            this.limitHit = true;
+            this.st.openDataSent.add(od.index);
+            continue;
+          }
+          if (this.remainingMs() < RESEARCH_TREE_TIMING.MIN_TURN_MS) return yieldSlice(this.i.def.stepId, this.ticks);
+          await this.doOpenData(od);
+          continue;
+        }
         // 上一片留下的、还没执行的决定先执行（不为同一个决定再请求一次模型）
         if (this.st.pending) {
           const p = this.st.pending;
@@ -430,8 +637,14 @@ class BranchLoop {
     if (!res.ok) {
       await this.record("decision", { turn, ok: false, errorCode: res.errorCode });
       this.st.history.push(`（第 ${turn} 次模型请求没有交回可用的结果）`);
-      // 刚读到的页留着，下一轮还能提取（同一片里）；没有页时提示重新给出下一步
-      if (!page) this.latest = { kind: "note", text: "上一次请求没有交回可用的结果，请重新给出下一步。" };
+      // 刚读到的页留着，下一轮还能提取（同一片里）；没有页时提示重新给出下一步（联邦数据的行还没看过就一并留着）
+      if (!page) {
+        const retry = "上一次请求没有交回可用的结果，请重新给出下一步。";
+        this.latest =
+          this.st.openDataLines.length > 0
+            ? { kind: "open_data", lines: this.st.openDataLines, recorded: this.st.openDataRecords.length, note: retry }
+            : { kind: "note", text: retry };
+      }
       // 撞到这一片的截止：不算模型失败，下一片接着做
       if (res.errorCode === TENDER_CALL_DEADLINE_CODE) return "yield";
       this.st.consecutiveModelFailures += 1;
@@ -439,14 +652,15 @@ class BranchLoop {
     }
     this.page = null;
     this.st.consecutiveModelFailures = 0;
+    // 模型交回了可用的决定：联邦数据的行已经看过了
+    this.st.openDataLines = [];
     const v = res.value;
 
     // 事实：只认刚读到的那一页
     const accepted: FoundFact[] = [];
     let rejected = 0;
     const room = RESEARCH_TREE_LIMITS.MAX_FACTS_PER_BRANCH - this.st.facts.length;
-    const keyOf = (f: { url: string; factType: string; value: string }) => `${f.url}\u0000${f.factType}\u0000${f.value.trim().toLowerCase()}`;
-    const known = new Set(this.st.facts.map(keyOf));
+    const known = new Set(this.st.facts.map(factKey));
     for (const c of v.facts.slice(0, RESEARCH_TREE_LIMITS.MAX_FACTS_PER_TURN)) {
       if (!page || !page.factsAllowed) {
         rejected += 1;
@@ -457,13 +671,16 @@ class BranchLoop {
         rejected += 1;
         continue;
       }
+      // 组名归一成组键（「Lot 1」→「lot-1」；清完是空的用原文的哈希），不同的组名不会被并成一组
+      const group = groupKeyOf(c.group);
+      const candidate = { url: page.url, factType: chk.factType, value: chk.value, group };
       // 先去重（重复的不占名额、也不算丢弃），再按名额截
-      if (known.has(keyOf({ url: page.url, factType: chk.factType, value: chk.value }))) continue;
+      if (known.has(factKey(candidate))) continue;
       if (accepted.length >= room) {
         rejected += 1;
         continue;
       }
-      known.add(keyOf({ url: page.url, factType: chk.factType, value: chk.value }));
+      known.add(factKey(candidate));
       accepted.push({
         factType: chk.factType,
         value: chk.value,
@@ -472,6 +689,7 @@ class BranchLoop {
         excerpt: chk.excerpt,
         fetchedAt: page.fetchedAt,
         source: "web",
+        ...(group ? { group } : {}),
       });
     }
     rejected += Math.max(0, v.facts.length - RESEARCH_TREE_LIMITS.MAX_FACTS_PER_TURN);
@@ -688,7 +906,7 @@ class BranchLoop {
     const searchNote = !this.searchAvailable() ? "搜索现在不可用" : this.st.searches >= this.i.limits.searches ? "搜索额度已用完" : null;
     return {
       def: this.i.def,
-      project: publicProjectFacts(this.i.project),
+      project: publicProjectFacts(this.i.project, this.i.req),
       remaining: {
         searches: this.canSearch() ? this.i.limits.searches - this.st.searches : 0,
         reads: this.st.readsClosed || this.readerUnavailable ? 0 : remainingReads,
@@ -705,8 +923,13 @@ class BranchLoop {
 
   private buildHandoff(): ResearchHandoffV1 {
     const facts = dedupeFacts(this.st.facts);
-    const { status, notFound } = branchOutcome({
-      foundCount: facts.length,
+    const kind = this.i.def.kind === "prior_awards" ? "prior_award" : "comparable_award";
+    const records = mergeRecords(
+      this.st.openDataRecords.map((r) => refreshComparability(r, this.cmp)),
+      assembleRecords(facts, kind, this.cmp),
+    );
+    const outcome = branchOutcome({
+      foundCount: records.length,
       limitHit: this.limitHit,
       anyBlocked: this.st.blockedSites.size > 0,
       unavailableZh: this.unavailableZh,
@@ -714,6 +937,15 @@ class BranchLoop {
       searchSuccesses: this.st.searchSuccesses,
       stopped: this.stopped,
     });
+    const { status } = outcome;
+    // 只收下了零散的事实、凑不成一条授标：「没查到」换成写明这一点的句子
+    const notFound =
+      records.length === 0 && facts.length > 0
+        ? outcome.notFound.map((n) => (n.reason === "none" ? { reason: n.reason, messageZh: TEXT_ZH.noneScattered } : n))
+        : outcome.notFound;
+    const openDataZh =
+      this.openDataNote ?? (this.st.openDataFailures > 0 && this.st.openDataSuccesses === 0 ? TEXT_ZH.openDataFailed : null);
+    const reasonZh = [this.i.reasonZh, openDataZh].filter((x): x is string => Boolean(x)).join("；") || null;
     const since = this.st.firstAt ?? this.sliceStarted;
     return {
       version: RESEARCH_HANDOFF_VERSION,
@@ -721,9 +953,11 @@ class BranchLoop {
       kind: this.i.def.kind,
       labelZh: this.i.def.labelZh,
       status,
-      statusZh: statusLineZh(status, facts.length),
-      reasonZh: this.i.reasonZh,
+      statusZh: statusLineZh(status, records.length, this.i.def.kind),
+      reasonZh,
       found: facts,
+      records,
+      clauses: null,
       notFound,
       suggestedBranches: this.st.suggestions.slice(0, RESEARCH_TREE_LIMITS.MAX_UNCHASED_LEADS),
       usage: {

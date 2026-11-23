@@ -1,5 +1,6 @@
 /**
- * 分支循环交给模型的提示与模型交回的格式（TREE-2 的通用版本；TREE-3 换成三个子代理各自的做法）。
+ * 授标支（往期同标员、同类项目员）的分支循环交给模型的提示与模型交回的格式（TREE-3：事实分组、币种与口径、
+ * 数量与合同期、联邦合同公开数据块）。条款员的提示在 clauses.ts。
  *
  * 网页正文、搜索标题与摘要一律放进 <untrusted> 块，作为不可信资料交给模型；系统提示写死，不拼任何外来文字。
  * 模型只能选三种动作（搜索 / 读页 / 结束），交回的东西只经结构校验后由代码解释。
@@ -10,11 +11,18 @@ import type { BranchDef } from "./fork-rules";
 import { RESEARCH_TREE_LIMITS } from "./limits";
 
 export const RESEARCH_BRANCH_PROMPT_NAME = "research-branch" as const;
-export const RESEARCH_BRANCH_PROMPT_VERSION = "research-branch/v1" as const;
+export const RESEARCH_BRANCH_PROMPT_VERSION = "research-branch/v2" as const;
 
 export const BranchDecisionSchema = z.object({
   facts: z
-    .array(z.object({ factType: z.string().max(60), value: z.string().max(1000), excerpt: z.string().max(1000) }))
+    .array(
+      z.object({
+        factType: z.string().max(60),
+        value: z.string().max(1000),
+        excerpt: z.string().max(1000),
+        group: z.string().max(40).optional(),
+      }),
+    )
     .max(10)
     .default([]),
   next: z.discriminatedUnion("action", [
@@ -38,6 +46,25 @@ export type PublicProjectFacts = {
   location: string | null;
   category: string | null;
   closeYear: number | null;
+  /** 招标要求里的数量（只给一个数）与合同期（天数）；没有为 null */
+  quantity: string | null;
+  contractDays: number | null;
+  /** 规格关键词（代码从项目名与类别取，最多 5 个） */
+  specKeywords: string[];
+};
+
+/** 每种事实类型给模型的说明 */
+const FACT_TYPE_HELP: Record<string, string> = {
+  prior_tender: "prior_tender：上一期那次采购的标题或编号",
+  winner: "winner：中标方（公司名照原文）",
+  buyer: "buyer：采购方",
+  item: "item：采购的品项 / 规格（照原文的一句）",
+  award_amount: "award_amount：合同额（照原文，带币种符号也可以；不要换算）",
+  quantity: "quantity：数量",
+  award_year: "award_year：授标或合同年份",
+  currency: 'currency：币种，value 只写 "CAD" 或 "USD"，excerpt 要写明这个币种（如 CAD、US$、Canadian dollars）',
+  scope_basis:
+    'scope_basis：合同额的口径，value 只写 "installation"（含安装）/ "freight"（含运费）/ "multi_year"（多年期）/ "multi_item"（多品项）之一，excerpt 要是写到这一点的那句话；一笔授标可以交几条',
 };
 
 const UNTRUSTED_NOTE =
@@ -68,10 +95,12 @@ export function buildBranchSystemPrompt(def: BranchDef): string {
     '- {"action":"finish"}：查够了，或者查不下去了。',
     "",
     "如果上一轮读到了一页正文，可以在 facts 里交回这一页上的事实（最多 5 条），每条：",
-    `factType 取 ${def.factTypes.map((t) => `"${t}"`).join(" / ") || "（本支不收事实）"}；`,
-    "value 写事实的值（照原文，不要换算、不要估算）；",
-    "excerpt 写正文里原样的一段话（不超过 200 字，必须一字不差地出现在正文里，值里的每个数字都要出现在这段话里）。",
-    "对不上原文的事实会被丢掉。没有把握的不要交。",
+    "factType 取下面之一：",
+    ...def.factTypes.map((t) => `  - ${FACT_TYPE_HELP[t] ?? t}`),
+    "value 写事实的值（照原文，不要换算、不要估算、不要自己算单价）；",
+    "excerpt 写正文里原样的一段话（不超过 200 字，必须一字不差地出现在正文里，值里的每个数字都要出现在这段话里）；",
+    'group 写组名（如 "a1"、"a2"）：同一页上属于同一笔授标的事实写同一个组名，不同的授标写不同的组名。',
+    "对不上原文的事实会被丢掉。没有把握的不要交。单价由系统用合同额 ÷ 数量算，你不用算。",
     "如果你认为还有值得另查的方向，可以在 suggestedBranches 里写（kind 用小写英文与下划线，如 reverse_winner；reason 一句中文）；它们只会被记下，不会自动去查。",
     "",
     "被挡了（登录页、人机验证、拒绝访问）就换别的来源，同一个站不要再读。",
@@ -95,10 +124,11 @@ export type BranchPromptInput = {
   alreadyCovered: string[];
   /** 可读网址（本支搜索结果里还没读过的；标题是外来文字） */
   readable: Array<{ url: string; title: string }>;
-  /** 本轮结果：搜索命中、页面正文或代码写的说明（都可能含外来文字） */
+  /** 本轮结果：搜索命中、页面正文、联邦数据的行或代码写的说明（都可能含外来文字） */
   latest:
     | { kind: "search"; query: string; hits: Array<{ url: string; title: string; snippet: string }> }
     | { kind: "page"; url: string; text: string; truncated: boolean }
+    | { kind: "open_data"; lines: string[]; recorded: number; note?: string }
     | { kind: "note"; text: string }
     | null;
 };
@@ -119,6 +149,9 @@ export function buildBranchUserPrompt(input: BranchPromptInput): string {
     line("地点", p.location),
     line("类别", p.category),
     line("截标年份", p.closeYear),
+    line("数量", p.quantity),
+    line("合同期（天）", p.contractDays),
+    line("规格关键词", p.specKeywords.join(", ")),
     "",
     "【剩余额度】",
     `搜索 ${input.remaining.searches} 次${input.searchNote ? `（${input.searchNote}）` : ""}；读页 ${input.remaining.reads} 次；模型请求 ${input.remaining.modelCalls} 次（含本次）`,
@@ -146,6 +179,14 @@ export function buildBranchUserPrompt(input: BranchPromptInput): string {
   } else {
     parts.push("<untrusted>");
     if (l.kind === "note") parts.push(U(l.text, 600));
+    else if (l.kind === "open_data") {
+      parts.push(
+        `联邦合同公开数据（open.canada.ca）查到的行（其中 ${l.recorded} 行采购方与本项目相同，系统已记为记录，不用再交事实；可以搜它们的授标公告补数量）：`,
+      );
+      if (l.lines.length === 0) parts.push("（没有结果）");
+      else parts.push(...l.lines.map((x, i) => `${i + 1}. ${U(x, 220)}`));
+      if (l.note) parts.push(U(l.note, 200));
+    }
     else if (l.kind === "search") {
       parts.push(`搜索「${U(l.query, RESEARCH_TREE_LIMITS.MAX_QUERY_CHARS)}」的结果：`);
       if (l.hits.length === 0) parts.push("（没有结果）");
