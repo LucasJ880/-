@@ -247,12 +247,13 @@ export async function snapshotQuote(quoteId: string, projectId: string): Promise
   return computed;
 }
 
-/** 状态机：draft→review→approved→(superseded|awarded)；cancelled；不可覆盖历史 approved */
-export async function transitionQuote(input: { quoteId: string; projectId: string; userId: string; orgId: string; to: QuoteStatus; note?: string | null; deps?: { bidSync?: typeof import("./tender-bid").syncTenderBidPointerTx } }): Promise<QuoteRecord> {
-  const q = await getQuote(input.quoteId, input.projectId);
-  const from = q.status as QuoteStatus;
-  const allowed = QUOTE_TRANSITIONS[from] ?? [];
-  if (!allowed.includes(input.to)) throw new QuoteEngineError("INVALID_TRANSITION", `不允许 ${from} → ${input.to}`, 409);
+/**
+ * 迁移前检查（`transitionQuote` 与 BIDPAGE-6 一次定价共用）：迁移合法；送审 / 批准时计算有效、
+ * 没有已纳入但未定价的行、长期供货协议分级无错。`from` 由调用方给（一次定价连走两步时第二步从 review 出发）。
+ */
+export function assertQuoteTransitionAllowed(q: QuoteRecord, input: { from: QuoteStatus; to: QuoteStatus }): void {
+  const allowed = QUOTE_TRANSITIONS[input.from] ?? [];
+  if (!allowed.includes(input.to)) throw new QuoteEngineError("INVALID_TRANSITION", `不允许 ${input.from} → ${input.to}`, 409);
   if (input.to === "review" || input.to === "approved") {
     const computed = computeForQuote(q);
     if (!computed.calc.ok) throw new QuoteEngineError("QUOTE_INVALID", "报价存在校验错误，不能提交/批准", 409, computed.calc.errors);
@@ -261,34 +262,57 @@ export async function transitionQuote(input: { quoteId: string; projectId: strin
     if (unpriced.length > 0) throw new QuoteEngineError("QUOTE_UNPRICED_LINES", `存在 ${unpriced.length} 行已纳入但未定价的成本行（按 0 计将低估报价），请填值或取消纳入后再提交`, 409, unpriced);
     if (computed.standingOffer && computed.standingOffer.errors.some((e) => e.code !== "TIER_GAP")) throw new QuoteEngineError("QUOTE_INVALID", "Standing Offer 分级/单位经济存在错误", 409, computed.standingOffer.errors);
   }
-  const now = new Date();
+}
+
+/**
+ * 一步状态迁移的库写（**必须在调用方事务内**；`transitionQuote` 与 BIDPAGE-6 一次定价共用）：
+ * 先读迁移前 updatedAt（B3：确定性 eventKey 的先前状态基准，重试稳定）→ 更新状态与时间戳 → 台账权威事件（B3：append 失败 → 调用方事务整体回滚）。
+ */
+export async function applyQuoteTransitionTx(
+  tx: Prisma.TransactionClient,
+  input: { q: QuoteRecord; from: QuoteStatus; to: QuoteStatus; now: Date; userId: string; orgId: string; projectId: string },
+): Promise<void> {
+  const { q, from, now } = input;
   const data: Prisma.ProjectQuoteUpdateInput = { status: input.to };
   if (input.to === "review") data.submittedAt = now;
   if (input.to === "approved") { data.approvedAt = now; data.approvedById = input.userId; }
   if (input.to === "superseded") data.supersededAt = now;
   if (input.to === "awarded") data.awardedAt = now;
   if (input.to === "cancelled") data.cancelledAt = now;
+  const prev = await tx.projectQuote.findUniqueOrThrow({ where: { id: q.id }, select: { updatedAt: true } });
+  await tx.projectQuote.update({ where: { id: q.id }, data });
+  await appendQuoteLedgerEventTx(tx, {
+    orgId: input.orgId,
+    projectId: input.projectId,
+    userId: input.userId,
+    quoteId: q.id,
+    to: input.to,
+    prevUpdatedAtIso: prev.updatedAt.toISOString(),
+    occurredAt: now,
+    title: `报价 v${q.version} ${input.to}`,
+    payload: { status: input.to, from, version: q.version, sellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null },
+  });
+}
+
+/** 迁移审计的 action（review → draft 退回没有专门的 action，记作 quote_updated） */
+export function transitionAuditAction(to: QuoteStatus): string {
+  return to === "review" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUBMITTED_FOR_REVIEW : to === "approved" ? QUOTE_AUDIT_ACTIONS.QUOTE_APPROVED : to === "superseded" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUPERSEDED : to === "awarded" ? QUOTE_AUDIT_ACTIONS.QUOTE_AWARDED : to === "cancelled" ? QUOTE_AUDIT_ACTIONS.QUOTE_CANCELLED : QUOTE_AUDIT_ACTIONS.QUOTE_UPDATED;
+}
+
+/** 状态机：draft→review→approved→(superseded|awarded)；cancelled；不可覆盖历史 approved */
+export async function transitionQuote(input: { quoteId: string; projectId: string; userId: string; orgId: string; to: QuoteStatus; note?: string | null; deps?: { bidSync?: typeof import("./tender-bid").syncTenderBidPointerTx } }): Promise<QuoteRecord> {
+  const q = await getQuote(input.quoteId, input.projectId);
+  const from = q.status as QuoteStatus;
+  assertQuoteTransitionAllowed(q, { from, to: input.to });
+  const now = new Date();
   // B2：状态迁移 + Tender 我方报价指针/镜像同步在**同一事务**；同步失败 → 迁移回滚 + 审计 + 显式错误（绝不 swallow）
   const tb = await import("./tender-bid");
   const needsSync = input.to === "approved" || input.to === "superseded" || input.to === "awarded" || input.to === "cancelled";
   let syncResult: import("./tender-bid").SyncResult | null = null;
   try {
     syncResult = await db.$transaction(async (tx) => {
-      // B3：先读迁移前 updatedAt（确定性 eventKey 的先前状态基准，重试稳定）
-      const prev = await tx.projectQuote.findUniqueOrThrow({ where: { id: q.id }, select: { updatedAt: true } });
-      await tx.projectQuote.update({ where: { id: q.id }, data });
-      // B3：台账权威事件与状态迁移同一事务；append 失败 → 迁移整体回滚（冻结契约）
-      await appendQuoteLedgerEventTx(tx, {
-        orgId: input.orgId,
-        projectId: input.projectId,
-        userId: input.userId,
-        quoteId: q.id,
-        to: input.to,
-        prevUpdatedAtIso: prev.updatedAt.toISOString(),
-        occurredAt: now,
-        title: `报价 v${q.version} ${input.to}`,
-        payload: { status: input.to, from, version: q.version, sellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null },
-      });
+      // B3：迁移前 updatedAt → 状态更新 → 台账权威事件，同一事务（applyQuoteTransitionTx）
+      await applyQuoteTransitionTx(tx, { q, from, to: input.to, now, userId: input.userId, orgId: input.orgId, projectId: input.projectId });
       if (!needsSync) return null;
       return (input.deps?.bidSync ?? tb.syncTenderBidPointerTx)(tx, { projectId: input.projectId, orgId: input.orgId, userId: input.userId });
     });
@@ -300,8 +324,7 @@ export async function transitionQuote(input: { quoteId: string; projectId: strin
     throw e;
   }
   if (syncResult) await tb.auditSyncResult({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: `transition:${input.to}`, result: syncResult });
-  const action = input.to === "review" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUBMITTED_FOR_REVIEW : input.to === "approved" ? QUOTE_AUDIT_ACTIONS.QUOTE_APPROVED : input.to === "superseded" ? QUOTE_AUDIT_ACTIONS.QUOTE_SUPERSEDED : input.to === "awarded" ? QUOTE_AUDIT_ACTIONS.QUOTE_AWARDED : input.to === "cancelled" ? QUOTE_AUDIT_ACTIONS.QUOTE_CANCELLED : QUOTE_AUDIT_ACTIONS.QUOTE_UPDATED;
-  await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, beforeData: { status: from }, afterData: { status: input.to, note: input.note ?? null, version: q.version } }).catch(() => undefined);
+  await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: transitionAuditAction(input.to), targetType: QUOTE_AUDIT_TARGET, targetId: q.id, beforeData: { status: from }, afterData: { status: input.to, note: input.note ?? null, version: q.version } }).catch(() => undefined);
   return getQuote(q.id, input.projectId);
 }
 

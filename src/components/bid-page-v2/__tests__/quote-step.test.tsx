@@ -185,7 +185,7 @@ console.log("\n━━━ 4. 容器与源码 ━━━");
   ok((src.match(/supplierId: null, supplierName: null/g) ?? []).length >= 4, "改价、改币种、改口径、取消点选时，供应商名字和 id 一起清掉");
   ok(src.includes("QUOTE_STEP_TEXT.conflictHint") && QUOTE_STEP_TEXT.conflictHint.includes("修改还在框里"), "保存冲突：写明这次的修改还在框里、怎么看最新内容");
   const page = read("src/components/bid-page-v2/bid-page-v2.tsx");
-  ok(/<div id="bid-quote-area" className="scroll-mt-4">\s*<QuoteStep projectId=\{projectId\} \/>/.test(page), "② 里的报价区挂在 #bid-quote-area 里（项目页「下一步」卡照常跳得过来）");
+  ok(/<div id="bid-quote-area" className="scroll-mt-4">\s*<QuoteStep projectId=\{projectId\} onBidChanged=\{onRefresh\} \/>/.test(page), "② 里的报价区挂在 #bid-quote-area 里（项目页「下一步」卡照常跳得过来）");
 }
 
 console.log(`\n${pass} 通过，${fail} 失败`);

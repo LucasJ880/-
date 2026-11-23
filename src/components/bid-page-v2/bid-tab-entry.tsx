@@ -47,6 +47,6 @@ export function BidTabEntry(props: BidTabEntryProps) {
     return () => window.removeEventListener("focus", onFocus);
   }, [onV2, load]);
 
-  if (view) return <BidPageV2 {...props} view={view} />;
+  if (view) return <BidPageV2 {...props} view={view} onRefresh={() => void load()} />;
   return <BidTab {...props} />;
 }

@@ -25,6 +25,8 @@ import {
 } from "@/lib/bid-page-v2/quote-line/contract";
 import { LUMP_ITEM_SPEC, LUMP_MARKUP_NOTE_ZH, LUMP_NOTES_MAX, LUMP_OTHER_LABEL_MAX, addableKeys, emptyLumpItem, lumpFormulaLinesZh, type LumpItem, type LumpItemKey, type LumpState, type LumpView } from "@/lib/bid-page-v2/lump-sum/contract";
 import { CurrencySelect, InquiryPicker, InvalidContext, Note, NumInput, PresetRows, money, pct, useInvalidRegistry } from "./quote-ui";
+import { QuoteActionBar, type QuoteActionDone } from "./quote-actions";
+import { frozenNoteZh, type OurBidLine } from "@/lib/bid-page-v2/quote-confirm/contract";
 
 export const LUMP_TEXT = {
   title: "只报总价",
@@ -43,7 +45,6 @@ export const LUMP_TEXT = {
   pricing: "定价",
   othersHead: "这张表不管，按专业模式里的设置计算",
   othersTail: "标了金额的已算进上面的成本合计和税前报价",
-  submitInProMode: "提交、批准在专业模式里做",
   openInProMode: "用专业模式打开",
   toLine: "转成逐行报价",
   toLineConfirm: "转成逐行报价：货品明细变成逐行表的行；报关费、国内运费、按货值的关税变成逐行表的共用参数；海运费金额、安装等其余各项留在报价里（逐行表里列为「从只报总价转来的项」，照样计入）；销售税的比例留着，逐行表上不显示。合计不变，以后能再转回只报总价。确定？",
@@ -57,7 +58,7 @@ export const LUMP_TEXT = {
 
 export const LUMP_TOTAL_LABELS = ["成本合计", "税前报价", "销售税", "含税总价", "利润", "毛利率"] as const;
 
-const frozenZh = (status: string) => `这份报价「${QUOTE_STATUS_ZH[status] ?? status}」，内容锁定；要改请在专业模式里另起新版`;
+const frozenZh = (status: string) => frozenNoteZh(status);
 const newDetail = (): LineRow => ({ costLineId: null, description: "", quantity: 1, uom: "Each", packCount: null, basis: "PER_TENDER_UOM", unitPrice: null, currency: "CNY", evidenceKind: null, inquiryItemId: null, supplierId: null, supplierName: null, rowSource: "manual" });
 const itemLabel = (it: Pick<LumpItem, "key">, i: number) => (it.key === "other" ? `其它（第 ${i + 1} 项）` : LUMP_ITEM_SPEC[it.key].labelZh);
 
@@ -118,7 +119,7 @@ export function LumpTotals({ view, dirty }: { view: LumpView; dirty: boolean }) 
   );
 }
 
-export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined }: { projectId: string; view: LumpView; onSaved: (v: LumpView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void }) {
+export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined, ourBid = null, onAction = () => undefined }: { projectId: string; view: LumpView; onSaved: (v: LumpView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void; ourBid?: OurBidLine | null; onAction?: (done: QuoteActionDone) => void }) {
   const [state, setState] = useState<LumpState>(view.state);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -202,9 +203,6 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
           <div className="font-medium">
             {LUMP_TEXT.title} · {quoteDisplayName(view.quote)} · 第 {view.quote.version} 版 · {QUOTE_STATUS_ZH[view.quote.status] ?? view.quote.status}
           </div>
-          <a className="text-xs text-accent underline-offset-2 hover:underline" href={view.proModeHref}>
-            {LUMP_TEXT.submitInProMode}
-          </a>
           <div className="relative ml-auto">
             <button type="button" className="rounded border border-border px-2 py-1 text-xs" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}>
               更多
@@ -230,6 +228,17 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
           </button>
         </div>
 
+        <QuoteActionBar
+          projectId={projectId}
+          quote={view.quote}
+          capabilities={view.capabilities}
+          ourBid={ourBid}
+          label="税前报价"
+          sellingPrice={view.computed.ok ? view.computed.totals.sellingPrice : null}
+          dirty={dirty}
+          unpricedCount={view.computed.ok ? view.computed.warnings.filter((w) => w.code === "LINE_UNPRICED").length : 0}
+          onDone={onAction}
+        />
         {view.quote.frozen ? <Note>{frozenZh(view.quote.status)}</Note> : !view.capabilities.canEdit ? <Note>{LUMP_TEXT.readOnly}</Note> : null}
         {view.notices.map((n) => (
           <Note key={n} tone="warn">

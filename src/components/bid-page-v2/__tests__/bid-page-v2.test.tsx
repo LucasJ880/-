@@ -82,7 +82,7 @@ console.log("BIDPAGE-1 新页面与入口");
 
   const entrySrc = stripComments(read("src/components/bid-page-v2/bid-tab-entry.tsx"));
   ok(/\n  return <BidTab \{\.\.\.props\} \/>;\n\}/.test(entrySrc) && (entrySrc.match(/<BidTab\b/g) ?? []).length === 1, "入口的改版前分支原样渲染 <BidTab {...props} />：同一组件、同样的属性、不加包裹元素、不加 key（停在旧页面时不会重新挂载）");
-  ok((entrySrc.match(/<BidPageV2\b/g) ?? []).length === 1 && /if \(view\) return <BidPageV2 \{\.\.\.props\} view=\{view\} \/>;/.test(entrySrc), "只有拿到「已开启」的 view 才渲染新页面");
+  ok((entrySrc.match(/<BidPageV2\b/g) ?? []).length === 1 && /if \(view\) return <BidPageV2 \{\.\.\.props\} view=\{view\} onRefresh=\{\(\) => void load\(\)\} \/>;/.test(entrySrc), "只有拿到「已开启」的 view 才渲染新页面（BIDPAGE-6：带上刷新汇总的回调）");
   ok(/useState<BidPageView \| null>\(null\)/.test(entrySrc) && /setView\(\(prev\) => nextView\(prev, outcome\)\)/.test(entrySrc), "第一次渲染没有 view（= 改版前页面）；之后按 nextView 决定（见下一节）");
   const effectBody = entrySrc.slice(entrySrc.indexOf("const onV2 = view !== null;"), entrySrc.indexOf("if (view) return"));
   ok(/useEffect\(\(\) => \{\s*if \(!onV2\) return;\s*const onFocus/.test(effectBody), "改版前的页面上不挂「回到标签页刷新」的监听（只在新页面上挂）", effectBody);
@@ -176,7 +176,9 @@ async function entryFlow() {
   ok(!html.includes("国内供应商简报"), "新页面不显示国内供应商简报面板");
   const pageSrc = stripComments(read("src/components/bid-page-v2/bid-page-v2.tsx"));
   ok(!/china-supplier-brief|ChinaSupplierBriefPanel/.test(pageSrc), "新页面不引入国内供应商简报面板");
-  ok(["TenderSourcingEntry", "ProjectInquirySection", "ProjectSupplierLinks", "TenderOurBidCard", "QuoteStep", "ProjectQuoteSection", "ProjectGenerateMenu", "VersionHistoryDrawer"].every((c) => new RegExp(`<${c}\\b`).test(pageSrc)), "三个分区挂的组件（② 是 BIDPAGE-3 的报价区），版本历史用同一个抽屉");
+  ok(["TenderSourcingEntry", "ProjectInquirySection", "ProjectSupplierLinks", "QuoteStep", "ProjectQuoteSection", "ProjectGenerateMenu", "VersionHistoryDrawer"].every((c) => new RegExp(`<${c}\\b`).test(pageSrc)), "三个分区挂的组件（② 是 BIDPAGE-3 的报价区），版本历史用同一个抽屉");
+  // BIDPAGE-6：改版前的我方报价卡并入 ② 最上面的「我方报价」一行（在 QuoteStep 里）；改版前的页面与工作台照旧挂卡
+  ok(!/TenderOurBidCard/.test(pageSrc) && /<OurBidLineView\b/.test(stripComments(read("src/components/bid-page-v2/quote-step.tsx"))) && /<TenderOurBidCard\b/.test(read("src/components/project-detail/tabs/bid-tab.tsx")) && /<TenderOurBidCard\b/.test(read("src/components/project-detail/tabs/workbench-tab.tsx")), "新页面不挂改版前的我方报价卡，改成 ② 最上面的「我方报价」一行；改版前的页面与工作台照旧挂卡");
   ok(!/BidWorkspacePanel|BidQuoteArea|bid-workspace-panel|bid-quote-area"/.test(pageSrc.replace(/id="bid-quote-area"/g, "")), "新页面不挂投标工作区面板与改版前的报价区（BIDPAGE-3 design D10；旧页面照挂）");
 
   const toReq = decideBidPageNextStep(facts({ analysisStatus: "REVIEW_REQUIRED", inquiry: { askedCount: 0, respondedCount: 0, quotedCount: 0, repliedNoQuoteCount: 0, waitingCount: 0, waitingSince: null } }));
@@ -185,7 +187,7 @@ async function entryFlow() {
   const also = decideBidPageNextStep(facts({ analysisStatus: "REVIEW_REQUIRED" }));
   ok(render(<BidPageV2 projectId="p1" orgId="o1" canManage view={also} />).includes("另外：招标分析还没批准"), "已经往下走了、招标分析还没批准：横条顺带一句");
   const entryProps = stripComments(read("src/components/bid-page-v2/bid-page-v2.tsx"));
-  ok(/view: BidPageView \};/.test(entryProps), "新页面一定带着汇总结果渲染（没有「读取中」的新页面）");
+  ok(/\{ view: BidPageView; onRefresh\?: \(\) => void \};/.test(entryProps), "新页面一定带着汇总结果渲染（没有「读取中」的新页面）；刷新回调可选");
 }
 
 // —— 3b. 带金额的既有组件只给看得到金额的人挂（规格场景「看不到金额的人在新页面上看不到带金额的旧组件」） ——
@@ -214,9 +216,9 @@ async function entryFlow() {
   const qElse = pageSrc.indexOf(") : (", qStart);
   const qEnd = pageSrc.indexOf("documents:", qElse);
   const yes = pageSrc.slice(qStart, qElse), no = pageSrc.slice(qElse, qEnd);
-  ok(/<TenderOurBidCard\b/.test(yes) && /<QuoteStep\b/.test(yes) && /<ProjectQuoteSection\b/.test(yes), "② 看得到金额的一支：我方报价卡、报价区、旧版报价单");
-  ok(!/<TenderOurBidCard\b|<QuoteStep\b|<ProjectQuoteSection\b/.test(no) && /QUOTE_AMOUNTS_HIDDEN_ZH/.test(no) && /id="bid-quote-area"/.test(no), "② 看不到金额的一支：只有说明和位置，没有这三个组件", no);
-  ok((pageSrc.match(/<TenderOurBidCard\b/g) ?? []).length === 1 && (pageSrc.match(/<QuoteStep\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectQuoteSection\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectInquirySection\b/g) ?? []).length === 1, "这几个组件在新页面里各只出现一次（没有别处绕过金额门）");
+  ok(/<QuoteStep projectId=\{projectId\} onBidChanged=\{onRefresh\} \/>/.test(yes) && /<ProjectQuoteSection\b/.test(yes), "② 看得到金额的一支：报价区（含我方报价一行，定了以后刷新汇总）、旧版报价单");
+  ok(!/<TenderOurBidCard\b|<QuoteStep\b|<ProjectQuoteSection\b/.test(no) && /QUOTE_AMOUNTS_HIDDEN_ZH/.test(no) && /id="bid-quote-area"/.test(no), "② 看不到金额的一支：只有说明和位置，没有这些组件", no);
+  ok((pageSrc.match(/<QuoteStep\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectQuoteSection\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectInquirySection\b/g) ?? []).length === 1, "这几个组件在新页面里各只出现一次（没有别处绕过金额门）");
   ok(QUOTE_AMOUNTS_HIDDEN_ZH.length < 80 && /找/.test(QUOTE_AMOUNTS_HIDDEN_ZH) && /找/.test(SOURCING_AMOUNTS_HIDDEN_ZH) && !/[A-Za-z]{3,}/.test(QUOTE_AMOUNTS_HIDDEN_ZH + SOURCING_AMOUNTS_HIDDEN_ZH), "说明是中文、写了找谁");
   ok(SOURCING_AMOUNTS_HIDDEN_ZH === "询价里会有供应商报价，所以询价区只给项目负责人和有财务查看权的同事看。要起草或查看询价，请找他们。" && QUOTE_AMOUNTS_HIDDEN_ZH === "报价的金额与成本只给项目负责人和有财务查看权的同事看。要做报价或查看金额，请找他们。", "两句说明与规格逐字一致");
   // 「更多」里的版本历史会经旧接口带出金额：只给看得到金额的人

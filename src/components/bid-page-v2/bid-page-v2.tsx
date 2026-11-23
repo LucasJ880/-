@@ -5,7 +5,7 @@
  *
  * - 三个分区先挂既有组件（不改它们），由 BIDPAGE-2 / 3 / 4 / 6 / 7 替换；② 已由 BIDPAGE-3 换成新的报价区（`quote-step.tsx`），
  *   不再挂投标工作区面板与改版前的报价区。
- * - 金额（任务书附录 C 决定 C）：带金额的区块（询价轮次里的供应商报价、我方报价卡、报价区、旧版报价单、
+ * - 金额（任务书附录 C 决定 C）：带金额的区块（询价轮次里的供应商报价、我方报价一行与报价区、旧版报价单、
  *   「更多」里的版本历史）只给看得到金额的人挂；其余人在那里看到一句说明。新页面自己写的字只用汇总接口给的金额。
  *   这只是「不挂组件」，不是数据保护：旧接口的口径照旧（决定 C 留给 CHAIN-2e）。
  * - 收起的分区仍挂在页面上、只加 hidden：组件取数照常，页内位置（rfq-section、bid-quote-area）一直在；改版前投标工作区的位置（bid-workspace）落到 ②。
@@ -17,7 +17,6 @@ import { useCallback, useEffect, useRef, useState, type ComponentProps, type Rea
 import { useRouter } from "next/navigation";
 import { ArrowRight, ChevronDown, Compass, History, Lock, MoreHorizontal } from "lucide-react";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
-import { TenderOurBidCard } from "@/components/quote-engine/tender-our-bid";
 import { ProjectGenerateMenu } from "@/components/project-generate/project-generate-menu";
 import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
 import { TenderSourcingEntry } from "@/components/supplier-intel/tender-sourcing-entry";
@@ -29,7 +28,8 @@ import { cn } from "@/lib/utils";
 import { SECTION_ANCHOR, sectionForAnchor } from "./entry-mode";
 import { QuoteStep } from "./quote-step";
 
-export type BidPageV2Props = ComponentProps<typeof BidTab> & { view: BidPageView };
+/** onRefresh：在 ② 里定为我方报价、提交、退回、另起新版之后，让入口再取一次汇总（BIDPAGE-6） */
+export type BidPageV2Props = ComponentProps<typeof BidTab> & { view: BidPageView; onRefresh?: () => void };
 
 /** 看不到金额的人在 ① 询价、② 报价的位置看到的说明；没有编辑权限的人在 ③ 看到的说明 */
 export const SOURCING_AMOUNTS_HIDDEN_ZH = "询价里会有供应商报价，所以询价区只给项目负责人和有财务查看权的同事看。要起草或查看询价，请找他们。";
@@ -41,7 +41,7 @@ export function initialOpenSection(hash: string | null | undefined, view: BidPag
   return sectionForAnchor(hash) ?? view.expanded;
 }
 
-export function BidPageV2({ projectId, orgId, canManage, view }: BidPageV2Props) {
+export function BidPageV2({ projectId, orgId, canManage, view, onRefresh }: BidPageV2Props) {
   const router = useRouter();
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [open, setOpen] = useState<Record<BidPageSection, boolean>>(() =>
@@ -110,11 +110,10 @@ export function BidPageV2({ projectId, orgId, canManage, view }: BidPageV2Props)
     ),
     quote: showAmounts ? (
       <div className="space-y-6">
-        {/* 我方报价卡到 BIDPAGE-6 并入分区标题；投标工作区面板与改版前的报价区不进新页面（BIDPAGE-3 design D10） */}
-        <TenderOurBidCard projectId={projectId} />
+        {/* 改版前的我方报价卡并入 ② 最上面的「我方报价」一行（BIDPAGE-6，在 QuoteStep 里）；投标工作区面板与改版前的报价区不进新页面（BIDPAGE-3 design D10） */}
         {/* 项目页「下一步」卡滚动到投标价的位置 */}
         <div id="bid-quote-area" className="scroll-mt-4">
-          <QuoteStep projectId={projectId} />
+          <QuoteStep projectId={projectId} onBidChanged={onRefresh} />
         </div>
         <details className="rounded-xl border border-border/60 bg-card-bg/60" data-testid="bid-page-legacy-quote">
           <summary className="cursor-pointer px-4 py-2 text-xs text-muted">旧版报价单（外贸标准报价，点开查看）</summary>
