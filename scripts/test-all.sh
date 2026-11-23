@@ -769,6 +769,7 @@ run_test "BIDPAGE-3 逐行报价：词表与模板对照、状态 ↔ 成本行�
 run_test "BIDPAGE-3 ② 定报价新区块：列表与专业模式入口、新建两问、逐行表 7 列、四个数与差额说明、预置说明、导出（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx"
 run_test "BIDPAGE-3 逐行报价 DB+HTTP（开关 / 新建 / 存取 / 换人看到同样的数 / 金额门与各种身份 / 专业模式改过以后 / 并发 / 导出 / 另起新版 / 不写客户报价单与投标工作区；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts"
 run_test "BIDPAGE-4 只报总价：判定、类别对照、范围、销售税、验收 3 的数、算式、往返、专业模式改过以后、互转前后引擎结果相同与拒绝、接口写法（纯函数）" "npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts"
+run_test "BIDPAGE-4 ② 总价构成表：开始的 4 行、添加一项、默认填法与基数说明、六个数与算式、成本加成、算不出、明细与改回总数、其它成本行、互转入口、不写浏览器（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx"
 run_test "BIDPAGE-4 只报总价 DB+HTTP（开关 / 新建 / 验收 3 与 4 / 换人看到同样的数 / 明细与点选 / 其它成本行 / 并发 / 专业模式改过以后 / 金额门与各种身份 / 跨项目 / 互转往返与拒绝 / 导出原因 / 另起新版；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB

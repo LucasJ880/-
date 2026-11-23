@@ -38,7 +38,9 @@ import {
   type LumpItemKey,
   type LumpMeta,
   type LumpState,
+  emptyLumpItem,
 } from "./contract";
+export { emptyLumpItem };
 
 /** 总价表写的行带备注；`notes` 为 undefined 时不写备注（明细、预置照逐行表，不碰备注） */
 export type LumpWrite = CostLineWrite & { notes?: string | null };
@@ -105,9 +107,6 @@ export function indexLumpLines(lines: readonly DbCostLine[]): LumpIndex {
 
 /* --------------------------------- 种子 --------------------------------- */
 
-export function emptyLumpItem(key: LumpItemKey): LumpItem {
-  return { costLineId: null, key, seq: null, label: key === "other" ? "" : null, kind: LUMP_ITEM_SPEC[key].defaultKind, amount: null, currency: "CAD", ratePct: null, notes: null };
-}
 
 /** 新建的总价报价：货品、海运费、关税（都空着）+ 四条预置（值与只供货模板相同）；税三项为空（design D1 / spec「新建的总价报价只有用得上的行」） */
 export function defaultLumpState(): LumpState {

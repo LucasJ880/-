@@ -279,6 +279,17 @@ export type ConvertRequest = z.infer<typeof convertRequestSchema>;
 
 /* ---------------------------------- 校验 ---------------------------------- */
 
+/** 新加的一项（默认填法见 `LUMP_ITEM_SPEC.defaultKind`） */
+export function emptyLumpItem(key: LumpItemKey): LumpItem {
+  return { costLineId: null, key, seq: null, label: key === "other" ? "" : null, kind: LUMP_ITEM_SPEC[key].defaultKind, amount: null, currency: "CAD", ratePct: null, notes: null };
+}
+
+/** 「添加一项」里现在能选的：开始就有的两项被删掉后排到最前面，其余按任务书顺序、没加过的；其它总在 */
+export function addableKeys(items: readonly Pick<LumpItem, "key">[]): LumpItemKey[] {
+  const has = new Set(items.map((i) => i.key));
+  return [...LUMP_INITIAL_KEYS, ...LUMP_ADDABLE_KEYS].filter((k) => k === "other" || !has.has(k));
+}
+
 export const itemNameZh = (it: Pick<LumpItem, "key" | "label">) => (it.key === "other" ? `「${it.label?.trim() || "其它"}」` : LUMP_ITEM_SPEC[it.key].labelZh);
 
 const cleanNotes = (s: string | null) => {

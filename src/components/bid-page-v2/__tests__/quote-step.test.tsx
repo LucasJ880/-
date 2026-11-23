@@ -88,7 +88,23 @@ console.log("\n━━━ 1. 报价列表与专业模式入口 ━━━");
   ok(html.includes("120,000.00 美元"), "列表按报价自己的币种写金额（专业模式里的美元报价写美元）");
   const src = read("src/components/bid-page-v2/quote-step.tsx");
   ok(src.includes(QUOTE_STEP_TEXT.askHow) && src.includes("QUOTE_STEP_TEXT.lineOption") && src.includes("BUSINESS_TYPES.map") && src.includes("QUOTE_STEP_TEXT.proModeOnly"), "新建两问：怎么交价（逐行）与业务类型（三种），另两种写明在专业模式里做");
-  ok(/entryMode: "LINE", businessType/.test(src) && /router\.push\(String\(data\.proModeHref\)\)/.test(src), "建好：逐行报价在页内打开；另两种转到专业模式");
+  // BIDPAGE-4：请求体的做法来自两问里选的那一项（逐行 / 只报总价），被断言的行为不变
+  ok(/entryMode: how, businessType/.test(src) && /data\.entryMode === "LINE" \|\| data\.entryMode === "LUMP_SUM"/.test(src) && /router\.push\(String\(data\.proModeHref\)\)/.test(src), "建好：逐行报价与总价报价在页内打开；另两种转到专业模式");
+}
+
+console.log("\n━━━ 1b. 只报总价（BIDPAGE-4） ━━━");
+{
+  const withLump: QuoteListView = { ...LIST, quotes: [...LIST.quotes, { id: "q3", name: "合成总价报价", quoteNumber: "Q-2026-0003-P1", version: 1, status: "draft", quoteType: "SUPPLY_ONLY", currency: "CAD", entryMode: "LUMP_SUM", sellingPrice: 1200000, updatedAt: "2026-11-23T00:00:00.000Z", isOurBid: false, proModeHref: "/projects/p1/quote-engine/q3" }] };
+  const html = render(<QuoteListPanel view={withLump} onOpen={noop} onCreate={noop} creating={false} createError={null} />);
+  const rows = html.split('data-testid="quote-step-row"');
+  const lumpRow = rows.find((r) => r.includes("合成总价报价")) ?? "";
+  ok(lumpRow.includes(QUOTE_STEP_TEXT.lumpMode) && lumpRow.includes(">打开<") && lumpRow.includes("/projects/p1/quote-engine/q3") && lumpRow.includes(QUOTE_STEP_TEXT.openLineInProMode), "列表里总价报价写「只报总价」、能在页内打开、另有「用专业模式打开」");
+  ok(html.includes("逐行报价") && html.includes(QUOTE_STEP_TEXT.proMode) && html.includes("1,200,000.00 加元"), "三份都列出做法（逐行报价 / 只报总价 / 专业模式）与报价合计");
+  const src = read("src/components/bid-page-v2/quote-step.tsx");
+  ok(src.includes("QUOTE_STEP_TEXT.lumpOption") && /checked=\{how === "LUMP_SUM"\}/.test(src) && /how === "LUMP_SUM" && business === "STANDING_OFFER"/.test(src) && QUOTE_STEP_TEXT.lumpStandingOffer.includes("在专业模式里做"), "新建两问：「这个标怎么交价？」有逐行报价与只报总价；只报总价 + 长期供货协议写明在专业模式里做");
+  ok(/\$\{entryMode === "LUMP_SUM" \? "lump" : "line"\}/.test(src), "打开总价报价调 …/lump，逐行报价调 …/line");
+  const lv = render(<LineQuoteEditor projectId="p1" view={lineView({ others: [{ id: "o1", description: "加拿大境内运费", category: "FREIGHT", amount: 400, included: true }, { id: "o2", description: "海运费", category: "FREIGHT", amount: 6000, included: true, fromLump: true }, { id: "o3", description: "安装", category: "LABOUR", amount: 2000, included: true, fromLump: true }] })} onSaved={noop} onClose={noop} />);
+  ok(lv.includes("另有 1 条其它成本行（在专业模式里加的）") && lv.includes(`${QUOTE_STEP_TEXT.fromLump}：海运费（6,000.00 加元）、安装（2,000.00 加元）`), "逐行表：从只报总价转来的项写明来历，不说成专业模式里加的", lv.slice(lv.indexOf("其它成本行") - 20, lv.indexOf("其它成本行") + 300));
 }
 
 console.log("\n━━━ 2. 逐行报价 ━━━");
@@ -159,8 +175,10 @@ console.log("\n━━━ 4. 容器与源码 ━━━");
   ok(/method: "PUT"/.test(src) && /baseUpdatedAt: view\.quote\.updatedAt, state/.test(src), "保存带读取时的修改时间与整个状态");
   ok(!/computeQuote|allocateFromEngine/.test(src), "组件里不算数（四个数与每行的数都由服务端用报价引擎算好）");
   ok(!/bg-primary|text-white|bg-white/.test(src) && /bg-accent px-4 py-1\.5 text-sm text-\[color:var\(--on-accent\)\]/.test(src), "按钮用项目主色（浏览器抽检发现按钮几乎看不见）");
-  ok(src.includes("回复里没有金额，请手填单价") && /if \(await onCreate\(business, name\)\) \{\s*setShowForm\(false\);/.test(src), "回复里一个金额都没有时照实说；新建成功后收起表单");
-  ok(/value=\{text\}/.test(src) && /parseNumInput\(raw\)/.test(src) && !/value=\{value \?\? ""\}/.test(src), "数字输入框留着人打的字、能读成数才往上报（不把「12.」改写成「12」）");
+  // BIDPAGE-4 把点选与数字输入框挪到 quote-ui.tsx（两个编辑器共用），这两条改读那个文件，被断言的写法不变
+  const ui = read("src/components/bid-page-v2/quote-ui.tsx").replace(/\/\*[\s\S]*?\*\//g, "");
+  ok(ui.includes("回复里没有金额，请手填单价") && /if \(await onCreate\(how, business, name\)\) \{\s*setShowForm\(false\);/.test(src), "回复里一个金额都没有时照实说；新建成功后收起表单");
+  ok(/value=\{text\}/.test(ui) && /parseNumInput\(raw\)/.test(ui) && !/value=\{value \?\? ""\}/.test(ui + src), "数字输入框留着人打的字、能读成数才往上报（不把「12.」改写成「12」）");
   ok(/disabled=\{saving \|\| !dirty \|\| invalid\.size > 0\}/.test(src) && src.includes("改好才能保存"), "有格子填的不是数字：不让保存，写明哪几格");
   ok(/draftToPrompt\(window\.localStorage\.getItem\(costDraftPromptedKey\(projectId\)\), window\.localStorage\.getItem\(costDraftStorageKey\(projectId\)\), parseCostDraft, savedRowCount\)/.test(src), "旧草稿提示的判定用纯函数（quote-line.test 里测），表里有行才提示");
   ok(/setPaste\(remainingPasteText\(paste, parsed\.issues\.map\(\(x\) => x\.row\)\)\)/.test(src) && !/setPaste\(""\)/.test(src), "粘贴框导入后只去掉已导入的行（没导入的留着改）");

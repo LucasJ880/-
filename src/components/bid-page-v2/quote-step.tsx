@@ -2,15 +2,15 @@
 
 /**
  * BIDPAGE-3 新版「标书与报价」页 ② 定报价：报价列表、新建两问、逐行报价、按招标方价格表导出
+ * BIDPAGE-4：新建两问多「只报总价」，列表里的总价报价在页内打开（`lump-sum-editor.tsx`），逐行报价能转成只报总价
  *
  * 只挂在看得到金额的人的新页面上（`bid-page-v2.tsx` 的金额门）；接口自己再判一次（报价权限守卫 + 财务查看权）。
  * 所有数都由服务端用报价引擎算好再返回；这里不算数，只在保存前标明「数字是上次保存时的」。
  * 不写浏览器本地存储里的成本；只读一次旧的本地成本草稿，提示过后记一个不含金额的标记。
  */
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api-fetch";
-import { formatMoneyZh } from "@/lib/bid-page-v2/next-step";
 import {
   BUSINESS_TYPES,
   BUSINESS_TYPE_ZH,
@@ -20,7 +20,6 @@ import {
   LINE_MODE_MAX_ROWS,
   LINE_UOMS,
   QUOTE_STATUS_ZH,
-  parseNumInput,
   piecesPerUnit,
   quoteDisplayName,
   remainingPasteText,
@@ -29,7 +28,6 @@ import {
   currencyLabelZh,
   type BusinessType,
   type ExportAvailability,
-  type InquiryQuoteOption,
   type LineModeIssue,
   type LineModeState,
   type LineModeView,
@@ -40,8 +38,11 @@ import {
 import { costDraftPromptedKey, draftToPrompt, importCostDraft } from "@/lib/bid-page-v2/quote-line/draft-import";
 import { costDraftStorageKey, parseCostDraft, type CostDraft } from "@/lib/tender-bid-workspace/cost-draft";
 import { parseSchedulePaste } from "@/lib/tender-bid-workspace/paste-import";
+import type { LumpView } from "@/lib/bid-page-v2/lump-sum/contract";
+import { CurrencySelect, InquiryPicker, InvalidContext, Note, NumInput, PRESET_EXPLAIN_ZH, PresetRows, money, pct, unitMoney, useInvalidRegistry } from "./quote-ui";
+import { LumpSumEditor } from "./lump-sum-editor";
 
-const CURRENCIES = ["CAD", "CNY", "USD", "EUR", "GBP"] as const;
+export { PRESET_EXPLAIN_ZH };
 
 export const QUOTE_STEP_TEXT = {
   notEnabled: "报价功能未开通",
@@ -50,6 +51,8 @@ export const QUOTE_STEP_TEXT = {
   createTitle: "新建报价",
   askHow: "这个标怎么交价？",
   lineOption: "逐行报价（招标方有价格表，每行填单价）",
+  lumpOption: "只报总价（招标方只要一个总价：货值、海运、关税、安装、税等拼成）",
+  lumpStandingOffer: "长期供货协议按分级单价报，只报总价管不了，在专业模式里做，建好后会打开专业模式",
   askBusiness: "业务类型",
   proModeOnly: "供货加安装、长期供货协议在专业模式里做，建好后会打开专业模式",
   proMode: "专业模式",
@@ -73,6 +76,11 @@ export const QUOTE_STEP_TEXT = {
   pasteSummary: "粘贴价格表（从 Excel 选中这几列复制、粘贴即可：行号、品名、数量、单位、包装数（可不填）；第一行是表头也没关系）",
   conflictHint: "你这次的修改还在框里：先把要改的记下来，点「收起」再「打开」看最新内容，然后重新填",
   discard: "放弃修改",
+  lumpMode: "只报总价",
+  toLump: "转成只报总价",
+  toLumpConfirm: "转成只报总价：货品各行留作货品明细；海运费（柜数 × 每柜）换成一个金额，报关费、国内运费、关税照搬成总价表的同名项；合计不变，以后能再转回逐行报价。确定？",
+  convertDirty: "有修改还没保存：先保存或放弃修改，再转换",
+  fromLump: "从只报总价转来的项（照样计入，在这里不改）",
 } as const;
 
 /** 锁定的报价：带上状态名（「已定」在这一页指「定为我方报价」，已批准但没选上的也锁着） */
@@ -80,31 +88,14 @@ export const frozenNoteZh = (status: string) => `这份报价「${QUOTE_STATUS_Z
 
 export const LINE_TABLE_HEADERS = ["品名", "数量", "供应商报价（原币）", "到手单位成本（加元）", "我方单价", "行合计", "毛利率"] as const;
 
-export const PRESET_EXPLAIN_ZH = {
-  financing: "到手成本 × 年化比例 ÷ 12 × 月数，不足一月按一月",
-  admin: "管理费按含自身算：比例 3% 时，成本 100 → 103.09（管理费是 3.09，不是 3）。这里的成本 = 到手成本 + 资金使用",
-  cashAllowance: "到手成本 × 比例",
-  commission: "（报价 − 不含销售提成的成本）× 比例，算进成本",
-} as const;
-
-const money = (v: number | null | undefined, ccy = "CAD") => (v == null ? "—" : formatMoneyZh(v, ccy));
-/** 到手单位成本：不到 1 元时写 4 位（只取到分会失真） */
-const unitMoney = (v: number | null | undefined) => (v != null && v !== 0 && Math.abs(v) < 1 && Number.isFinite(v) ? `${v.toFixed(4)} ${CURRENCY_NAME_ZH.CAD}` : money(v));
-const pct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? "—" : `${(Math.round(v * 10) / 10).toFixed(1)}%`);
-
-function Note({ children, tone = "muted", testId }: { children: ReactNode; tone?: "muted" | "warn" | "error"; testId?: string }) {
-  const cls = tone === "error" ? "border-red-300/60 bg-red-50/60 text-red-700" : tone === "warn" ? "border-amber-300/60 bg-amber-50/60 text-amber-800" : "border-border/60 bg-card-bg/60 text-muted";
-  return (
-    <div className={`rounded-lg border px-3 py-2 text-sm ${cls}`} data-testid={testId}>
-      {children}
-    </div>
-  );
-}
-
 /* ---------------------------------- 列表 ---------------------------------- */
 
-export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }: { view: QuoteListView; onOpen: (q: QuoteListItem) => void; onCreate: (businessType: BusinessType, name: string) => Promise<boolean> | void; creating: boolean; createError: string | null }) {
+export type EntryChoice = "LINE" | "LUMP_SUM";
+const ENTRY_MODE_ZH = (m: QuoteListItem["entryMode"]) => (m === "LINE" ? "逐行报价" : m === "LUMP_SUM" ? QUOTE_STEP_TEXT.lumpMode : QUOTE_STEP_TEXT.proMode);
+
+export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }: { view: QuoteListView; onOpen: (q: QuoteListItem) => void; onCreate: (how: EntryChoice, businessType: BusinessType, name: string) => Promise<boolean> | void; creating: boolean; createError: string | null }) {
   const [showForm, setShowForm] = useState(false);
+  const [how, setHow] = useState<EntryChoice>("LINE");
   const [business, setBusiness] = useState<BusinessType>("SUPPLY_ONLY");
   const [name, setName] = useState("");
   return (
@@ -117,17 +108,17 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
             <li key={q.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 text-sm" data-testid="quote-step-row">
               <span className="font-medium">{quoteDisplayName(q)}</span>
               <span className="text-muted">第 {q.version} 版 · {QUOTE_STATUS_ZH[q.status] ?? q.status}</span>
-              <span className="text-muted">{q.entryMode === "LINE" ? "逐行报价" : QUOTE_STEP_TEXT.proMode}</span>
+              <span className="text-muted">{ENTRY_MODE_ZH(q.entryMode)}</span>
               <span>报价合计 {money(q.sellingPrice, q.currency)}</span>
               {q.isOurBid ? <span className="rounded bg-emerald-100 px-1.5 text-xs text-emerald-800">我方报价</span> : null}
               <span className="ml-auto flex gap-3">
-                {q.entryMode === "LINE" ? (
+                {q.entryMode ? (
                   <button type="button" className="text-accent underline-offset-2 hover:underline" onClick={() => onOpen(q)}>
                     打开
                   </button>
                 ) : null}
                 <a className="text-accent underline-offset-2 hover:underline" href={q.proModeHref} data-testid="quote-step-pro-link">
-                  {q.entryMode === "LINE" ? QUOTE_STEP_TEXT.openLineInProMode : QUOTE_STEP_TEXT.openInProMode}
+                  {q.entryMode ? QUOTE_STEP_TEXT.openLineInProMode : QUOTE_STEP_TEXT.openInProMode}
                 </a>
               </span>
             </li>
@@ -141,9 +132,16 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
             <div>
               <div className="font-medium">{QUOTE_STEP_TEXT.askHow}</div>
               <label className="mt-1 flex items-center gap-2">
-                <input type="radio" checked readOnly /> {QUOTE_STEP_TEXT.lineOption}
+                <input type="radio" name="bid-page-how" checked={how === "LINE"} onChange={() => setHow("LINE")} /> {QUOTE_STEP_TEXT.lineOption}
               </label>
-              {view.scheduleLineCount > 0 ? <div className="mt-1 text-xs text-muted">已有价格表 {view.scheduleLineCount} 行，新建后自动带进来</div> : <div className="mt-1 text-xs text-muted">还没有保存的价格表，新建后可以粘贴、从招标分析带入或加一行</div>}
+              <label className="mt-1 flex items-center gap-2">
+                <input type="radio" name="bid-page-how" checked={how === "LUMP_SUM"} onChange={() => setHow("LUMP_SUM")} /> {QUOTE_STEP_TEXT.lumpOption}
+              </label>
+              {how === "LINE" ? (
+                view.scheduleLineCount > 0 ? <div className="mt-1 text-xs text-muted">已有价格表 {view.scheduleLineCount} 行，新建后自动带进来</div> : <div className="mt-1 text-xs text-muted">还没有保存的价格表，新建后可以粘贴、从招标分析带入或加一行</div>
+              ) : (
+                <div className="mt-1 text-xs text-muted">新建后只有货品、海运费、关税、销售税 4 行，其余从「添加一项」里选</div>
+              )}
             </div>
             <div>
               <div className="font-medium">{QUOTE_STEP_TEXT.askBusiness}</div>
@@ -153,7 +151,8 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
                   {b === "SUPPLY_ONLY" ? <span className="text-xs text-muted">（默认）</span> : null}
                 </label>
               ))}
-              {business !== "SUPPLY_ONLY" ? <div className="mt-1 text-xs text-muted">{QUOTE_STEP_TEXT.proModeOnly}</div> : null}
+              {how === "LINE" && business !== "SUPPLY_ONLY" ? <div className="mt-1 text-xs text-muted">{QUOTE_STEP_TEXT.proModeOnly}</div> : null}
+              {how === "LUMP_SUM" && business === "STANDING_OFFER" ? <div className="mt-1 text-xs text-muted">{QUOTE_STEP_TEXT.lumpStandingOffer}</div> : null}
             </div>
             <label className="flex items-center gap-2">
               名称（可不填）
@@ -162,7 +161,7 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
             {createError ? <Note tone="error">{createError}</Note> : null}
             <div className="flex gap-3">
               <button type="button" disabled={creating} className="rounded bg-accent px-3 py-1 text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-60" onClick={async () => {
-                  if (await onCreate(business, name)) {
+                  if (await onCreate(how, business, name)) {
                     setShowForm(false);
                     setName("");
                   }
@@ -250,91 +249,7 @@ export function LineTotals({ view, dirty }: { view: LineModeView; dirty: boolean
   );
 }
 
-/** 不合法输入的登记：编辑器据此不让保存（输入框自己标红） */
-type InvalidReporter = (label: string, invalid: boolean) => void;
-const InvalidContext = createContext<InvalidReporter>(() => undefined);
-
-/**
- * 数字输入框：框里留着人打的字（「12.」「0.0」不会被改写），能读成数时才往上报；读不成数就标红并登记，不往上报。
- * 外面的值变了（恢复、导入、点选询价回复）且与框里的字不是同一个数时，才把框里的字换掉。
- */
-function NumInput({ value, onChange, disabled, label, className = "w-24" }: { value: number | null; onChange: (v: number | null) => void; disabled: boolean; label: string; className?: string }) {
-  const report = useContext(InvalidContext);
-  const [text, setText] = useState(value == null ? "" : String(value));
-  const [bad, setBad] = useState(false);
-  useEffect(() => {
-    const cur = parseNumInput(text);
-    if (!(cur.ok && cur.value === value)) {
-      setText(value == null ? "" : String(value));
-      setBad(false);
-      report(label, false);
-    }
-    // 只在外面的值变了时对齐；text 不进依赖，免得打字时被改写
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-  // 框被拿掉（删行）或换了名字（删行后行号变了）：撤掉它登记过的「不合法」
-  useEffect(() => () => report(label, false), [label, report]);
-  return (
-    <input
-      aria-label={label}
-      aria-invalid={bad || undefined}
-      inputMode="decimal"
-      title={bad ? "这里要填数字" : undefined}
-      className={`rounded border px-2 py-1 ${bad ? "border-red-500" : "border-border"} ${className}`}
-      disabled={disabled}
-      value={text}
-      onChange={(e) => {
-        const raw = e.target.value;
-        setText(raw);
-        const parsed = parseNumInput(raw);
-        setBad(!parsed.ok);
-        report(label, !parsed.ok);
-        if (parsed.ok) onChange(parsed.value);
-      }}
-    />
-  );
-}
-
-function CurrencySelect({ value, onChange, disabled, label }: { value: string; onChange: (v: string) => void; disabled: boolean; label: string }) {
-  return (
-    <select aria-label={label} className="rounded border border-border px-1 py-1" disabled={disabled} value={value} onChange={(e) => onChange(e.target.value)}>
-      {CURRENCIES.map((c) => (
-        <option key={c} value={c}>
-          {currencyLabelZh(c)}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function InquiryPicker({ options, row, onPick, disabled }: { options: InquiryQuoteOption[]; row: LineRow; onPick: (o: InquiryQuoteOption | null) => void; disabled: boolean }) {
-  if (options.length === 0) return null;
-  return (
-    <select
-      aria-label="从询价回复里选"
-      className="max-w-[12rem] rounded border border-border px-1 py-1 text-xs"
-      disabled={disabled}
-      value={row.inquiryItemId ?? ""}
-      onChange={(e) => onPick(options.find((o) => o.inquiryItemId === e.target.value) ?? null)}
-    >
-      <option value="">从询价回复里选…</option>
-      {options.map((o) => (
-        <option key={o.inquiryItemId} value={o.inquiryItemId} disabled={o.unitPrice == null || !(CURRENCIES as readonly string[]).includes(o.currency)}>
-          {o.supplierName} · 第 {o.roundNumber} 轮 ·{" "}
-          {!(CURRENCIES as readonly string[]).includes(o.currency)
-            ? `币种「${o.currency}」用不了，请手填`
-            : o.unitPrice == null
-              ? o.totalPrice == null
-                ? "回复里没有金额，请手填单价"
-                : `只报了总价 ${money(o.totalPrice, o.currency)}，请手填单价`
-              : money(o.unitPrice, o.currency)}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { projectId: string; view: LineModeView; onSaved: (v: LineModeView) => void; onClose: () => void }) {
+export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined }: { projectId: string; view: LineModeView; onSaved: (v: LineModeView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void }) {
   const [state, setState] = useState<LineModeState>(view.state);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -344,17 +259,9 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
   const [draft, setDraft] = useState<CostDraft | null>(null);
   const [draftNotes, setDraftNotes] = useState<string[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [invalid, setInvalid] = useState<ReadonlySet<string>>(new Set());
+  const { invalid, setInvalid, reportInvalid } = useInvalidRegistry();
   const [resetKey, setResetKey] = useState(0);
-  const reportInvalid = useCallback<InvalidReporter>((label, bad) => {
-    setInvalid((prev) => {
-      if (prev.has(label) === bad) return prev;
-      const next = new Set(prev);
-      if (bad) next.add(label);
-      else next.delete(label);
-      return next;
-    });
-  }, []);
+  const [converting, setConverting] = useState(false);
   const editable = view.capabilities.canEdit && !view.quote.frozen;
 
   // 换了一份报价或保存成功后，以服务端的状态为准
@@ -415,7 +322,33 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
     }
   }, [projectId, view.quote.id, view.quote.updatedAt, state, onSaved]);
 
+  // 转成只报总价（BIDPAGE-4）：先确认；有没保存的修改时先要保存或放弃
+  const convertToLump = useCallback(async () => {
+    if (!window.confirm(QUOTE_STEP_TEXT.toLumpConfirm)) return;
+    setConverting(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/bid-page/quotes/${encodeURIComponent(view.quote.id)}/convert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: "LUMP_SUM", baseUpdatedAt: view.quote.updatedAt }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError({ message: String(data?.error ?? "没转成，请稍后再试"), issues: [], conflict: false });
+        return;
+      }
+      onConverted(view.quote.id, "LUMP_SUM");
+    } catch {
+      setError({ message: "没转成（网络问题），请稍后再试", issues: [], conflict: false });
+    } finally {
+      setConverting(false);
+    }
+  }, [projectId, view.quote.id, view.quote.updatedAt, onConverted]);
+
   const alloc = view.computed.ok && !dirty ? view.computed.allocation.lines : null;
+  const proOthers = view.others.filter((o) => !o.fromLump);
+  const lumpOthers = view.others.filter((o) => o.fromLump);
   // 汇率格按实际用到的外币列（各行与共用参数），不只看已登记的：粘贴 / 加行带进来的人民币行也要有汇率格
   const usedCurrencies = [
     ...new Set([
@@ -442,10 +375,16 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
             更多
           </button>
           {moreOpen ? (
-            <div className="absolute right-0 z-10 mt-1 w-32 rounded border border-border bg-card-bg py-1 text-sm shadow" role="menu">
+            <div className="absolute right-0 z-10 mt-1 w-40 rounded border border-border bg-card-bg py-1 text-sm shadow" role="menu">
               <a role="menuitem" className="block px-3 py-1 hover:bg-accent-soft" href={view.proModeHref} data-testid="line-editor-pro-mode">
                 {QUOTE_STEP_TEXT.openLineInProMode}
               </a>
+              {editable ? (
+                <button type="button" role="menuitem" className="block w-full px-3 py-1 text-left hover:bg-accent-soft disabled:opacity-60" disabled={dirty || converting} title={dirty ? QUOTE_STEP_TEXT.convertDirty : undefined} onClick={() => void convertToLump()} data-testid="line-editor-to-lump">
+                  {converting ? "正在转换…" : QUOTE_STEP_TEXT.toLump}
+                </button>
+              ) : null}
+              {editable && dirty ? <div className="px-3 py-1 text-xs text-muted">{QUOTE_STEP_TEXT.convertDirty}</div> : null}
             </div>
           ) : null}
         </div>
@@ -550,7 +489,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
                     ) : null}
                     <InquiryPicker
                       options={view.inquiryQuotes}
-                      row={r}
+                      selectedId={r.inquiryItemId}
                       disabled={!editable}
                       onPick={(o) =>
                         o && o.unitPrice != null
@@ -676,26 +615,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
       <fieldset className="space-y-2 rounded-lg border border-border/60 px-3 py-2 text-sm" data-testid="line-presets">
         <legend className="px-1 text-xs text-muted">预置（每个项目可改、可关）</legend>
         <div className="text-xs text-muted">{QUOTE_STEP_TEXT.landedDefine}</div>
-        <PresetRow label="资金使用" explain={PRESET_EXPLAIN_ZH.financing} included={state.presets.financing.included} disabled={!editable} onToggle={(b) => update((s) => ({ ...s, presets: { ...s.presets, financing: { ...s.presets.financing, included: b } } }))}>
-          <span>年化</span>
-          <NumInput label="资金使用年化比例" value={state.presets.financing.ratePct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, financing: { ...s.presets.financing, ratePct: v } } }))} className="w-16" />
-          <span>% ×</span>
-          <NumInput label="资金使用月数" value={state.presets.financing.months} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, financing: { ...s.presets.financing, months: v } } }))} className="w-16" />
-          <span>个月</span>
-        </PresetRow>
-        <PresetRow label="管理费" explain={PRESET_EXPLAIN_ZH.admin} included={state.presets.admin.included} disabled={!editable} onToggle={(b) => update((s) => ({ ...s, presets: { ...s.presets, admin: { ...s.presets.admin, included: b } } }))}>
-          <NumInput label="管理费比例" value={state.presets.admin.ratePct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, admin: { ...s.presets.admin, ratePct: v } } }))} className="w-16" />
-          <span>%</span>
-        </PresetRow>
-        <PresetRow label="现金备用金" explain={PRESET_EXPLAIN_ZH.cashAllowance} included={state.presets.cashAllowance.included} disabled={!editable} onToggle={(b) => update((s) => ({ ...s, presets: { ...s.presets, cashAllowance: { ...s.presets.cashAllowance, included: b } } }))}>
-          <NumInput label="现金备用金比例" value={state.presets.cashAllowance.ratePct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, cashAllowance: { ...s.presets.cashAllowance, ratePct: v } } }))} className="w-16" />
-          <span>%</span>
-        </PresetRow>
-        <PresetRow label="销售提成" explain={PRESET_EXPLAIN_ZH.commission} included={state.presets.commission.included} disabled={!editable} onToggle={(b) => update((s) => ({ ...s, presets: { ...s.presets, commission: { ...s.presets.commission, included: b } } }))}>
-          <span>毛利 ×</span>
-          <NumInput label="销售提成比例" value={state.presets.commission.ratePct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, presets: { ...s.presets, commission: { ...s.presets.commission, ratePct: v } } }))} className="w-16" />
-          <span>%</span>
-        </PresetRow>
+        <PresetRows presets={state.presets} editable={editable} onChange={(fn) => update((s) => ({ ...s, presets: fn(s.presets) }))} />
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
           <span>目标毛利率（按售价）：</span>
           <NumInput label="目标毛利率" value={state.targetMarginPct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, targetMarginPct: v }))} className="w-16" />
@@ -704,10 +624,16 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
         </div>
       </fieldset>
 
-      {view.others.length > 0 ? (
+      {proOthers.length > 0 ? (
         <Note testId="line-others">
-          另有 {view.others.length} 条其它成本行（在专业模式里加的）：
-          {view.others.map((o) => `${o.description}${o.included ? `（${money(o.amount)}）` : "（不计入）"}`).join("、")}。标了金额的已算进上面的报价合计和成本合计。
+          另有 {proOthers.length} 条其它成本行（在专业模式里加的）：
+          {proOthers.map((o) => `${o.description}${o.included ? `（${money(o.amount)}）` : "（不计入）"}`).join("、")}。标了金额的已算进上面的报价合计和成本合计。
+        </Note>
+      ) : null}
+      {lumpOthers.some((o) => o.included) ? (
+        <Note testId="line-from-lump">
+          {QUOTE_STEP_TEXT.fromLump}：
+          {lumpOthers.filter((o) => o.included).map((o) => `${o.description}（${money(o.amount)}）`).join("、")}。已算进上面的报价合计和成本合计。
         </Note>
       ) : null}
 
@@ -756,21 +682,6 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
   );
 }
 
-function PresetRow({ label, explain, included, disabled, onToggle, children }: { label: string; explain: string; included: boolean; disabled: boolean; onToggle: (b: boolean) => void; children: ReactNode }) {
-  return (
-    <div className="space-y-0.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-1">
-          <input type="checkbox" checked={included} disabled={disabled} onChange={(e) => onToggle(e.target.checked)} />
-          {label}
-        </label>
-        {children}
-      </div>
-      <div className="pl-6 text-xs text-muted">{explain}</div>
-    </div>
-  );
-}
-
 /* ---------------------------------- 容器 ---------------------------------- */
 
 type ListState = { kind: "loading" } | { kind: "disabled" } | { kind: "error"; messageZh?: string | null } | { kind: "ready"; view: QuoteListView };
@@ -778,7 +689,7 @@ type ListState = { kind: "loading" } | { kind: "disabled" } | { kind: "error"; m
 export function QuoteStep({ projectId }: { projectId: string }) {
   const router = useRouter();
   const [list, setList] = useState<ListState>({ kind: "loading" });
-  const [open, setOpen] = useState<LineModeView | null>(null);
+  const [open, setOpen] = useState<{ kind: "line"; view: LineModeView } | { kind: "lump"; view: LumpView } | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -802,13 +713,13 @@ export function QuoteStep({ projectId }: { projectId: string }) {
   }, [loadList]);
 
   const openQuote = useCallback(
-    async (quoteId: string) => {
+    async (quoteId: string, entryMode: "LINE" | "LUMP_SUM" = "LINE") => {
       setOpenError(null);
       try {
-        const res = await apiFetch(`${base}/${encodeURIComponent(quoteId)}/line`, { cache: "no-store" });
+        const res = await apiFetch(`${base}/${encodeURIComponent(quoteId)}/${entryMode === "LUMP_SUM" ? "lump" : "line"}`, { cache: "no-store" });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return setOpenError(String(data?.error ?? "这份报价没打开，请稍后再试"));
-        setOpen(data as LineModeView);
+        setOpen(entryMode === "LUMP_SUM" ? { kind: "lump", view: data as LumpView } : { kind: "line", view: data as LineModeView });
       } catch {
         setOpenError("这份报价没打开（网络问题），请稍后再试");
       }
@@ -817,19 +728,19 @@ export function QuoteStep({ projectId }: { projectId: string }) {
   );
 
   const create = useCallback(
-    async (businessType: BusinessType, name: string): Promise<boolean> => {
+    async (how: EntryChoice, businessType: BusinessType, name: string): Promise<boolean> => {
       setCreating(true);
       setCreateError(null);
       try {
-        const res = await apiFetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryMode: "LINE", businessType, name: name.trim() || null }) });
+        const res = await apiFetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryMode: how, businessType, name: name.trim() || null }) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           setCreateError(String(data?.error ?? "没建成，请稍后再试"));
           return false;
         }
-        if (data.entryMode === "LINE") {
+        if (data.entryMode === "LINE" || data.entryMode === "LUMP_SUM") {
           await loadList();
-          await openQuote(String(data.id));
+          await openQuote(String(data.id), data.entryMode);
         } else router.push(String(data.proModeHref));
         return true;
       } catch {
@@ -842,22 +753,43 @@ export function QuoteStep({ projectId }: { projectId: string }) {
     [base, loadList, openQuote, router],
   );
 
+  const onConverted = useCallback(
+    (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => {
+      void loadList();
+      void openQuote(quoteId, entryMode);
+    },
+    [loadList, openQuote],
+  );
+
   if (list.kind === "loading") return <Note>正在加载报价…</Note>;
   if (list.kind === "disabled") return <Note testId="quote-step-disabled">{QUOTE_STEP_TEXT.notEnabled}</Note>;
   if (list.kind === "error") return <Note tone="error">{list.messageZh ?? QUOTE_STEP_TEXT.loadFailed}</Note>;
   return (
     <div className="space-y-4" data-testid="quote-step">
-      <QuoteListPanel view={list.view} onOpen={(q) => void openQuote(q.id)} onCreate={create} creating={creating} createError={createError} />
+      <QuoteListPanel view={list.view} onOpen={(q) => void openQuote(q.id, q.entryMode === "LUMP_SUM" ? "LUMP_SUM" : "LINE")} onCreate={create} creating={creating} createError={createError} />
       {openError ? <Note tone="error">{openError}</Note> : null}
-      {open ? (
+      {open?.kind === "line" ? (
         <LineQuoteEditor
           projectId={projectId}
-          view={open}
+          view={open.view}
           onSaved={(v) => {
-            setOpen(v);
+            setOpen({ kind: "line", view: v });
             void loadList();
           }}
           onClose={() => setOpen(null)}
+          onConverted={onConverted}
+        />
+      ) : null}
+      {open?.kind === "lump" ? (
+        <LumpSumEditor
+          projectId={projectId}
+          view={open.view}
+          onSaved={(v) => {
+            setOpen({ kind: "lump", view: v });
+            void loadList();
+          }}
+          onClose={() => setOpen(null)}
+          onConverted={onConverted}
         />
       ) : null}
       <ExportBar projectId={projectId} availability={list.view.export} />
