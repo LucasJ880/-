@@ -19,6 +19,8 @@ import {
   type WebReadAuditEntry,
 } from "../read-page";
 
+const ALLOW_ALL = (): boolean => true;
+
 let passed = 0;
 let failed = 0;
 function ok(name: string, cond: boolean, detail?: unknown) {
@@ -207,7 +209,7 @@ async function main() {
     w.handlers.set("https://example.gov/a", () => html(`<p>${LONG_TEXT}</p>`, 200, { "set-cookie": "sid=abc; Path=/" }));
     w.handlers.set("https://example.gov/b", () => html(`<p>${LONG_TEXT}</p>`));
     const s = await session(w);
-    const ctx = s.forBranch({ branchKey: "b1", budget: budget() });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b1", budget: budget() });
     await readPublicPage("https://example.gov/a", ctx);
     await readPublicPage("https://example.gov/b", ctx);
     const all = w.log;
@@ -237,14 +239,14 @@ async function main() {
       },
     });
     const s = await session(w);
-    const ctx = s.forBranch({ branchKey: "b1", budget: budget() });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b1", budget: budget() });
     for (const host of ["ten", "lo", "meta", "v6lo", "ula", "mapped", "mixed"]) {
       const r = await readPublicPage(`https://${host}.example/x`, ctx);
       ok(`解析到内网（${host}）：拒绝`, r.outcome === "refused" && r.reason === "private_address", r);
     }
     const lit = await readPublicPage("http://127.0.0.1/x", ctx);
     const lit6 = await readPublicPage("http://[::1]/x", ctx);
-    ok("IP 字面量的内网地址：拒绝", lit.reason === "private_address" && lit6.reason === "private_address");
+    ok("IP 字面量主机：不读（不看是不是内网，一律不读）", lit.reason === "ip_literal" && lit6.reason === "ip_literal" && lit.outcome === "refused");
     ok("内网地址上没有任何请求（含 robots）", w.log.length === 0, w.log);
     w.handlers.set("https://pub.example/start", () => redirect("http://internal.example/admin"));
     const red = await readPublicPage("https://pub.example/start", ctx);
@@ -264,7 +266,7 @@ async function main() {
     const w = makeWorld();
     for (let i = 0; i < 6; i++) w.handlers.set(`https://hop.example/${i}`, () => redirect(`/${i + 1}`));
     const s = await session(w);
-    const ctx = s.forBranch({ branchKey: "b1", budget: budget() });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b1", budget: budget() });
     const r = await readPublicPage("https://hop.example/0", ctx);
     ok("连续跳转 4 次：发 4 个请求后停止、未接通", r.outcome === "unreachable" && r.reason === "too_many_redirects" && w.pageRequests().length === 4, { r, n: w.pageRequests().length });
     ok("跳转与重试只扣一次额度", ctx.budget.used === 1 && ctx.budget.remaining === 11);
@@ -293,20 +295,20 @@ async function main() {
       ["https://wall.example/p", "login_redirect"],
     ];
     for (const [url, reason] of cases) {
-      const ctx = s.forBranch({ branchKey: `b-${reason}`, budget: budget() });
+      const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: `b-${reason}`, budget: budget() });
       const r = await readPublicPage(url, ctx);
       const n = w.pageRequests().filter((l) => l.url === url).length;
       ok(`${reason}：被挡、写明原因与挡住我们的站、只请求一次`, r.outcome === "blocked" && r.blocked?.reason === reason && !!r.blocked?.messageZh && r.blocked?.site === new URL(url).hostname && n === 1, { r, n });
     }
     ok("跳转到登录地址：没有请求登录地址", !w.log.some((l) => l.url.includes("/user/login")));
     ok("被挡没有重试等待（没有 1 秒 / 3 秒的重试间隔）", w.sleeps.every((ms) => !(WEB_READER_LIMITS.TRANSIENT_RETRY_DELAYS_MS as readonly number[]).includes(ms)), w.sleeps);
-    const ctx = s.forBranch({ branchKey: "same", budget: budget() });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "same", budget: budget() });
     w.handlers.set("https://forbid.example/q", () => html(`<p>${LONG_TEXT}</p>`));
     await readPublicPage("https://forbid.example/p", ctx); // 缓存命中：同样被挡，记入这一支
     const before = w.log.length;
     const again = await readPublicPage("https://forbid.example/q", ctx);
     ok("同一支里同站被挡过：直接被挡、不发请求、不扣额度", again.outcome === "blocked" && again.reason === "site_blocked_in_branch" && w.log.length === before && ctx.budget.used === 0, again);
-    const other = s.forBranch({ branchKey: "other", budget: budget() });
+    const other = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "other", budget: budget() });
     const fresh = await readPublicPage("https://forbid.example/q", other);
     ok("别的支不受影响", fresh.outcome === "ok");
     const direct = await readPublicPage("https://site.example/account/login", other);
@@ -324,7 +326,7 @@ async function main() {
     w.handlers.set("https://flaky.example/p", (n) => (n === 1 ? status(502) : html(`<p>${LONG_TEXT}</p>`)));
     w.handlers.set("https://reset.example/p", () => new NetError("network", "reset"));
     const s = await session(w);
-    const ctx = s.forBranch({ branchKey: "b1", budget: budget() });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b1", budget: budget() });
     const t = await readPublicPage("https://slow.example/p", ctx);
     const times = w.pageRequests().filter((l) => l.url === "https://slow.example/p").map((l) => l.at);
     ok("超时：共 3 个请求、未接通", t.outcome === "unreachable" && t.reason === "timeout" && times.length === 3 && t.attempts === 3, { t, times });
@@ -346,14 +348,14 @@ async function main() {
     w.handlers.set("https://rl.example/long", () => status(429, { "retry-after": "60" }));
     w.handlers.set("https://rl2.example/twice", () => status(429, { "retry-after": "5" }));
     const s = await session(w);
-    const r1 = await readPublicPage("https://rl.example/ok", s.forBranch({ branchKey: "a", budget: budget() }));
+    const r1 = await readPublicPage("https://rl.example/ok", s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "a", budget: budget() }));
     const at = w.pageRequests().filter((l) => l.url === "https://rl.example/ok").map((l) => l.at);
     ok("带 10 秒：等满 10 秒后再试一次并读到", r1.outcome === "ok" && at.length === 2 && at[1] - at[0] >= 10_000, { r1, at });
-    const r2 = await readPublicPage("https://rl.example/none", s.forBranch({ branchKey: "b", budget: budget() }));
+    const r2 = await readPublicPage("https://rl.example/none", s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b", budget: budget() }));
     ok("不带等待时间：只请求一次、被挡", r2.outcome === "blocked" && r2.reason === "rate_limited" && w.pageRequests().filter((l) => l.url.endsWith("/none")).length === 1);
-    const r3 = await readPublicPage("https://rl.example/long", s.forBranch({ branchKey: "c", budget: budget() }));
+    const r3 = await readPublicPage("https://rl.example/long", s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "c", budget: budget() }));
     ok("超过 30 秒：只请求一次、被挡", r3.outcome === "blocked" && r3.reason === "rate_limited" && w.pageRequests().filter((l) => l.url.endsWith("/long")).length === 1);
-    const r4 = await readPublicPage("https://rl2.example/twice", s.forBranch({ branchKey: "d", budget: budget() }));
+    const r4 = await readPublicPage("https://rl2.example/twice", s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "d", budget: budget() }));
     ok("再试仍为 429：被挡、共 2 个请求", r4.outcome === "blocked" && r4.reason === "rate_limited" && w.pageRequests().filter((l) => l.url.endsWith("/twice")).length === 2);
   }
 
@@ -363,10 +365,10 @@ async function main() {
     w.handlers.set("https://dl.example/p", () => new NetError("timeout", "t"));
     const s = await session(w);
     // robots 请求在 T、页面请求在 T+2s（同站间隔）、超时后要等 1s 再排到 T+4s，那时离截止只剩 1s
-    const ctx = s.forBranch({ branchKey: "b", budget: budget(), deadlineAt: w.now() + 6_000 });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b", budget: budget(), deadlineAt: w.now() + 6_000 });
     const r = await readPublicPage("https://dl.example/p", ctx);
     ok("截止时间不够重试：只请求一次、未接通（时间用完）", r.outcome === "unreachable" && r.reason === "deadline" && r.attempts === 1, r);
-    const ctx2 = s.forBranch({ branchKey: "c", budget: budget(), deadlineAt: w.now() + 500 });
+    const ctx2 = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "c", budget: budget(), deadlineAt: w.now() + 500 });
     const before = w.log.length;
     const r2 = await readPublicPage("https://dl2.example/p", ctx2);
     ok("已经到截止时间：不发请求", r2.reason === "deadline" && w.log.length === before && r2.attempts === 0, r2);
@@ -377,7 +379,7 @@ async function main() {
     const w = makeWorld();
     for (const p of ["a", "b", "c"]) w.handlers.set(`https://lim.example/${p}`, () => html(`<p>${LONG_TEXT}</p>`));
     const s = await session(w);
-    const ctx = s.forBranch({ branchKey: "b", budget: budget(2) });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b", budget: budget(2) });
     const rs = [];
     for (const p of ["a", "b", "c"]) rs.push(await readPublicPage(`https://lim.example/${p}`, ctx));
     ok("额度 2：前两个读到、第三个到上限", rs[0].outcome === "ok" && rs[1].outcome === "ok" && rs[2].outcome === "limit" && rs[2].messageZh === "读页次数到上限，未读");
@@ -388,8 +390,8 @@ async function main() {
     w2.handlers.set("https://www.pace.example/2", () => html(`<p>${LONG_TEXT}</p>`));
     w2.handlers.set("https://pace.example/3", () => html(`<p>${LONG_TEXT}</p>`));
     const s2 = await session(w2);
-    const c1 = s2.forBranch({ branchKey: "p1", budget: budget() });
-    const c2 = s2.forBranch({ branchKey: "p2", budget: budget() });
+    const c1 = s2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "p1", budget: budget() });
+    const c2 = s2.forBranch({ allowUrl: ALLOW_ALL, branchKey: "p2", budget: budget() });
     await Promise.all([readPublicPage("https://pace.example/1", c1), readPublicPage("https://www.pace.example/2", c2), readPublicPage("https://pace.example/3", c1)]);
     const starts = w2.log.map((l) => l.at).sort((a, b) => a - b);
     const gaps = starts.slice(1).map((t, i) => t - starts[i]);
@@ -401,8 +403,8 @@ async function main() {
     const w = makeWorld();
     w.handlers.set("https://example.gov/a", () => html(`<p>${LONG_TEXT}</p>`));
     const s = await session(w);
-    const b1 = s.forBranch({ branchKey: "b1", budget: budget() });
-    const b2 = s.forBranch({ branchKey: "b2", budget: budget() });
+    const b1 = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b1", budget: budget() });
+    const b2 = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b2", budget: budget() });
     const first = await readPublicPage("https://Example.gov:443/a#x", b1);
     w.advance(60_000);
     const second = await readPublicPage("https://example.gov/a", b2);
@@ -413,15 +415,15 @@ async function main() {
     w3.handlers.set("https://same.example/x", () => html(`<p>${LONG_TEXT}</p>`));
     const s3 = await session(w3);
     await Promise.all([
-      readPublicPage("https://same.example/x", s3.forBranch({ branchKey: "c1", budget: budget() })),
-      readPublicPage("https://same.example/x", s3.forBranch({ branchKey: "c2", budget: budget() })),
+      readPublicPage("https://same.example/x", s3.forBranch({ allowUrl: ALLOW_ALL, branchKey: "c1", budget: budget() })),
+      readPublicPage("https://same.example/x", s3.forBranch({ allowUrl: ALLOW_ALL, branchKey: "c2", budget: budget() })),
     ]);
     ok("并发读同一网址也只请求一次", w3.pageRequests().length === 1);
     const w4 = makeWorld();
     w4.handlers.set("https://lim2.example/x", () => html(`<p>${LONG_TEXT}</p>`));
     const s4 = await session(w4);
-    const empty = s4.forBranch({ branchKey: "e", budget: budget(0) });
-    const full = s4.forBranch({ branchKey: "f", budget: budget(1) });
+    const empty = s4.forBranch({ allowUrl: ALLOW_ALL, branchKey: "e", budget: budget(0) });
+    const full = s4.forBranch({ allowUrl: ALLOW_ALL, branchKey: "f", budget: budget(1) });
     const limited = await readPublicPage("https://lim2.example/x", empty);
     const later = await readPublicPage("https://lim2.example/x", full);
     ok("「到上限」不记进缓存：另一支照常读到", limited.outcome === "limit" && later.outcome === "ok" && !later.fromCache);
@@ -440,7 +442,7 @@ async function main() {
     w.handlers.set("https://www.importyeti.com/company/x", () => html(`<p>${LONG_TEXT}</p>`));
     w.handlers.set("https://bad.example.com/p", () => html(`<p>${LONG_TEXT}</p>`));
     const s = await session(w, { settings: { researchTree: { sites: { deny: ["bad.example.com"] } } } });
-    const ctx = s.forBranch({ branchKey: "b", budget: budget() });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b", budget: budget() });
     for (const url of ["https://detail.1688.com/offer/1.html", "https://www.merx.com/x", "https://bad.example.com/p"]) {
       const r = await readPublicPage(url, ctx);
       ok(`不碰：${new URL(url).hostname} 拒绝`, r.outcome === "refused" && r.reason === "site_denied");
@@ -448,7 +450,7 @@ async function main() {
     ok("不碰的站没有任何请求", !w.log.some((l) => /1688|merx|bad\.example/.test(l.url)));
     const priv = await readPublicPage("https://rob.example/private/a", ctx);
     ok("robots 不许：被挡、没有页面请求", priv.outcome === "blocked" && priv.reason === "robots_disallow" && !w.log.some((l) => l.url.endsWith("/private/a")));
-    const ctx2 = s.forBranch({ branchKey: "b2", budget: budget() });
+    const ctx2 = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b2", budget: budget() });
     const pub = await readPublicPage("https://rob.example/public/b", ctx2);
     ok("robots 允许的路径读到", pub.outcome === "ok");
     ok("同一站点的 robots 只取一次", w.robotsRequests().filter((l) => l.url.startsWith("https://rob.example")).length === 1);
@@ -472,7 +474,7 @@ async function main() {
     w.handlers.set("https://doc.example/h", () => html("<html><head><title>T</title><script>evil()</script></head><body><h1>Award</h1><table><tr><td>Vendor</td><td>ACME</td></tr></table></body></html>"));
     w.handlers.set("https://doc.example/latin", () => ({ status: 200, headers: { "content-type": "text/html; charset=windows-1252" }, body: new Uint8Array([0x3c, 0x70, 0x3e, 0x43, 0x61, 0x66, 0xe9, 0x3c, 0x2f, 0x70, 0x3e]), truncated: false }));
     const s = await session(w);
-    const ctx = s.forBranch({ branchKey: "b", budget: budget() });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b", budget: budget() });
     const pdf = await readPublicPage("https://doc.example/a.pdf", ctx);
     ok("PDF：读到且不含 U+0000", pdf.outcome === "ok" && !pdf.text.includes("\u0000") && pdf.text.includes("230,000"), pdf);
     const big = await readPublicPage("https://doc.example/big", ctx);
@@ -496,7 +498,7 @@ async function main() {
     const logs: string[] = [];
     const orig = { log: console.log, error: console.error, warn: console.warn };
     const s = await session(w);
-    const ctx = s.forBranch({ branchKey: "b", budget: budget() });
+    const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b", budget: budget() });
     console.log = (...a: unknown[]) => void logs.push(a.map(String).join(" "));
     console.error = console.log;
     console.warn = console.log;

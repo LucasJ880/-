@@ -207,11 +207,11 @@ export type ResearchReadSession = {
     /** 绝对截止时间（毫秒时间戳）；不传则只受单次请求超时约束 */
     deadlineAt?: number | null;
     /**
-     * 调用方对「要读的网址」的检查（只查调用方给出的网址，不查对方给的跳转目标）：
+     * 必填：调用方对「要读的网址」的检查（只查调用方给出的网址，不查对方给的跳转目标）。网址本身就是外发数据：
      * TREE-2 用它保证网址只来自本支搜索结果 / 已读页面 / 标书 / 人工提供，且不含我方成本、毛利、目标价。
      * 返回 false → 不读（url_not_allowed）。
      */
-    allowUrl?: (url: URL) => boolean;
+    allowUrl: (url: URL) => boolean;
   }): ResearchReadContext;
 };
 
@@ -219,11 +219,15 @@ export type ResearchReadContext = {
   readonly [BRANCH_BRAND]: true;
   readonly session: ResearchReadSession;
   readonly branchKey: string;
-  readonly budget: ReadBudget;
+  /** 这一支读页额度的只读快照（额度由读页层内部记账；调用方持久化后下次传回 used） */
+  readonly budget: Readonly<ReadBudget>;
   readonly blockedSites: Set<string>;
   readonly deadlineAt: number | null;
-  readonly allowUrl: ((url: URL) => boolean) | null;
+  readonly allowUrl: (url: URL) => boolean;
 };
+
+/** 读页层内部的额度记账（调用方拿到的只是快照，改不了） */
+const branchBudgets = new WeakMap<object, ReadBudget>();
 
 type SessionInternals = { tree: TreeState; deps: WebReaderDeps; env: Record<string, string | undefined> };
 const internals = new WeakMap<ResearchReadSession, SessionInternals>();
@@ -326,23 +330,28 @@ export async function createResearchReadSessionWithDeps(
         !budget ||
         !okInt(budget.remaining) ||
         !okInt(budget.used) ||
-        budget.remaining + budget.used > WEB_READER_LIMITS.MAX_READS_PER_BRANCH
+        budget.remaining + budget.used > WEB_READER_LIMITS.MAX_READS_PER_BRANCH ||
+        typeof b.allowUrl !== "function"
       ) {
         throw new WebReaderContextError(
           "INVALID_CONTEXT",
-          `分支读页上下文无效（要有分支标识、同一会话里每支只建一次、额度为非负整数且合计不超过 ${WEB_READER_LIMITS.MAX_READS_PER_BRANCH} 次）`,
+          `分支读页上下文无效（要有分支标识、同一会话里每支只建一次、额度为非负整数且合计不超过 ${WEB_READER_LIMITS.MAX_READS_PER_BRANCH} 次、必须给网址检查）`,
         );
       }
       usedBranchKeys.add(branchKey);
-      const ctx: ResearchReadContext = {
+      const internalBudget: ReadBudget = { remaining: budget.remaining, used: budget.used };
+      const ctx = {
         [BRANCH_BRAND]: true,
         session,
         branchKey,
-        budget,
+        get budget(): Readonly<ReadBudget> {
+          return Object.freeze({ remaining: internalBudget.remaining, used: internalBudget.used });
+        },
         blockedSites: b.blockedSites ?? new Set<string>(),
         deadlineAt: b.deadlineAt ?? null,
-        allowUrl: typeof b.allowUrl === "function" ? b.allowUrl : null,
-      };
+        allowUrl: b.allowUrl,
+      } as ResearchReadContext;
+      branchBudgets.set(ctx, internalBudget);
       branchContexts.add(ctx);
       return ctx;
     },
@@ -432,6 +441,19 @@ function isContextual(r: PageReadResult): boolean {
   );
 }
 
+function budgetOf(ctx: ResearchReadContext): ReadBudget {
+  const b = branchBudgets.get(ctx);
+  if (!b) throw new WebReaderContextError("INVALID_CONTEXT", "读网页的上下文无效（必须由调研 Job 建出）");
+  return b;
+}
+
+/** 这一支里被挡过的站：站点本身，或它的子域名（被挡后不靠换子域名绕过）；返回命中的那个被挡站 */
+function blockedSiteFor(ctx: ResearchReadContext, site: string): string | null {
+  if (ctx.blockedSites.has(site)) return site;
+  for (const b of ctx.blockedSites) if (site.endsWith(`.${b}`)) return b;
+  return null;
+}
+
 function remainingMs(ctx: ResearchReadContext, deps: WebReaderDeps): number {
   if (ctx.deadlineAt == null) return Number.POSITIVE_INFINITY;
   return ctx.deadlineAt - deps.clock.now() - WEB_READER_LIMITS.DEADLINE_MARGIN_MS;
@@ -459,7 +481,7 @@ export async function readPublicPage(rawUrl: string, ctx: ResearchReadContext): 
   if (!checked.ok) return nonRequest(raw.slice(0, WEB_READER_LIMITS.AUDIT_URL_MAX_CHARS), "refused", checked.reason, nowIso());
   const key = normalizePageUrl(checked.url);
   const site = siteKeyOf(checked.url);
-  if (ctx.allowUrl && !ctx.allowUrl(new URL(key))) return nonRequest(key, "refused", "url_not_allowed", nowIso());
+  if (!ctx.allowUrl(new URL(key))) return nonRequest(key, "refused", "url_not_allowed", nowIso());
 
   // 规则 6：同一会话内同址只读一次（含并发合并）。别的支正在读同一网址时等它的结果（受本支截止约束）；
   // 那个结果若与它自己的状态有关（到上限等），本支再按自己的状态读。同一个等候对象只等一次（不会空转）。
@@ -475,8 +497,9 @@ export async function readPublicPage(rawUrl: string, ctx: ResearchReadContext): 
     if (!isContextual(shared)) return markBranchFromCache(ctx, shared);
   }
 
-  if (ctx.blockedSites.has(site)) return nonRequest(key, "blocked", "site_blocked_in_branch", nowIso(), site);
-  if (ctx.budget.remaining <= 0) return nonRequest(key, "limit", "budget_exhausted", nowIso());
+  const blockedAs = blockedSiteFor(ctx, site);
+  if (blockedAs) return nonRequest(key, "blocked", "site_blocked_in_branch", nowIso(), blockedAs);
+  if (budgetOf(ctx).remaining <= 0) return nonRequest(key, "limit", "budget_exhausted", nowIso());
 
   const state: ReadState = { attempts: 0, robotsRequests: 0, charged: false, lastRequested: null };
   const p = readUncached(checked.url, key, ctx, inner, state).then(async (r) => {
@@ -600,7 +623,7 @@ async function requestWithRetry(
   for (;;) {
     if (!(await reserveSiteSlot(site, ctx, deps))) return stop("unreachable", "deadline");
     // 排到时段之后再查一次：同一支里别的并发读可能刚刚被这个站挡了
-    if (ctx.blockedSites.has(site)) return stop("blocked", "site_blocked_in_branch");
+    if (blockedSiteFor(ctx, site)) return stop("blocked", "site_blocked_in_branch");
     const left = remainingMs(ctx, deps);
     if (left < WEB_READER_LIMITS.MIN_ATTEMPT_MS) return stop("unreachable", "deadline");
     if (hooks.beforeSend && !hooks.beforeSend()) return stop("limit", "budget_exhausted");
@@ -662,24 +685,35 @@ type RobotsVerdict =
   | { kind: "allow_all" }
   | { kind: "unavailable" }
   | { kind: "private" }
-  | { kind: "deadline" };
+  | { kind: "deadline" }
+  /** 跳到了这一支被挡过的站：与本支状态有关，不缓存、不给别的支共用 */
+  | { kind: "branch_blocked"; site: string };
+
+/** 与取 robots 那一支自己的状态有关的结论：不记进会话缓存 */
+function isContextualVerdict(v: RobotsVerdict): boolean {
+  return v.kind === "deadline" || v.kind === "branch_blocked";
+}
 
 async function robotsFor(url: URL, ctx: ResearchReadContext, inner: SessionInternals, state: ReadState): Promise<RobotsVerdict> {
   const origin = url.origin;
   for (let tries = 0; tries < 2; tries++) {
     const existing = inner.tree.robots.get(origin);
     if (existing) {
-      const v = await existing;
-      // 别的支取 robots 时它自己的时间到了：本支还有时间就自己再取一次
-      if (v.kind === "deadline" && remainingMs(ctx, inner.deps) >= WEB_READER_LIMITS.MIN_ATTEMPT_MS) {
+      // 等别的支取 robots 也受本支截止约束
+      const left = remainingMs(ctx, inner.deps);
+      const v = Number.isFinite(left) ? await raceTimer(existing, Math.max(0, left), inner.deps.clock) : await existing;
+      if (v === null) return { kind: "deadline" };
+      // 别的支取到的结论与它自己的状态有关（它的时间到了、跳到它被挡过的站）：本支自己再取一次
+      if (isContextualVerdict(v)) {
         if (inner.tree.robots.get(origin) === existing) inner.tree.robots.delete(origin);
+        if (v.kind === "deadline" && remainingMs(ctx, inner.deps) < WEB_READER_LIMITS.MIN_ATTEMPT_MS) return v;
         continue;
       }
       return v;
     }
     const p: Promise<RobotsVerdict> = fetchRobots(new URL("/robots.txt", origin), ctx, inner, state).then((v) => {
-      // 时间用完是这一次调用自己的状态，不记下
-      if (v.kind === "deadline" && inner.tree.robots.get(origin) === p) inner.tree.robots.delete(origin);
+      // 与这一次调用自己的状态有关的结论不记下
+      if (isContextualVerdict(v) && inner.tree.robots.get(origin) === p) inner.tree.robots.delete(origin);
       return v;
     });
     inner.tree.robots.set(origin, p);
@@ -699,7 +733,8 @@ async function fetchRobots(start: URL, ctx: ResearchReadContext, inner: SessionI
     if (hop > 0 && url.pathname !== "/robots.txt") return { kind: "allow_all" };
     const site = siteKeyOf(url);
     if (classifySite(hostOf(url), ctx.session.sitePolicy) === "deny") return { kind: "unavailable" };
-    if (ctx.blockedSites.has(site)) return { kind: "unavailable" };
+    const blockedAs = blockedSiteFor(ctx, site);
+    if (blockedAs) return { kind: "branch_blocked", site: blockedAs };
     const addr = await addressCheck(url, ctx, deps);
     if (addr === "private") return { kind: "private" };
     if (addr === "deadline") return { kind: "deadline" };
@@ -712,6 +747,7 @@ async function fetchRobots(start: URL, ctx: ResearchReadContext, inner: SessionI
     if (r.kind === "stop") {
       if (r.reason === "deadline") return { kind: "deadline" };
       if (r.reason === "private_address") return { kind: "private" };
+      if (r.reason === "site_blocked_in_branch") return { kind: "branch_blocked", site };
       // 429 / 5xx / 超时 / 连接失败 → 视为全部不许读（RFC 9309 §2.3.1.4；429 同样按读取失败）
       return { kind: "unavailable" };
     }
@@ -801,13 +837,16 @@ async function readUncached(
     const chk = checkPublicUrl(url.toString());
     if (!chk.ok) return hop === 0 ? stop("refused", chk.reason) : stop("unreachable", "invalid_redirect");
     const site = siteKeyOf(url);
+    // 主机名是 IP 地址的不读：被挡后不靠换成 IP 绕过，正常的公开网站也不用 IP 地址
+    if (ipLiteralOf(url)) return hop === 0 ? stop("refused", "ip_literal") : stop("unreachable", "invalid_redirect");
     const cls = classifySite(hostOf(url), policy);
     if (cls === "deny") return stop("refused", "site_denied");
     // 直接给的登录地址：不碰（不读，不算该站被挡）；跳转到登录地址：发出跳转的那个站挡了我们
     if (isLoginUrl(url)) {
       return hop === 0 ? stop("refused", "login_url") : stop("blocked", "login_redirect", lastStatus, prev ? siteKeyOf(prev) : site);
     }
-    if (hop > 0 && ctx.blockedSites.has(site)) return stop("blocked", "site_blocked_in_branch", lastStatus, site);
+    const blockedHop = hop > 0 ? blockedSiteFor(ctx, site) : null;
+    if (blockedHop) return stop("blocked", "site_blocked_in_branch", lastStatus, blockedHop);
     const addr = await addressCheck(url, ctx, deps);
     if (addr === "private") return stop("refused", "private_address");
     if (addr === "dns") return stop("unreachable", "dns_failed");
@@ -816,6 +855,7 @@ async function readUncached(
       const robots = await robotsFor(url, ctx, inner, state);
       if (robots.kind === "deadline") return stop("unreachable", "deadline");
       if (robots.kind === "private") return stop("refused", "private_address");
+      if (robots.kind === "branch_blocked") return stop("blocked", "site_blocked_in_branch", lastStatus, robots.site);
       if (robots.kind === "unavailable") return stop("blocked", "robots_unavailable", lastStatus, site);
       if (robots.kind === "rules" && !isAllowedByRobots(robots.groups, url.pathname + url.search)) {
         return stop("blocked", "robots_disallow", lastStatus, site);
@@ -826,9 +866,10 @@ async function readUncached(
       // 规则 5：真正发出第一个页面请求前一刻才扣额度（并发时以这里为准）
       beforeSend: () => {
         if (state.charged) return true;
-        if (ctx.budget.remaining <= 0) return false;
-        ctx.budget.remaining -= 1;
-        ctx.budget.used += 1;
+        const b = budgetOf(ctx);
+        if (b.remaining <= 0) return false;
+        b.remaining -= 1;
+        b.used += 1;
         state.charged = true;
         return true;
       },
@@ -882,8 +923,11 @@ async function readUncached(
         ex = { ok: false, reason: "pdf_unreadable" };
       }
       if (!ex.ok) {
+        // 被 2 MB 截断的 PDF 最后一个流必然不完整，预扫描会估不出解压量：原因写「超过 2 MB」
+        if (res.truncated) return stop("unreachable", "pdf_too_large", res.status);
         if (ex.reason === "pdf_too_complex") return stop("refused", "pdf_too_complex", res.status);
-        return stop("unreachable", res.truncated ? "pdf_too_large" : "pdf_unreadable", res.status);
+        if (ex.reason === "pdf_encrypted") return stop("refused", "pdf_encrypted", res.status);
+        return stop("unreachable", "pdf_unreadable", res.status);
       }
       // FIX-13：U+0000 换成空格再整理（抽出的文字里勾选框常是 U+0000）
       text = toStorableText(ex.text).trim();

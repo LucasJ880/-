@@ -3,11 +3,12 @@
  *
  * 2 MB 只限住了下载的字节数，限不住解析的成本：一个高压缩比的内容流被很多页共用，几十 KB 的 PDF
  * 就能让 unpdf 解压出上 GB 的数据、跑几十秒。所以分三层：
- *   1. 预扫描（没加密的 PDF）：把所有非图片的 FlateDecode 流用 zlib 的输出上限解压一遍计数，
- *      合计超过 16 MB 就不读（pdf_too_complex）；用了 LZW / RunLength 这类老压缩的也不读。
+ *   1. 预扫描：加密的 PDF（文件里出现 /Encrypt）不读——流是密文，没法预先估算解压量；
+ *      其余所有 FlateDecode 流（不论字典里自称是什么，图片也算）用 zlib 的输出上限解压一遍计数，合计超过
+ *      16 MB 就不读（pdf_too_complex）；过滤器链、解压出错、用了 LZW / RunLength 的也不读。
  *   2. 只抽前 30 页（逐页取文字，取完就释放）。
- *   3. 累计 8 秒或离截止时间不到 2 秒就停；正文到上限字数就停。停了都标「已截断」。
- * 加密的 PDF 流是密文，预扫描做不了，只靠第 2、3 层（残余风险见 design D7 与交接）。
+ *   3. 页与页之间查：累计 8 秒或离截止时间不到 2 秒就停；正文到上限字数就停。停了都标「已截断」。
+ *      单页解析本身不能中断（pdf.js 在主线程上跑），靠第 1 层的解压量上限兜底。
  * 不放进 worker 线程：unpdf 是打包进服务端代码的，要放进 worker 得改 next.config.ts，会影响既有的上传解析。
  */
 
@@ -22,11 +23,14 @@ export const PDF_LIMITS = Object.freeze({
 
 export type PdfExtractResult =
   | { ok: true; text: string; truncated: boolean; pagesRead: number; totalPages: number }
-  | { ok: false; reason: "pdf_unreadable" | "pdf_too_complex" };
+  | { ok: false; reason: "pdf_unreadable" | "pdf_too_complex" | "pdf_encrypted" };
 
 export type PdfPrescan = "ok" | "over" | "encrypted";
 
-/** 预扫描：非图片的 FlateDecode 流解压后合计是否不超过上限 */
+/**
+ * 预扫描：出现 /Encrypt → encrypted；所有 FlateDecode 流解压后合计超过上限、过滤器链、解压出错、
+ * LZW / RunLength → over。不信流字典的自述（「我是图片」也照样计数），宁可多拒。
+ */
 export function prescanPdf(bytes: Uint8Array, maxInflated: number = PDF_LIMITS.MAX_INFLATED_BYTES): PdfPrescan {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const s = buf.toString("latin1");
@@ -42,16 +46,16 @@ export function prescanPdf(bytes: Uint8Array, maxInflated: number = PDF_LIMITS.M
     const end = s.indexOf("endstream", dataStart);
     const dataEnd = end < 0 ? s.length : end;
     re.lastIndex = dataEnd;
-    if (/\/Subtype\s*\/Image\b/.test(dict)) continue; // 抽文字不解码图片
     if (/\/(LZWDecode|LZW|RunLengthDecode|RL)\b/.test(dict)) return "over";
     if (!/\/(FlateDecode|Fl)\b/.test(dict)) continue;
+    // 过滤器链（如 [/ASCII85Decode /FlateDecode]）：zlib 直接解不了，估不出解压量 → 不读
+    if (/\/Filter\s*\[[^\]]*\/\w+[^\]]*\/\w+/.test(dict)) return "over";
     try {
       const out = zlib.inflateSync(buf.subarray(dataStart, dataEnd), { maxOutputLength: maxInflated - total + 1 });
       total += out.length;
-    } catch (e) {
-      const code = (e as { code?: string }).code;
-      if (code === "ERR_BUFFER_TOO_LARGE" || e instanceof RangeError) return "over";
-      // 流本身坏了或被截断：交给解析器去判断
+    } catch {
+      // 超过上限（ERR_BUFFER_TOO_LARGE）、数据坏了或被截断：都估不出解压量 → 不读
+      return "over";
     }
     if (total > maxInflated) return "over";
   }
@@ -77,7 +81,9 @@ export async function extractPdfTextGuarded(
   opts: { maxChars: number; deadlineAt: number | null; now?: () => number; loadDocument?: (b: Uint8Array) => Promise<DocProxy> },
 ): Promise<PdfExtractResult> {
   const now = opts.now ?? (() => Date.now());
-  if (prescanPdf(bytes) === "over") return { ok: false, reason: "pdf_too_complex" };
+  const pre = prescanPdf(bytes);
+  if (pre === "encrypted") return { ok: false, reason: "pdf_encrypted" };
+  if (pre === "over") return { ok: false, reason: "pdf_too_complex" };
   const load =
     opts.loadDocument ??
     (async (b: Uint8Array) => {

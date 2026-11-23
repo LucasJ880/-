@@ -42,9 +42,11 @@ export type RefusedReason =
   | "private_address"
   | "site_denied"
   | "login_url"
+  | "ip_literal"
   | "url_not_allowed"
   | "unsupported_type"
-  | "pdf_too_complex";
+  | "pdf_too_complex"
+  | "pdf_encrypted";
 
 export type PageReadReason = BlockedReason | UnreachableReason | RefusedReason | "budget_exhausted";
 
@@ -86,8 +88,11 @@ export type SitePolicy = {
   allow: readonly string[];
 };
 
-/** 调研 Job 的发起方式（只有这两种算「人发起」） */
-export const HUMAN_RESEARCH_TRIGGERS = ["human_start", "requirements_confirmed"] as const;
+/**
+ * 调研 Job 的发起方式（只有这几种算「人发起」）：项目页「开始调研」、确认招标要求、某一支「重新查」、
+ * 人工补页后重算。任何定时任务都不发起调研 Job。
+ */
+export const HUMAN_RESEARCH_TRIGGERS = ["human_start", "requirements_confirmed", "human_rerun", "human_page_intake"] as const;
 export type HumanResearchTrigger = (typeof HUMAN_RESEARCH_TRIGGERS)[number];
 
 /**

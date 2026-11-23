@@ -19,5 +19,5 @@
 
 ## 5. 门禁与报告
 
-- [ ] 5.1 全量门禁与零变化核对（verify：`npm test` 只有 main 基线上同样的失败；`npm run test:ci`（不连库，同 CI）、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh` 通过；全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `trade/email-forward-parse.ts` 外为空；`git diff origin/main -- prisma/ vercel.json next.config.ts src/lib/workforce-runtime/` 为空）
-- [ ] 5.2 写 `docs/QINGYAN_TREE-1_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含门禁结果、多维审查与交叉验证结论、没验证到的地方与回退办法；TASKFLOW 的 TREE-0、TREE-1 两行为 `[~]`；交接文档更新）
+- [x] 5.1 全量门禁与零变化核对（verify：`npm test` 只有 main 基线上同样的失败；`npm run test:ci`（不连库，同 CI）、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh` 通过；全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `trade/email-forward-parse.ts` 外为空；`git diff origin/main -- prisma/ vercel.json next.config.ts src/lib/workforce-runtime/` 为空）
+- [x] 5.2 写 `docs/QINGYAN_TREE-1_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含门禁结果、多维审查与交叉验证结论、没验证到的地方与回退办法；TASKFLOW 的 TREE-0、TREE-1 两行为 `[~]`；交接文档更新）

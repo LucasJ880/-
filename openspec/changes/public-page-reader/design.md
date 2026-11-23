@@ -30,7 +30,7 @@
 ## Decisions
 
 ### D1 读页会话只能从一条「人发起的调研 Job」建出（规则 1）
-生产入口 `createResearchReadSession({ orgId, jobId, scheduled? })`（`src/lib/web-reader/index.ts`）调 `createResearchReadSessionWithDeps`，读 `AgentRun` 的 `id / orgId / status / metadata`，逐项核对：同组织；`metadata.workDomain === "tender"`；`metadata.researchTree === true` 且 `researchTreeVersion === 1`；`researchTrigger ∈ { "human_start", "requirements_confirmed" }`；发起人取运行时写的保留键 `metadata.initiatedByUserId`（调用方没法经 extraMetadata 伪造）；状态不是 completed / failed / cancelled。调用方传 `scheduled: true`、没有 `jobId`、开关关着都直接抛错。会话的 `forBranch({ branchKey, budget, blockedSites?, deadlineAt?, allowUrl? })` 造每一支的上下文；`readPublicPage(url, ctx)` 只接受这样造出来的上下文（内部 WeakSet 登记，手拼、展开复制都被拒），每次读页再查一次开关（关开关即停）。TREE-2 的「开始调研」接口经 `createWorkforceJob` 的 `extraMetadata` 写 `{ researchTree: true, researchTreeVersion: 1, researchTrigger }`。
+生产入口 `createResearchReadSession({ orgId, jobId, scheduled? })`（`src/lib/web-reader/index.ts`）调 `createResearchReadSessionWithDeps`，读 `AgentRun` 的 `id / orgId / status / metadata`，逐项核对：同组织；`metadata.workDomain === "tender"`；`metadata.researchTree === true` 且 `researchTreeVersion === 1`；`researchTrigger ∈ { "human_start", "requirements_confirmed", "human_rerun", "human_page_intake" }`（开始调研 / 确认招标要求 / 某一支重新查 / 人工补页后重算）；发起人取运行时写的保留键 `metadata.initiatedByUserId`（调用方没法经 extraMetadata 伪造）；状态不是 completed / failed / cancelled。调用方传 `scheduled: true`、没有 `jobId`、开关关着都直接抛错。会话的 `forBranch({ branchKey, budget, blockedSites?, deadlineAt?, allowUrl? })` 造每一支的上下文；`readPublicPage(url, ctx)` 只接受这样造出来的上下文（内部 WeakSet 登记，手拼、展开复制都被拒），每次读页再查一次开关（关开关即停）。TREE-2 的「开始调研」接口经 `createWorkforceJob` 的 `extraMetadata` 写 `{ researchTree: true, researchTreeVersion: 1, researchTrigger }`。
 - 否决「按当前进程是不是 cron 判断」：调研 Job 本身就由 `api/cron/agent-runs` 处理，这样判断会把合法的调研也挡掉，而真正的定时任务换一个进程照样能调。
 - 否决「只要求调用方传一个 jobId 字符串」：任何定时任务都能编一个；必须到库里确认它是人发起的调研 Job。
 - 否决「标记写成一个对象 `metadata.researchTree = {…}`」（第一稿）：`extraMetadata` 只收原始值，对象只能建完 Job 再补写，补写之前处理器就可能认领这个 Job；平铺后建 Job 时一次写全。
@@ -54,24 +54,27 @@
 - 否决「页面里只要有 password 输入框就算登录页」：会把大量带页眉登录框的政府与厂家页面误判为被挡。
 
 ### D5 限量、间隔、重试与截止的计数口径
-- 额度由调用方给（TREE-2 每支一个，初值 12，可被组织调低）。`forBranch` 拒绝「剩余 + 已用 > 12」或不是非负整数的额度，同一会话里同一支只能建一次上下文。一次读页在**真正发出第一个页面请求前一刻**扣 1（`beforeSend` 钩子）；同一次读页里的跳转、重试与 robots 请求不扣；缓存命中、不读、这一支已被挡的站、时间到了而没发请求的都不扣。额度为 0 时连 robots 也不请求。
+- 额度由调用方给（TREE-2 每支一个，初值 12，可被组织调低）。`forBranch` 拒绝「剩余 + 已用 > 12」或不是非负整数的额度，同一会话里同一支只能建一次上下文；额度拷进读页层内部记账（WeakMap），`ctx.budget` 只是只读快照——建好后改调用方的对象不起作用（挑错交叉验证 X4）。跨会话（每个切片新建会话）的额度靠调用方把 `used` 持久化后传回，**这是 TREE-2 的硬要求**。一次读页在**真正发出第一个页面请求前一刻**扣 1（`beforeSend` 钩子）；同一次读页里的跳转、重试与 robots 请求不扣；缓存命中、不读、这一支已被挡的站、时间到了而没发请求的都不扣。额度为 0 时连 robots 也不请求。
 - 站点间隔：进程内的「站点节拍」，按时钟对象分开（生产是一个模块级时钟 → 全进程共享；测试的每个假世界各自一份），按站点键（主机名去掉 `www.`）记「下一次最早可以开始的时间」。每次请求前**同步预约**：算出开始时间并立刻占住（之后的预约至少再晚 2 秒），再等到开始时间；开始时间超过本支剩余时间就不预约、直接「时间到了」。跨进程（两个函数实例同时读同一站）不保证，交接文档记为已知限制。
 - 重试：超时 / 连接中断 / 5xx 最多再试 2 次，等待 1 秒、3 秒；429 只在 `Retry-After` 给出纯数字秒数、或带 GMT 的 HTTP 日期、且不超过 30 秒时等够再试一次。每次请求前再查一次这一支被挡过的站。
 - 截止：等待、重试、站点排队、域名解析、等别的支的同址结果、取 robots 都受本支截止时间约束（与截止赛跑的计时器在赛跑结束时清掉，不留悬着的计时器）；单次超时被截止缩短后超时的记「时间到了」（不进缓存）。TREE-2 传切片截止时间，做法同 FIX-12。
 - 否决「重试也扣额度」：额度是「读几个页面」，按尝试次数扣会让一个不稳定的站点吃掉一支的大半额度。
 - 否决「先扣额度再查截止」（第一稿）：时间不够时会扣了额度却没发请求。
 - 否决「站点节拍按 Promise 链排队」（第一稿）：排在后面的支无法在入队前知道自己要等多久，会越过截止时间。
+- 被挡站点的判定按后缀：gov.example 在这一支被挡后，m.gov.example 同样不再请求（不靠换子域名绕过）；反过来 m.gov.example 被挡不影响 gov.example（父域名不一定是同一台服务器）。主机名是 IP 地址的网址一律不读（`ip_literal`）：被挡后不靠换成 IP 绕过，公开的政府与厂家网站也不用 IP 地址。
+- 等审计写库与调用方的持久缓存取 / 存不受截止约束（毫秒级；按截止中断会丢审计行）——挑错交叉验证 X12，不改。
 
 ### D6 站点名单与 robots
-- 代码常量（`src/lib/web-reader/pure.ts` 的 `PRESET_SITE_POLICY`）：`deny`「不碰」（预置 `detail.1688.com`、`login.1688.com`、`merx.com`、`linkedin.com`、`facebook.com`、`instagram.com`——要登录才能看的站，后缀匹配）；`humanInitiated`「按人发起处理」（预置 `importyeti.com`）；`allow`「可以读」（预置 `canada.ca`、`gc.ca`、`canadabuys.canada.ca`，与默认同样处理、照样看 robots，只是文档化）。
+- 代码常量（`src/lib/web-reader/pure.ts` 的 `PRESET_SITE_POLICY`）：`deny`「不碰」（预置 `detail.1688.com`、`login.1688.com`、`merx.com`、`linkedin.com`、`facebook.com`、`instagram.com`——要登录才能看的站；`qingyan.ca`、`qingyan.ai`、`vercel.app`——青砚自己的站与预览域名，不对自家站点发请求；后缀匹配）；`humanInitiated`「按人发起处理」（预置 `importyeti.com`）；`allow`「可以读」（预置 `canada.ca`、`gc.ca`、`canadabuys.canada.ca`，与默认同样处理、照样看 robots，只是文档化）。
 - 组织覆盖：`Organization.settingsJson.researchTree.sites = { deny?: string[], allow?: string[] }`；只收这两类，分类时 `deny` 永远先查（组织把 ImportYeti 加进 `deny` 就不读）。不收 `humanInitiated`：不看 robots 是一个要拍板的放宽，不能由组织设置自己放开。
-- robots：按 RFC 9309——取 `QingyanResearchBot` 组（`User-agent` 值的版本号部分忽略），没有则取 `*` 组；规则与路径按 UTF-8 百分号编码归一（非 ASCII 编码、`%xx` 大写）后比较；`Allow` / `Disallow` 最长匹配，同长 `Allow` 优先；支持 `*` 与 `$`，路径含查询串；只读前 500 KiB。4xx（含 401 / 403）视为没有限制；429、5xx、超时、连接失败视为全部不许读（RFC 9309 §2.3.1.3 / §2.3.1.4；429 按读取失败处理与主流爬虫一致）。规则超过 5000 条或单条模式超过 512 字 → 读取失败；一次判断的匹配步数预算 200 万步，用完按不许读——对方没法用超大规则表占满 CPU。robots 的跳转只跟到别处的 `/robots.txt`（最多 5 次，RFC 建议）；跳到别的页面（登录页等）视为没有 robots、不请求；跳到「不碰」站或这一支被挡过的站不请求、按读取失败。robots 结果按「协议 + 主机 + 端口」在会话里缓存；某支取 robots 时它自己的时间到了，结果不缓存，别的支有时间就自己再取。
+- robots：按 RFC 9309——取 `QingyanResearchBot` 组（`User-agent` 值的版本号部分忽略），没有则取 `*` 组；规则与路径按 UTF-8 百分号编码归一（非 ASCII 编码；非保留字符 `A–Z a–z 0–9 - . _ ~` 的 `%xx` 解码；其余 `%xx` 大写）后比较；`Allow` / `Disallow` 最长匹配，同长 `Allow` 优先；支持 `*` 与 `$`，路径含查询串；只读前 500 KiB。4xx（含 401 / 403）视为没有限制；429、5xx、超时、连接失败视为全部不许读（RFC 9309 §2.3.1.3 / §2.3.1.4；429 按读取失败处理与主流爬虫一致）。规则超过 5000 条或单条模式超过 512 字 → 读取失败；一次判断的匹配步数预算 200 万步，用完按不许读——对方没法用超大规则表占满 CPU。robots 的跳转只跟到别处的 `/robots.txt`（最多 5 次，RFC 建议）；跳到别的页面（登录页等）视为没有 robots、不请求；跳到「不碰」站不请求、按读取失败；跳到这一支被挡过的站不请求、记为「这一支被挡」——这个结论与那一支的状态有关，不进会话缓存（挑错交叉验证 X3）。robots 结果按「协议 + 主机 + 端口」在会话里缓存；某支取 robots 时它自己的时间到了、或跳到了它被挡过的站，结果不缓存，别的支自己再取；等别的支取 robots 也受本支截止约束（X2）。
 - 否决「robots 401 / 403 也视为不许读」：RFC 明确 4xx 视为不可得，政府站点常对 `/robots.txt` 返回 403，会让大量页面无谓被挡。
 
 ### D7 读到的内容
 - HTML / XHTML：按 `Content-Type` 的 charset（没有则看 `<meta charset>`，再没有用 UTF-8）解码后转纯文本（公共模块，见「不确定处」第 5 条）。
 - 纯文本：同样解码。任务书只写了 HTML 与 PDF；纯文本（`.txt` 公告、CSV 预览）风险与 HTML 转出的文本相同，收下更有用，所以一并收。
-- PDF（`src/lib/web-reader/pdf.ts`）：2 MB 只限住了下载字节，限不住解析成本（审查实测 58 KB 的 PDF 让 unpdf 跑 21.8 秒、用 3.4 GB）。三层：① 预扫描（未加密）：非图片的 FlateDecode 流用 zlib 的输出上限解压计数，合计超过 16 MB 或用了 LZW / RunLength 就不读（`pdf_too_complex`）；② 只抽前 30 页，逐页取文字、取完 `cleanup`；③ 累计 8 秒或离截止不到 2 秒就停、正文到 2 MB 字数就停，都标截断。加密 PDF 的流是密文，只靠 ②③。被 2 MB 截断后抽不出文字的写「PDF 超过 2 MB」（`pdf_too_large`）。
+- PDF（`src/lib/web-reader/pdf.ts`）：2 MB 只限住了下载字节，限不住解析成本（审查实测 58 KB 的 PDF 让 unpdf 跑 21.8 秒、用 3.4 GB）。三层：① 预扫描：文件里出现 `/Encrypt` 就不读（`pdf_encrypted`；流是密文，估不出解压量；任意位置出现都按加密处理，宁可多拒）；所有 FlateDecode 流——不信字典自述，自称图片的也算——用 zlib 的输出上限解压计数，合计超过 16 MB、过滤器链（如 `[/ASCII85Decode /FlateDecode]`）、解压出错、LZW / RunLength 都不读（`pdf_too_complex`）；② 只抽前 30 页，逐页取文字、取完 `cleanup`；③ 页与页之间查：累计 8 秒或离截止不到 2 秒就停、正文到 2 MB 字数就停，都标截断。单页内的解析不能中断（pdf.js 在主线程上），靠 ① 的解压量上限兜底。被 2 MB 截断的 PDF 抽不出文字时一律写「PDF 超过 2 MB」（`pdf_too_large`）。
+- 第一稿里预扫描「跳过图片流、加密的放行、解压出错的忽略」都能被构造的 PDF 利用（挑错交叉验证 X1 实测：40 KB 的文件绕过后单页 9.7 秒、836 MB）；代价是：加密的政府 PDF、用过滤器链的老 PDF、带大张 Flate 图片的 PDF 会被拒——这些由人用 TREE-6 的「我来补一页」送进来。
 - 不放进 worker 线程：unpdf 是打包进服务端代码的（不在 `next.config.ts` 的 `serverExternalPackages` 里），worker 里解析要改 `next.config.ts`，会改变既有上传解析的打包方式。
 - 其它类型（含没有 `Content-Type`）：不读，不读正文。
 - 所有正文最后都清掉 U+0000、落单代理字符（`toStorableText`）、Unicode 标签字符（U+E0000–E007F）、双向控制符与零宽字符（常被用来藏指令）；后续写库不会因此失败。隐藏元素（`display:none` 等）里的文字不在本层处理，交给 TREE-2 的提示词约束（正文只作为数据进模型）。
@@ -86,13 +89,14 @@
 后面七个 change 都要用同一个开关，放在调研树自己的目录里；读网页模块引用它。写法与 `tender-intel/sourcing-flags.ts` 相同（`envBool` / `envList` 各自一份私有小函数，照现有做法，不抽公共）。
 
 ### D10 TREE-0 的落点
-`openspec/config.yaml` 硬纪律第 7 条把原文「唯一例外（KPI-2…）」改为「例外一（KPI-2…）」（KPI-2 的正文一字不动；加了第二条，「唯一」必须去掉），其后补「例外二（TREE-0，Evan 2026-11-22 拍板）」，分「开放 / 上限 / 约束」三段写明：分支子代理在分支内由模型决定下一步搜索、读页或结束；每支最多 16 次搜索、12 次读页、模型请求 30 次（每决定一步算一次：16 + 12 次动作加收尾 2 次；同一次请求里的重试与换备用模型不另算）；每棵树最多 24 个分支、最深 5 层；条款员每棵树一次；核对员每条待核事实一次、每棵树最多 60 次；以上上限写成常量，组织设置只能调低；调研树只由人发起（「开始调研」「重新查」、确认招标要求、补页后重算），任何定时任务都不发起（既有 agent-runs 处理器续跑人发起的调研 Job 不算）；开关默认关；骨架分叉、单价、可比度、建议区间与结论句仍是规则与纯函数，模型不写结论里的数字。另起一句写明同一拍板反转的两处范围：读公开网页全文（反转 CHAIN 任务书「系统不抓任何第三方网站」与供应商发现「只用搜索索引」；第 5 条不变）；给出建议报价区间（只限调研树的树干结论，区间只由代码从已核实的证据算，最终报价仍由人定；第 4 条与 CHAIN-2 价格对照卡 `tender/auto-supplier-run` 不变）。文件头的来源注释加一行。
-- 「核对员一次」按「每条待核事实一次」理解：TREE-4 第 1 条要求核对的输入只有「待核的值 + 网址」，只能按条核；为了不让总量随事实条数无限增长，另加每棵树 60 次的上限（超出的标「未能核对（到上限）」，不当作已核实）。
+`openspec/config.yaml` 硬纪律第 7 条把原文「唯一例外（KPI-2…）」改为「例外一（KPI-2…）」（KPI-2 的正文一字不动；加了第二条，「唯一」必须去掉），其后补「例外二（TREE-0，Evan 2026-11-22 拍板）」，分「开放 / 上限 / 约束」三段写明：分支子代理在分支内由模型决定下一步搜索、读页或结束；每支最多 16 次搜索、12 次读页、模型请求 30 次（每决定一步算一次：16 + 12 次动作加收尾 2 次；同一次请求里的重试与换备用模型不另算）；每棵树最多 24 个分支、最深 5 层；条款员每棵树一次；核对员每棵树调用模型一次（一次核对全部待核事实）；以上上限写成常量，组织设置只能调低；调研树只由人发起（「开始调研」「重新查」、确认招标要求、补页后重算），任何定时任务都不发起（既有 agent-runs 处理器续跑人发起的调研 Job 不算）；开关默认关；骨架分叉、单价、可比度、建议区间与结论句仍是规则与纯函数，模型不写结论里的数字。另起一句写明同一拍板反转的两处范围：读公开网页全文（反转 CHAIN 任务书「系统不抓任何第三方网站」与供应商发现「只用搜索索引」；第 5 条不变）；给出建议报价区间（只限调研树的树干结论，区间只由代码从已核实的证据算，最终报价仍由人定；第 4 条与 CHAIN-2 价格对照卡 `tender/auto-supplier-run` 不变）。文件头的来源注释加一行。
+- 「核对员一次」按字面登记为每棵树一次（把全部待核事实一次交给核对员；第一稿写成「每条一次、每棵树最多 60 次」，挑错交叉验证 X5 指出那是放宽，改回字面）。TREE-4 第 1 条「输入只有待核的值 + 网址」照样能满足：一次调用里每条只带值、网址与重读到的摘录。
+- 「模型请求 30 次」与「组织设置只能调低」是实现者按授权定的数与做法（任务书只要求写明每处上限），config 里写明「由实现者定」。
 - 交接文档 `docs/QINGYAN_TENDER_FLOW_HANDOFF.md` §0.5k 第 12 条写着「`openspec/config.yaml` 由 Evan 改」——那一条说的是 FIX-22 的 G8。本处改动是 Evan 在任务书 TREE-0 里亲自要求、并写明了内容的登记；PR 正文写明这一点。`src/lib/sales/period/narrative-pure.ts` 文件头注释里「第 7 条的唯一例外」同步改为「例外一」（只改注释）。
 - 否决把例外写进单独的文件：硬纪律的唯一事实源是 `openspec/config.yaml` 的 `context`，例外必须写在同一处才会注入每一次 `/opsx:*`。
 
 ### D11 网址本身是外发数据：调用方的网址检查
-要读的网址由模型决定（TREE-2），网址的路径与查询串本身就会发到对方服务器——页面里一句「去读 https://x/?q=<上下文里的东西>」就是外泄通道。读页层没有项目上下文，不知道我方成本与目标价是多少；把搜索词的敏感词闸（`china-supplier-brief.ts`）套到网址上又会误挡（它的模式里有 `cost`、`budget`、预算 这类普通词，政府页面网址里常见）。所以本层提供 `forBranch({ allowUrl })`：对调用方给出的每个网址先问一次，不过就「不读」（`url_not_allowed`），不发请求、不扣额度、不进缓存；跳转目标是对方给的，不过这道检查（否则正常跳转全被挡）。TREE-2 必须传这个检查，做两件事：网址只能来自本支的搜索结果、已读页面里的链接、标书引用或人工提供；网址里不得出现我方成本、毛利、目标价的数。
+要读的网址由模型决定（TREE-2），网址的路径与查询串本身就会发到对方服务器——页面里一句「去读 https://x/?q=<上下文里的东西>」就是外泄通道。读页层没有项目上下文，不知道我方成本与目标价是多少；把搜索词的敏感词闸（`china-supplier-brief.ts`）套到网址上又会误挡（它的模式里有 `cost`、`budget`、预算 这类普通词，政府页面网址里常见）。所以本层要求 `forBranch({ allowUrl })`（必填，不给就拒绝建立上下文——挑错交叉验证 X7）：对调用方给出的每个网址先问一次，不过就「不读」（`url_not_allowed`），不发请求、不扣额度、不进缓存；跳转目标是对方给的，不过这道检查（否则正常跳转全被挡）。TREE-2 必须传这个检查，做两件事：网址只能来自本支的搜索结果、已读页面里的链接、标书引用或人工提供；网址里不得出现我方成本、毛利、目标价的数。
 - 否决在读页层直接套敏感词闸：误挡太多，且仍挡不住「把数字编进网址」。
 
 ### D12 并发同址合并不会空转

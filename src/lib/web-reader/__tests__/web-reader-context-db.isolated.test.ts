@@ -17,6 +17,8 @@ if (process.env.NODE_ENV !== "test") skip("需 NODE_ENV=test");
 if ((process.env.DATABASE_ENVIRONMENT || "").toLowerCase() !== "isolated") skip("需 DATABASE_ENVIRONMENT=isolated");
 assertSafeTestDatabase({ scriptName: "TREE-1 web reader context DB test" });
 
+const ALLOW_ALL = (): boolean => true;
+
 let pass = 0;
 let fail = 0;
 function ok(cond: boolean, name: string, detail?: unknown) {
@@ -34,7 +36,7 @@ async function main() {
   const { seedWorkforceFixture } = await import("@/lib/workforce-runtime/__tests__/helpers");
   const { createWorkforceJob } = await import("@/lib/workforce-runtime/job");
   const { createResearchReadSessionWithDeps, readPublicPage, WebReaderContextError, WEB_READ_AUDIT_ACTION } = await import("../read-page");
-  const { loadResearchJobRow, loadOrgSettingsJson, writeWebReadAudit } = await import("../index");
+  const { loadResearchJobRow, loadOrgSettingsJson, writeWebReadAudit } = await import("../db-deps");
 
   console.log("TREE-1 读页上下文 — isolated DB");
   const fx = await seedWorkforceFixture("wr");
@@ -111,7 +113,7 @@ async function main() {
     const research = await mkJob(ORG, USER, MARK);
     const session = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: research }, deps);
     ok(session.initiatedByUserId === USER && session.jobId === research, "经 extraMetadata 写标记的调研 Job 建出会话；发起人取运行时写的 initiatedByUserId");
-    const ctx = session.forBranch({ branchKey: "prior_award", budget: { remaining: 12, used: 0 } });
+    const ctx = session.forBranch({ allowUrl: ALLOW_ALL, branchKey: "prior_award", budget: { remaining: 12, used: 0 } });
     const denied = await readPublicPage("https://blocked-by-org.example/x", ctx);
     ok(denied.outcome === "refused" && denied.reason === "site_denied", "组织设置里的「不碰」生效");
     const page = await readPublicPage("https://example.gov/award", ctx);

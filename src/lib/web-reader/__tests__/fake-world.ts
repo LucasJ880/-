@@ -135,6 +135,9 @@ export async function openSession(
   );
 }
 
+/** 测试里放行所有网址的网址检查（生产里 TREE-2 必须给真正的检查） */
+export const ALLOW_ALL = (): boolean => true;
+
 export function budget(n = 12) {
   return { remaining: n, used: 0 };
 }

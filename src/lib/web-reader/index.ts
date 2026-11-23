@@ -8,17 +8,8 @@
  * 定时任务、没有调研 Job、开关关着时 createResearchReadSession 抛错，不发任何请求。
  */
 
-import { db } from "@/lib/db";
-import { logAudit } from "@/lib/audit/logger";
-import {
-  WEB_READ_AUDIT_ACTION,
-  createResearchReadSessionWithDeps,
-  type CreateResearchReadContextInput,
-  type ResearchJobRow,
-  type ResearchReadSession,
-  type WebReadAuditEntry,
-  type WebReaderClock,
-} from "./read-page";
+import { createResearchReadSessionWithDeps, type CreateResearchReadContextInput, type ResearchReadSession } from "./read-page";
+import { loadOrgSettingsJson, loadResearchJobRow, realClock, writeWebReadAudit } from "./db-deps";
 import { extractPdfTextGuarded } from "./pdf";
 import { createNodeNet } from "./transport";
 
@@ -27,57 +18,6 @@ export type { ReadBudget, ResearchReadContext, ResearchReadSession, TreePageCach
 export type { PageReadOutcome, PageReadReason, PageReadResult, BlockedReason, ResearchJobMarker } from "./types";
 export { OUTCOME_ZH, reasonMessageZh } from "./pure";
 export { HUMAN_RESEARCH_TRIGGERS } from "./types";
-
-const realClock: WebReaderClock = {
-  now: () => Date.now(),
-  sleep: (ms, signal) =>
-    new Promise<void>((resolve) => {
-      if (signal?.aborted) return resolve();
-      const t = setTimeout(resolve, ms);
-      signal?.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(t);
-          resolve();
-        },
-        { once: true },
-      );
-    }),
-};
-
-/** 审计只记网址、状态、字数；不记正文与请求 / 响应头 */
-export async function writeWebReadAudit(entry: WebReadAuditEntry): Promise<void> {
-  await logAudit({
-    userId: entry.userId,
-    orgId: entry.orgId,
-    action: WEB_READ_AUDIT_ACTION,
-    targetType: "research_job",
-    targetId: entry.jobId,
-    afterData: {
-      branchKey: entry.branchKey,
-      url: entry.url,
-      finalUrl: entry.finalUrl,
-      outcome: entry.outcome,
-      httpStatus: entry.httpStatus,
-      chars: entry.chars,
-      truncated: entry.truncated,
-      reason: entry.reason,
-      attempts: entry.attempts,
-      robotsRequests: entry.robotsRequests,
-      site: entry.site,
-    },
-  });
-}
-
-/** 读调研 Job 的行（只取校验要用的四列） */
-export async function loadResearchJobRow(id: string): Promise<ResearchJobRow | null> {
-  return db.agentRun.findUnique({ where: { id }, select: { id: true, orgId: true, status: true, metadata: true } });
-}
-
-/** 读组织设置（站点名单的组织覆盖在 settingsJson.researchTree.sites） */
-export async function loadOrgSettingsJson(orgId: string): Promise<unknown> {
-  return (await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } }))?.settingsJson ?? null;
-}
 
 export async function createResearchReadSession(input: CreateResearchReadContextInput): Promise<ResearchReadSession> {
   return createResearchReadSessionWithDeps(input, {

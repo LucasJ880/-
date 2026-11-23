@@ -226,14 +226,14 @@ console.log("守卫：读网页的唯一入口");
       const rel = relative(root, full).split(sep).join("/");
       if (rel.startsWith("src/lib/web-reader/") || rel.includes("/__tests__/")) continue;
       const src = readFileSync(full, "utf8");
-      if (/web-reader\/(read-page|transport|pdf|pure)\b/.test(src) || /createResearchReadSessionWithDeps|createNodeNet\b/.test(src)) offenders.push(rel);
+      if (/web-reader\/(read-page|transport|pdf|pure|db-deps)\b/.test(src) || /createResearchReadSessionWithDeps|createNodeNet\b|writeWebReadAudit|loadResearchJobRow/.test(src)) offenders.push(rel);
     }
   };
   walk(join(root, "src"));
   walk(join(root, "scripts"));
   ok("web-reader 目录与测试之外只经 @/lib/web-reader 入口（不直接 import read-page / transport / pdf / pure，不用测试接缝）", offenders.length === 0, offenders);
   const index = readFileSync(join(root, "src/lib/web-reader/index.ts"), "utf8");
-  ok("生产入口不把测试接缝导出去", !/export\s*\{[^}]*createResearchReadSessionWithDeps/.test(index) && !/export\s*\{[^}]*createNodeNet/.test(index));
+  ok("生产入口不把测试接缝、读库与写审计的函数导出去", !/export\s*\{[^}]*(createResearchReadSessionWithDeps|createNodeNet|writeWebReadAudit|loadResearchJobRow|loadOrgSettingsJson)/.test(index) && !/export (async )?function (writeWebReadAudit|loadResearchJobRow|loadOrgSettingsJson)/.test(index));
   ok("生产入口不接受 env 覆盖", !/env\s*:/.test(index.slice(index.indexOf("export async function createResearchReadSession"))));
 }
 

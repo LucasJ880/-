@@ -68,11 +68,21 @@ async function main() {
     prescanPdf(bomb);
     ok("预扫描很快（< 1 秒）", Date.now() - t0 < 1000, Date.now() - t0);
     const image = buildPdf([{ text: "x" }], { extra: [{ dict: "/Type /XObject /Subtype /Image /Filter /FlateDecode", data: zlib.deflateSync(Buffer.alloc(20 * 1024 * 1024)) }] });
-    ok("大图片流不计入（抽文字不解码图片）", prescanPdf(image) === "ok");
+    ok("自称是图片的大流也计入（不信流字典的自述）", prescanPdf(image) === "over");
+    const fakeImage = buildPdf([{ dict: "/Type /XObject /Subtype /Image /Filter /FlateDecode", data: zlib.deflateSync(Buffer.alloc(20 * 1024 * 1024, 0x20)) }]);
+    ok("内容流把字典写成图片：照样过大", prescanPdf(fakeImage) === "over");
+    const chain = buildPdf([{ dict: "/Filter [/ASCIIHexDecode /FlateDecode]", data: Buffer.from("78da") }]);
+    ok("过滤器链：估不出解压量，不读", prescanPdf(chain) === "over");
+    const broken = buildPdf([{ dict: "/Filter /FlateDecode", data: Buffer.from("not deflate data") }]);
+    ok("解压出错：不读", prescanPdf(broken) === "over");
+    const single = buildPdf([{ dict: "/Filter [/FlateDecode]", data: zlib.deflateSync(Buffer.from("BT /F1 12 Tf 72 720 Td (ok) Tj ET")) }]);
+    ok("只有一个过滤器的数组写法照常", prescanPdf(single) === "ok");
     const lzw = buildPdf([{ dict: "/Filter /LZWDecode", data: Buffer.from("xx") }]);
     ok("LZW 压缩：不读", prescanPdf(lzw) === "over");
     const enc = buildPdf([{ text: "x" }], { trailerExtra: "/Encrypt 99 0 R" });
-    ok("加密 PDF：标为 encrypted（预扫描做不了）", prescanPdf(enc) === "encrypted");
+    ok("加密 PDF：标为 encrypted", prescanPdf(enc) === "encrypted");
+    const encOut = await extractPdfTextGuarded(enc, { maxChars: 1000, deadlineAt: null });
+    ok("加密 PDF：不读（任意位置出现 /Encrypt 都按加密处理，宁可多拒）", !encOut.ok && encOut.reason === "pdf_encrypted", encOut);
     const many = buildPdf(Array.from({ length: 3 }, () => ({ dict: "/Filter /FlateDecode", data: zlib.deflateSync(Buffer.alloc(6 * 1024 * 1024, 0x20)) })));
     ok("多个流合计超过 16 MB：过大", prescanPdf(many) === "over");
   }

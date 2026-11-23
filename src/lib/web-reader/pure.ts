@@ -127,10 +127,12 @@ export function checkPublicUrl(raw: string): UrlCheck {
   return { ok: true, url };
 }
 
-/** 网址归一（缓存键）：去片段；主机名小写与默认端口由 URL 自身归一 */
+/** 网址归一（缓存键）：去片段、去主机名末尾的点；主机名小写与默认端口由 URL 自身归一 */
 export function normalizePageUrl(url: URL): string {
   const u = new URL(url.toString());
   u.hash = "";
+  // 主机名末尾的点（example.gov.）与不带点的是同一个站
+  if (u.hostname.endsWith(".")) u.hostname = u.hostname.replace(/\.+$/, "");
   return u.toString();
 }
 
@@ -161,6 +163,10 @@ export const PRESET_SITE_POLICY: SitePolicy = Object.freeze({
     "linkedin.com",
     "facebook.com",
     "instagram.com",
+    // 青砚自己的站与预览域名：不对自家站点发请求
+    "qingyan.ca",
+    "qingyan.ai",
+    "vercel.app",
   ]),
   humanInitiated: Object.freeze(["importyeti.com"]),
   allow: Object.freeze(["canada.ca", "gc.ca", "canadabuys.canada.ca"]),
@@ -225,11 +231,17 @@ export const ROBOTS_MATCH_STEP_BUDGET = 2_000_000;
 export type RobotsRule = { allow: boolean; pattern: string };
 export type RobotsGroup = { agents: string[]; rules: RobotsRule[] };
 
-/** robots 规则与路径的比较前归一（RFC 9309 §2.2.2）：非 ASCII 字符按 UTF-8 百分号编码，%xx 的十六进制统一大写 */
+/**
+ * robots 规则与路径的比较前归一（RFC 9309 §2.2.2）：非 ASCII 字符按 UTF-8 百分号编码；
+ * 百分号编码的非保留字符（A–Z a–z 0–9 - . _ ~）解码回字符；其余 %xx 的十六进制统一大写。
+ */
 export function canonRobotsPath(s: string): string {
   return s
     .replace(/[^\x00-\x7f]/gu, (ch) => encodeURIComponent(ch))
-    .replace(/%[0-9a-f]{2}/gi, (m) => m.toUpperCase());
+    .replace(/%([0-9a-f]{2})/gi, (m, hex: string) => {
+      const ch = String.fromCharCode(parseInt(hex, 16));
+      return /[A-Za-z0-9\-._~]/.test(ch) ? ch : m.toUpperCase();
+    });
 }
 
 /** 超过规则条数或单条模式长度上限时返回 null（调用方按「读取规则取不到」处理） */
@@ -503,9 +515,11 @@ const REASON_ZH: Record<PageReadReason, string> = {
   private_address: "这是内部网络地址，不读",
   site_denied: "该网站在不读名单里，不读",
   login_url: "这是登录地址，不读",
+  ip_literal: "网址是 IP 地址而不是网站域名，不读",
   url_not_allowed: "这个网址不是从搜索结果或已读页面里来的，不读",
   unsupported_type: "不是网页、纯文本或 PDF，不读",
-  pdf_too_complex: "PDF 解压后过大，按规定不读",
+  pdf_too_complex: "PDF 解压后过大或结构异常，按规定不读",
+  pdf_encrypted: "PDF 加了密，按规定不读",
   budget_exhausted: "读页次数到上限，未读",
 };
 
