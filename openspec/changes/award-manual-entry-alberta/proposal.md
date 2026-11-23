@@ -10,7 +10,8 @@ APC 对程序化访问有人机验证，CHAIN-1 不能自动读取 Alberta 授�
 
 - 新增「历史中标」页上的「录入 Alberta 授标（APC）」表单：采购方、中标方、APC 公告链接必填；招标编号、授标日期、合同金额与币种、范围摘要选填。只对本组织有效成员（组织角色不低于 `org_member`；平台超级管理员按既有规则）显示与开放。
 - 新增录入接口 `POST /api/organizations/{组织}/tender-awards/manual`：校验后经既有授标写入服务落一条授标记录——来源类型「人工录入」（`USER_ENTRY`），来源链接为 APC 公告链接，信任级「待人工复核」（`NEEDS_REVIEW`），可信度中；不会落为 `SYSTEM_VERIFIED`。
-- 收紧授标写入的一条匹配（Lucas 2026-11-20 GATE）：按「中标方 + 授标日期 + 金额」挂到既有时，两边都有招标编号且不同就不挂，新记录标为疑似重复等组织管理员裁决（对所有写入方生效）。
+- 收紧授标写入的一条匹配（Lucas 2026-11-20 GATE）：按「中标方 + 授标日期 + 金额」挂到既有时，两边都有招标编号且不同就不挂，新记录标为疑似重复等组织管理员裁决（对所有写入方生效）；这样的记录不止一条时指向最早建档的那条。
+- 疑似重复不被人工确认的写入悄悄转正（2026-11-23 交叉验证 F1）：项目里人工确认或项目结果回灌按编号挂到一条疑似重复上时，只升信任级、不改状态，仍由组织管理员裁决（对所有写入方、所有疑似重复生效）。
 - 只认 APC 公告链接 `https://purchasing.alberta.ca/posting/AB-年份-编号`（Lucas 给的样例 `AB-2026-07664`），统一存成一种写法。
 - 处理重复：同一条公告的同一个中标方再录 → 不重复建（被撤回过的可以重录）；与已有记录招标编号和中标方相同、或编号没对上而中标方授标日期金额都相同 → 把链接挂到那条记录上，说明是哪种相同、那条记录的内容与可信度不变；疑似重复 → 照既有规则等管理员裁决。
 - 写审计：录入写一条审计，含提交的全部字段。
@@ -37,11 +38,11 @@ APC 对程序化访问有人机验证，CHAIN-1 不能自动读取 Alberta 授�
 
 ### Modified Capabilities
 
-- `tender/award-records`：新增「按日期金额挂到既有时不跨不同的招标编号」（Lucas 2026-11-20 GATE「收紧」；对所有写入方生效）。`tender/award-review` 的确认 / 撤回规则原样适用于人工录入的记录。
+- `tender/award-records`：修改「不同招标编号不判疑似重复」写明例外（日期与金额也相同时仍标为疑似重复）；新增「按日期金额挂到既有时不跨不同的招标编号」（Lucas 2026-11-20 GATE「收紧」）与「人工确认的写入不让疑似重复转正」（2026-11-23 交叉验证 F1）；都对所有写入方生效。`tender/award-review` 的确认 / 撤回规则原样适用于人工录入的记录。
 
 ## Impact
 
 - 新增：`src/lib/tender-intel/award-manual-entry.ts`（纯函数：校验与规整、结果说法、固定文字；页面也用，不依赖 node 模块）、`src/lib/tender-intel/award-manual-entry-key.ts`（来源键，服务端）、`src/app/api/organizations/[orgId]/tender-awards/manual/route.ts`、`src/components/tender-intel/award-manual-entry-form.tsx`（表单）。
-- 修改：`src/lib/tender-intel/awards.ts`（强匹配第二条路径不跨不同的招标编号，一处条件）、`src/app/api/org/tender-awards/route.ts`（返回 `canEnterManual`、人工录入记录的 APC 链接、采购方候选）、`src/app/(main)/projects/intelligence/awards/page.tsx`（表单、来源显示、统计条、提示）。
+- 修改：`src/lib/tender-intel/awards.ts`（强匹配第二条路径不跨不同的招标编号、候选按建档先后排；挂到疑似重复时不改状态）、`src/lib/tender-intel/own-result-backfill.ts`（未中标回灌挂到疑似重复时结果为 `needs_review`，一处条件）、`src/app/api/org/tender-awards/route.ts`（返回 `canEnterManual`、人工录入记录的 APC 链接、采购方候选）、`src/app/(main)/projects/intelligence/awards/page.tsx`（表单、来源显示、统计条、提示）。
 - 测试：`src/lib/tender-intel/__tests__/` 新增纯函数测试与隔离库用例（注册进 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`）。
 - 零 schema、零依赖、零新增模型调用、零出站请求。

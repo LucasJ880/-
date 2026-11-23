@@ -12,8 +12,8 @@
 - **THEN** 成员与平台超级管理员录入成功；查看者、别的组织的管理员 403；不存在的组织 404；被拒的都没有新记录；列表接口对成员 `canEnterManual` 为 true、对查看者为 false（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 #### Scenario: 开关关闭
-- **WHEN** 授标情报开关关闭时调用录入接口
-- **THEN** 409 `组织授标情报尚未启用`，没有新记录；开关在访问授标表之前判断（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 源码断言；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+- **WHEN** 授标情报开关关闭时，成员录入一条；未登录、查看者、平台超级管理员往不存在的组织、成员带坏链接各调一次
+- **THEN** 成员 409 `组织授标情报尚未启用`，没有新记录；其余依次 401、403、404（都先于开关），坏链接也是 409（开关先于校验）；开关在访问授标表之前判断（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`；`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 源码断言）
 
 ### Requirement: 表单的说明
 表单收起时 SHALL 写 `把在 APC 上看到的中标结果录进来，经人工确认后计入统计。`；展开后 SHALL 先写 `只录入你在 Alberta Purchasing Connection（APC）上亲眼看到的授标公告。系统只保存这个链接，不会自动访问它；复核的人会点开核对。录入后先列在下表、标为「待人工复核」，不计入金额、周期、可比价格和已确认的竞争对手；经人工确认属实后才计入（一般由组织管理员在下表确认）。`。
@@ -40,6 +40,10 @@ APC 公告链接原文 SHALL ≤ 2048 字，SHALL 只接受 `https:`（只写了
 - **WHEN** 链接是 `purchasing.alberta.ca/posting/ab-2026-07664/?x=1#top`、`https://purchasing.alberta.ca:443/posting/AB-2026-07664`；另有 `https://purchasing.alberta.ca/posting/AB-1`、`https://purchasing.alberta.ca/x/AB-2026-07664`、`https://purchasing.alberta.ca/posting/AB-2026-07664/extra`
 - **THEN** 前两个都存成 `https://purchasing.alberta.ca/posting/AB-2026-07664`；后三个 400 那句话（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`）
 
+#### Scenario: 主机只认 purchasing.alberta.ca
+- **WHEN** 链接的主机是 `www.alberta.ca`、`alberta.ca`、`notalberta.ca`、`evil.purchasing.alberta.ca`、`purchasing.alberta.ca.evil.example`，路径都是 `/posting/AB-2026-07664`
+- **THEN** 都 400 `BAD_URL`、不写库；列表里人工录入来源的链接主机不是 `purchasing.alberta.ca` 时也不给（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+
 ### Requirement: 请求有误时的回答
 不合格时 SHALL 返回 400 `{ error, code, field }`，`error` 是按采购方、中标方、链接、编号、日期、金额、币种、摘要的顺序第一处错误的那句话，`code` 为 `MISSING_BUYER`、`MISSING_WINNER`、`MISSING_URL`、`BAD_URL`、`BAD_DATE`、`BAD_AMOUNT`、`BAD_CURRENCY`、`TOO_LONG` 之一，`field` 是那一项；超长的写 `{项}太长了（最多 N 字）。`（项为 `采购方`、`中标方`、`APC 公告链接`、`招标编号`、`范围摘要`）。请求体超过 16 KB SHALL 返回 400 `请求太大`（`code` 为 `TOO_LARGE`），没声明长度的边读边数、超了就停；请求体不是 JSON SHALL 按空表单处理。数字形式的字段 SHALL 按字符串校验，SHALL NOT 静默丢掉。以上都 SHALL NOT 写库。
 
@@ -48,7 +52,7 @@ APC 公告链接原文 SHALL ≤ 2048 字，SHALL 只接受 `https:`（只写了
 - **THEN** 依次 400 `code` `BAD_URL` 与 `field` `apcUrl`；`BAD_DATE` 与 `awardDate`；`TOO_LARGE` 与 `请求太大`；`请填写采购方。`；都没有新记录（`npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 落库口径
-录入 SHALL 经既有授标写入服务落一条授标记录：来源类型为人工录入（`USER_ENTRY`），来源链接为规整后的 APC 公告链接，信任级为待人工复核（`NEEDS_REVIEW`），可信度为中，不挂项目。录入 SHALL NOT 落为 `SYSTEM_VERIFIED` 或 `HUMAN_CONFIRMED`。按既有写入规则先判挂到既有、再判疑似重复：与已有记录招标编号和中标方都相同时；或招标编号没对上、而中标方、授标日期、金额都相同且不是两边都有编号而规范化后不同时（见 `tender/award-records`），SHALL 把这条来源挂到那条记录上，那条记录的内容与信任级 SHALL NOT 改变；疑似重复 SHALL 照既有规则标为疑似重复。组织管理员 SHALL 能用既有的「确认属实 / 撤回」处理这些记录，确认后为人工确认；项目里人工确认同编号同中标方的授标时，既有规则也会把它提升为人工确认。
+录入 SHALL 经既有授标写入服务落一条授标记录：来源类型为人工录入（`USER_ENTRY`），来源链接为规整后的 APC 公告链接，信任级为待人工复核（`NEEDS_REVIEW`），可信度为中，不挂项目。录入 SHALL NOT 落为 `SYSTEM_VERIFIED` 或 `HUMAN_CONFIRMED`。按既有写入规则先判挂到既有、再判疑似重复：与已有记录招标编号和中标方都相同时；或招标编号没对上、而中标方、授标日期、金额都相同且不是两边都有编号而规范化后不同时（见 `tender/award-records`），SHALL 把这条来源挂到那条记录上，那条记录的内容与信任级 SHALL NOT 改变；疑似重复 SHALL 照既有规则标为疑似重复。组织管理员 SHALL 能用既有的「确认属实 / 撤回」处理这些记录，确认后为人工确认；项目里人工确认同编号同中标方的授标时，写入服务会把它的信任级提升为人工确认；它若是疑似重复，状态 SHALL NOT 改变，仍待组织管理员裁决（见 `tender/award-records`）。
 
 #### Scenario: 新录入与复核
 - **WHEN** 成员录入一条，组织管理员随后确认属实
@@ -58,12 +62,16 @@ APC 公告链接原文 SHALL ≤ 2048 字，SHALL 只接受 `https:`（只写了
 - **WHEN** 另录一条与一条 CanadaBuys 的权威记录招标编号和中标方相同的；另录一条没有编号、中标方授标日期金额都与一条 AI 提取的记录相同的；另录一条编号与采购方都与那条 CanadaBuys 记录不同、中标方授标日期金额相同的；另录一条同采购方同中标方但日期不同的
 - **THEN** 前两种来源挂到那条记录上，那条的信任级不变（CanadaBuys 那条仍是 `SYSTEM_VERIFIED`、AI 提取的仍是 `AI_EXTRACTED`），来源多一个；第三种不挂上，新记录标为疑似重复、指向那条 CanadaBuys 记录（那条不变）；第四种新记录状态为疑似重复（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
+#### Scenario: 疑似重复被项目里的人工确认挂上
+- **WHEN** 成员录入的一条因编号与一条 CanadaBuys 记录不同、中标方授标日期金额相同而成为疑似重复；随后项目里人工确认了同编号同中标方的授标，项目结果回灌也按这个编号写入一次
+- **THEN** 这条录入的信任级变为 `HUMAN_CONFIRMED`，状态仍是疑似重复、仍指向那条 CanadaBuys 记录，不计入统计；回灌结果为 `needs_review`；组织管理员「不是重复，确认」后才计入（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+
 ### Requirement: 重录与撤回后重录
-同一条公告链接的同一个中标方再录 SHALL 不新建、不写审计；两次同时提交 SHALL 只有一条记录且两次都成功返回。这条公告与中标方对应的记录被组织管理员撤回后再录，SHALL 新建一条（撤回的那条保持撤回），再重放 SHALL 仍不重复。同一条公告的同一个中标方撤回满 10 次后再录 SHALL 返回 409 `这条公告的这个中标方撤回过太多次，没有录入；请联系组织管理员。`（`code` 为 `RETRACTED_TOO_MANY`），SHALL NOT 写库。
+同一条公告链接的同一个中标方再录 SHALL 不新建、不写审计；同时多次提交 SHALL 只有一条记录、一条审计，且每次都成功返回。这条公告与中标方对应的记录被组织管理员撤回后再录，SHALL 新建一条（撤回的那条保持撤回），再重放 SHALL 仍不重复。同一条公告的同一个中标方撤回满 10 次后再录 SHALL 返回 409 `这条公告的这个中标方撤回过太多次，没有录入；请联系组织管理员。`（`code` 为 `RETRACTED_TOO_MANY`），SHALL NOT 写库。
 
 #### Scenario: 重录、并发、撤回后重录
-- **WHEN** 同一链接同一中标方再录；两次同时提交另一条；组织管理员撤回一条后同样的内容再录两次
-- **THEN** 第一种不新建；第二种只有一条、两次都 200；第三种新建一条、撤回的那条仍是撤回，第二次再录不新建（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`；撤回太多次的 409 由 `npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts` 源码断言）
+- **WHEN** 同一链接同一中标方再录；8 次同时提交另一条；组织管理员撤回一条后同样的内容再录两次；另一条公告的同一中标方录入后撤回、反复 10 次后再录
+- **THEN** 第一种不新建；第二种只有一条记录、一条审计，8 次都 200（一次 `CREATED`、七次 `ALREADY_ENTERED`）；第三种新建一条、撤回的那条仍是撤回，第二次再录不新建；第四种前 10 次都新建，第 11 次 409 `RETRACTED_TOO_MANY`、不写库（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 不访问 APC
 录入、校验、列表显示 SHALL NOT 发起任何网络请求：APC 公告链接 SHALL 只保存，系统 SHALL NOT 打开、请求、下载或解析它指向的内容，也 SHALL NOT 访问任何 Alberta 网站。列表里的链接只供人自己点开，SHALL NOT 被预取或嵌入。
@@ -91,7 +99,7 @@ APC 公告链接原文 SHALL ≤ 2048 字，SHALL 只接受 `https:`（只写了
 
 #### Scenario: 候选
 - **WHEN** 本组织有一个已分派的招标项目、一个待分派的招标项目、一个不是招标的项目，另有一条采购方写成 `ALBERTA HEALTH SERVICES.` 的授标；成员与查看者读取列表
-- **THEN** 成员与平台超级管理员的候选含 `Alberta Health Services` 一次（不含大写那种写法）、不含待分派与不是招标的项目的客户名；查看者的候选为空（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+- **THEN** 成员与平台超级管理员的候选含 `Alberta Health Services` 一次（不含大写那种写法）、不含待分派与不是招标的项目的客户名，也不含别的组织的招标项目的客户名；查看者的候选为空（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
 
 ### Requirement: 列表里的来源与统计
 「历史中标」列表 SHALL 对有人工录入 APC 来源的记录（列表字段 `manualApcUrl`）在中标方下写 `人工录入 · APC 公告 ↗`（无障碍名称 `在新窗口打开 APC 公告`），链接到最早那条人工录入 APC 来源（新窗口打开，不带来源页信息），并在招标编号下显示范围摘要。列表接口 SHALL 只返回人工录入的 APC 链接（再按「APC 公告链接」校验一次），SHALL NOT 返回别的来源的链接或原文片段。统计条里未经人工确认或权威来源的记录数 SHALL 标为 `待确认（AI 提取 / 人工录入，不计入统计）`，疑似重复的标为 `疑似重复待裁决（不计入统计）`。刚录入的那一行 SHALL 高亮并滚到它，被筛选条件挡住时写 `已录入，但被当前筛选条件挡住了，清空筛选可以看到。`；组织管理员提示与空状态 SHALL 提到人工录入（逐字见 design D6）。
@@ -106,3 +114,7 @@ APC 公告链接原文 SHALL ≤ 2048 字，SHALL 只接受 `https:`（只写了
 #### Scenario: 审计
 - **WHEN** 成员新建、重录、被拒、平台超级管理员新建、按编号挂到既有、按日期金额挂到既有、编号不同而中标方日期金额相同、疑似重复、再新建
 - **THEN** 审计依次是新建、新建、按编号挂到既有、按日期金额挂到既有、疑似重复、疑似重复、新建；挂到既有那几条记着结果与那条记录的信任级（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）
+
+#### Scenario: 记录与审计同一事务
+- **WHEN** 录入接口的事务在记录与审计都写完之后被迫回滚
+- **THEN** 记录与审计都不留（`NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts`）

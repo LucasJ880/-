@@ -311,6 +311,8 @@ export async function createOrObserveAwardRecord(
         awardDate: input.award.awardDate,
         status: { not: "RETRACTED" },
       },
+      // 授标日期已在条件里取等（日期差都是 0）：按建档先后、再按 id，让「疑似原记录」总指向同一条
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       take: 10,
     });
     const sameAmount = sameKey.filter((r) => toAmountNumber(r.contractAmount) === toAmountNumber(input.award.contractAmount));
@@ -334,13 +336,16 @@ export async function createOrObserveAwardRecord(
     const src = await c.awardRecordSource.create({
       data: { ...sourceData, awardRecordId: target.id },
     });
+    // 疑似重复（NEEDS_REVIEW 且指向疑似原记录）被人工确认的写入挂上时只升信任级、不改状态：
+    // 「是不是同一笔授标」只由组织管理员在「历史中标」页裁决（CHAIN-1b 交叉验证 F1；GATE Evan 2026-11-22）
+    const pendingDuplicate = target.status === "NEEDS_REVIEW" && !!target.possibleDuplicateOfId;
     const promote =
       input.verificationStatus === "HUMAN_CONFIRMED" && target.verificationStatus !== "HUMAN_CONFIRMED"
         ? {
             verificationStatus: "HUMAN_CONFIRMED",
             confirmedById: input.actor.userId,
             confirmedAt: new Date(),
-            status: "ACTIVE",
+            ...(pendingDuplicate ? {} : { status: "ACTIVE" }),
           }
         : input.verificationStatus === "SYSTEM_VERIFIED" &&
             target.verificationStatus === "AI_EXTRACTED"

@@ -40,7 +40,9 @@ async function main() {
   const { NextRequest } = await import("next/server");
   const { db } = await import("@/lib/db");
   const { createSession } = await import("@/lib/auth/session");
-  const { createOrObserveAwardRecord } = await import("@/lib/tender-intel/awards");
+  const { createOrObserveAwardRecord, listAwardsForOrg } = await import("@/lib/tender-intel/awards");
+  const { deriveAwardIntelligence } = await import("@/lib/tender-intel/award-intelligence");
+  const { backfillOwnResultCanonical } = await import("@/lib/tender-intel/own-result-backfill");
   const manualRoute = await import("@/app/api/organizations/[orgId]/tender-awards/manual/route");
   const reviewRoute = await import("@/app/api/organizations/[orgId]/tender-awards/[awardId]/review/route");
   const listRoute = await import("@/app/api/org/tender-awards/route");
@@ -59,7 +61,7 @@ async function main() {
   await db.organizationMember.create({ data: { orgId: ORG, userId: VIEWER, role: "org_viewer", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: ADMIN, role: "org_admin", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG2, userId: OTHER, role: "org_admin", status: "active" } });
-  const PROJECT = id("proj"), PENDING = id("pend"), GENERAL = id("gen");
+  const PROJECT = id("proj"), PENDING = id("pend"), GENERAL = id("gen"), PROJECT_F1 = id("projf1"), OTHER_PROJECT = id("proj2");
   await db.project.create({ data: { id: PROJECT, name: `Fixture AB Tender ${stamp}`, orgId: ORG, ownerId: ADMIN, workDomain: "tender", intakeStatus: "dispatched", clientOrganization: "Alberta Health Services" } });
   // 采购方候选不该带出的两种项目：待分派的（只有超级管理员看得到）、不是招标的
   await db.project.create({ data: { id: PENDING, name: `Fixture Pending ${stamp}`, orgId: ORG, ownerId: ADMIN, workDomain: "tender", intakeStatus: "pending_dispatch", clientOrganization: `Pending Dispatch Buyer ${stamp}` } });
@@ -150,6 +152,51 @@ async function main() {
     const auditOutcomes = (await auditRows()).map((r) => String((JSON.parse(r.afterData ?? "{}") as Rec).outcome));
     ok(auditOutcomes.join(",") === "CREATED,CREATED,ATTACHED_BY_SOLICITATION,ATTACHED_BY_DATE_AMOUNT,NEEDS_REVIEW,NEEDS_REVIEW,CREATED", "审计：每次新建、挂到既有、疑似重复各一条，重录与被拒的没有", auditOutcomes);
 
+    /* ---------- 6b. 疑似重复不被人工确认的写入悄悄转正（交叉验证 F1）：只升信任级，仍待组织管理员裁决 ---------- */
+    const F1_DATE = new Date("2025-06-01T00:00:00Z");
+    const e1 = await createOrObserveAwardRecord({ orgId: ORG, actor: { actorType: "system", userId: null }, award: { winnerName: "Delta Bypass Co", buyerNameRaw: "City of Edmonton", solicitationNumber: "CB-F1-001", awardDate: F1_DATE, contractAmount: 5000, currency: "CAD" }, source: { sourceType: "CANADABUYS_OPEN_DATA", sourceKey: `canadabuys:CB-F1-001-${stamp}`, capturedAt: new Date() }, confidence: "HIGH", verificationStatus: "SYSTEM_VERIFIED" });
+    const nF1 = await enter({ buyerName: "City of Edmonton", winnerName: "Delta Bypass Co", apcUrl: "https://purchasing.alberta.ca/posting/AB-2025-06001", solicitationNumber: "AB-2025-6001", awardDate: "2025-06-01", contractAmount: 5000 });
+    const nF1Id = String(rec(nF1.body.record).id);
+    const basis = async () => deriveAwardIntelligence(await listAwardsForOrg({ orgId: ORG }), { ownWinnerNames: [] }).basis;
+    const basisBefore = await basis();
+    // 项目里「授标历史」人工确认一条编号同为 AB-2025-6001 的候选（与 award-history 路由同形输入）
+    const hF1 = await createOrObserveAwardRecord({ orgId: ORG, actor: { actorType: "user", userId: ADMIN }, award: { winnerName: "Delta Bypass Co", buyerNameRaw: "City of Edmonton", solicitationNumber: "AB-2025-6001", awardDate: F1_DATE, contractAmount: 5000, currency: "CAD" }, source: { sourceType: "CANADABUYS_OPEN_DATA", sourceKey: `canadabuys:AB-2025-6001-${stamp}`, capturedAt: new Date() }, confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED" });
+    const nAfterH = await db.awardRecord.findUnique({ where: { id: nF1Id }, include: { sources: true } });
+    const basisAfterH = await basis();
+    ok(nF1.body.outcome === "NEEDS_REVIEW" && hF1.outcome === "ATTACHED_EXISTING" && hF1.record.id === nF1Id && nAfterH?.status === "NEEDS_REVIEW" && nAfterH.verificationStatus === "HUMAN_CONFIRMED" && nAfterH.possibleDuplicateOfId === e1.record.id && nAfterH.sources.length === 2 && basisAfterH.authoritative === basisBefore.authoritative && basisAfterH.needsReview === basisBefore.needsReview, "人工确认的写入按编号挂到一条疑似重复上：信任级升为人工确认、状态仍是疑似重复、仍指向原记录，统计不变（同一笔不算两次）", { n: [nF1.body.outcome, nAfterH?.status, nAfterH?.verificationStatus, nAfterH?.possibleDuplicateOfId === e1.record.id], before: basisBefore, after: basisAfterH });
+    // 项目结果回灌（未中标、填了中标方）按编号挂到这条疑似重复上：结果告诉人去核对，不说「会出现在竞争对手情报里」
+    await db.project.create({ data: { id: PROJECT_F1, name: `Fixture F1 Tender ${stamp}`, orgId: ORG, ownerId: ADMIN, workDomain: "tender", intakeStatus: "dispatched", solicitationNumber: "AB-2025-6001" } });
+    const bf = await backfillOwnResultCanonical({ projectId: PROJECT_F1, result: "lost", actorUserId: ADMIN, winnerName: "Delta Bypass Co" });
+    const nAfterBf = await db.awardRecord.findUnique({ where: { id: nF1Id } });
+    ok(bf.award === "written" && bf.awardRecordId === nF1Id && bf.awardReason === "needs_review" && nAfterBf?.status === "NEEDS_REVIEW", "项目结果回灌挂到疑似重复上：仍是疑似重复，回灌结果为 needs_review（页面提示去历史中标页核对）", bf);
+    const confF1 = await reviewAs(nF1Id, { action: "confirm" });
+    const nAfterConf = await db.awardRecord.findUnique({ where: { id: nF1Id } });
+    const basisAfterConf = await basis();
+    ok(confF1.status === 200 && nAfterConf?.status === "ACTIVE" && nAfterConf.verificationStatus === "HUMAN_CONFIRMED" && basisAfterConf.authoritative === basisBefore.authoritative + 1, "组织管理员裁决「不是重复，确认」后才转为 ACTIVE 并计入", { conf: confF1.body, status: nAfterConf?.status, before: basisBefore.authoritative, after: basisAfterConf.authoritative });
+
+    /* ---------- 6c. 录入与审计在同一事务（交叉验证 F3 / M7）：事务在写完审计之后被迫回滚，记录与审计都不留 ---------- */
+    const realTransaction = db.$transaction;
+    (db as unknown as { $transaction: unknown }).$transaction = ((fn: (tx: unknown) => Promise<unknown>) =>
+      realTransaction.call(db, async (tx: unknown) => {
+        await fn(tx);
+        throw new Error("forced rollback after the route's transaction body");
+      })) as never;
+    let rolledBack = false;
+    try {
+      await enter({ ...base, winnerName: "Rollback Probe Ltd.", apcUrl: "https://purchasing.alberta.ca/posting/AB-2026-31313" });
+    } catch {
+      rolledBack = true;
+    } finally {
+      (db as unknown as { $transaction: unknown }).$transaction = realTransaction;
+    }
+    const probeRecords = await db.awardRecord.count({ where: { orgId: ORG, winnerName: "Rollback Probe Ltd." } });
+    const probeAudits = (await auditRows()).filter((r) => (r.afterData ?? "").includes("Rollback Probe Ltd.")).length;
+    ok(rolledBack && probeRecords === 0 && probeAudits === 0, "事务回滚时记录与审计一起不留（审计写在同一事务里）", { rolledBack, probeRecords, probeAudits });
+
+    /* ---------- 6d. 链接主机只认 purchasing.alberta.ca（交叉验证 F3 / M5a）：别的 alberta.ca 主机与「以 alberta.ca 结尾」的都 400 ---------- */
+    const hostTries = await Promise.all(["https://www.alberta.ca/posting/AB-2026-07664", "https://notalberta.ca/posting/AB-2026-07664", "https://evil.purchasing.alberta.ca/posting/AB-2026-07664"].map((u, i) => enter({ ...base, winnerName: `Host Probe ${i} Ltd.`, apcUrl: u })));
+    ok(hostTries.every((t) => t.status === 400 && t.body.code === "BAD_URL" && t.body.field === "apcUrl") && (await db.awardRecord.count({ where: { orgId: ORG, winnerName: { startsWith: "Host Probe" } } })) === 0, "www.alberta.ca、notalberta.ca、evil.purchasing.alberta.ca：400 BAD_URL、不写库", hostTries.map((t) => [t.status, t.body.code]));
+
     /* ---------- 7. 撤回后重录：新建一条、撤回的那条保持撤回、重放仍不重复 ---------- */
     const ret = await reviewAs(String(r1.id), { action: "retract", reason: "金额填错" });
     const re1 = await enter({ ...base, contractAmount: "50,000" });
@@ -158,15 +205,43 @@ async function main() {
     const fresh = rec(re1.body.record);
     ok(ret.status === 200 && old?.status === "RETRACTED" && re1.status === 200 && re1.body.outcome === "CREATED" && fresh.id !== r1.id && re2.body.outcome === "ALREADY_ENTERED" && rec(re2.body.record).id === fresh.id, "撤回后重录：新建一条，撤回的那条仍撤回，再录不新建", { ret: ret.body, re1: re1.body, re2: re2.body });
 
-    /* ---------- 8. 两次同时提交：一条记录、两次都成功 ---------- */
+    /* ---------- 8. 同时提交（8 路，稳定撞上来源唯一约束；交叉验证 F3 / M9）：一条记录、全部成功 ---------- */
     const dup = { buyerName: "Alberta Health Services", winnerName: "Concurrent Linen Ltd.", apcUrl: "https://purchasing.alberta.ca/posting/AB-2026-55555" };
-    const [p1, p2] = await Promise.all([enter(dup), enter(dup)]);
+    const cookieMember = await cookieOf(MEMBER);
+    const concurrent = await Promise.all(
+      Array.from({ length: 8 }, async () => {
+        try {
+          const res = await manualRoute.POST(new NextRequest(`http://localhost/api/organizations/${ORG}/tender-awards/manual`, { method: "POST", headers: { cookie: cookieMember, "content-type": "application/json" }, body: JSON.stringify(dup) }), { params: Promise.resolve({ orgId: ORG }) });
+          return { status: res.status, outcome: String(rec(await res.json().catch(() => null)).outcome) };
+        } catch (e) {
+          return { status: 500, outcome: (e as { code?: string })?.code ?? String(e).slice(0, 80) };
+        }
+      }),
+    );
     const concurrentCount = await db.awardRecord.count({ where: { orgId: ORG, winnerName: "Concurrent Linen Ltd." } });
-    ok(p1.status === 200 && p2.status === 200 && concurrentCount === 1 && [p1.body.outcome, p2.body.outcome].includes("CREATED"), "两次同时提交：一条记录，两次都 200", [p1.body.outcome, p2.body.outcome, concurrentCount]);
+    const concurrentAudits = (await auditRows()).filter((r) => (r.afterData ?? "").includes("Concurrent Linen Ltd.")).length;
+    ok(concurrent.every((p) => p.status === 200) && concurrentCount === 1 && concurrentAudits === 1 && concurrent.filter((p) => p.outcome === "CREATED").length === 1 && concurrent.filter((p) => p.outcome === "ALREADY_ENTERED").length === 7, "8 路同时提交同一条：一条记录、一条审计，8 次都 200（1 次已录入、7 次已经录过）", { concurrent, concurrentCount, concurrentAudits });
+
+    /* ---------- 8b. 同一公告同一中标方撤回满 10 次后再录 → 409（交叉验证 F3 / M6）；满 10 次之前都能重录 ---------- */
+    const loop = { buyerName: "Alberta Health Services", winnerName: "Retract Loop Ltd.", apcUrl: "https://purchasing.alberta.ca/posting/AB-2026-77777" };
+    const loopOutcomes: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const e = await enter(loop);
+      loopOutcomes.push(String(e.body.outcome));
+      await reviewAs(String(rec(e.body.record).id), { action: "retract", reason: `第 ${i + 1} 次撤回` });
+    }
+    const loopCountBefore = await db.awardRecord.count({ where: { orgId: ORG, winnerName: "Retract Loop Ltd." } });
+    const tooMany = await enter(loop);
+    const loopCountAfter = await db.awardRecord.count({ where: { orgId: ORG, winnerName: "Retract Loop Ltd." } });
+    ok(loopOutcomes.every((o) => o === "CREATED") && loopCountBefore === 10 && tooMany.status === 409 && tooMany.body.code === "RETRACTED_TOO_MANY" && tooMany.body.error === "这条公告的这个中标方撤回过太多次，没有录入；请联系组织管理员。" && loopCountAfter === 10, "撤回 1–9 次后都能重录；撤回满 10 次后再录 409 RETRACTED_TOO_MANY、不写库", { loopOutcomes, loopCountBefore, tooMany: tooMany.body, loopCountAfter });
 
     /* ---------- 9. 列表 ---------- */
     await createOrObserveAwardRecord({ orgId: ORG, actor: { actorType: "user", userId: ADMIN }, award: { winnerName: "Backfilled Winner Ltd.", buyerNameRaw: "Alberta Health Services" }, source: { sourceType: "USER_ENTRY", sourceKey: `own-result:${PROJECT}`, sourceUrl: "https://purchasing.alberta.ca/posting/should-not-show", capturedAt: new Date() }, confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED" });
     await createOrObserveAwardRecord({ orgId: ORG, actor: { actorType: "user", userId: ADMIN }, award: { winnerName: "Spelling Variant Ltd.", buyerNameRaw: "ALBERTA HEALTH SERVICES." }, source: { sourceType: "USER_ENTRY", sourceKey: `manual:${stamp}-variant`, capturedAt: new Date() }, confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED" });
+    // 人工录入来源键、但链接不是 APC 公告（交叉验证 F3 / M12）：列表不给链接
+    await createOrObserveAwardRecord({ orgId: ORG, actor: { actorType: "user", userId: ADMIN }, award: { winnerName: "Off Host Ltd.", buyerNameRaw: "Alberta Health Services" }, source: { sourceType: "USER_ENTRY", sourceKey: `manual:apc:${stamp}-offhost`, sourceUrl: "https://www.alberta.ca/posting/AB-2026-07664", capturedAt: new Date() }, confidence: "MEDIUM", verificationStatus: "NEEDS_REVIEW" });
+    // 别的组织的招标项目（交叉验证 F3 / M11b）：采购方候选不带
+    await db.project.create({ data: { id: OTHER_PROJECT, name: `Fixture Other Org Tender ${stamp}`, orgId: ORG2, ownerId: OTHER, workDomain: "tender", intakeStatus: "dispatched", clientOrganization: `Other Org Buyer ${stamp}` } });
     const lm = await list(MEMBER);
     const ls = await list(SUPER);
     const lv = await list(VIEWER);
@@ -175,16 +250,25 @@ async function main() {
     const backfilled = rows.find((r) => r.winnerName === "Backfilled Winner Ltd.");
     ok(lm.canEnterManual === true && lv.canEnterManual === false && freshRow?.manualApcUrl === URL1 && backfilled?.manualApcUrl === null && Array.isArray(lm.buyerSuggestions) && (lm.buyerSuggestions as string[]).includes("Alberta Health Services") && Array.isArray(lv.buyerSuggestions) && (lv.buyerSuggestions as string[]).length === 0, "列表：成员能录入、查看者不能；人工录入的带 APC 链接、项目回灌来源的不带；采购方候选只给能录入的人", { canM: lm.canEnterManual, canV: lv.canEnterManual, fresh: freshRow?.manualApcUrl, back: backfilled?.manualApcUrl, sug: lm.buyerSuggestions });
     ok(!JSON.stringify(lm).includes("should-not-show") && !JSON.stringify(lm).includes("evidenceSnippet"), "列表不带别的来源的链接与原文片段");
+    const offHost = rows.find((r) => r.winnerName === "Off Host Ltd.");
+    ok(!!offHost && offHost.manualApcUrl === null && !JSON.stringify(lm).includes("www.alberta.ca"), "人工录入来源键但链接不是 purchasing.alberta.ca 的公告：列表不给链接", offHost);
     const sug = (lm.buyerSuggestions as string[]) ?? [];
     ok(!sug.includes(`Pending Dispatch Buyer ${stamp}`) && !sug.includes(`Sales Client Corp ${stamp}`) && sug.filter((b) => b.toLowerCase().replace(/[^a-z]/g, "") === "albertahealthservices").length === 1 && sug.includes("Alberta Health Services") && sug.includes("Government of Alberta") && sug.includes("City of Calgary"), "采购方候选：不带待分派的与不是招标的项目；写法不同的同一采购方只留一个（项目写法优先）；含已有授标的采购方", sug);
     const sugS = (ls.buyerSuggestions as string[]) ?? [];
     ok(ls.canEnterManual === true && !sugS.includes(`Pending Dispatch Buyer ${stamp}`) && !sugS.includes(`Sales Client Corp ${stamp}`) && sugS.includes("Alberta Health Services"), "平台超级管理员的采购方候选也不带待分派与不是招标的项目", sugS);
+    ok(!sug.includes(`Other Org Buyer ${stamp}`) && !sugS.includes(`Other Org Buyer ${stamp}`), "采购方候选只取本组织：别的组织的招标项目不带（成员与平台超级管理员都一样）", { sug, sugS });
 
     /* ---------- 10. 开关关 ---------- */
     process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY = "0";
     const cOff = await enter({ ...base, winnerName: "Flag Off Ltd." });
+    // 判定顺序（交叉验证 F3 / M3）：未登录 401、查看者 403、不存在的组织 404 都先于开关；开关 409 先于校验 400
+    const offAnon = await manualRoute.POST(new NextRequest(`http://localhost/api/organizations/${ORG}/tender-awards/manual`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...base, winnerName: "Flag Off Anon Ltd." }) }), { params: Promise.resolve({ orgId: ORG }) });
+    const offViewer = await enter({ ...base, winnerName: "Flag Off Viewer Ltd." }, VIEWER);
+    const offNoOrg = await enter({ ...base, winnerName: "Flag Off Nowhere Ltd." }, SUPER, `nope_${stamp}`);
+    const offBad = await enter({ ...base, winnerName: "Flag Off Bad Ltd.", apcUrl: "https://purchasing.alberta.ca:8443/x" });
     process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY = "1";
     ok(cOff.status === 409 && cOff.body.error === "组织授标情报尚未启用" && (await db.awardRecord.count({ where: { orgId: ORG, winnerName: "Flag Off Ltd." } })) === 0, "开关关：409 那句话、没有新记录", cOff.body);
+    ok(offAnon.status === 401 && offViewer.status === 403 && offNoOrg.status === 404 && offBad.status === 409 && offBad.body.error === "组织授标情报尚未启用", "开关关时的判定顺序：未登录 401、查看者 403、不存在的组织 404（都先于开关）；坏链接也是 409（开关先于校验）", [offAnon.status, offViewer.status, offNoOrg.status, offBad.status]);
 
     ok(outbound === 0, "整个过程外部请求 0 次（不访问 APC）", outbound);
   } finally {
@@ -194,7 +278,7 @@ async function main() {
     await db.awardRecordSource.deleteMany({ where: { orgId: { in: [ORG, ORG2] } } });
     await db.awardRecord.deleteMany({ where: { orgId: { in: [ORG, ORG2] } } });
     await db.auditLog.deleteMany({ where: { OR: [{ orgId: { in: [ORG, ORG2] } }, { userId: { in: USERS } }] } });
-    await db.project.deleteMany({ where: { id: { in: [PROJECT, PENDING, GENERAL] } } });
+    await db.project.deleteMany({ where: { id: { in: [PROJECT, PENDING, GENERAL, PROJECT_F1, OTHER_PROJECT] } } });
     await db.organizationMember.deleteMany({ where: { orgId: { in: [ORG, ORG2] } } });
     await db.organization.deleteMany({ where: { id: { in: [ORG, ORG2] } } });
     await db.user.deleteMany({ where: { id: { in: USERS } } });
