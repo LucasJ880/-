@@ -2,7 +2,7 @@
 
 ## Context
 
-动机见 proposal.md 的 Why。这里只写决定做法需要的现状（main = `22a87fb7`，行号都对过）。
+动机见 proposal.md 的 Why。这里只写决定做法需要的现状（main = `22a87fb7`，行号都对过；合入 FIX-21 后的 main `212613ec` 上逐处复核，下文引用的文件 FIX-21 都没有改，只有 `scripts/test-ci-unit.sh` 的行号后移一行，已改）。
 
 **接口现在做什么**（`src/app/api/agent/tasks/recent/route.ts`，整个文件 46 行）：
 
@@ -28,7 +28,7 @@
 - `src/lib/agent-tasks/dto.ts:1-9`：普通业务用户拿不到 `inputJson / outputJson / checkReportJson / 原始 error`，禁止「先返回完整对象再由前端删字段」；平台管理员保留完整诊断视图。
 - 业务视图把 `checkReportJson` 置 `null`（`dto.ts:119`），诊断视图给原文（`:147`）；内部字段清单是 `AGENT_STEP_INTERNAL_FIELDS`（`:16-20`）；列表视图已有一个只脱敏报错的 `sanitizeListStepError`（`:199-210`）。
 - `/api/agent/tasks/:taskId` 先过项目读权限守卫，再按 `isPlatformAdmin` 选视图（`[taskId]/route.ts:47-55`）；列表 `/api/agent/tasks` 同样先过守卫（`tasks/route.ts:25-27`）。
-- FIX-21（未合并，分支 `claude/zen-turing-azudvx-fix21`）把一键投标方案两个接口也改成了这个口径（GATE 1 = C，Lucas 2026-11-22）。
+- FIX-21（#554，2026-11-23 合并）把一键投标方案两个接口也改成了这个口径（GATE 1 = C，Lucas 2026-11-22）。
 - 本接口是同一张表上唯一的例外。Security P0 当时有意没改它（`docs/QINGYAN_TENDER_PROJECT_SECURITY_P0_REPORT.md:91`，遗留项 SD-2 在 `:154`），理由是 dashboard「自动巡检」卡要解析检查报告，「如需硬化另立安全投影任务」。
 
 **界面上谁在调**（逐个查过）：
@@ -169,9 +169,10 @@
     - 组织甲、乙；甲的项目 P1、P2（已分发）、P3（未分发）；一个没有组织的已分发项目 P4（验证组织管理员不会因为同企业就看到没有组织的项目）。
     - 对照组（每人参加断言第 1、2 条）：
       - P1 与 P3 的负责人：已离开组织甲、不是这两个项目的成员；
-      - P1 的 active 只读成员；
+      - P1 的 active 只读成员（实现时另让他做 P4 的 active 成员，覆盖「没有组织的项目上的项目成员」这一档）；
       - P1 成员身份为 inactive 的原成员；
       - 甲的 active 管理员（不是项目成员）；
+      - 甲的 active 所有者（不是项目成员）：实现时补上，覆盖规格里「所有者或管理员」的所有者一档；
       - 甲的 inactive 原管理员；
       - 甲的普通成员（不是项目成员）；
       - 乙的管理员；
@@ -199,7 +200,7 @@
 - `authz-contract.test.ts`：
   - 登记 `recent/route.ts`，必须出现：`isPlatformAdmin`、D3 的 dto 投影函数名、`buildReadableProjectWhere`、`listEffectiveMemberships`；步骤的 `select` 里不得出现 `error`、`inputJson`、`outputJson`（D3）。
   - 新增目录完整性检查：递归列出 `src/app/api/agent/tasks/` 下所有 `route.ts`，每个都要在登记表里，漏了就失败并点名。
-  - 这个测试与 `dto.test.ts` 都不用库，同时进 `scripts/test-ci-unit.sh`，放在 `src/lib/tenancy/__tests__/tenant-context.test.ts` 那一行之后（main 上 `:137`），不贴着 FIX-21 在 `files-route-guard.test.ts` 之后加的那一行。
+  - 这个测试与 `dto.test.ts` 都不用库，同时进 `scripts/test-ci-unit.sh`，放在 `src/lib/tenancy/__tests__/tenant-context.test.ts` 那一行之后（main `22a87fb7` 上 `:137`，合入 FIX-21 后是 `:138`），不贴着 FIX-21 在 `files-route-guard.test.ts` 之后加的那一行。
 - `dto.test.ts`：新函数的用例。
   - 不是平台管理员时三种内部字段都置 `null`、其余键不动、不新增键；
   - 只有 `checkReportJson` 时只置它；

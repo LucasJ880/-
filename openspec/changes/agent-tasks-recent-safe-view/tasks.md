@@ -5,9 +5,10 @@
 >    - 代码上不重叠：本 change 的代码只动 `src/app/api/agent/tasks/`、`src/lib/agent-tasks/`，FIX-21 不动这两处。
 >    - 两个测试脚本 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 和 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 两边都改：
 >      - `test-all.sh`：本 change 的新行放在 `dto.test.ts` 那一条之后，与 FIX-21 加在 FIX-17 两条之后的两行不相邻；
->      - `test-ci-unit.sh`：FIX-21 在 `files-route-guard.test.ts` 那一行之后加了一行；本 change 的两行不贴着那里，放在 `src/lib/tenancy/__tests__/tenant-context.test.ts` 那一行之后（main `22a87fb7` 上 `:137`）；
+>      - `test-ci-unit.sh`：FIX-21 在 `files-route-guard.test.ts` 那一行之后加了一行；本 change 的两行不贴着那里，放在 `src/lib/tenancy/__tests__/tenant-context.test.ts` 那一行之后（main `22a87fb7` 上 `:137`，合入 FIX-21 后是 `:138`）；
 >      - TASKFLOW：FIX-23 一行放在 FIX-21 一行及它登记的后续各行之后。
 >    - 四件套按 main `22a87fb7` 写行号；合入后逐处复核（尤其 `recent/route.ts`、`dto.ts`、`authz-contract.test.ts`、`search/where.ts`、`projects/access.ts`、两个测试脚本），对不上先改四件套，跑 `openspec validate agent-tasks-recent-safe-view --strict`，再动代码。
+>    - 复核结果（合入 main `212613ec` 后，2026-11-23）：上面列的源码文件 FIX-21 都没有改，行号照旧；`scripts/test-ci-unit.sh` 的 `tenant-context.test.ts` 后移到 `:138`；TASKFLOW 里 FIX-21 已登记了一行 `| FIX-23 |`（它的后续 9，状态 `[ ]`，夹在它的后续各行中间），3.2 改写这一行并挪到 FIX-21 后续各行之后，不另加第二行。
 > 2. design「留给 GATE」两条已定（按推荐，Lucas 2026-11-22 授权）：第 1 条 A（不是平台管理员时 `checkReportJson` 为 `null`）、第 2 条 A（与项目读权限守卫同口径）。下面各条按这个结论写，没有分支。
 > 3. 开工前跑一遍将要触碰模块的已注册测试，记下通过数：
 >    - `npx tsx src/lib/agent-tasks/__tests__/dto.test.ts`（main 上 23）；
@@ -15,16 +16,17 @@
 >    - `npx tsx src/lib/search/__tests__/search-where.test.ts`；
 >    - `npm run test:runtime-architecture`。
 >    - 同时记下 `grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的值（main `22a87fb7` 上为 0；FIX-21 等合并后会变），写进报告草稿，3.2 的 verify 用它。
+>    - 记下的值（合入 main `212613ec` 后）：`dto.test.ts` 23 / 0、`authz-contract.test.ts` 9 / 0、`search-where.test.ts` 28 / 0、`test:runtime-architecture` PASS；`| 待定 |` 为 12。
 
 ## 1. 测试先行（不改路由）
 
-- [ ] 1.1 改授权布线契约测试 `src/app/api/agent/tasks/__tests__/authz-contract.test.ts`（design D6）。
+- [x] 1.1 改授权布线契约测试 `src/app/api/agent/tasks/__tests__/authz-contract.test.ts`（design D6）。
   - 登记 `recent/route.ts`，必须出现：`isPlatformAdmin`、2.1 新加的 dto 投影函数名、`buildReadableProjectWhere`、`listEffectiveMemberships`；步骤的 `select` 里不得出现 `error`、`inputJson`、`outputJson`（design D3）。
   - 新增目录完整性检查：递归列出 `src/app/api/agent/tasks/` 下所有 `route.ts`，每个都要在登记表里，漏了就失败并点名文件。
   - 把这个测试与 `src/lib/agent-tasks/__tests__/dto.test.ts` 加进 `scripts/test-ci-unit.sh`，位置见开工前提第 1 条。
   - verify：在改动前的代码上退出码非 0，失败项只有 `recent/route.ts` 那一条；完整性检查列出 7 个路由文件、全部已登记；输出存进报告。
   - verify：`bash scripts/check-test-registry.sh` 输出 OK。
-- [ ] 1.2 写隔离库 + HTTP 测试 `src/lib/agent-tasks/__tests__/recent-view-db.isolated.test.ts`（用例名用中文），注册进 `scripts/test-all.sh`，放在 `dto.test.ts` 那一条之后（隔离库执行，否则跳过）。
+- [x] 1.2 写隔离库 + HTTP 测试 `src/lib/agent-tasks/__tests__/recent-view-db.isolated.test.ts`（用例名用中文），注册进 `scripts/test-all.sh`，放在 `dto.test.ts` 那一条之后（隔离库执行，否则跳过）。
   - 夹具与断言按 design D6：
     - 对照组每人在 P1–P4 上各一条 cron、一条 manual，每人可见任务不超过 20 条；
     - 先筛后取与 `limit` 校验用单独的条数用户（P1 上 22 条较早、P2 上 25 条更新）；
@@ -86,7 +88,7 @@
         - 用 super_admin 打开，检查报告是原文；
         - 用一个不是 super_admin 的项目负责人打开，每一步 `checkReportJson` 都是 `null`，列出的任务所属项目他都打得开。
     - 测试输出、多维审查结论。
-  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：「Phase F（续）— 情报串联」表新增 FIX-23 一行（位置见开工前提第 1 条），状态 `[~]`。同时登记 3 条后续任务，各一行，编号写「待定」，状态 `[ ]`：
+  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：「Phase F（续）— 情报串联」表的 FIX-23 一行（FIX-21 已登记、状态 `[ ]`）改写为本 change 的说明，挪到 FIX-21 后续各行之后（位置见开工前提第 1 条），状态 `[~]`。同时登记 3 条后续任务，各一行，编号写「待定」，状态 `[ ]`：
     1. `GET /api/agent/approvals` 的 `approvals` 字段原样带 `riskReason` 与 `previewJson`（`src/lib/agent/approval.ts:111-164`）。
        - `riskReason` 在检查不通过时由 `src/lib/agent-core/skills/flow-runner.ts:391-393` 拼进检查报告的 blockers，含原始报错；`previewJson` 是步骤原始输出（`:394`），报价草稿那一步含价格。
        - 与 `src/lib/agent-tasks/dto.ts:22-26` 的 `APPROVAL_INTERNAL_FIELDS` 约定不一致；全仓库没有界面调用这个接口。

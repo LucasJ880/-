@@ -8,9 +8,9 @@
  * 采用精确的「文件 → 必需符号」断言，而非脆弱的大范围字符串扫描。
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const routesRoot = resolve(here, "..");
@@ -70,12 +70,69 @@ const CONTRACT: Array<{ file: string; must: string[]; label: string }> = [
     must: ["requireProjectReadAccess", "task.projectId"],
     label: "reject 前置项目读授权（租户隔离）",
   },
+  {
+    // FIX-23：只给还能打开项目的任务（与项目读权限守卫同口径的批量条件），检查报告只给平台管理员
+    file: "recent/route.ts",
+    must: [
+      "isPlatformAdmin",
+      "sanitizeListStepInternals",
+      "buildReadableProjectWhere",
+      "listEffectiveMemberships",
+    ],
+    label: "recent GET 按项目读权限口径筛+按平台管理员区分的步骤投影",
+  },
 ];
 
 for (const { file, must, label } of CONTRACT) {
   const src = read(file);
   const missing = must.filter((token) => !src.includes(token));
   ok(missing.length === 0, `${label}${missing.length ? ` — 缺: ${missing.join(", ")}` : ""}`);
+}
+
+// —— 目录完整性（FIX-23）：tasks/ 下（含子目录）每个 route.ts 都必须在登记表里 ——
+function listRouteFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "__tests__") continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listRouteFiles(full));
+    else if (entry.name === "route.ts") out.push(relative(routesRoot, full).split(sep).join("/"));
+  }
+  return out.sort();
+}
+const registered = new Set(CONTRACT.map((c) => c.file));
+const routeFiles = listRouteFiles(routesRoot);
+console.log(`  目录 src/app/api/agent/tasks/ 下的路由文件 ${routeFiles.length} 个：`);
+for (const file of routeFiles) console.log(`    - ${file}${registered.has(file) ? "（已登记）" : "（未登记）"}`);
+const unregistered = routeFiles.filter((f) => !registered.has(f));
+ok(
+  routeFiles.length > 0 && unregistered.length === 0,
+  `目录下 ${routeFiles.length} 个路由文件都已登记${unregistered.length ? ` — 未登记: ${unregistered.join(", ")}` : ""}`,
+);
+const stale = [...registered].filter((f) => !routeFiles.includes(f));
+ok(stale.length === 0, `登记表里没有已不存在的路由文件${stale.length ? ` — 不存在: ${stale.join(", ")}` : ""}`);
+
+// —— 最近任务接口的步骤 select 不得选原始报错、输入与输出（FIX-23 design D3）——
+// 原始报错 error 不在 AGENT_STEP_INTERNAL_FIELDS 里，投影管不到，只能靠这条拦住
+function stepsSelectBlock(src: string): string | null {
+  const m = /steps\s*:\s*\{\s*select\s*:\s*\{/.exec(src);
+  if (!m) return null;
+  let depth = 1;
+  let i = m.index + m[0].length;
+  const start = i;
+  for (; i < src.length && depth > 0; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") depth--;
+  }
+  return depth === 0 ? src.slice(start, i - 1) : null;
+}
+{
+  const block = stepsSelectBlock(read("recent/route.ts"));
+  const forbidden = block === null ? [] : ["error", "inputJson", "outputJson"].filter((k) => new RegExp(`\\b${k}\\s*:`).test(block));
+  ok(
+    block !== null && forbidden.length === 0,
+    `recent/route.ts 的步骤 select 不含 error / inputJson / outputJson${block === null ? " — 找不到步骤 select" : forbidden.length ? ` — 选了: ${forbidden.join(", ")}` : ""}`,
+  );
 }
 
 // —— 反向断言：mutation 路由不得只有 withAuth 而无项目授权 ——

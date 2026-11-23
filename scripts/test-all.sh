@@ -175,6 +175,7 @@ run_test "多租户 TenantContext/模块" "npx tsx src/lib/tenancy/__tests__/ten
 run_test "多租户数据隔离断言" "npx tsx src/lib/tenancy/__tests__/tenant-isolation.test.ts"
 run_test "多租户文件 pathname 声明" "npx tsx src/lib/tenancy/__tests__/tenant-file-access.test.ts"
 run_test "Tender/Project 安全P0 AgentTask DTO安全投影" "npx tsx src/lib/agent-tasks/__tests__/dto.test.ts"
+run_test "FIX-23 最近任务接口只给还能打开项目的人、检查报告只给平台管理员 DB+HTTP（与项目读权限逐人对照 / 先筛后取与 limit 校验 / 岗位预览 / 401 / 库内不变；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/agent-tasks/__tests__/recent-view-db.isolated.test.ts"
 run_test "Tender/Project 安全P0 AgentTask 授权布线契约" "npx tsx src/app/api/agent/tasks/__tests__/authz-contract.test.ts"
 run_test "Tender/Project 安全P0 AgentTask execute/cancel 路由级授权" "npx tsx src/app/api/agent/tasks/__tests__/route-exec.test.ts"
 run_test "Phase2A 规则/Pack/工具权限" "npx tsx src/lib/tenancy/__tests__/phase2a-rules-tools.test.ts"

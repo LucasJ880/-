@@ -6,7 +6,7 @@ TASKFLOW：FIX-23（「Phase F（续）— 情报串联」表，排在 FIX-21 �
 - 代码上不重叠：本 change 的代码只动 `src/app/api/agent/tasks/` 与 `src/lib/agent-tasks/`，FIX-21 不动这两处。
 - 两个测试脚本 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 和 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 两边都改：
   - `test-all.sh`：本 change 加在 `dto.test.ts` 那一条之后，FIX-21 加在 FIX-17 两条之后，不相邻；
-  - `test-ci-unit.sh`：FIX-21 加在 `files-route-guard` 那一行之后，本 change 的两行不贴着那里，放在 `src/lib/tenancy/__tests__/tenant-context.test.ts` 那一行之后（main 上 `:137`）；
+  - `test-ci-unit.sh`：FIX-21 加在 `files-route-guard` 那一行之后，本 change 的两行不贴着那里，放在 `src/lib/tenancy/__tests__/tenant-context.test.ts` 那一行之后（main `22a87fb7` 上 `:137`，合入 FIX-21 后是 `:138`）；
   - TASKFLOW：FIX-23 一行排在 FIX-21 一行及它登记的后续各行之后。
 
 ## Why
