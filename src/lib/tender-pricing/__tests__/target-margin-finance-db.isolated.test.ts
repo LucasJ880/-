@@ -141,7 +141,7 @@ async function main() {
       const l = await getList(u);
       const item = listItem(l.raw, P);
       const lsj = rec(rec(item?.intelligenceRoom).summaryJson);
-      ok(l.status === 200 && !!item && item.ourBidPrice === PRICE && !("pricingInputs" in lsj) && !("bidDraft" in lsj) && !("bidStrategyMemo" in lsj) && Array.isArray(lsj.majorBlockers), `${label}读项目列表：照旧带 ourBidPrice，summaryJson 没有 pricingInputs、bidDraft、备忘`, item ?? l.text.slice(0, 300));
+      ok(l.status === 200 && !!item && item.ourBidPrice === PRICE && !("pricingInputs" in lsj) && !("bidDraft" in lsj) && !("bidStrategyMemo" in lsj) && Array.isArray(lsj.majorBlockers), `${label}读项目列表：照旧带 ourBidPrice，summaryJson 没有 pricingInputs、bidDraft、备忘`, (item ?? l.text.slice(0, 300)));
       const d = await getDetail(P, u);
       ok(d.status === 200 && rec(d.body.project ?? d.body).ourBidPrice === PRICE, `${label}读项目详情：照旧带 ourBidPrice`, d.text.slice(0, 300));
       const all = [h.text, r.text, JSON.stringify(item ?? {}), d.text].join("\n");
@@ -153,7 +153,7 @@ async function main() {
       const l = await getList(ORGMEM);
       const item = listItem(l.raw, P);
       const lsj = rec(rec(item?.intelligenceRoom).summaryJson);
-      ok(l.status === 200 && !!item && item.ourBidPrice === PRICE && !("pricingInputs" in lsj) && !("bidDraft" in lsj), "本组织普通成员读项目列表：列出该项目、带 ourBidPrice、没有 pricingInputs 与 bidDraft", item ?? l.text.slice(0, 300));
+      ok(l.status === 200 && !!item && item.ourBidPrice === PRICE && !("pricingInputs" in lsj) && !("bidDraft" in lsj), "本组织普通成员读项目列表：列出该项目、带 ourBidPrice、没有 pricingInputs 与 bidDraft", (item ?? l.text.slice(0, 300)));
       const h = await getHelper(P, ORGMEM);
       const r = await getRoom(P, ORGMEM);
       const d = await getDetail(P, ORGMEM);
