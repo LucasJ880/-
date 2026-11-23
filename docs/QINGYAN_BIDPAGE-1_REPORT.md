@@ -4,8 +4,9 @@
 |---|---|
 | TASKFLOW | BIDPAGE-1（Phase F（续）— 标书与报价页改版） |
 | 任务书 | `docs/QINGYAN_BIDPAGE_BID_QUOTE_REDESIGN_TASKBRIEF.md`「BIDPAGE-1」与附录 C |
-| OpenSpec change | `openspec/changes/bid-page-v2-shell/`（新能力 `tender/bid-page`） |
-| 基线 | origin/main `13c7ed33`（#546 合并后） |
+| OpenSpec change | `openspec/changes/archive/2026-11-23-bid-page-v2-shell/`（新能力 `tender/bid-page`，主规格 13 条） |
+| 合并 | #557，2026-11-23 合并（merge commit `d1b0d3e2`）；合并前最后一次变基到 main `212613ec`（含 FIX-21 #554）：全量 717/727（10 项与 main 既有失败逐条相同）、`test:ci` PASS（CI 同款环境变量）、FIX-21 目录守卫 98/98、GitHub CI 全绿 |
+| 基线 | origin/main `13c7ed33`（#546 合并后；开工时） |
 | 开关 | `TENDER_BID_PAGE_V2_ENABLED` + `TENDER_BID_PAGE_V2_ORG_ALLOWLIST`，默认关 |
 
 ## 1. 做了什么
