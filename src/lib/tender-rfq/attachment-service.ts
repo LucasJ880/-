@@ -60,6 +60,34 @@ export async function renderRfqAttachmentPdf(html: string): Promise<{ ok: true; 
   return checked.ok ? { ok: true, pdf } : checked;
 }
 
+/* ---------------------------------- 排版并检查（起草与菜单生成共用） ---------------------------------- */
+
+export type RenderCheckedRfqSheetResult =
+  | { ok: true; html: string; pdf: Buffer }
+  | { ok: false; reason: RfqAttachmentFailReason }
+  | { ok: false; reason: "identity"; hits: IdentityHit[] };
+
+/**
+ * 一份询价单 → 模板文字过禁出清单 → 排出 HTML → 生成 PDF 并检查（是 PDF、内嵌中文字体、不超过 5 MB）。
+ * 起草询价的附件与「一键生成文档」的供应商询价单都走这里，所以两边是同一个模板、同一套检查、同一个先后顺序
+ * （模板文字命中时不启动 PDF 生成）。
+ */
+export async function renderCheckedRfqSheet(input: {
+  doc: RfqDocument;
+  /** 已把招标原文留空的那一份（build.ts 的 rfqTemplateOnlyDocument） */
+  templateOnlyDoc: RfqDocument;
+  denyList: ProjectIdentityDenyList;
+  draftedOn: string;
+}): Promise<RenderCheckedRfqSheetResult> {
+  const opts = { draftedOn: input.draftedOn };
+  const hits = scanIdentity(input.denyList, rfqAttachmentTemplateSegments(input.templateOnlyDoc, opts));
+  if (hits.length) return { ok: false, reason: "identity", hits };
+  const html = renderRfqAttachmentHtml(input.doc, opts);
+  const rendered = await renderRfqAttachmentPdf(html);
+  if (!rendered.ok) return rendered;
+  return { ok: true, html, pdf: rendered.pdf };
+}
+
 /* ---------------------------------- 起草 ---------------------------------- */
 
 export type DraftRfqAttachmentResult =
@@ -74,11 +102,7 @@ export async function draftRfqAttachment(input: {
   denyList: ProjectIdentityDenyList;
   draft: RfqAttachmentDraftParams;
 }): Promise<DraftRfqAttachmentResult> {
-  const opts = { draftedOn: input.draft.draftedOn };
-  const hits = scanIdentity(input.denyList, rfqAttachmentTemplateSegments(input.templateOnlyDoc, opts));
-  if (hits.length) return { ok: false, reason: "identity", hits };
-  const html = renderRfqAttachmentHtml(input.doc, opts);
-  const rendered = await renderRfqAttachmentPdf(html);
+  const rendered = await renderCheckedRfqSheet({ doc: input.doc, templateOnlyDoc: input.templateOnlyDoc, denyList: input.denyList, draftedOn: input.draft.draftedOn });
   if (!rendered.ok) return rendered;
   return {
     ok: true,
@@ -88,7 +112,7 @@ export async function draftRfqAttachment(input: {
       mimeType: RFQ_ATTACHMENT_MIME,
       pages: countPdfPages(rendered.pdf),
       sizeBytes: rendered.pdf.length,
-      contentHash: rfqAttachmentContentHash(html),
+      contentHash: rfqAttachmentContentHash(rendered.html),
       templateVersion: RFQ_ATTACHMENT_TEMPLATE_VERSION,
       draft: input.draft,
     },

@@ -1,45 +1,32 @@
 /**
- * 一键生成项目 PDF（供应商询价 / 内部分析 / 同事任务单）
+ * 一键生成项目 PDF（供应商询价单 / 内部分析 / 同事任务单）
  */
 
 import { db } from "@/lib/db";
 import { putPrivateBlob } from "@/lib/files/blob-access";
-import { sanitizeSupplierFacing } from "./pdf-common";
 import { buildProjectAiContextBlock } from "@/lib/projects/project-ai-context";
 import { computePriceGap } from "@/lib/projects/price-gap";
-import { buildChinaSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
-import { loadProjectIdentity, type LoadedProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
-import { scanIdentity, SupplierIdentityLeakError } from "@/lib/bid-workflow/project-identity-deny";
+import { buildProjectRfqSheet } from "@/lib/tender-rfq/sheet-download-service";
+import { rfqSheetRecordTitle } from "@/lib/tender-rfq/sheet-download";
 
+/**
+ * RFQ-PDF-1：发给供应商的文件只有 supplier_rfq（供应商询价单）一种，内容与检查全在 tender-rfq
+ * （与发询价时的询价单同一个生成器、同一个模板、同一套检查）。其余都是内部文件：照旧印项目名称、
+ * 项目编号、采购方与截标日期，不过禁出清单。
+ */
 export type GenerateDocType =
   | "supplier_rfq"
-  | "china_supplier_brief"
   | "analyst_memo"
   | "internal_analysis"
   | "teammate_tasks"
-  | "tech_confirm"
   | "owner_clarification"
   | "bid_draft";
 
-/**
- * CHAIN-4b：发给供应商的文件。它们不拼接项目 AI 上下文、项目名称与描述（那里有标号、客户、预估金额、
- * 我方报价、中标价），只用中性询价编号；生成前过本项目的禁出清单，命中即抛 SupplierIdentityLeakError。
- */
-const SUPPLIER_DOC_TYPES: ReadonlySet<GenerateDocType> = new Set(["supplier_rfq", "tech_confirm", "china_supplier_brief"]);
-
-/** 供应商侧文件生成前的身份检查（整份我方撰写的文字：五类 + 格式检查全查） */
-function assertSupplierDocClean(identity: LoadedProjectIdentity, text: string): void {
-  const hits = scanIdentity(identity.denyList, [{ where: "文件正文", text, kind: "authored" }]);
-  if (hits.length) throw new SupplierIdentityLeakError(hits);
-}
-
-const DOC_TITLES: Record<GenerateDocType, string> = {
-  supplier_rfq: "国内供应商询价",
-  china_supplier_brief: "China Supplier Sourcing Brief",
+/** 内部文件的标题（供应商询价单的标题带询价编号，见 rfqSheetRecordTitle） */
+const DOC_TITLES: Record<Exclude<GenerateDocType, "supplier_rfq">, string> = {
   analyst_memo: "投标分析师备忘录",
   internal_analysis: "内部项目分析",
   teammate_tasks: "同事执行任务单",
-  tech_confirm: "供应商技术确认表",
   owner_clarification: "RFI 问题清单（中英）",
   bid_draft: "投标文件起草（英文提交稿 + 中文审阅注）",
 };
@@ -49,15 +36,37 @@ export async function generateProjectDocument(input: {
   orgId: string | null;
   userId: string;
   docType: GenerateDocType;
-  /** china_supplier_brief：是否纳入公开历史金额（默认 false） */
-  includePublicHistoricalAmounts?: boolean;
-  /** china_supplier_brief：生成前备注 */
-  confirmNotes?: string | null;
   /** analyst_memo（v2 全文多轮推理）：本次调用的时间预算截止点（Date.now() 语义）；未给则单步 4 分钟 */
   deadlineMs?: number;
-  /** 仅预览正文，不写 Blob / ProjectGeneratedDocument */
-  previewOnly?: boolean;
+  /** supplier_rfq：起草时刻（缺省 = 现在；测试用） */
+  now?: Date;
 }) {
+  // RFQ-PDF-1：供应商询价单不读项目名称、描述、情报摘要与项目 AI 上下文——在下面那条查询之前就处理完。
+  // 内容有问题（没有已确认的要求 / 内部财务信息 / 招标身份）或 PDF 不合格时 buildProjectRfqSheet 直接抛出，
+  // 此时还没有写任何东西：不存文件、不建记录、不动旧记录的过期标记，也不回落成 HTML。
+  if (input.docType === "supplier_rfq") {
+    const sheet = await buildProjectRfqSheet({ projectId: input.projectId, now: input.now });
+    return persistGeneratedFile({
+      projectId: input.projectId,
+      orgId: input.orgId,
+      userId: input.userId,
+      docType: "supplier_rfq",
+      title: (version) => rfqSheetRecordTitle(sheet.reference, version),
+      file: { body: sheet.pdf, fileType: "pdf", contentType: "application/pdf", renderMode: "chromium_pdf" },
+      meta: {
+        conclusionVersion: `rfq_sheet_v${sheet.templateVersion}`,
+        reference: sheet.reference,
+        draftedAt: sheet.draftedAt,
+        draftedOn: sheet.draftedOn,
+        contentHash: sheet.contentHash,
+        templateVersion: sheet.templateVersion,
+        replyLeadDays: sheet.replyLeadDays,
+        pages: sheet.pages,
+      },
+    });
+  }
+  const docType = input.docType;
+
   const project = await db.project.findUnique({
     where: { id: input.projectId },
     select: {
@@ -114,67 +123,12 @@ export async function generateProjectDocument(input: {
   });
   if (!project) throw new Error("项目不存在");
 
-  // 供应商侧文件（含 china_supplier_brief）：禁止把 AI context（标号 / 客户 / 预估金额 / 我方报价 / 中标价）拼进去
-  const supplierFacing = SUPPLIER_DOC_TYPES.has(input.docType);
-  const ctx = supplierFacing ? "" : await buildProjectAiContextBlock(project.id);
-  // CHAIN-4b：供应商侧文件的禁出清单与询价编号
-  const identity = supplierFacing ? await loadProjectIdentity(project.id) : null;
-  if (supplierFacing && !identity) throw new Error("项目不存在");
+  const ctx = await buildProjectAiContextBlock(project.id);
   const addendumFingerprint = project.documents
     .map((d: { id: string; title: string }) => `${d.id}:${d.title}`)
     .sort()
     .join("|")
     .slice(0, 500);
-
-  if (input.docType === "china_supplier_brief" && input.previewOnly && identity) {
-    const facts = await loadChinaBriefFacts(project.id);
-    const previewText = buildChinaSupplierBriefText({
-      reference: identity.reference,
-      identity: identity.denyList,
-      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
-      facts,
-      confirmNotes: input.confirmNotes,
-    });
-    return {
-      id: null,
-      previewText,
-      previewOnly: true as const,
-      fileUrl: null,
-      blobUrl: null,
-    };
-  }
-
-  // FB-4/5：internal_analysis / supplier_rfq 在有 Analyst 分析时走 HTML 模板
-  // （基准=McMaster 管理层决策备忘录；中文安全，根治 jsPDF 无 CJK 字体乱码；
-  //   内部=决策备忘录 ≠ 供应商=符合性确认+报价表，语义彻底分离）。
-  // FB-16：China Supplier Brief 同样切 HTML（jsPDF 无 CJK 字体 → 乱码；与平台无关）
-  if (input.docType === "china_supplier_brief" && identity) {
-    const facts = await loadChinaBriefFacts(project.id);
-    const briefText = buildChinaSupplierBriefText({
-      reference: identity.reference,
-      identity: identity.denyList,
-      includePublicHistoricalAmounts: !!input.includePublicHistoricalAmounts,
-      facts,
-      confirmNotes: input.confirmNotes,
-    });
-    const escd = briefText
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    const html = `<!doctype html><meta charset="utf-8"><title>China Supplier Sourcing Brief</title>
-<style>body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:800px;margin:0 auto;padding:32px 28px;line-height:1.7;font-size:14px;white-space:pre-wrap}@media print{body{padding:0}}</style>
-${escd}`;
-    return persistGeneratedHtml({
-      project: { id: project.id, name: project.name },
-      orgId: input.orgId,
-      userId: input.userId,
-      docType: input.docType,
-      titleZh: "China Supplier Sourcing Brief",
-      html,
-      addendumFingerprint,
-      conclusionVersion: "china_brief_text_v1",
-    });
-  }
 
   // 分析师备忘录 v2：全文多轮推理（深读→研究→综合→数字回核；断点续跑，未完返回 inProgress）
   if (input.docType === "analyst_memo") {
@@ -227,10 +181,7 @@ ${escd}`;
     });
   }
 
-  if (
-    input.docType === "internal_analysis" ||
-    input.docType === "supplier_rfq"
-  ) {
+  if (input.docType === "internal_analysis") {
     const latestRun = await db.tenderAnalysisRun.findFirst({
       where: {
         projectId: project.id,
@@ -242,44 +193,31 @@ ${escd}`;
     const { readAnalystSynthesis } = await import("@/lib/tender-analyst/contract");
     const syn = readAnalystSynthesis(latestRun?.summaryJson ?? null);
     if (syn) {
-      const { buildInternalDecisionMemoHtml, buildSupplierRfqHtml, supplierRfqScanSegments } =
-        await import("./tender-doc-html");
+      const { buildInternalDecisionMemoHtml } = await import("./tender-doc-html");
       const generatedAt = new Date().toISOString().slice(0, 10);
-      let body: string;
-      if (input.docType === "internal_analysis") {
-        // 内部备忘录：抬头照旧印项目名称、项目编号、采购方、投标截止
-        const projMeta = await db.project.findUnique({
-          where: { id: project.id },
-          select: { solicitationNumber: true },
-        });
-        body = buildInternalDecisionMemoHtml(
-          {
-            projectName: project.name,
-            clientOrganization: project.clientOrganization,
-            solicitationNumber: projMeta?.solicitationNumber ?? null,
-            closeDate: project.closeDate ? project.closeDate.toISOString().slice(0, 10) : null,
-            orgName: null,
-            generatedAt,
-          },
-          syn,
-        );
-      } else {
-        // CHAIN-4b：供应商询价表只用对外抬头；生成前逐段过身份检查（要求行不查项目名称）
-        const supplierHeader = { reference: identity!.reference, generatedAt };
-        const hits = scanIdentity(identity!.denyList, supplierRfqScanSegments(supplierHeader, syn));
-        if (hits.length) throw new SupplierIdentityLeakError(hits);
-        body = buildSupplierRfqHtml(supplierHeader, syn);
-      }
+      // 内部备忘录：抬头照旧印项目名称、项目编号、采购方、投标截止
+      const projMeta = await db.project.findUnique({
+        where: { id: project.id },
+        select: { solicitationNumber: true },
+      });
+      const body = buildInternalDecisionMemoHtml(
+        {
+          projectName: project.name,
+          clientOrganization: project.clientOrganization,
+          solicitationNumber: projMeta?.solicitationNumber ?? null,
+          closeDate: project.closeDate ? project.closeDate.toISOString().slice(0, 10) : null,
+          orgName: null,
+          generatedAt,
+        },
+        syn,
+      );
       const html = `<!doctype html><meta charset="utf-8">${body}`;
       return persistGeneratedHtml({
         project: { id: project.id, name: project.name },
         orgId: input.orgId,
         userId: input.userId,
         docType: input.docType,
-        titleZh:
-          input.docType === "internal_analysis"
-            ? "内部投标决策备忘录"
-            : "供应商询价与符合性确认表",
+        titleZh: "内部投标决策备忘录",
         html,
         addendumFingerprint,
         conclusionVersion: "analyst_synthesis_v1",
@@ -292,21 +230,7 @@ ${escd}`;
   let textBody = "";
   let htmlOverride: string | null = null;
 
-  if (input.docType === "supplier_rfq") {
-    // CHAIN-4b：只剩固定模板与询价编号——不再拼项目名称、描述与项目 AI 上下文
-    const body = sanitizeSupplierFacing(
-      [
-        "SUPPLIER RFQ (China / Factory)",
-        `RFQ reference / 询价编号: ${identity!.reference}`,
-        "Please quote: product, qty, size, material, certifications, packaging, sample lead time, production lead time, required docs.",
-        "Questions for supplier:",
-        "1) Can you meet specs exactly?",
-        "2) Lead time for sample and bulk?",
-        "3) Certifications available?",
-      ].join("\n\n"),
-    );
-    textBody = body;
-  } else if (input.docType === "internal_analysis") {
+  if (input.docType === "internal_analysis") {
     const gap = computePriceGap({
       ourBidPrice: project.ourBidPrice,
       winningBidPrice: project.winningBidPrice,
@@ -349,23 +273,6 @@ ${escd}`;
       taskLines,
       "Done criteria: answers logged as insights/tasks; files updated.",
     ].join("\n\n");
-    textBody = body;
-  } else if (input.docType === "tech_confirm") {
-    // CHAIN-4b：只剩固定模板与询价编号——不再拼项目名称与项目 AI 上下文
-    const body = sanitizeSupplierFacing(
-      [
-        "Supplier Technical Confirmation",
-        `RFQ reference / 询价编号: ${identity!.reference}`,
-        "Table columns: Customer Requirement | Meet (Y/N) | Supplier Note | Evidence | Deviation",
-        "",
-        "Row templates (fill with project requirements):",
-        "1) Product / material spec |  |  |  |  ",
-        "2) Dimensions / tolerance |  |  |  |  ",
-        "3) Certification / testing |  |  |  |  ",
-        "4) Lead time / sample |  |  |  |  ",
-        "5) Packaging / labeling |  |  |  |  ",
-      ].join("\n"),
-    );
     textBody = body;
   } else if (input.docType === "bid_draft") {
     // Lane 5：投标文件起草——装配（只读）→ LLM 合成（AI_DRAFT，能力/价格不编造）→ HTML；
@@ -415,16 +322,13 @@ ${escd}`;
     textBody = "";
   }
 
-  // 内部文件照旧以项目名开头；供应商侧文件不写项目名，并在生成前过身份检查
-  const fullText = supplierFacing
-    ? `${DOC_TITLES[input.docType]}\n\n${textBody}`
-    : `${DOC_TITLES[input.docType]}\n\nProject: ${project.name}\n\n${textBody}`;
-  if (supplierFacing && identity) assertSupplierDocClean(identity, fullText);
+  // 内部文件以项目名开头
+  const fullText = `${DOC_TITLES[docType]}\n\nProject: ${project.name}\n\n${textBody}`;
   const escd = fullText
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-  const html = htmlOverride ?? `<!doctype html><meta charset="utf-8"><title>${DOC_TITLES[input.docType]}</title>
+  const html = htmlOverride ?? `<!doctype html><meta charset="utf-8"><title>${DOC_TITLES[docType]}</title>
 <style>body{font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;color:#1c1c1c;max-width:800px;margin:0 auto;padding:32px 28px;line-height:1.7;font-size:13px;white-space:pre-wrap}@media print{body{padding:0}}</style>
 ${escd}`;
   return persistGeneratedHtml({
@@ -432,7 +336,7 @@ ${escd}`;
     orgId: input.orgId,
     userId: input.userId,
     docType: input.docType,
-    titleZh: DOC_TITLES[input.docType],
+    titleZh: DOC_TITLES[docType],
     html,
     addendumFingerprint,
     conclusionVersion: project.intelligence?.structuredSummaryJson
@@ -441,72 +345,115 @@ ${escd}`;
   });
 }
 
-/** HTML 生成文档统一落库：私有 Blob + ProjectGeneratedDocument(版本/stale) + 项目文件列表 */
+/**
+ * 内部文件（HTML 模板）的落库：先转 PDF 并写入存储，任一步失败就改存 HTML 并写明降级原因。
+ * 供应商询价单不走这里——它的 PDF 已在 tender-rfq 里生成并检查过，不合格就不保存，没有 HTML 回落。
+ */
 async function persistGeneratedHtml(input: {
   project: { id: string; name: string };
   orgId: string | null;
   userId: string;
-  docType: GenerateDocType;
+  docType: Exclude<GenerateDocType, "supplier_rfq">;
   titleZh: string;
   html: string;
   addendumFingerprint: string;
   conclusionVersion: string;
 }) {
-  const version =
-    (await db.projectGeneratedDocument.count({
-      where: { projectId: input.project.id, docType: input.docType },
-    })) + 1;
+  const target = { projectId: input.project.id, docType: input.docType };
+  const version = await nextGeneratedVersion(target);
   // CJK-PDF 包：优先产出真 PDF（Chromium 渲染同一份 HTML，中文完好、任何
   // 设备可开）；转换失败回落存 HTML（现状行为，浏览器可开可打印），
   // 显式标注降级原因——绝不静默、绝不把坏字节当 PDF 存库。
+  let file: GeneratedFile;
   let blob: Awaited<ReturnType<typeof putPrivateBlob>>;
-  let storedFileType: "pdf" | "html";
-  let storedSize: number;
-  let renderMode: string;
   try {
     const { renderHtmlToPdf } = await import("@/lib/pdf/html-to-pdf");
     const pdfBuffer = await renderHtmlToPdf(input.html);
-    blob = await putPrivateBlob({
-      pathname: `projects/${input.project.id}/generated/${input.docType}-v${version}-${Date.now()}.pdf`,
-      body: pdfBuffer,
-      contentType: "application/pdf",
-    });
-    storedFileType = "pdf";
-    storedSize = pdfBuffer.length;
-    renderMode = "chromium_pdf";
+    file = { body: pdfBuffer, fileType: "pdf", contentType: "application/pdf", renderMode: "chromium_pdf" };
+    blob = await putGeneratedBlob(target, version, file);
   } catch (e) {
-    const htmlBuffer = Buffer.from(input.html, "utf-8");
-    blob = await putPrivateBlob({
-      pathname: `projects/${input.project.id}/generated/${input.docType}-v${version}-${Date.now()}.html`,
-      body: htmlBuffer,
-      contentType: "text/html; charset=utf-8",
-    });
-    storedFileType = "html";
-    storedSize = htmlBuffer.length;
-    renderMode = `html_fallback:${e instanceof Error ? e.message.slice(0, 120) : "unknown"}`;
+    const renderMode = `html_fallback:${e instanceof Error ? e.message.slice(0, 120) : "unknown"}`;
     console.warn(`[generate-docs] PDF 转换失败，回落 HTML：${renderMode}`);
+    file = { body: Buffer.from(input.html, "utf-8"), fileType: "html", contentType: "text/html; charset=utf-8", renderMode };
+    blob = await putGeneratedBlob(target, version, file);
   }
+  return recordGeneratedFile({
+    ...target,
+    orgId: input.orgId,
+    userId: input.userId,
+    version,
+    title: `${input.titleZh} v${version}`,
+    file,
+    blob,
+    meta: { projectName: input.project.name, addendumFingerprint: input.addendumFingerprint, conclusionVersion: input.conclusionVersion },
+  });
+}
+
+/**
+ * 一份已定的 PDF 字节落库（供应商询价单用）：算版本号 → 写存储 → 建记录。
+ * 调用方保证字节已经是要存的那一份；这里不做转换、不做降级，任何一步失败都直接抛出。
+ */
+async function persistGeneratedFile(input: {
+  projectId: string;
+  orgId: string | null;
+  userId: string;
+  docType: GenerateDocType;
+  title: (version: number) => string;
+  file: GeneratedFile;
+  meta: Record<string, unknown>;
+}) {
+  const target = { projectId: input.projectId, docType: input.docType };
+  const version = await nextGeneratedVersion(target);
+  const blob = await putGeneratedBlob(target, version, input.file);
+  return recordGeneratedFile({ ...target, orgId: input.orgId, userId: input.userId, version, title: input.title(version), file: input.file, blob, meta: input.meta });
+}
+
+type GeneratedFile = { body: Buffer; fileType: "pdf" | "html"; contentType: string; renderMode: string };
+type GeneratedTarget = { projectId: string; docType: GenerateDocType };
+
+/** 版本号 = 该项目同类已有记录数 + 1（旧版记录计入） */
+async function nextGeneratedVersion(target: GeneratedTarget): Promise<number> {
+  return (await db.projectGeneratedDocument.count({ where: { projectId: target.projectId, docType: target.docType } })) + 1;
+}
+
+function putGeneratedBlob(target: GeneratedTarget, version: number, file: GeneratedFile) {
+  return putPrivateBlob({
+    pathname: `projects/${target.projectId}/generated/${target.docType}-v${version}-${Date.now()}.${file.fileType}`,
+    body: file.body,
+    contentType: file.contentType,
+  });
+}
+
+/** 同类旧记录标为可能过期 + ProjectGeneratedDocument + 项目文件列表 */
+async function recordGeneratedFile(input: GeneratedTarget & {
+  orgId: string | null;
+  userId: string;
+  version: number;
+  title: string;
+  file: GeneratedFile;
+  blob: Awaited<ReturnType<typeof putPrivateBlob>>;
+  /** 写进 metaJson 的类型专有信息（docType / version / generatedAt / renderMode / createdById 由本函数统一写） */
+  meta: Record<string, unknown>;
+}) {
   await db.projectGeneratedDocument.updateMany({
-    where: { projectId: input.project.id, docType: input.docType, stale: false },
+    where: { projectId: input.projectId, docType: input.docType, stale: false },
     data: { stale: true },
   });
   const row = await db.projectGeneratedDocument.create({
     data: {
       orgId: input.orgId,
-      projectId: input.project.id,
+      projectId: input.projectId,
       docType: input.docType,
-      version,
-      title: `${input.titleZh} v${version}`,
-      blobUrl: blob.proxyUrl,
-      fileUrl: blob.proxyUrl,
+      version: input.version,
+      title: input.title,
+      blobUrl: input.blob.proxyUrl,
+      fileUrl: input.blob.proxyUrl,
       metaJson: JSON.stringify({
-        projectName: input.project.name,
+        ...input.meta,
         docType: input.docType,
-        version,
+        version: input.version,
         generatedAt: new Date().toISOString(),
-        addendumFingerprint: input.addendumFingerprint,
-        conclusionVersion: input.conclusionVersion,
-        renderMode,
+        renderMode: input.file.renderMode,
         createdById: input.userId,
       }),
       stale: false,
@@ -515,43 +462,18 @@ async function persistGeneratedHtml(input: {
   });
   await db.projectDocument.create({
     data: {
-      projectId: input.project.id,
+      projectId: input.projectId,
       title: row.title,
-      url: blob.proxyUrl,
-      blobUrl: blob.proxyUrl,
-      fileType: storedFileType,
-      fileSize: storedSize,
+      url: input.blob.proxyUrl,
+      blobUrl: input.blob.proxyUrl,
+      fileType: input.file.fileType,
+      fileSize: input.file.body.length,
       parseStatus: "done",
       source: "generated",
       uploadedById: input.userId,
     },
   });
   return row;
-}
-
-async function loadChinaBriefFacts(projectId: string) {
-  try {
-    const room = await db.bidIntelligenceRoom.findUnique({
-      where: { projectId },
-      select: {
-        facts: {
-          take: 40,
-          orderBy: { extractedAt: "desc" },
-          select: {
-            content: true,
-            confidence: true,
-            sourceType: true,
-            sourceUrl: true,
-            sourcePage: true,
-            humanConfirmed: true,
-          },
-        },
-      },
-    });
-    return room?.facts ?? [];
-  } catch {
-    return [];
-  }
 }
 
 /** 文件变更后标记生成文档可能过期 */

@@ -128,14 +128,11 @@ export async function loadCoverageForRun(
   projectId: string,
   runId: string,
 ): Promise<AnalystCoverage> {
-  const { getPackageCoverage } = await import("./package-coverage");
-  const cov = await getPackageCoverage(projectId, runId);
-  return {
-    uploaded: cov.uploaded,
-    eligible: cov.eligible,
-    analyzed: cov.analyzed,
-    excluded: cov.excludedFiles,
-  };
+  const { getPackageCoverage, toAnalystCoverage } = await import(
+    "./package-coverage"
+  );
+  // FIX-13：快照显式只取既有六项——解析失败原文不进综合解读（它会进模型提示）
+  return toAnalystCoverage(await getPackageCoverage(projectId, runId));
 }
 
 async function productionInvokerForRun(

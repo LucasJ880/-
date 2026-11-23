@@ -140,20 +140,110 @@ function reasoningForCall(
     : asLegacyReasoningEffort(effort);
 }
 
+/* ------------------------------ 调用截止时间（FIX-12） ------------------------------ */
+
+/** 截止触发的失败：不重试、不换模型，调用方据此让出。 */
+export const TENDER_CALL_DEADLINE_CODE = "CALL_DEADLINE_EXCEEDED" as const;
+/**
+ * 距截止不足这么多就不发请求。必须低于 callTimeoutFor 的 1 秒下限：
+ * 小预算下调用截止 = 开工时刻 + 1s，若阈值也是 1s，过去 1 毫秒首次请求就会被拒。
+ */
+export const TENDER_CALL_MIN_BUDGET_MS = 500;
+/** 一次请求失败后距截止不足这么多：不做同模型重试、不换备用、不做结构化重试。 */
+export const TENDER_RETRY_MIN_BUDGET_MS = 5_000;
+
+/**
+ * 调用截止时间已到（或剩余不足以再试一次）。
+ * message 不含 timeout / aborted，也不带数字（剩余毫秒数放在 remainingMs 上）：
+ * classifyModelError 按子串判断，「429」这样的数字会被判成可重试。
+ */
+export class TenderCallDeadlineError extends Error {
+  readonly code = TENDER_CALL_DEADLINE_CODE;
+  readonly remainingMs: number;
+  /** 触发截止判定的那次失败（若有） */
+  readonly lastError: unknown;
+  /** 这次调用里是否真的发出过请求（false = 发之前就因剩余不足拒绝了） */
+  readonly requestSent: boolean;
+  constructor(remainingMs: number, lastError?: unknown) {
+    super(
+      `${TENDER_CALL_DEADLINE_CODE}: 距调用截止的剩余时间不足，不再请求`,
+    );
+    this.name = "TenderCallDeadlineError";
+    this.remainingMs = remainingMs;
+    this.lastError = lastError;
+    this.requestSent = lastError !== undefined;
+  }
+}
+
+export function isTenderCallDeadlineError(err: unknown): boolean {
+  return (
+    !!err &&
+    typeof err === "object" &&
+    (err as { code?: unknown }).code === TENDER_CALL_DEADLINE_CODE
+  );
+}
+
+/** 实际发请求的函数。@internal 仅测试注入；生产调用方不得传（会绕过 createCompletionDetailed 里的费用预检与记账）。 */
+export type TenderCompletionFn = (
+  opts: CompletionOptions,
+) => Promise<DetailedCompletionResult>;
+
 /**
  * 单次招标 LLM 调用：Astra → 同模型 1 次（仅 transient）→ Sol → 抛出。
  * 400 / schema / auth 不重试。一次 run 内由 createPinnedTenderInvoker 钉住模型。
+ *
+ * 带 deadlineAt（epoch ms）时（FIX-12）：每一次请求的超时取 min(timeoutMs, deadlineAt − now)；
+ * 剩余 < 0.5s 不发请求；失败后剩余 < 5s 不再同模型重试 / 换备用，抛 TenderCallDeadlineError。
+ * 不带 deadlineAt 时行为与以前完全相同。
  */
 export async function createTenderCompletion(
-  opts: CompletionOptions & {
+  input: CompletionOptions & {
     tenderStage?: TenderStage;
     promptVersion?: string;
     evidenceConflict?: boolean;
     supervisorEscalation?: boolean;
     pinnedPolicy?: ModelPolicyResolution;
     pinnedModel?: string;
+    /** 调用截止时间（epoch ms）：所有重试与换模型共用；缺省 = 不限 */
+    deadlineAt?: number;
+    /** 本次是上一层（结构化输出层）在一次失败之后的重试：剩余 < 5s 不发 */
+    structuredRetry?: boolean;
+    /** @internal 仅测试注入：时钟（缺省 Date.now） */
+    now?: () => number;
+    /** @internal 仅测试注入：实际请求（缺省 createCompletionDetailed；生产不得传） */
+    complete?: TenderCompletionFn;
   },
 ): Promise<TenderCompletionResult> {
+  const { now, complete, deadlineAt, structuredRetry, ...opts } = input;
+  const clock = now ?? Date.now;
+  const send: TenderCompletionFn = complete ?? createCompletionDetailed;
+  const hasDeadline = typeof deadlineAt === "number" && Number.isFinite(deadlineAt);
+  const remaining = (): number =>
+    hasDeadline ? (deadlineAt as number) - clock() : Number.POSITIVE_INFINITY;
+  /** 失败之后、再请求之前：剩余不足以再试一次 → 截止 */
+  const guardRetry = (lastErr: unknown): void => {
+    if (!hasDeadline) return;
+    const left = remaining();
+    if (left < TENDER_RETRY_MIN_BUDGET_MS) throw new TenderCallDeadlineError(left, lastErr);
+  };
+  /**
+   * 最后一次请求（换备用 / 无备用时的同模型重试）失败后：可重试的错误且剩余不足以再试 → 记为截止，
+   * 让上一层（结构化输出层）不再把它当瞬时错误重试、调用方以 call_deadline 让出。
+   */
+  const asDeadlineIfExhausted = (err: unknown): unknown => {
+    if (!hasDeadline || isTenderCallDeadlineError(err)) return err;
+    if (!isTenderFallbackAllowed(err)) return err;
+    const left = remaining();
+    return left < TENDER_RETRY_MIN_BUDGET_MS ? new TenderCallDeadlineError(left, err) : err;
+  };
+  /** 每次请求发起那一刻的超时：不越过截止 */
+  const timeoutForRequest = (): number | undefined => {
+    if (!hasDeadline) return opts.timeoutMs;
+    const left = remaining();
+    if (left < TENDER_CALL_MIN_BUDGET_MS) throw new TenderCallDeadlineError(left);
+    return opts.timeoutMs != null ? Math.min(opts.timeoutMs, left) : left;
+  };
+  if (structuredRetry) guardRetry(undefined);
   const stage = opts.tenderStage ?? "understanding";
   const policy =
     opts.pinnedPolicy ??
@@ -176,8 +266,9 @@ export async function createTenderCompletion(
   });
 
   const call = (model: string, retryCount: number, fallbackUsed: boolean) =>
-    createCompletionDetailed({
+    send({
       ...opts,
+      timeoutMs: timeoutForRequest(),
       model,
       workflow: TENDER_WORKFLOW,
       reasoningEffort: effort,
@@ -203,6 +294,7 @@ export async function createTenderCompletion(
       orgId: opts.orgId,
     };
   } catch (firstErr) {
+    if (isTenderCallDeadlineError(firstErr)) throw firstErr;
     if (!isTenderFallbackAllowed(firstErr)) throw firstErr;
 
     let err: unknown = firstErr;
@@ -211,6 +303,8 @@ export async function createTenderCompletion(
       err: firstErr,
     });
     if (recovery === "fail") throw firstErr;
+    // 我方截止触发的中止必然落在这里：剩余 ≈ 0 → 不重试、不换模型
+    guardRetry(firstErr);
 
     if (recovery === "retry_same" && isGpt6Astra(requested)) {
       try {
@@ -226,6 +320,7 @@ export async function createTenderCompletion(
           orgId: opts.orgId,
         };
       } catch (retryErr) {
+        if (isTenderCallDeadlineError(retryErr)) throw retryErr;
         if (!isTenderFallbackAllowed(retryErr)) throw retryErr;
         err = retryErr;
       }
@@ -233,10 +328,16 @@ export async function createTenderCompletion(
 
     const fallback = policy.fallbackModel;
     if (!fallback || fallback === requested || isGpt6Astra(fallback)) {
-      throw err;
+      throw asDeadlineIfExhausted(err);
     }
+    guardRetry(err);
 
-    const second = await call(fallback, 1, true);
+    let second: DetailedCompletionResult;
+    try {
+      second = await call(fallback, 1, true);
+    } catch (fallbackErr) {
+      throw asDeadlineIfExhausted(fallbackErr);
+    }
     return {
       ...second,
       requestedModel: requested,
@@ -259,6 +360,10 @@ export type PinnedTenderInvoker = ((req: {
   maxTokens: number;
   timeoutMs: number;
   tenderStage?: TenderStage;
+  /** 调用截止时间（epoch ms），见 createTenderCompletion */
+  deadlineAt?: number;
+  /** 结构化输出层在一次失败之后的重试 */
+  retry?: boolean;
 }) => Promise<{
   content: string;
   model: string;
@@ -286,6 +391,10 @@ export function createPinnedTenderInvoker(input: {
   promptVersion?: string;
   defaultStage?: TenderStage;
   env?: Gpt6FlagEnv;
+  /** @internal 仅测试注入：时钟（缺省 Date.now） */
+  now?: () => number;
+  /** @internal 仅测试注入：实际请求（缺省 createCompletionDetailed；生产不得传） */
+  complete?: TenderCompletionFn;
 } = {}): PinnedTenderInvoker {
   const policy = resolveTenderModelPolicy({
     orgId: input.orgId,
@@ -310,6 +419,10 @@ export function createPinnedTenderInvoker(input: {
       pinnedModel: activeModel,
       orgId: input.orgId,
       userId: input.userId,
+      ...(req.deadlineAt != null ? { deadlineAt: req.deadlineAt } : {}),
+      ...(req.retry ? { structuredRetry: true } : {}),
+      now: input.now,
+      complete: input.complete,
     });
     if (res.fallbackUsed) {
       fallbackUsed = true;

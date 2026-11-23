@@ -241,10 +241,11 @@ console.log("接线");
   ok("卡片：按钮只改表单与声明，不调保存", /const fill = \(\) => \{[\s\S]*?setForm\(filled\.form\);\s*setCostClaim\(filled\.claim\);\s*\};/.test(card) && !/const fill = \(\) => \{[^}]*post\(/.test(card));
   ok("卡片：手改成本就去掉声明；保存时带上声明", card.includes('if (k === "cost") setCostClaim(null);') && card.includes("...(costClaim ? { ourCostSource: costClaim } : {})"));
   ok("卡片：重新读取时清掉声明（不让旧的声明跟着下一次保存）", /setForm\(\{[\s\S]*?\}\);\s*setCostClaim\(null\);/.test(card));
-  ok("卡片：成本加成只在开关开启时显示", card.includes("<MarkupHint enabled={!!cc} margin={form.margin} />"));
+  // CHAIN-2b：开关开着而没有财务查看权时只带 compareCostHidden，成本加成照旧显示（只由目标毛利算出）
+  ok("卡片：成本加成只在开关开启时显示", card.includes("<MarkupHint enabled={compareOn} margin={form.margin} />") && card.includes("const compareOn = !!cc || data.compareCostHidden === true;"));
   ok("接口：读取与保存都用不会抛错的取数（出错时卡片不挂）", (route.match(/await loadCompareCostSuggestionSafe\(\{ projectId, orgId \}\)/g) ?? []).length === 2 && !/await loadCompareCostSuggestion\(/.test(route) && load.includes("export async function loadCompareCostSuggestionSafe") && load.includes('return { status: "unavailable", messageZh: UNAVAILABLE_ZH };'));
   ok("取数：已取消轮次里的选定不算；已取消、草稿轮次不算「之后还有」", load.includes("status: { not: INQUIRY_STATUS.CANCELED }") && load.includes("status: { notIn: [INQUIRY_STATUS.CANCELED, INQUIRY_STATUS.DRAFT] }"));
-  ok("卡片：开关关闭（没有 compareCost）时文字与原来相同", card.includes('cc ? TARGET_MARGIN_ON_PRICE_ZH : "目标毛利 %"') && card.includes('{cc ? MARGIN_ON_PRICE_ZH : "毛利"}') && card.includes("{cc ? <CompareCostSourceBlock"));
+  ok("卡片：开关关闭（没有 compareCost）时文字与原来相同", card.includes('compareOn ? TARGET_MARGIN_ON_PRICE_ZH : "目标毛利 %"') && card.includes('{cc ? MARGIN_ON_PRICE_ZH : "毛利"}') && card.includes("{cc ? <CompareCostSourceBlock"));
 }
 
 console.log(`\ncompare-cost-source: ${passed} passed`);

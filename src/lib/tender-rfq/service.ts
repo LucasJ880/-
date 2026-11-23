@@ -13,7 +13,7 @@
 import { db } from "@/lib/db";
 import { requestApproval } from "@/lib/approval/request";
 import { RoundNumberTakenError, addInquiryItem, createInquiry } from "@/lib/inquiry/service";
-import { buildRfqDocument, renderRfqEmail, type RfqFactInput, type RfqRequirementInput } from "./build";
+import { buildRfqDocument, renderRfqEmail, rfqTemplateOnlyDocument, type RfqFactInput, type RfqRequirementInput } from "./build";
 import {
   decideRoundLock,
   factFromText,
@@ -198,7 +198,7 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   // CHAIN-4b：渲染每一家的邮件再复查一次（标题全查、正文不查项目名称），兜住模板被改坏；
   // 在建轮次之前做，命中就什么都不建。轮次号只在标题里加「（第 N 轮）」，不影响结论。
   // 另把招标原文（规格、交付要求、从地点派生的目的地）留空再渲染一遍，模板写的句子也查项目名称
-  const templateOnly = { ...doc, lineItems: doc.lineItems.map((li) => ({ ...li, specZh: "", specOriginal: "" })), requiredLeadTimeNote: null, destination: input.destination?.trim() || null };
+  const templateOnly = rfqTemplateOnlyDocument(doc, input.destination);
   // CHAIN-4a：开关打开时这一轮带附件；正文那一句只写文件名，所以先定文件名再渲染、复查
   const attachmentOn = isRfqAttachmentEnabledForOrg(input.orgId);
   const attachmentFilename = attachmentOn ? rfqAttachmentFilename(doc.reference) : null;

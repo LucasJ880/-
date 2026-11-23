@@ -212,7 +212,9 @@ export function readCursorProgressAt(raw: unknown): Date | null {
 
 /** 每个阶段"值得开工"的剩余时间；不足则让出本 tick，下个 tick 满预算再来。 */
 export const V2_PHASE_MIN_MS: Record<V2Phase, number> = {
-  WINDOWS: 45_000,
+  // FIX-12 D8：生产单次窗口调用 17–73s、一批取最慢的那个；45s 门槛下最短只给 30s 超时，
+  // 尾部那批注定被裁短、白烧一次尝试。80s → 最短超时 65s。
+  WINDOWS: 80_000,
   CLARIFY: 30_000,
   // Analyst 两遍是长调用（生产实测 PASS A ~159s / PASS B ~50s）：预算不足就别起头，
   // 否则只会烧掉一次调用又被硬杀，还可能把 timeout 裁到模型来不及输出。
