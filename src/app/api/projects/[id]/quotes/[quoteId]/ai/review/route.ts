@@ -3,9 +3,15 @@ import { requireProjectReadAccess } from "@/lib/projects/access";
 import { db } from "@/lib/db";
 import { createCompletion } from "@/lib/ai/client";
 import { getQuoteReviewPrompt } from "@/lib/ai/prompts";
+import { engineQuoteHref, isEngineQuote, LEGACY_QUOTE_ENGINE_CONFLICT_ZH, legacyQuoteAiReviewForbiddenZh } from "@/lib/quote/finance-view";
+import { resolveLegacyQuoteCaps } from "@/lib/quote/legacy-access";
 
 type Ctx = { params: Promise<{ id: string; quoteId: string }> };
 
+/**
+ * FIX-26：审查要把每行成本价、内部成本与利润率交给模型——只给有财务查看权的人；没有的人 403、不调模型。
+ * 报价引擎 / 逐行报价 / 只报总价的报价 409。有资格的人请求与模型输入不变。
+ */
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { id, quoteId } = await ctx.params;
   const access = await requireProjectReadAccess(request, id);
@@ -18,6 +24,14 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   if (!quote || quote.projectId !== id) {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
+  }
+  if (isEngineQuote(quote)) {
+    return NextResponse.json({ error: LEGACY_QUOTE_ENGINE_CONFLICT_ZH, href: engineQuoteHref(id, quoteId) }, { status: 409 });
+  }
+
+  const caps = await resolveLegacyQuoteCaps(access);
+  if (!caps.canViewInternal) {
+    return NextResponse.json({ error: legacyQuoteAiReviewForbiddenZh(caps.hintReason) }, { status: 403 });
   }
 
   const project = await db.project.findUnique({

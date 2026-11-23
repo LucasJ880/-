@@ -13,6 +13,10 @@ interface Props {
   status: string;
   lineCount: number;
   aiReviewRisk?: "low" | "medium" | "high" | null;
+  /** FIX-26：看的人有没有财务查看权——没有时不显示利润率、不提内部版 */
+  showCost: boolean;
+  /** FIX-26：不能编辑的人不提示「可使用 AI 生成报价草稿」 */
+  canEdit: boolean;
 }
 
 export function QuoteTopSummary({
@@ -22,7 +26,10 @@ export function QuoteTopSummary({
   status,
   lineCount,
   aiReviewRisk,
+  showCost,
+  canEdit,
 }: Props) {
+  const margin = showCost ? profitMargin : null;
   const issues = checks.filter((c) => c.severity !== "passed");
   const urgentCount = checks.filter((c) => c.severity === "urgent").length;
   const passedCount = checks.filter((c) => c.severity === "passed").length;
@@ -41,15 +48,15 @@ export function QuoteTopSummary({
           <span className="text-muted">模板:</span>
           <span>{TEMPLATE_LABELS[templateType]}</span>
         </div>
-        {profitMargin != null && (
+        {margin != null && (
           <>
             <div className="h-3 w-px bg-border" />
-            <MarginDisplay profitMargin={profitMargin} />
+            <MarginDisplay profitMargin={margin} />
           </>
         )}
         <div className="ml-auto flex items-center gap-1.5 text-muted">
           <FileText size={11} />
-          <span>可导出客户版 / 内部版</span>
+          <span>{showCost ? "可导出客户版 / 内部版" : "可导出客户报价单"}</span>
         </div>
       </div>
     );
@@ -65,7 +72,7 @@ export function QuoteTopSummary({
         <div className="h-3 w-px bg-border" />
         <div className="flex items-center gap-1.5 text-muted">
           <Sparkles size={11} className="text-accent/60" />
-          <span>待填写 · 可使用 AI 生成报价草稿</span>
+          <span>{canEdit ? "待填写 · 可使用 AI 生成报价草稿" : "还没有行项目"}</span>
         </div>
       </div>
     );
@@ -82,7 +89,7 @@ export function QuoteTopSummary({
           <span className="text-[#9a6a2f]">+ {issues.length - urgentCount} 项待检查</span>
         )}
         <div className="h-3 w-px bg-border" />
-        {profitMargin != null && <MarginDisplay profitMargin={profitMargin} />}
+        {margin != null && <MarginDisplay profitMargin={margin} />}
       </div>
     );
   }
@@ -113,10 +120,10 @@ export function QuoteTopSummary({
         </div>
       )}
 
-      {profitMargin != null && (
+      {margin != null && (
         <>
           <div className="h-3 w-px bg-border" />
-          <MarginDisplay profitMargin={profitMargin} />
+          <MarginDisplay profitMargin={margin} />
         </>
       )}
 

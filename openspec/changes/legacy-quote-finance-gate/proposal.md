@@ -59,7 +59,7 @@ GATE 已定（协调会话 2026-11-23，Lucas 2026-11-22 授权按推荐；① �
 
 ## Impact
 
-- 新增：`src/lib/quote/finance-view.ts`（报价单的裁剪、白名单、是否报价引擎的报价、固定句子；纯函数）；`src/lib/audit/redact-finance.ts`（审计数据按键名裁剪；纯函数）。
+- 新增：`src/lib/quote/finance-view.ts`（报价单的裁剪、白名单、是否报价引擎的报价、固定句子；纯函数）；`src/lib/quote/legacy-access.ts`（服务端判定入口：把 CHAIN-2e 的 `resolveFinanceViewSafe` + `resolveQuoteCapabilities` + `resolveFinanceHintReason` 串成旧报价单的 `capabilities`，路由用已过读权限的上下文、技能与工具按用户 id 取；实现时加，因为 `finance-view.ts` 要保持纯模块）；`src/lib/audit/redact-finance.ts`（审计数据按键名裁剪；纯函数）。
 - 修改：`src/app/api/projects/[id]/quotes/route.ts`、`…/quotes/[quoteId]/route.ts`、`…/quotes/[quoteId]/ai/review/route.ts`、`…/quotes/ai/generate-draft/route.ts`、`…/quotes/save-ai-draft/route.ts`；`src/lib/quote/export-excel.ts`、`rules.ts`；`src/lib/agent/skills/quote.ts`；`src/lib/agent-core/tools/project-skills.ts`、`enterprise-readonly.ts`；`src/components/quote/{quote-editor,quote-summary-bar,quote-top-summary,quote-line-table,quote-ai-panel,project-quote-section}.tsx`；`src/app/api/audit-logs/[id]/route.ts`、`src/app/(main)/admin/audit-logs/page.tsx`（详情里 `costHidden` 时写一句）；`src/lib/quote-engine/service.ts`（只改另起新版那一条审计的内容，CHAIN-2e 的文件，叠在它上面改）。
 - 测试：新增 `src/lib/quote/__tests__/legacy-quote-finance-view.test.ts`、`src/lib/audit/__tests__/audit-detail-redaction.test.ts`（都进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`）、`src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`（进 `scripts/test-all.sh`）。
 - 接口（合并即生效）：只读成员、operator、不是负责人的项目管理员、没有财务键的组织管理员、`bids` 岗位同事从旧报价单接口、两个问青砚工具与审计日志详情拿不到成本与利润率，也不能再新建 / 修改 / 确认 / 删除旧报价单、不能用报价 AI；负责人、持组织范围财务键的人、平台超级管理员看到的数字与改动前相同。

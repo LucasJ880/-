@@ -4,11 +4,14 @@ import { useState, useRef, useEffect } from "react";
 import { TrendingUp, ShieldCheck, Download, FileText, FileSpreadsheet, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { QuoteTotals } from "@/lib/quote/calculate";
+import { EXPORT_CUSTOMER_PDF_LABEL_ZH, EXPORT_EXCEL_LABEL_ZH, EXPORT_INTERNAL_EXCEL_LABEL_ZH } from "@/lib/quote/finance-view";
 
 interface Props {
   totals: QuoteTotals;
   currency: string;
   status: string;
+  /** FIX-26：看的人有没有财务查看权——没有时只显示报价总额，Excel 菜单写「导出 Excel」（导出的文件不含成本） */
+  showCost: boolean;
   onConfirm?: () => void;
   onSave?: () => void;
   saving?: boolean;
@@ -20,7 +23,7 @@ function fmt(n: number, currency: string): string {
   return `${currency} ${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function QuoteSummaryBar({ totals, currency, status, onConfirm, onSave, saving, onExportPdf, onExportExcel }: Props) {
+export function QuoteSummaryBar({ totals, currency, status, showCost, onConfirm, onSave, saving, onExportPdf, onExportExcel }: Props) {
   const [showExport, setShowExport] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -47,27 +50,31 @@ export function QuoteSummaryBar({ totals, currency, status, onConfirm, onSave, s
           <div className="text-lg font-bold tabular-nums">{fmt(totals.totalAmount, currency)}</div>
         </div>
 
-        <div className="h-8 w-px bg-border/60" />
+        {showCost && (
+          <>
+            <div className="h-8 w-px bg-border/60" />
 
-        <div>
-          <div className="flex items-center gap-1 text-[11px] font-medium text-accent/70">
-            <ShieldCheck size={10} />
-            内部成本
-          </div>
-          <div className="text-sm font-medium tabular-nums text-accent/80">
-            {fmt(totals.internalCost, currency)}
-          </div>
-        </div>
+            <div>
+              <div className="flex items-center gap-1 text-[11px] font-medium text-accent/70">
+                <ShieldCheck size={10} />
+                内部成本
+              </div>
+              <div className="text-sm font-medium tabular-nums text-accent/80">
+                {fmt(totals.internalCost, currency)}
+              </div>
+            </div>
 
-        <div>
-          <div className="flex items-center gap-1 text-[11px] font-medium text-muted">
-            <TrendingUp size={10} />
-            利润率
-          </div>
-          <div className={cn("text-sm font-bold tabular-nums", marginColor)}>
-            {totals.profitMargin != null ? `${totals.profitMargin}%` : "—"}
-          </div>
-        </div>
+            <div>
+              <div className="flex items-center gap-1 text-[11px] font-medium text-muted">
+                <TrendingUp size={10} />
+                利润率
+              </div>
+              <div className={cn("text-sm font-bold tabular-nums", marginColor)}>
+                {totals.profitMargin != null ? `${totals.profitMargin}%` : "—"}
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           {/* Export dropdown */}
@@ -83,7 +90,7 @@ export function QuoteSummaryBar({ totals, currency, status, onConfirm, onSave, s
                 <ChevronDown size={10} />
               </button>
               {showExport && (
-                <div className="absolute right-0 top-full mt-1 z-20 w-44 rounded-lg border border-border bg-card shadow-lg">
+                <div className="absolute right-0 top-full mt-1 z-20 w-52 rounded-lg border border-border bg-card shadow-lg">
                   {onExportPdf && (
                     <button
                       type="button"
@@ -91,7 +98,7 @@ export function QuoteSummaryBar({ totals, currency, status, onConfirm, onSave, s
                       className="flex w-full items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-muted/10 rounded-t-lg"
                     >
                       <FileText size={13} className="text-red-500" />
-                      导出 PDF
+                      {EXPORT_CUSTOMER_PDF_LABEL_ZH}
                     </button>
                   )}
                   {onExportExcel && (
@@ -101,7 +108,7 @@ export function QuoteSummaryBar({ totals, currency, status, onConfirm, onSave, s
                       className="flex w-full items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-muted/10 rounded-b-lg"
                     >
                       <FileSpreadsheet size={13} className="text-green-600" />
-                      导出 Excel
+                      {showCost ? EXPORT_INTERNAL_EXCEL_LABEL_ZH : EXPORT_EXCEL_LABEL_ZH}
                     </button>
                   )}
                 </div>

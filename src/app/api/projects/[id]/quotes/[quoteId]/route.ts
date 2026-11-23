@@ -3,8 +3,24 @@ import { requireProjectReadAccess } from "@/lib/projects/access";
 import { db } from "@/lib/db";
 import { calculateTotals } from "@/lib/quote/calculate";
 import type { QuoteLineItemData } from "@/lib/quote/types";
+import {
+  engineQuoteHref,
+  isEngineQuote,
+  LEGACY_QUOTE_ENGINE_CONFLICT_ZH,
+  legacyQuoteDetailView,
+  legacyQuoteWriteForbiddenZh,
+} from "@/lib/quote/finance-view";
+import { resolveLegacyQuoteCaps } from "@/lib/quote/legacy-access";
 
 type Ctx = { params: Promise<{ id: string; quoteId: string }> };
+
+/**
+ * FIX-26 判定顺序：项目读权限 → 报价不存在 404 → 报价引擎 / 逐行报价 / 只报总价的报价（所属组织不为空）409 →
+ * 写：能编辑报价，否则 403、不读请求体、不写库。详情与修改的返回只给旧报价单字段，没有财务查看权的人内部数字为 null。
+ */
+function engineConflict(projectId: string, quoteId: string) {
+  return NextResponse.json({ error: LEGACY_QUOTE_ENGINE_CONFLICT_ZH, href: engineQuoteHref(projectId, quoteId) }, { status: 409 });
+}
 
 export async function GET(_request: NextRequest, ctx: Ctx) {
   const { id, quoteId } = await ctx.params;
@@ -21,8 +37,10 @@ export async function GET(_request: NextRequest, ctx: Ctx) {
   if (!quote || quote.projectId !== id) {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
   }
+  if (isEngineQuote(quote)) return engineConflict(id, quoteId);
 
-  return NextResponse.json(quote);
+  const caps = await resolveLegacyQuoteCaps(access);
+  return NextResponse.json(legacyQuoteDetailView(quote, caps));
 }
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
@@ -32,10 +50,16 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
   const existing = await db.projectQuote.findUnique({
     where: { id: quoteId },
-    select: { projectId: true, status: true },
+    select: { projectId: true, status: true, orgId: true },
   });
   if (!existing || existing.projectId !== id) {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
+  }
+  if (isEngineQuote(existing)) return engineConflict(id, quoteId);
+
+  const caps = await resolveLegacyQuoteCaps(access);
+  if (!caps.canEdit) {
+    return NextResponse.json({ error: legacyQuoteWriteForbiddenZh(caps.hintReason) }, { status: 403 });
   }
 
   const body = await request.json();
@@ -85,7 +109,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
             totalPrice: item.totalPrice,
             remarks: item.remarks ?? "",
             costPrice: item.costPrice,
-            isInternal: item.isInternal ?? false,
+            // FIX-26：旧报价单的行都是客户行（编辑器、合计、PDF、Excel 都把全部行当客户行），不采用请求里的值
+            isInternal: false,
           },
         })
       ),
@@ -106,7 +131,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     include: { lineItems: { orderBy: { sortOrder: "asc" } } },
   });
 
-  return NextResponse.json(updated);
+  return NextResponse.json(updated ? legacyQuoteDetailView(updated, caps) : null);
 }
 
 export async function DELETE(request: NextRequest, ctx: Ctx) {
@@ -116,10 +141,16 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
 
   const existing = await db.projectQuote.findUnique({
     where: { id: quoteId },
-    select: { projectId: true, status: true },
+    select: { projectId: true, status: true, orgId: true },
   });
   if (!existing || existing.projectId !== id) {
     return NextResponse.json({ error: "报价单不存在" }, { status: 404 });
+  }
+  if (isEngineQuote(existing)) return engineConflict(id, quoteId);
+
+  const caps = await resolveLegacyQuoteCaps(access);
+  if (!caps.canEdit) {
+    return NextResponse.json({ error: legacyQuoteWriteForbiddenZh(caps.hintReason) }, { status: 403 });
   }
   if (existing.status !== "draft") {
     return NextResponse.json({ error: "只能删除草稿报价" }, { status: 400 });

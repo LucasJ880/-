@@ -91,6 +91,13 @@ interface Props {
   onApplyDraft: (draft: AiDraftResult) => void;
   onAiReviewChange?: (risk: "low" | "medium" | "high" | null) => void;
   status: string;
+  /**
+   * FIX-26：能不能编辑这份报价单——不能时不出 AI 自动流、AI 起草、AI 深度审查（审查与起草的用处是改报价；
+   * 接口也会拒），不自动请求模板推荐，模板与检查项的「应用」按钮不可点
+   */
+  canEdit: boolean;
+  /** FIX-26：看的人有没有财务查看权——没有时「输出版本」不出「内部成本表」 */
+  showCost: boolean;
 }
 
 const SEVERITY_STYLE: Record<CheckSeverity, { icon: typeof CheckCircle2; color: string; bg: string }> = {
@@ -120,10 +127,12 @@ export function QuoteAiPanel({
   onApplyDraft,
   onAiReviewChange,
   status,
+  canEdit,
+  showCost,
 }: Props) {
-  // Adaptive initial section: empty → template, has data → checks, confirmed → review
+  // Adaptive initial section: empty → template, has data → checks, confirmed → review（不能编辑的人没有审查区块 → checks）
   const [expandedSection, setExpandedSection] = useState<string | null>(() => {
-    if (status !== "draft") return "review";
+    if (status !== "draft") return canEdit ? "review" : "checks";
     if (lines.length === 0) return "template";
     return "checks";
   });
@@ -171,10 +180,10 @@ export function QuoteAiPanel({
   }, [projectId]);
 
   useEffect(() => {
-    if (status === "draft" && !aiTemplateFetched) {
+    if (status === "draft" && canEdit && !aiTemplateFetched) {
       fetchAiTemplate();
     }
-  }, [status, aiTemplateFetched, fetchAiTemplate]);
+  }, [status, canEdit, aiTemplateFetched, fetchAiTemplate]);
 
   // ── AI: Draft Generation ──
   const fetchAiDraft = useCallback(async () => {
@@ -256,7 +265,7 @@ export function QuoteAiPanel({
   return (
     <div className="flex w-80 shrink-0 flex-col gap-3">
       {/* ── AI 自动流入口 ── */}
-      {lines.length === 0 && status === "draft" && (
+      {lines.length === 0 && status === "draft" && canEdit && (
         <button
           onClick={handleAutoFlow}
           disabled={autoFlowLoading}
@@ -313,7 +322,7 @@ export function QuoteAiPanel({
             <button
               type="button"
               onClick={fetchAiTemplate}
-              disabled={status !== "draft"}
+              disabled={status !== "draft" || !canEdit}
               className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-border/40 px-3 py-1.5 text-[10px] text-muted hover:bg-muted/5 disabled:opacity-50"
             >
               <RefreshCw size={9} />
@@ -326,13 +335,13 @@ export function QuoteAiPanel({
               key={t}
               type="button"
               onClick={() => onTemplateChange(t)}
-              disabled={status !== "draft"}
+              disabled={status !== "draft" || !canEdit}
               className={cn(
                 "flex w-full items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
                 header.templateType === t
                   ? "border-accent/40 bg-accent/5"
                   : "border-border/40 hover:border-accent/20 hover:bg-muted/5",
-                status !== "draft" && "opacity-60"
+                (status !== "draft" || !canEdit) && "opacity-60"
               )}
             >
               <div className={cn(
@@ -387,7 +396,7 @@ export function QuoteAiPanel({
                       {check.suggestion && (
                         <p className="mt-0.5 text-[10px] text-muted">{check.suggestion}</p>
                       )}
-                      {check.actionType && status === "draft" && (
+                      {check.actionType && status === "draft" && canEdit && (
                         <button
                           type="button"
                           onClick={() => onApplyCheckAction(check)}
@@ -437,7 +446,8 @@ export function QuoteAiPanel({
         )}
       </PanelSection>
 
-      {/* ── 区块 3: AI 草稿生成 ── */}
+      {/* ── 区块 3: AI 草稿生成（只给能编辑的人） ── */}
+      {canEdit && (
       <PanelSection
         title="AI 草稿生成"
         icon={<Zap size={13} />}
@@ -535,8 +545,10 @@ export function QuoteAiPanel({
           </div>
         )}
       </PanelSection>
+      )}
 
-      {/* ── 区块 4: AI 深度审查 ── */}
+      {/* ── 区块 4: AI 深度审查（只给能编辑的人） ── */}
+      {canEdit && (
       <PanelSection
         title="AI 深度审查"
         icon={<ShieldCheck size={13} />}
@@ -670,6 +682,7 @@ export function QuoteAiPanel({
           </div>
         )}
       </PanelSection>
+      )}
 
       {/* ── 区块 5: 输出选项 ── */}
       {status === "confirmed" && (
@@ -681,7 +694,7 @@ export function QuoteAiPanel({
         >
           <div className="space-y-1.5">
             <ExportButton icon={<FileText size={12} />} label="客户报价单" desc="不含成本明细，正式对外报价" />
-            <ExportButton icon={<FileSpreadsheet size={12} />} label="内部成本表" desc="含完整成本结构和利润率" />
+            {showCost && <ExportButton icon={<FileSpreadsheet size={12} />} label="内部成本表" desc="含完整成本结构和利润率" />}
             <ExportButton icon={<Mail size={12} />} label="报价邮件" desc="基于报价数据生成商务邮件" />
           </div>
         </PanelSection>

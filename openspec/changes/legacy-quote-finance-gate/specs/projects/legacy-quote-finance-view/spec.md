@@ -99,11 +99,11 @@
 - **THEN** 第一人得到「项目不存在或不属于当前组织」；只读成员拿到总额、`profitMargin` 为 `null`、带 `costHidden`；负责人拿到利润率 23.45（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
 
 ### Requirement: 审计详情不给没有财务查看权的人看成本与毛利
-`GET /api/audit-logs/{id}` SHALL 在原有权限检查之后按财务查看权判定（审计带项目时按该项目，不带项目时只认平台超级管理员与持组织范围财务键的人）。没有的人：`beforeData` / `afterData` 里（含嵌套对象与数组）成本、毛利、落地价类的键 SHALL 置为 `null`，响应 SHALL 带 `costHidden: true` 与被置空的键路径；这类键 SHALL 包括写死清单里的键，以及键名含 cost、margin、markup、profit、landed（不分大小写）的键。动作、操作人、时间、目标与其余键 SHALL 照旧，卖价 SHALL 照旧。有财务查看权的人 SHALL 与改动前相同。
+`GET /api/audit-logs/{id}` SHALL 在原有权限检查之后按财务查看权判定（审计带项目时按该项目，不带项目时只认平台超级管理员与持组织范围财务键的人）。没有的人：`beforeData` / `afterData` 里（含嵌套对象与数组）成本、毛利、落地价类的键 SHALL 置为 `null`；有值被置空时响应 SHALL 带 `costHidden: true` 与被置空的键路径，没有命中的记录 SHALL 与改动前形状相同；这类键 SHALL 包括写死清单里的键，以及键名含 cost、margin、markup、profit、landed（不分大小写）的键。动作、操作人、时间、目标与其余键 SHALL 照旧，卖价 SHALL 照旧。有财务查看权的人 SHALL 与改动前相同。
 
 #### Scenario: 另起新版的审计
-- **WHEN** 报价引擎的一份报价另起新版后，不是负责人也没有财务键的项目管理员、组织管理员、项目负责人、持组织范围 `project.finance.read` 的成员、只读成员分别读这条审计详情
-- **THEN** 前两人 200、`beforeData` 里原版估算成本与毛利率为 `null`、卖价照旧、带 `costHidden: true`；负责人与持财务键的人读到原值、没有 `costHidden`；只读成员仍 403（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
+- **WHEN** 报价引擎的一份报价另起新版后（审计里记着原版估算成本与毛利率，即改动前写下的历史行），不是负责人也没有财务键的项目管理员、组织管理员、项目负责人、持组织范围 `project.finance.read` 的组织管理员、平台超级管理员、只读成员分别读这条审计详情
+- **THEN** 前两人 200、`beforeData` 里原版估算成本与毛利率为 `null`、卖价照旧、带 `costHidden: true` 与被置空的键路径；负责人、持财务键的组织管理员与平台超级管理员读到原值、没有 `costHidden`；只读成员仍 403（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
 
 #### Scenario: 新加的审计键不会漏
 - **WHEN** 扫描全仓写审计的调用里 `beforeData` / `afterData` 的键

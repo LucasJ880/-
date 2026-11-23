@@ -186,6 +186,17 @@
 
 与 CHAIN-2e 的关系：写入这条审计的报价引擎属 CHAIN-2e 范围，但审计详情接口 `src/app/api/audit-logs/[id]/route.ts` 不在 CHAIN-2e 的改动里（`git -C /home/user/wt/chain-2e diff origin/main...HEAD --stat` 没有它），所以归本 change；写入侧那一行在 CHAIN-2e 的文件里，本 change 叠在 CHAIN-2e 上做、CHAIN-2e 合并后才合，不会撞车。与 FIX-25 的关系：FIX-25 安全审查 S1 发现、FIX-25 不改审计接口，归本 change。
 
+## 实施记录（2026-11-23，实现时与上文的出入；代码为准）
+
+- **D1 / D9 的判定入口放在新文件 `src/lib/quote/legacy-access.ts`**：`finance-view.ts` 要能被客户端组件 import（D9），而 `resolveFinanceViewSafe` 所在的 `project-finance/access.ts` 读库、import `next/server`，所以把「财务能力 → `resolveQuoteCapabilities` → 不能编辑时 `resolveFinanceHintReason`」串在服务端文件里：`resolveLegacyQuoteCaps(access)`（五个路由）与 `resolveLegacyQuoteCapsForUser(userId, projectId)`（报价技能与 `project_get_project_quotes`；与 `getCurrentUser` 同样读库里的用户，停用 → 什么都不能，岗位预览期间平台角色视同普通用户）。规则本身仍只有 CHAIN-2e 那一份。
+- **D11 读取侧只在真有值被置空时带 `costHidden` / `redactedPaths`**：没有命中的记录（登录、成员变更等）对没有财务查看权的人返回形状与改动前相同，审计页不会每条都写那句话；本来就是 `null` 的键不算被置空。规格已按此改写。
+- **D11 守卫测试「像钱的键」按拆词判**：按驼峰 / 下划线拆词后有一个词是 price / amount / total / cost / margin / markup / profit / landed / rate / budget / fee（含复数），或整个键名含 cost / margin / markup / profit / landed。直接按子串判会把 `generatedAt`（含 rate）、`feedback`（含 fee）一类都算进来。改动后扫到 344 处写入、511 个键，像钱的 18 个：1 个会被置空（`expectedRemainingCostCad`；改动前还有另起新版那条的 `sourceCost`、`sourceMargin`），17 个进写明理由的可见名单（卖价、对外价、公开授标金额、计数、评分、标签）；传变量的写入 97 处、82 个「文件 + 槽位」（`src/lib/audit/logger.ts` 本身除外）按「文件 → 槽位 → 次数」列名单核对。直接 `db.auditLog.create` / `tx.auditLog.create` 的写入不在扫描范围（读取侧按键名同样裁剪）。
+- **D11 场景里「持组织范围 `project.finance.read` 的成员」用组织管理员 + accounting 岗位**：审计详情原有权限检查只放行组织管理员与该项目的 `project_admin`，项目角色 viewer 的 accounting 岗位读审计本来就 403；规格场景已改成「持组织范围 `project.finance.read` 的组织管理员」，并加上平台超级管理员。
+- **D7 问青砚 `project_bid_quote` 对没有组织的老项目**：`probeProjectAccess` 只认本组织的项目，没有组织的老项目从此对这个工具一律「项目不存在或不属于当前组织」（改动前 `runStaticSkill` 放行没有组织的项目）。`project_get_project_quotes` 本来就只取本组织的项目，不变。`project_get_project_quotes` 照旧列出报价引擎的报价（只把 `profitMargin` 置空），D7 没要求它按 `orgId` 过滤。
+- **D7 起草被拒的返回**：`success: false`、`summary` 与 `error` 都是那句话、`data: { costHidden: true }`。
+- **D8 不能编辑时多收了三处**：不自动请求模板推荐（推荐结果只能用来切模板，切了也存不了）、模板按钮与检查项的「插入此项 / 应用建议」不可点、顶部摘要在空报价单时不写「可使用 AI 生成报价草稿」（写「还没有行项目」）；看不到成本时已确认摘要写「可导出客户报价单」（原「可导出客户版 / 内部版」，能看的人不变）。报价管理区块在还不知道能力（读取中 / 读取失败）时也不出「新建报价」；不能编辑时空列表不再写「创建报价单，AI 副驾驶会帮你……」。编辑器读取到的详情没有 `capabilities`（不该发生）时按看不到、不能编辑处理。
+- **行号**：`src/lib/quote-engine/service.ts` 另起新版那条审计在本分支是第 352 行（上面加了一行注释）；其余行号以本分支为准，文字描述不变。
+
 ## 八条硬纪律
 
 1. 零 schema：遵守。不改 `prisma/`；`capabilities`、`costHidden`、`hintReason`、`href` 只是响应里的键。

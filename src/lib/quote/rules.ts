@@ -38,10 +38,15 @@ const DEFAULT_MARGIN: QuoteMarginThresholds = {
   highAbovePct: 60,
 };
 
+/**
+ * FIX-26：opts.costHidden = 看的人没有财务查看权（编辑器、智能体报价技能）→ 不出利润率检查项（利润率本身就不给他看）。
+ * 不传时结果与改动前逐字相同。
+ */
 export function runQuoteChecks(
   header: QuoteHeaderData,
   lines: QuoteLineItemData[],
   margin: QuoteMarginThresholds = DEFAULT_MARGIN,
+  opts: { costHidden?: boolean } = {},
 ): CheckItem[] {
   const items: CheckItem[] = [];
   const template = TEMPLATE_CONFIGS[header.templateType];
@@ -64,8 +69,8 @@ export function runQuoteChecks(
     }
   }
 
-  // ── 2. 利润率检查（阈值来自企业规则或平台通用默认） ──
-  if (totals.profitMargin != null) {
+  // ── 2. 利润率检查（阈值来自企业规则或平台通用默认）；看不到成本的人不出 ──
+  if (totals.profitMargin != null && !opts.costHidden) {
     if (totals.profitMargin < margin.urgentBelowPct) {
       items.push({
         id: "low_margin",
