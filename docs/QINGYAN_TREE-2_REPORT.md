@@ -32,7 +32,23 @@ PR：（开 PR 后填）。任务书：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIE
 
 ## 4. 门禁
 
-（门禁跑完后填）
+实现者在干净 worktree、新建的空库上各跑一遍（`scratchpad/gate.sh`）：
+
+| 项 | 分支最终代码提交 `1c7dceb1`（基于 main `325cbdc0`） | main `c376be86` 基线（新库） |
+|---|---|---|
+| `npm test` | 737/747 通过，10 失败 | 732/743，11 失败（多出的 1 项是 `npm test` 里的类型检查被内存不足杀掉——日志「Killed」、内核记录 cgroup OOM；同一门禁里单独跑的 `npm run typecheck` 通过） |
+| 失败项 | 10 项与 main 的 10 项逐条相同：Autopilot A2-P0 Isolated E2E、Phase3A-3 Approvals Smoke、Phase3A-4 Acceptance、Phase3A-4 Governance Smoke、Phase3A-5 Overview Acceptance、Quote Operations 客户报价 PDF 分页布局、Sunny 工艺单 DB 端到端、T4 授标情报真实 Postgres 矩阵、招标询价自动起草第 1 轮 DB（RFQ-AUTO-2）、来信观察 DB（MAIL-2） | 同左 |
+| 本 change 的四份测试 | 纯函数 156/0、分支循环 85/0、发起接口 DB 25/0、整棵树 DB 35/0（两份 DB 测试真跑，没有跳过）；TREE-1 守卫 `web-reader-pure` 168/0 | — |
+| `npm run test:ci` | PASS | PASS |
+| `npm run typecheck` | 通过 | 通过 |
+| `npm run lint:baseline` | PASS（无新增 error fingerprint） | PASS |
+| `scripts/check-test-registry.sh` | 通过（已注册 712） | 通过 |
+| `scripts/test-runtime-architecture.sh` | 通过 | 通过 |
+| `openspec validate research-tree-runtime --strict` | 通过 | — |
+| `openspec validate --specs --strict` | 157/157 | 156/156 |
+| 受保护路径 diff（`prisma/`、`vercel.json`、`workforce-runtime/`、`.claude/launch.json`） | 只有 `workforce-runtime/__tests__/t5-execution-policy.test.ts`（工具数断言，D18） | — |
+
+main 从 `c376be86` 到 `325cbdc0` 只改了 `docs/` 与 `openspec/`（BIDPAGE-3 归档），不影响测试结果，所以基线用 `c376be86`。挑错交叉验证另在 `44dcdf29` 上亲自跑了一遍（§5）。`1c7dceb1` 之后的提交只改报告。
 
 ## 5. 多维审查与交叉验证
 
