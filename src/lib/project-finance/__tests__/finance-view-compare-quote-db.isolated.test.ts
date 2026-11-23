@@ -81,6 +81,9 @@ async function main() {
   const listRoute = await import("@/app/api/projects/[id]/quote-engine/route");
   const oneRoute = await import("@/app/api/projects/[id]/quote-engine/[quoteId]/route");
   const bidRoute = await import("@/app/api/projects/[id]/quote-engine/tender-bid/route");
+  const analyzeRoute = await import("@/app/api/projects/[id]/quote-engine/[quoteId]/analyze/route");
+  const importsRoute = await import("@/app/api/projects/[id]/quote-engine/[quoteId]/imports/route");
+  const customerQuoteRoute = await import("@/app/api/projects/[id]/quote-engine/[quoteId]/customer-quote/route");
 
   console.log("CHAIN-2e finance view (compare / tracker / quote engine) — isolated DB");
   const stamp = Date.now().toString(36);
@@ -231,6 +234,14 @@ async function main() {
         ok(one.status === 200 && Object.keys(one.body).sort().join() === "capabilities,customerView" && oc.canViewInternal === false && oc.canEdit === false && oc.canApprove === false, "单个报价：只返回客户视图，三个权限位都为 false", { status: one.status, keys: Object.keys(one.body) });
         ok(QUOTE_SECRETS.every((t) => !one.text.includes(t)), "单个报价里搜不到成本行金额、供应商、内部备注、估算成本", QUOTE_SECRETS.filter((t) => one.text.includes(t)));
       }
+
+      // 内部分析、成本导入、客户报价编辑视图（internal_cost 级别）
+      const internalStatuses: Array<[string, number, boolean]> = [];
+      for (const [label, handler, path] of [["内部分析", analyzeRoute.GET, "analyze"], ["成本导入", importsRoute.GET, "imports"], ["客户报价编辑视图", customerQuoteRoute.GET, "customer-quote"]] as const) {
+        const r = await call(handler as never, `/api/projects/${P}/quote-engine/${q1.id}/${path}`, w.u, { id: P, quoteId: q1.id });
+        internalStatuses.push([label, r.status, QUOTE_SECRETS.some((t) => r.text.includes(t))]);
+      }
+      ok(internalStatuses.every(([, st, leak]) => (w.canView ? st === 200 : st === 403 && !leak)), `内部分析 / 成本导入 / 客户报价编辑视图：${w.canView ? "200" : "403，返回里没有内部数字"}`, internalStatuses);
 
       // 「我方报价」
       const bid = await call(bidRoute.GET as never, `/api/projects/${P}/quote-engine/tender-bid`, w.u, { id: P });
