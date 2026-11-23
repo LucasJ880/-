@@ -77,6 +77,20 @@ GATE ① 的前提「谁做报价谁就是该项目负责人」在代码里**成
 
 关键变异（交叉验证后第二轮另 8 处：直接返回 `r.matrix`、`canViewCostOf` 的 `||` 改 `&&`、`hiddenProjects` 去掉 `!`、`costUnconfirmed` 写死、整页原因的 unconfirmed 写死、两处 unconfirmed 分支删掉、格子短句不换——全部被抓住。第一轮，逐个改坏再跑对应测试）：分析面板 `{false && result.costHidden && (`、单个报价页客户视图分支走不到、读取失败丢掉接口原因、保存 403 判断失效、比价矩阵 `canView: true`、追踪页 `canViewCost: true`、兜底不标 `unconfirmed`、换算说明不过滤、卡片照旧显示「去创建报价」——9 处全部被抓住。
 
+门禁（第三轮，2026-11-23 合入 main `c339cb40` 后，代码提交 `534049a3`；main 这段带进来 FIX-14、FIX-24 之前的询价改动、FIX-25、FIX-26a、BIDPAGE-3 / 4、CHAIN-2c / 2d、TREE-1 / 2 等，与本 change 同改的代码文件没有，冲突只在 TASKFLOW 与两个测试注册脚本，两边的行都保留）：
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 全量（新建 `qy_full_c2e2`，`npx prisma migrate deploy`） | `npm test < /dev/null` | `749/759 通过, 10 失败`；10 项与 main 基线逐条相同（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标 Postgres 矩阵、客户报价 PDF 分页、招标询价自动起草 DB）；偶发项这一轮都没出现；全量里的测试注册 723 个、基线 66 条，typecheck 0 错误 |
+| 与 main 相邻的测试（合并后单独跑，隔离库 `qy_c2emerge`） | `npx tsx <文件>` | 21 个全部退出码 0：本 change 的 `finance-access` 59、`finance-view-compare-quote-db` 155、`quote-engine-contract` 43、`compare` 80、`tracker-db` 61、`tracker-pure` 108、`next-step` 124；FIX-25 的 `target-margin-finance-view` 60、`target-margin-finance-db` 135、`finance-view` 48、`pricing-helper-finance-db` 38、`compare-cost-source` 83；BIDPAGE-3 / 4 的 `bid-page-v2` 101、`quote-step` 63、`lump-sum-editor` 29、`lump-sum-db` 72、`lump-sum`、`quote-line-db` 64、`quote-line` 96；FIX-26a `export-customer-pdf` 32；CHAIN-2d `memo-pricing` 52 |
+| CI 子集 | `env -u DATABASE_ENVIRONMENT … npm run test:ci` | PASS（本机；GitHub 上 `534049a3` 的 `validate-lint-typecheck-test-build` 也通过） |
+| 类型 / lint | `npm run typecheck` / `npm run lint:baseline` | 退出码 0 / PASS（errors 38，基线 53，无新增指纹） |
+| 运行时架构 | `bash scripts/test-runtime-architecture.sh` | 9 通过 0 失败，guards PASS |
+| OpenSpec | `openspec validate finance-view-compare-quote-gate --strict`；临时副本归档演练后 `openspec validate --specs --strict` | valid；归档 + 9 ~ 3，162 / 162，每条要求正文 ≤ 500 字（最长 498） |
+| 受保护文件 | `git diff origin/main...HEAD -- prisma/ vercel.json package.json package-lock.json .claude/launch.json openspec/specs openspec/config.yaml` | 空 |
+
+另：main 上有两处财务查看权判定不走本 change 的 `resolveFinanceViewSafe`。BIDPAGE-3 的金额门 `src/lib/bid-page-v2/quote-line/api-gate.ts:25-26` 直接调 `resolveFinancePrivilege(...).canReadAll`，授权查询出错时异常向上抛，没有兜底；报价表助手 `src/app/api/projects/[id]/pricing-helper/route.ts:60-69` 用 CHAIN-2b 的 `resolvePricingCostVisibility`，出错时只剩平台超级管理员与项目负责人，与本 change 的兜底同口径。没有出错时三处结论相同；收成一份已登记在 TASKFLOW「财务查看权兜底收成一份」一行（BIDPAGE-3 / 4 那一处已补进这一行）。
+
 门禁（交叉验证后第二轮，合入 main `f9c73ba2`，含 FIX-21 目录守卫与 BIDPAGE-1）：
 
 | 项 | 命令 | 结果 |
