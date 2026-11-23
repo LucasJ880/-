@@ -91,8 +91,10 @@ const disabled = (h: string, k: string) => new RegExp(`<button[^>]*disabled=""[^
   const onClick = src.slice(src.indexOf("const onClick = (b: QuoteActionButton) => {"), src.indexOf("const canRevise"));
   ok(/if \(b === "confirm" \|\| b === "approve"\) return setMode\("confirm"\);/.test(onClick) && /if \(b === "return"\) return setMode\("return"\);/.test(onClick) && !/run\("confirm"/.test(onClick), "点「定为我方报价」「批准并定为」只打开确认，不发请求；退回先写原因");
   ok(/disabled=\{busy \|\| !!block\} onClick=\{\(\) => void confirm\(\)\} data-testid="quote-action-confirm-ok"/.test(src) && /onClick=\{\(\) => setMode\("idle"\)\} data-testid="quote-action-confirm-cancel"/.test(src) && /data-testid="quote-action-confirm-block"/.test(src), "确认框里点「确定」才发请求，点「取消」只关掉；框打开以后又改了数（没保存）或算不出，「确定」也不可点并写明原因");
-  ok(/notifyNeedsFollowUp\(r\.notify\) \? "warn" : "muted"/.test(src) && /warn: "text-xs font-medium text-amber-700"/.test(src), "提交后负责人没收到通知：结果醒目显示（要提交的人自己去说）");
-  ok(/confirmedNoteZh\(r\.reselectedFrom && previousName/.test(src) && /setMessage\(note2 \? \{ text: note2, tone: "muted" \} : null\)/.test(src), "定好以后：改选了写原来那份还在，没改选不再多说一句");
+  ok(/notice: \{ text: r\.messageZh, tone: notifyNeedsFollowUp\(r\.notify\) \? "warn" : "muted" \}/.test(src) && /warn: "text-xs font-medium text-amber-700"/.test(src), "提交后负责人没收到通知：结果醒目显示（要提交的人自己去说）");
+  ok(/confirmedNoteZh\(r\.reselectedFrom && previousName/.test(src) && /notice: note2 \? \{ text: note2, tone: "muted" \} : null/.test(src), "定好以后：改选了写原来那份还在，没改选不再多说一句");
+  const withNotice = bar({ notice: { text: "已提交，已通知负责人 张三", tone: "muted" } });
+  ok(withNotice.includes('data-testid="quote-action-message"') && withNotice.includes("已提交，已通知负责人 张三"), "上一次操作的提示由外面传回来显示（编辑器随新视图重挂后不丢）");
   ok(/run\("confirm", \{ baseUpdatedAt: quote\.updatedAt, expectedSellingPrice: props\.sellingPrice \}/.test(src) && /run\("submit", \{ baseUpdatedAt: quote\.updatedAt \}/.test(src) && /run\("return", \{ baseUpdatedAt: quote\.updatedAt, note:/.test(src), "请求带读取时的修改时间；一次定价另带页面上的报价合计");
   ok(/confirmPromptZh\(\{ label: props\.label, amount: props\.sellingPrice/.test(src) && /alreadyApproved: quote\.status === "approved"/.test(src) && /current: other && !other\.awarded \? \{ name: other\.name/.test(src), "确认框的字由同一个函数写（报价合计 / 税前报价、已批准的写本来锁着、要改选时写现在那份的名称）");
   ok(/isOurBid \? REVISE_TEXT\.promptOurBid : REVISE_TEXT\.promptOther/.test(src) && /isOurBid=\{isOurBid\}/.test(src), "另起新版的说明分我方报价 / 不是我方报价两种写（我方报价的写明新版定之前没有我方报价、不能导出）");
@@ -120,6 +122,7 @@ const disabled = (h: string, k: string) => new RegExp(`<button[^>]*disabled=""[^
   ok(/<OurBidLineView projectId=\{projectId\} line=\{list\.view\.ourBid\}/.test(step) && step.indexOf("<OurBidLineView") < step.indexOf("<QuoteListPanel"), "② 最上面是我方报价一行（在报价列表之前）");
   ok(/quoteIdFromHash\(window\.location\.hash\)/.test(step) && /window\.addEventListener\("hashchange", openFromHash\)/.test(step) && /if \(!q\?\.entryMode\) return;/.test(step), "地址带 #bid-quote-{id} 时打开那份报价（专业模式的报价不在页内打开）");
   ok(/onBidChanged\(\);/.test(step) && /void loadList\(\);\s*void openQuote\(done\.quoteId, entryMode\);/.test(step), "操作成功后刷新列表、重新打开这份报价、让页签刷新汇总");
+  ok(/setActionNotice\(done\.notice \? \{ quoteId: done\.quoteId, \.\.\.done\.notice \} : null\)/.test(step) && (step.match(/actionNotice=\{actionNotice\?\.quoteId === open\.view\.quote\.id \? actionNotice : null\}/g) ?? []).length === 2 && /onOpen=\{\(q\) => \{ setActionNotice\(null\);/.test(step) && /notice=\{actionNotice\}/.test(lump), "操作成功后的提示留在 ② 一级、只给同一份报价看；从列表换开别的报价时清掉");
   ok(/<QuoteActionBar\s+key=\{view\.quote\.id\}/.test(step) && /<QuoteActionBar\s+key=\{view\.quote\.id\}/.test(lump), "换开另一份报价时主按钮区重新挂上（确认框、退回原因、上一份的提示不带到这一份）");
   const page = stripComments(read("src/components/bid-page-v2/bid-page-v2.tsx"));
   ok(/const onBidChanged = useCallback\(\(\) => \{\s*userTouched\.current = true;\s*onRefresh\?\.\(\);/.test(page) && /<QuoteStep projectId=\{projectId\} onBidChanged=\{onBidChanged\} \/>/.test(page), "在 ② 里做过操作算自己开合过：刷新后「下一步」换了指向也不把 ② 收起");

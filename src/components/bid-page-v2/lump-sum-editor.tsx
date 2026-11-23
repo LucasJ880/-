@@ -25,7 +25,7 @@ import {
 } from "@/lib/bid-page-v2/quote-line/contract";
 import { LUMP_ITEM_SPEC, LUMP_MARKUP_NOTE_ZH, LUMP_NOTES_MAX, LUMP_OTHER_LABEL_MAX, addableKeys, emptyLumpItem, lumpFormulaLinesZh, type LumpItem, type LumpItemKey, type LumpState, type LumpView } from "@/lib/bid-page-v2/lump-sum/contract";
 import { CurrencySelect, InquiryPicker, InvalidContext, Note, NumInput, PresetRows, money, pct, useInvalidRegistry } from "./quote-ui";
-import { QuoteActionBar, type QuoteActionDone } from "./quote-actions";
+import { QuoteActionBar, type QuoteActionDone, type QuoteActionNotice } from "./quote-actions";
 import { frozenNoteZh, type OurBidLine } from "@/lib/bid-page-v2/quote-confirm/contract";
 
 export const LUMP_TEXT = {
@@ -119,7 +119,7 @@ export function LumpTotals({ view, dirty }: { view: LumpView; dirty: boolean }) 
   );
 }
 
-export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined, ourBid = null, onAction = () => undefined }: { projectId: string; view: LumpView; onSaved: (v: LumpView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void; ourBid?: OurBidLine | null; onAction?: (done: QuoteActionDone) => void }) {
+export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined, ourBid = null, onAction = () => undefined, actionNotice = null }: { projectId: string; view: LumpView; onSaved: (v: LumpView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void; ourBid?: OurBidLine | null; onAction?: (done: QuoteActionDone) => void; actionNotice?: QuoteActionNotice | null }) {
   const [state, setState] = useState<LumpState>(view.state);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -239,6 +239,7 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
           dirty={dirty}
           hasUnpriced={view.computed.ok && view.computed.warnings.some((w) => w.code === "LINE_UNPRICED")}
           onDone={onAction}
+          notice={actionNotice}
         />
         {view.quote.frozen ? <Note>{frozenZh(view.quote.status, view.capabilities.canEdit)}</Note> : !view.capabilities.canEdit ? <Note>{LUMP_TEXT.readOnly}</Note> : null}
         {view.notices.map((n) => (

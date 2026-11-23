@@ -31,11 +31,14 @@ import {
   type SubmitResult,
 } from "@/lib/bid-page-v2/quote-confirm/contract";
 
+/** 操作成功后要留给人看的一句（编辑器随新视图重挂，提示由 QuoteStep 留着再传回来） */
+export type QuoteActionNotice = { text: string; tone: "muted" | "warn" };
+
 export type QuoteActionDone =
-  | { kind: "confirmed"; quoteId: string; result: ConfirmResult }
-  | { kind: "submitted"; quoteId: string; result: SubmitResult }
-  | { kind: "returned"; quoteId: string }
-  | { kind: "revised"; quoteId: string; result: ReviseResult };
+  | { kind: "confirmed"; quoteId: string; result: ConfirmResult; notice: QuoteActionNotice | null }
+  | { kind: "submitted"; quoteId: string; result: SubmitResult; notice: QuoteActionNotice }
+  | { kind: "returned"; quoteId: string; notice: QuoteActionNotice }
+  | { kind: "revised"; quoteId: string; result: ReviseResult; notice: null };
 
 export type QuoteActionBarProps = {
   projectId: string;
@@ -50,6 +53,8 @@ export type QuoteActionBarProps = {
   /** 视图里有「未定价」警告（按种类去过重，只知道有没有、不知道几行） */
   hasUnpriced: boolean;
   onDone: (done: QuoteActionDone) => void;
+  /** 上一次操作成功后的提示（QuoteStep 留着；编辑器重挂后照样显示） */
+  notice?: QuoteActionNotice | null;
 };
 
 /** 现在的我方报价是不是另一份（改选时写进确认框；已中标的不改选） */
@@ -106,21 +111,18 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
     return run("confirm", { baseUpdatedAt: quote.updatedAt, expectedSellingPrice: props.sellingPrice }, (data) => {
       const r = data as unknown as ConfirmResult;
       const note2 = confirmedNoteZh(r.reselectedFrom && previousName ? { name: previousName, version: r.reselectedFrom.version } : null);
-      setMessage(note2 ? { text: note2, tone: "muted" } : null);
-      props.onDone({ kind: "confirmed", quoteId: quote.id, result: r });
+      props.onDone({ kind: "confirmed", quoteId: quote.id, result: r, notice: note2 ? { text: note2, tone: "muted" } : null });
     });
   };
   const submit = () =>
     run("submit", { baseUpdatedAt: quote.updatedAt }, (data) => {
       const r = data as unknown as SubmitResult;
       // 负责人没收到：要提交的人自己去说，醒目显示
-      setMessage({ text: r.messageZh, tone: notifyNeedsFollowUp(r.notify) ? "warn" : "muted" });
-      props.onDone({ kind: "submitted", quoteId: quote.id, result: r });
+      props.onDone({ kind: "submitted", quoteId: quote.id, result: r, notice: { text: r.messageZh, tone: notifyNeedsFollowUp(r.notify) ? "warn" : "muted" } });
     });
   const sendReturn = () =>
     run("return", { baseUpdatedAt: quote.updatedAt, note: note.trim() || null }, () => {
-      setMessage({ text: QUOTE_ACTION_TEXT.returned, tone: "muted" });
-      props.onDone({ kind: "returned", quoteId: quote.id });
+      props.onDone({ kind: "returned", quoteId: quote.id, notice: { text: QUOTE_ACTION_TEXT.returned, tone: "muted" } });
     });
 
   const needsValue = (b: QuoteActionButton) => b === "confirm" || b === "approve" || b === "submit";
@@ -191,13 +193,14 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
           onCancel={() => setMode("idle")}
           onDone={(r) => {
             setMode("idle");
-            props.onDone({ kind: "revised", quoteId: quote.id, result: r });
+            props.onDone({ kind: "revised", quoteId: quote.id, result: r, notice: null });
           }}
         />
       ) : null}
-      {message ? (
-        <div className={toneCls[message.tone]} data-testid="quote-action-message">
-          {message.text}
+      {/* 本次的错误优先；成功的提示由 QuoteStep 留着传回来（编辑器随新视图重挂，本地状态会丢） */}
+      {message ?? props.notice ? (
+        <div className={toneCls[(message ?? props.notice)!.tone]} data-testid="quote-action-message">
+          {(message ?? props.notice)!.text}
         </div>
       ) : null}
     </div>

@@ -43,7 +43,7 @@ import { parseSchedulePaste } from "@/lib/tender-bid-workspace/paste-import";
 import type { LumpView } from "@/lib/bid-page-v2/lump-sum/contract";
 import { CurrencySelect, InquiryPicker, InvalidContext, Note, NumInput, PRESET_EXPLAIN_ZH, PresetRows, money, pct, unitMoney, useInvalidRegistry } from "./quote-ui";
 import { LumpSumEditor } from "./lump-sum-editor";
-import { OurBidLineView, QuoteActionBar, type QuoteActionDone } from "./quote-actions";
+import { OurBidLineView, QuoteActionBar, type QuoteActionDone, type QuoteActionNotice } from "./quote-actions";
 import { frozenNoteZh as frozenNoteText, quoteIdFromHash, type OurBidLine, type ReviseResult } from "@/lib/bid-page-v2/quote-confirm/contract";
 
 export { PRESET_EXPLAIN_ZH };
@@ -252,7 +252,7 @@ export function LineTotals({ view, dirty }: { view: LineModeView; dirty: boolean
   );
 }
 
-export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined, ourBid = null, onAction = () => undefined }: { projectId: string; view: LineModeView; onSaved: (v: LineModeView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void; ourBid?: OurBidLine | null; onAction?: (done: QuoteActionDone) => void }) {
+export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined, ourBid = null, onAction = () => undefined, actionNotice = null }: { projectId: string; view: LineModeView; onSaved: (v: LineModeView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void; ourBid?: OurBidLine | null; onAction?: (done: QuoteActionDone) => void; actionNotice?: QuoteActionNotice | null }) {
   const [state, setState] = useState<LineModeState>(view.state);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -404,6 +404,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted
         dirty={dirty}
         hasUnpriced={view.computed.ok && view.computed.warnings.some((w) => w.code === "LINE_UNPRICED")}
         onDone={onAction}
+        notice={actionNotice}
       />
       {view.quote.frozen ? <Note>{frozenNoteZh(view.quote.status, view.capabilities.canEdit)}</Note> : !view.capabilities.canEdit ? <Note>{QUOTE_STEP_TEXT.readOnly}</Note> : null}
       {view.notices.map((n) => (
@@ -783,8 +784,11 @@ export function QuoteStep({ projectId, onBidChanged = () => undefined }: { proje
     },
     [loadList, openQuote, onBidChanged, router],
   );
+  // 操作成功后的提示：编辑器随新视图重挂，提示留在这里，只给同一份报价显示；换开别的报价时清掉
+  const [actionNotice, setActionNotice] = useState<({ quoteId: string } & QuoteActionNotice) | null>(null);
   const onAction = useCallback(
     (done: QuoteActionDone, entryMode: "LINE" | "LUMP_SUM") => {
+      setActionNotice(done.notice ? { quoteId: done.quoteId, ...done.notice } : null);
       if (done.kind === "revised") return afterRevise(done.result);
       void loadList();
       void openQuote(done.quoteId, entryMode);
@@ -817,7 +821,7 @@ export function QuoteStep({ projectId, onBidChanged = () => undefined }: { proje
   return (
     <div className="space-y-4" data-testid="quote-step">
       <OurBidLineView projectId={projectId} line={list.view.ourBid} canEdit={list.view.capabilities.canEdit} onRevised={afterRevise} />
-      <QuoteListPanel view={list.view} onOpen={(q) => void openQuote(q.id, q.entryMode === "LUMP_SUM" ? "LUMP_SUM" : "LINE")} onCreate={create} creating={creating} createError={createError} />
+      <QuoteListPanel view={list.view} onOpen={(q) => { setActionNotice(null); void openQuote(q.id, q.entryMode === "LUMP_SUM" ? "LUMP_SUM" : "LINE"); }} onCreate={create} creating={creating} createError={createError} />
       {openError ? <Note tone="error">{openError}</Note> : null}
       {open?.kind === "line" ? (
         <LineQuoteEditor
@@ -831,6 +835,7 @@ export function QuoteStep({ projectId, onBidChanged = () => undefined }: { proje
           onConverted={onConverted}
           ourBid={list.view.ourBid}
           onAction={(d) => onAction(d, "LINE")}
+          actionNotice={actionNotice?.quoteId === open.view.quote.id ? actionNotice : null}
         />
       ) : null}
       {open?.kind === "lump" ? (
@@ -845,6 +850,7 @@ export function QuoteStep({ projectId, onBidChanged = () => undefined }: { proje
           onConverted={onConverted}
           ourBid={list.view.ourBid}
           onAction={(d) => onAction(d, "LUMP_SUM")}
+          actionNotice={actionNotice?.quoteId === open.view.quote.id ? actionNotice : null}
         />
       ) : null}
       <ExportBar projectId={projectId} availability={list.view.export} />
