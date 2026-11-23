@@ -12,13 +12,13 @@
 
 | 项 | 值 |
 |---|---|
-| 当前 main | `c339cb40`（#578 FIX-25 合并后；2026-11-23 核对） |
+| 当前 main | `8a866cd8`（#587 BIDPAGE-6 合并后；2026-11-23 17:34 UTC 核对） |
 | 工作分支 | `claude/laughing-curie-2b9s1v`（每个 PR 合并后从最新 main 重开同名分支做下一个） |
 | BIDPAGE-1 | **已合并**（#557，`d1b0d3e2`，2026-11-23）；开关默认关，合并后页面无变化；生产部署：**已部署**——2026-11-23 04:41 UTC `release-drift`（workflow_dispatch，run 45113342662）读到线上 `deployedCommit = f9c73ba`，即 main 当时的最新提交，`d1b0d3e` 是它的祖先（中间只多了 FIX-21 的归档 #560）。合并后约 1.5 分钟那次查时线上还是 `212613e`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-bid-page-v2-shell`（主规格 `tender/bid-page` 13 条），归档 PR 见下表 |
 | BIDPAGE-3 | **已合并**（#564，`c376be86`，2026-11-23 09:31）；开关默认关；生产部署：**已部署**——2026-11-23 09:47 UTC `release-drift`（workflow_dispatch，run 45150109772）读到线上 `deployedCommit = c376be8`，与 main 一致；合并后约 1 分钟那次（run 45147965079）线上还是 `2a0eb96`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-line-mode-persist`（主规格 `tender/quote-line-mode` 15 条、`tender/bid-page` 改 3 条），归档 PR 见下表 |
 | BIDPAGE-4 | **已合并**（#581，`4b6c3dd4`，2026-11-23）；开关默认关；生产部署：**已部署**——2026-11-23 13:50 UTC `release-drift`（workflow_dispatch，run 45187960729）读到线上 `deployedCommit = 4b6c3dd`，与 main 一致。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-lump-sum-mode`（主规格新增 `tender/quote-lump-sum-mode` 19 条、`tender/quote-line-mode` 改 6 条；1 个子代理逐字核对主规格与增量一致），归档 PR 见下表 |
-| BIDPAGE-6 | **PR #587 审核中**（开关默认关）；报告 `docs/QINGYAN_BIDPAGE-6_REPORT.md`；开工前审查 + 六维审查 + 交叉验证都做完，意见去向见报告 §5 |
-| 正在做 | BIDPAGE-6 PR：CI 绿后合并 → 确认部署 → 归档小 PR |
+| BIDPAGE-6 | **已合并**（#587，`8a866cd8`，2026-11-23 17:34 UTC）；开关默认关；生产部署：**已部署**——2026-11-23 17:48 UTC `release-drift`（workflow_dispatch，run 45231665741）读到线上 `deployedCommit = 8a866cd`，与 main 一致；合并后约 3 分钟那次（run 45229549529）线上还是 `5eade65`（太早）；开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-one-step-confirm`（主规格新增 `tender/quote-one-step-confirm` 23 条、`tender/quote-line-mode` 改 2 条、`tender/bid-page` 改 3 条、`notifications/click-targets` 加 1 条；归档前在增量里补了新能力的 Purpose、把「按招标方价格表导出」正文缩到 500 字以内，主规格只由归档生成；1 个子代理逐字核对主规格与增量一致），归档 PR 见下表；报告 `docs/QINGYAN_BIDPAGE-6_REPORT.md` |
+| 正在做 | BIDPAGE-6 归档小 PR；之后 BIDPAGE-5 |
 | 下一步 | BIDPAGE-5 `quote-margin-advice-market`（AI 毛利建议；审查多一个「模型调用」维度） |
 
 | change | ID | 状态 | PR | 分支 |
@@ -26,7 +26,7 @@
 | `bid-page-v2-shell` | BIDPAGE-1 | 已合并、已归档 | #557（合并 `d1b0d3e2`）；归档 #561（合并 `b717427f`） | `claude/laughing-curie-2b9s1v` |
 | `quote-line-mode-persist` | BIDPAGE-3 | 已合并、已归档 | #564（合并 `c376be86`）；归档 #572（合并 `325cbdc0`） | `claude/laughing-curie-2b9s1v` |
 | `quote-lump-sum-mode` | BIDPAGE-4 | 已合并、已归档 | #581（合并 `4b6c3dd4`）；归档 #582（合并 `9ff1b29e`） | `claude/laughing-curie-2b9s1v` |
-| `quote-one-step-confirm` | BIDPAGE-6 | PR 审核中 | #587 | `claude/laughing-curie-2b9s1v` |
+| `quote-one-step-confirm` | BIDPAGE-6 | 已合并、归档中 | #587（合并 `8a866cd8`）；归档小 PR（本次） | `claude/laughing-curie-2b9s1v` |
 | `quote-margin-advice-market` | BIDPAGE-5 | 未开始 | — | — |
 | `bid-page-sourcing-step` | BIDPAGE-2 | 未开始 | — | — |
 | `bid-page-documents-step` | BIDPAGE-7 | 未开始 | — | — |
@@ -99,6 +99,10 @@
   - 报价列表接口多返回 `ourBid`（② 最上面那一行）；金额取 `resolveTenderBid` 现算的税前报价。
   - 新页面不再挂 `TenderOurBidCard`；改版前的页面与工作台照旧挂（它的中文化归 BIDPAGE-8）。
   - ② 标题右边那句状态没带版本（不改 `next-step.ts`，避开 CHAIN-2e 在改的 `next-step.test.ts`）；CHAIN-2e 合并后可以补。
+- **BIDPAGE-6 归档核对**（子代理逐字比对，结论一致）记下两条，都不阻塞：
+  - 「按招标方价格表导出」正文为过 500 字警告缩短后，「没有批准权限的点『提交给负责人』」只剩在代码文案里；按钮按权限的分法由 `tender/quote-one-step-confirm`「主按钮按状态与权限」约束。不改。
+  - 同一条「原因里 SHALL NOT 再写『在专业模式里做』」字面上与专业模式报价那句原因（「我方报价是在专业模式里做的，这里只能导出逐行报价…」）冲突；本意只管「没定 / 新版没定」两句（测试也只断言这两句）。#587 合并时就有，归档没改。**BIDPAGE-8 改中文文案时把这条措辞收窄**（例如「没定与新版没定的原因里 SHALL NOT …」）。
+  - 主规格只由归档生成：归档前在增量里补 Purpose、缩短正文；直接改 `openspec/specs/**` 会被权限检查拦下（BIDPAGE-6 归档时试过一次，已撤回重做）。
 - **写文件时 `\u` 转义会被解码成真字符**（BIDPAGE-6 踩过两次）：经工具参数写进文件的 `\u200B`、`\u202E` 之类会变成不可见的方向 / 零宽字符，GitHub 会弹双向文字警告。要写转义就用脚本写 `\\u…`；`quote-confirm.test.ts` 第 10 节扫 BIDPAGE-6 的源码与测试。
 - **只杀自己的进程**：停门禁时别用 `pkill -f "npx tsx"`（BIDPAGE-6 误杀过同时在跑的审查子代理的测试）；按 cwd 或 PID 杀。
 - **本地浏览器抽检的演示账号**：`qingyan_dev` 的演示组织 `bpshot_org` 没有行业包；纯会计岗位的人会被路由门送到 `/accounting`，挂上「招投标」岗位以后项目页仍被路由门挡住（原因未核实，与 BIDPAGE 无关）。BIDPAGE-6 的「只有编辑权限」那一步改用他本人的会话直接调接口。夹具在会话草稿区，不入库。
