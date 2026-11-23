@@ -54,8 +54,8 @@ proposal「与任务书的出入」七条，理由见 design：
 | 项 | 结果 |
 |---|---|
 | `npm test`（全量，带隔离库），六维审查修订后 `a0d020bf` | **721/731，10 项失败，与 main 既有失败逐项相同**（名单同 BIDPAGE-1 报告 §3） |
-| `npm test`，交叉验证建议补的测试之后（最终代码 `954d81c5`） | 进行中（结果补在这里与 PR 正文） |
-| `npm run test:ci`（CI 同款环境变量：占位 `DATABASE_URL`、`NODE_ENV=test`、不设 `DATABASE_ENVIRONMENT`） | `CI unit subset PASS`（`a0d020bf`）；最终代码：进行中 |
+| `npm test`，交叉验证建议补的测试之后（最终代码 `954d81c5`，提交 `e75cbf88`） | **721/731，10 项失败，与 main 既有失败逐项相同** |
+| `npm run test:ci`（CI 同款环境变量：占位 `DATABASE_URL`、`NODE_ENV=test`、不设 `DATABASE_ENVIRONMENT`） | `CI unit subset PASS`（`a0d020bf` 与最终代码各跑一次）；GitHub CI 在 `e75cbf88` 上全绿 |
 | 本 PR 新测试 | `quote-line.test.ts` 96/96；`quote-step.test.tsx` 58/58；`quote-line-db.isolated.test.ts` 64/64 |
 | BIDPAGE-1 的测试 | `next-step.test.ts` 124/124；`bid-page-v2.test.tsx` 101/101（含开关关时入口与改版前 `BidTab` 逐字节相同）；`bid-page-summary-db.isolated.test.ts` 55/55 |
 | FIX-21 目录守卫 `project-routes-guard.test.ts` | 98/98（严格通过 254 个处理函数，含本 PR 的 5 个） |
