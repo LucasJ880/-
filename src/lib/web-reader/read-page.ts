@@ -47,8 +47,10 @@ import {
   parseRetryAfterSeconds,
   parseRobotsLimited,
   readOrgSiteOverride,
+  isUmbrellaSite,
   normalizeHost,
   reasonMessageZh,
+  siteKeyOfHost,
   type RobotsGroup,
 } from "./pure";
 import {
@@ -559,7 +561,8 @@ export function siteKeyOf(url: URL): string {
   return hostOf(url).replace(/^www\./, "");
 }
 
-type ReadState = { attempts: number; robotsRequests: number; robotsFetches: number; charged: boolean; lastRequested: URL | null };
+/** robotsFetches：这次读页里这一支发起取 robots 的次数；robotsCounted：其中计入「只取 robots」上限的次数 */
+type ReadState = { attempts: number; robotsRequests: number; robotsFetches: number; robotsCounted: number; charged: boolean; lastRequested: URL | null };
 
 type Built = {
   finalUrl: string | null;
@@ -664,18 +667,24 @@ function sanitizeCached(raw: unknown, key: string): PageReadResult | null {
   });
 }
 
-const wwwless = (h: string) => h.replace(/^www\./, "");
-
 /**
- * 主机 host 是否落在被挡的主机 b 里：同一个站（只差 www.）；b 的子域名（被挡后不靠换子域名绕过）；
- * 或以 b 打头的代理式主机名（`gov.example.mirror.example`、`gov-example.proxy.example`）。
- * www.canada.ca 被挡不连带 canadabuys.canada.ca（兄弟子域名不是同一个站，第四轮挑错 D）。
+ * 主机 host 是否落在被挡的主机 b 里（第五轮挑错后）：按站点键（去掉 www.）比——
+ * - 同一个站：站点键相同（www.gov.example 与 gov.example 是同一个站）；
+ * - 子域名：host 的站点键以「.站点键(b)」结尾（gov.example 或 www.gov.example 被挡，m.gov.example、
+ *   en.gov.example、www2.gov.example 也不读——被挡后不靠换子域名绕过）；但伞形政府域名（canada.ca、gc.ca、
+ *   各省政府域名，见 pure.ts 的 UMBRELLA_SITES）只认同一个站：www.canada.ca 被挡不连带 canadabuys.canada.ca；
+ * - 代理式主机名：host 以 b 或站点键(b) 打头（点或横线写法：`gov.example.mirror.example`、
+ *   `www-gov-example.proxy.example`）。
  */
 function hostInBlocked(host: string, b: string): boolean {
-  if (wwwless(host) === wwwless(b)) return true;
-  if (host.endsWith(`.${b}`)) return true;
-  const core = wwwless(b);
-  return host.startsWith(`${core}.`) || host.startsWith(`${core.replace(/\./g, "-")}.`);
+  const hk = siteKeyOfHost(host);
+  const bk = siteKeyOfHost(b);
+  if (hk === bk) return true;
+  if (!isUmbrellaSite(bk) && hk.endsWith(`.${bk}`)) return true;
+  for (const p of new Set([b, bk])) {
+    if (host.startsWith(`${p}.`) || host.startsWith(`${p.replace(/\./g, "-")}.`)) return true;
+  }
+  return false;
 }
 
 /** 这一支里挡住这个主机的那个被挡主机；没有返回 null */
@@ -696,11 +705,17 @@ function blockedSiteForUrl(st: BranchState, url: URL): string | null {
   return null;
 }
 
+/** 以「不碰」站打头的代理式主机名（`linkedin.com.proxy.example`、`linkedin-com.proxy.example`）也算不碰 */
+function deniedByPrefix(host: string, policy: SitePolicy): boolean {
+  return policy.deny.some((e) => host.startsWith(`${e}.`) || host.startsWith(`${e.replace(/\./g, "-")}.`));
+}
+
 /** 网址的主机在「不碰」名单里 → site_denied；嵌着的主机在名单里 → embedded_site_denied；嵌着的网址认不清 → embedded_url_unclear */
 function deniedUrl(url: URL, policy: SitePolicy): "site_denied" | "embedded_site_denied" | "embedded_url_unclear" | null {
-  if (classifySite(hostOf(url), policy) === "deny") return "site_denied";
+  const host = hostOf(url);
+  if (classifySite(host, policy) === "deny" || deniedByPrefix(host, policy)) return "site_denied";
   const emb = embeddedHostsOf(url);
-  if (emb.hosts.some((h) => classifySite(h, policy) === "deny")) return "embedded_site_denied";
+  if (emb.hosts.some((h) => classifySite(h, policy) === "deny" || deniedByPrefix(h, policy))) return "embedded_site_denied";
   if (!emb.complete) return "embedded_url_unclear";
   return null;
 }
@@ -756,7 +771,7 @@ export async function readPublicPage(rawUrl: string, ctx: ResearchReadContext): 
   if (st.led.blocked.size >= WEB_READER_LIMITS.MAX_BLOCKED_SITES_PER_BRANCH) return nonRequest(key, "limit", "blocked_sites_limit", nowIso());
   if (remainingReads(st) <= 0) return nonRequest(key, "limit", "budget_exhausted", nowIso());
 
-  const state: ReadState = { attempts: 0, robotsRequests: 0, robotsFetches: 0, charged: false, lastRequested: null };
+  const state: ReadState = { attempts: 0, robotsRequests: 0, robotsFetches: 0, robotsCounted: 0, charged: false, lastRequested: null };
   const p = readUncached(checked.url, key, st, state).then(async (r) => {
     // 调用方的持久缓存写失败不影响结果与审计
     if (!isContextual(r)) await Promise.resolve().then(() => tree.cache.set(key, r)).catch(() => undefined);
@@ -770,7 +785,8 @@ export async function readPublicPage(rawUrl: string, ctx: ResearchReadContext): 
   const r = await shared;
   if (r.blocked?.site) st.led.blocked.add(r.blocked.site);
   // 发出了页面请求的读页里取的 robots 不计入「没读页只取 robots」的上限
-  if (state.attempts > 0 && state.robotsFetches > 0) st.led.robotsFetches = Math.max(0, st.led.robotsFetches - state.robotsFetches);
+  // 只退真正计上的次数
+  if (state.attempts > 0 && state.robotsCounted > 0) st.led.robotsFetches = Math.max(0, st.led.robotsFetches - state.robotsCounted);
   // 发过请求，或这一支发起过取 robots（哪怕没发出请求）：都写审计，重建会话时据此恢复账
   if (r.attempts + r.robotsRequests + state.robotsFetches > 0) {
     await writeAudit(st, r, site, { robotsFetches: state.robotsFetches, fromCache: false });
@@ -990,8 +1006,12 @@ async function robotsFor(url: URL, st: BranchState, state: ReadState): Promise<R
       }
       return v;
     }
-    if (st.led.robotsFetches >= WEB_READER_LIMITS.MAX_ROBOTS_FETCHES_PER_BRANCH) return { kind: "limit" };
-    st.led.robotsFetches += 1;
+    // 这次读页已经扣过读页额度（页面请求已发出，后面是跳转）：取 robots 不查也不计「只取 robots」的上限
+    if (!state.charged) {
+      if (st.led.robotsFetches >= WEB_READER_LIMITS.MAX_ROBOTS_FETCHES_PER_BRANCH) return { kind: "limit" };
+      st.led.robotsFetches += 1;
+      state.robotsCounted += 1;
+    }
     state.robotsFetches += 1;
     const p: Promise<RobotsVerdict> = fetchRobots(new URL("/robots.txt", origin), st, state).then((v) => {
       // 与这一次调用自己的状态有关的结论不记下

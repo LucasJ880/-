@@ -4,6 +4,7 @@
  */
 
 import { isIP } from "node:net";
+import { domainToASCII } from "node:url";
 import { validatePublicHttpUrl } from "@/lib/supplier-intel/submission-parser";
 import type {
   BlockedReason,
@@ -147,12 +148,56 @@ export function siteKeyOfHost(host: string): string {
   return normalizeHost(host).replace(/^www\./, "");
 }
 
-/** 主机名归一：小写、去首尾空白、去方括号、去末尾的点（保留 www.；被挡主机按它记） */
+/** 主机名归一：小写、去首尾空白、去方括号、去末尾的点、国际化域名转成 punycode（保留 www.；被挡主机按它记） */
 export function normalizeHost(host: string): string {
-  return host.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
+  if (!/[^\x00-\x7f]/.test(h)) return h;
+  return domainToASCII(h) || h;
 }
 
-const EMBEDDED_HOST_RE = /(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}/g;
+/**
+ * 伞形政府域名：下面挂着许多各自独立的网站（canadabuys.canada.ca、open.canada.ca…）。这些域名上被挡只认
+ * 同一个站，不连带子域名（第五轮挑错：被挡的匹配规则见 read-page.ts 的 hostInBlocked）。
+ */
+export const UMBRELLA_SITES: ReadonlySet<string> = new Set([
+  "canada.ca",
+  "gc.ca",
+  "ontario.ca",
+  "gov.on.ca",
+  "gov.bc.ca",
+  "alberta.ca",
+  "gov.ab.ca",
+  "quebec.ca",
+  "gouv.qc.ca",
+  "gov.mb.ca",
+  "saskatchewan.ca",
+  "gov.sk.ca",
+  "gnb.ca",
+  "novascotia.ca",
+  "gov.ns.ca",
+  "gov.nl.ca",
+  "princeedwardisland.ca",
+  "gov.pe.ca",
+  "yukon.ca",
+  "gov.yk.ca",
+  "gov.nt.ca",
+  "gov.nu.ca",
+]);
+
+export function isUmbrellaSite(siteKey: string): boolean {
+  return UMBRELLA_SITES.has(siteKey);
+}
+
+const EMBEDDED_HOST_RE = /(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+\p{L}[\p{L}\p{N}-]{1,62}/gu;
+
+/** 宽松的百分号解码：只解合法的 %XX 连续段，按 UTF-8 解（坏的字节变 U+FFFD，不抛错）；+ 当空格 */
+function lenientDecode(s: string): string {
+  return s.replace(/\+/g, " ").replace(/(?:%[0-9a-fA-F]{2})+/g, (run) => {
+    const bytes = new Uint8Array(run.length / 3);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(run.slice(i * 3 + 1, i * 3 + 3), 16);
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  });
+}
 /** 嵌入主机名的扫描范围、解码层数与个数上限：超了就算「认不清」（调用方按不读处理，不按部分结果放行） */
 const EMBEDDED_SCAN_MAX_CHARS = 4096;
 const EMBEDDED_MAX_DECODES = 3;
@@ -173,21 +218,11 @@ export function embeddedHostsOf(url: URL): EmbeddedHosts {
   const levels: string[] = [raw.slice(0, EMBEDDED_SCAN_MAX_CHARS).toLowerCase()];
   for (let i = 0; i < EMBEDDED_MAX_DECODES; i++) {
     const prev = levels[levels.length - 1];
-    let d: string;
-    try {
-      d = decodeURIComponent(prev.replace(/\+/g, " "));
-    } catch {
-      break; // 坏的百分号编码：后面没法再解
-    }
+    // 宽松解码：网址里别处有坏的百分号编码（%E9、%zz、单个 %）也不影响认出嵌着的主机（第五轮挑错）
+    const d = lenientDecode(prev);
     if (d === prev) break;
     levels.push(d);
-    if (i === EMBEDDED_MAX_DECODES - 1) {
-      try {
-        if (decodeURIComponent(d.replace(/\+/g, " ")) !== d) complete = false;
-      } catch {
-        // 解不开就停在这一层
-      }
-    }
+    if (i === EMBEDDED_MAX_DECODES - 1 && lenientDecode(d) !== d) complete = false;
   }
   const own = siteKeyOfHost(hostOf(url));
   const out = new Set<string>();

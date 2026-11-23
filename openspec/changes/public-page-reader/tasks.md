@@ -23,6 +23,8 @@
 
 - [x] 5.1 第四轮挑错的 13 条（design D14）：robots 次数只计没读页的读页；被挡立刻记；额度上限取最小记进账本；被挡记主机、兄弟子域名不连带；嵌入主机名三层解码 / 认不清不读 / 全角句点；前缀式代理；账本上限 4096；嵌着不碰站与历史超限单独原因；robots「*bot」；规格补「分支上下文的入参」；被挡站归属；节拍表清理；`%PDF-` 跳过空白（verify：`web-reader-edges.test.ts` 新增 15 条在修前的代码上 14 条失败、修后全过；`web-reader-pure.test.ts`、`web-reader.test.ts`、`web-reader-transport.test.ts`、`web-reader-context-db.isolated.test.ts` 通过；`openspec validate public-page-reader --strict` 通过）
 
+- [x] 5.2 第五轮挑错（design D15）：被挡匹配改回站点键 + 后缀、伞形政府域名例外；代理式主机名按被挡主机与站点键、以不碰站打头也不读；宽松解码；已扣额度后取 robots 不查不计、只退计上的；国际化域名归一（verify：`web-reader-edges.test.ts` 新增 18 条在修前的代码上 14 条失败、修后全过；其余 5 份测试与 `openspec validate public-page-reader --strict` 通过）
+
 ## 6. 门禁与报告
 
 - [x] 6.1 全量门禁与零变化核对（verify：`npm test` 只有 main 基线上同样的失败；`npm run test:ci`（不连库，同 CI）、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh` 通过；全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `trade/email-forward-parse.ts` 外为空；`git diff origin/main -- prisma/ vercel.json next.config.ts src/lib/workforce-runtime/` 为空）

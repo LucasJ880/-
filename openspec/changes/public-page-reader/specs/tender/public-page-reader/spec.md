@@ -58,7 +58,7 @@
 - **THEN** 发出 4 个请求后停止，返回「打不开」，原因是跳转过多（`web-reader.test.ts`）
 
 ### Requirement: 被挡即停
-遇到下列任一情况，系统 SHALL 返回「被挡」并写明原因与真正挡住我们的站点，SHALL NOT 重试、SHALL NOT 换地址再读：HTTP 401、403、407；跳转目标是登录地址或页面用 meta refresh 跳到登录地址（不请求该地址，挡住我们的是发出跳转的站）；返回的页面是登录页（有密码输入框且正文少于 2000 字）；返回的页面是人机验证；robots 声明不许读或读取失败；对方限流且不能按规定等待（见「临时故障有限重试」）；该站点在这一支里已经被挡过。被挡记在真正挡住我们的主机上；之后同一支里 SHALL NOT 再向该主机、只差 `www.` 的同一个站及其子域名发出任何请求（兄弟子域名不算：www.canada.ca 被挡不连带 canadabuys.canada.ca；被挡一得出就记，每次发请求前都再查一次；别的支已经读到的结果照常从缓存取，不发请求）。调用方直接给出的网址本身是登录地址时，系统 SHALL 返回「不读」、不发请求，且 SHALL NOT 把该站点记为这一支里被挡过。
+遇到下列任一情况，系统 SHALL 返回「被挡」并写明原因与真正挡住我们的站点，SHALL NOT 重试、SHALL NOT 换地址再读：HTTP 401、403、407；跳转目标是登录地址或页面用 meta refresh 跳到登录地址（不请求该地址，挡住我们的是发出跳转的站）；返回的页面是登录页（有密码输入框且正文少于 2000 字）；返回的页面是人机验证；robots 声明不许读或读取失败；对方限流且不能按规定等待（见「临时故障有限重试」）；该站点在这一支里已经被挡过。被挡记在真正挡住我们的主机上；之后同一支里 SHALL NOT 再向这个站（按去掉 `www.` 比）及其子域名发出任何请求，伞形政府域名（canada.ca、gc.ca 与各省政府域名）只认同一个站、不连带子域名（被挡一得出就记，每次发请求前都再查一次；别的支已经读到的结果照常从缓存取，不发请求）。调用方直接给出的网址本身是登录地址时，系统 SHALL 返回「不读」、不发请求，且 SHALL NOT 把该站点记为这一支里被挡过。
 
 #### Scenario: 登录页、验证码、403
 - **WHEN** 读页目标分别返回登录页、人机验证页、401、403、407、跳到登录地址
@@ -69,8 +69,8 @@
 - **THEN** 被挡的站点是 b；读 b 不发请求；读 a 照常读到（`web-reader-edges.test.ts`）
 
 #### Scenario: 不靠换地址绕过
-- **WHEN** gov.example 返回 403 后，同一支读 m.gov.example 的网址与一个 IP 地址的网址；www.canada.ca 被 robots 挡了一个路径后，同一支读 canadabuys.canada.ca、open.canada.ca 与 canada.ca
-- **THEN** m.gov.example「被挡」（站点 gov.example）、IP 地址「不读」，都没有请求；canadabuys 与 open 照读，canada.ca「被挡」（`web-reader-edges.test.ts`）
+- **WHEN** gov.example 返回 403 后，同一支读 m.gov.example 的网址与一个 IP 地址的网址；www.gw.example 返回 403 后读 m.gw.example、en.gw.example、www2.gw.example、gw.example；www.canada.ca 或 canada.ca 被 robots 挡了一个路径后，同一支读 canadabuys.canada.ca、open.canada.ca 与只差 www. 的同一个站
+- **THEN** m.gov.example 与 gw.example 那几个都「被挡」、没有请求，IP 地址「不读」；canadabuys 与 open 照读，只差 www. 的同一个站「被挡」（`web-reader-edges.test.ts`）
 
 #### Scenario: 直接给的登录地址
 - **WHEN** 读 `https://site.example/account/login`，再读该站另一个网址
@@ -81,7 +81,7 @@
 - **THEN** 直接返回「被挡」（原因：这一支里该站点已被挡），不发请求、不扣额度（`web-reader.test.ts`、`web-reader-edges.test.ts`）
 
 ### Requirement: 不经代理换地址
-被挡之后系统 SHALL NOT 经第三方抓取代理、网页快照或翻译代理换地址读同一个站：这类服务（如 r.jina.ai、translate.goog、web.archive.org、archive.ph、12ft.io）SHALL 预置在「不碰」里；网址路径或查询里（百分号编码解三层、全角句点当「.」）嵌着这一支被挡过的站，或主机名以被挡站打头（`gov.example.mirror.example`、`gov-example.proxy.example`），SHALL 按「这一支里该站点已被挡」处理；嵌着「不碰」站、或嵌着的网址认不清（还能再解、超过 4096 字或 64 个主机）SHALL 返回「不读」。每一跳都查；缓存照取。
+被挡之后系统 SHALL NOT 经第三方抓取代理、网页快照或翻译代理换地址读同一个站：这类服务（如 r.jina.ai、translate.goog、web.archive.org、archive.ph、12ft.io）SHALL 预置在「不碰」里；网址路径或查询里（只解合法的百分号编码、最多三层，全角句点当「.」，国际化域名按 punycode）嵌着这一支被挡过的站，或主机名以被挡站打头（点或横线写法），SHALL 按「这一支里该站点已被挡」处理；嵌着「不碰」站、以「不碰」站打头、或嵌着的网址认不清（还能再解、超过 4096 字或 64 个主机）SHALL 返回「不读」。每一跳都查；缓存照取。
 
 #### Scenario: 经代理换地址
 - **WHEN** gov.example 返回 403 后，同一支读 `https://r.jina.ai/https://gov.example/a` 等预置代理网址、`https://fetcher.example/get?u=https%3A%2F%2Fgov.example%2Fa`、一个跳转到这种网址的页面；以及嵌着 LinkedIn 的代理网址
@@ -125,7 +125,7 @@ HTTP 404、410 等其它 4xx（401、403、407、429 之外）与 1xx，系统 S
 - **THEN** 前几种都被拒绝；最后一种仍只按原额度读（`web-reader-edges.test.ts`）
 
 ### Requirement: 额度跨会话与分支上限
-每支的已用读页数、取 robots 次数与被挡站 SHALL 按 Job 记一份账：同一进程里同一 Job 的多个会话（含并发的）共用，建会话时再与这棵树的读页审计取大，所以重建会话不清零、并发会话不翻倍。每棵树 SHALL 最多 24 支；每支在没发出页面请求的读页里取 robots SHALL 不超过 12 次（发出了页面请求的不计，所以不挤占读页额度），超了返回「到上限」；每支被挡站到 24 个 SHALL 不再读页。审计历史超过 2000 行 SHALL 视为不可信，这棵树不再读页（原因单独一句）。跨进程、以及账本被挤出后同时处理同一 Job 不在本层防范（由运行时保证一处处理）。
+每支的已用读页数、取 robots 次数与被挡站 SHALL 按 Job 记一份账：同一进程里同一 Job 的多个会话（含并发的）共用，建会话时再与这棵树的读页审计取大，所以重建会话不清零、并发会话不翻倍。每棵树 SHALL 最多 24 支；每支在没扣读页额度的读页里取 robots SHALL 不超过 12 次（扣过额度之后跳转时取的不查不计，读了页的读页里计上的读完退回，所以不挤占读页额度），超了返回「到上限」；每支被挡站到 24 个 SHALL 不再读页。审计历史超过 2000 行 SHALL 视为不可信，这棵树不再读页（原因单独一句）。跨进程、以及账本被挤出后同时处理同一 Job 不在本层防范（由运行时保证一处处理）。
 
 #### Scenario: 重建会话不清零
 - **WHEN** 审计里某一支已发过请求的读页有 12 次、另一支有 2 次且有一个被挡站、第三支取过 12 次 robots、第四支从缓存拿到过被挡结果，同一 Job 在新进程里重建会话；审计里已有 24 支时再建第 25 支

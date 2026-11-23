@@ -81,7 +81,7 @@
   1. 建 Job 用平铺标记（D-9）；调研 Job 不能与一键分析的卡片 / 重用逻辑撞车——`tender-workforce/trigger-service.ts` 的 `tenderJobWhere` 只看 `metadata.projectId` + `workDomain`，调研 Job 不要设 `metadata.projectId`（项目放另一个键），见 scratchpad `tree2-research-notes.md` §1。
   2. 每支每次处理只 `forBranch` 一次；必须传 `deadlineAt`（切片截止 − 15 秒，同 FIX-12）。额度、取 robots 次数、被挡站与分支数由读页层记在进程内按 Job 共用的树账本里，建会话时与审计历史取大（第三轮挑错后，D13）——`ctx.budget.used` 与 `blockedSites` 仍建议持久化后传回（第二道保险，取大）。**读页层不防跨进程同时处理同一 Job**：TREE-2 必须靠运行时的租约保证同一 Job 同一时间只有一处处理，并配测试（两个处理器同时认领同一调研 Job 只有一个拿到）。
   2d. 读页结果的「到上限」有四种原因：`budget_exhausted`（读页次数）、`robots_limit`（没读页时取读取规则的次数）、`blocked_sites_limit`（这一支被挡站到 24 个）、`history_overflow`（这棵树的审计超过 2000 行）；都表示这一支不能再读页，分支循环要据此收尾（不要换个网址再试）。「不读」另有 `embedded_site_denied`、`embedded_url_unclear`（网址里带着不碰站 / 嵌着的网址认不清）。
-  2f. 额度的「剩余 + 已用」是这一支的上限，同一 Job 多次给的取最小——组织调低时每次都按调低后的值给。被挡记在主机上（`blocked.site` 保留 `www.`）。
+  2f. 额度的「剩余 + 已用」是这一支的**总上限**，同一 Job 多次给的取最小、不会回升——不要拿它当每个切片的额度（每次都给 {剩余: 上限 − 已用, 已用}，组织调低时按调低后的上限给）。被挡记在主机上（`blocked.site` 保留 `www.`），比较按去掉 `www.` 的站点键加子域名；伞形政府域名（canada.ca、gc.ca、各省政府域名）只认同一个站（D15）。查询里带着被挡站名字的网址在这一支也不读（宁可少读）。
   2g. 内存：默认的会话缓存存全文，最坏 24 × 12 页 × 2 MB。TREE-2 每个处理切片建一个会话、用完即弃；自己实现的持久缓存只存摘录与哈希（第 6 条）。
   2e. 被挡后换来源时，不要把抓取代理 / 快照 / 翻译代理当成「别的来源」：它们预置「不碰」，网址里嵌着本支被挡站的也按被挡（D13）。代价：查询里带被挡站名字的普通网址在这一支也不读。
   2c. **只有 TREE-2 的人发起接口写调研标记**（`researchTree: true`）：读页层的规则 1 最终靠这一点（`scheduled` 是调用方自报、`researchTrigger` 不是运行时保留键）；TREE-2 加守卫测试：`researchTree: true` 只许出现在那几个接口里。
