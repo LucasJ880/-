@@ -64,6 +64,23 @@
 | `openspec validate award-manual-entry-alberta --strict` | valid（两个能力共 14 条要求，都不超过 500 字） |
 | `git diff origin/main -- prisma/ vercel.json` | 空 |
 
+### 2026-11-23 合入 main `a8caa985` 后复跑（合并提交 `8aaf9676`）
+
+合入的 main 含 FIX-12 / 13 / 17 / 21、CHAIN-4c / 2b / 3b / 3c 及各自归档、#544 RFQ-PDF-1（归档 #553）、BIDPAGE-1（#557）。无冲突自动合并：TASKFLOW 两边新增的行都在，`scripts/test-all.sh`、`scripts/test-ci-unit.sh` 两边的注册行都在。本分支改的源文件（`awards.ts`、`api/org/tender-awards/route.ts`、「历史中标」页与四个新文件）main 在分叉后都没有改过；本分支用到的模块（`auth/guards`、`audit/logger`、`projects/visibility`、`corporate-memory/normalize`、`award-flags`、`award-intelligence`、`api-fetch`、`intel-hub-shell`）main 也没有改过。main 新增的 CHAIN-3b / 3c 只读 `ACTIVE` 且有证据的授标中标方（`loadProjectWinners`），本分支「编号不同不挂上、新记录标为疑似重复」写出的是 `NEEDS_REVIEW`，不进那个读法；它们测试里直接建的 `USER_ENTRY` 来源键是 `adv:` / `manual:rc-`，不是 `manual:apc:`，列表不会给它们 APC 链接。本分支没有新增或改动 `src/app/api/projects/[id]/**`，FIX-21 目录守卫无需登记。
+
+| 项 | 结果 |
+|---|---|
+| 本 change 单跑（隔离库 `qy_iso_b`，迁移已是最新） | `award-manual-entry.test.ts` 47 / 47；`award-manual-entry-db.isolated.test.ts` 21 / 21；`awards.test.ts` 33；`award-semantics.test.ts` 16；`award-dedupe-db` 6；`award-review-db` 20；`sourcing-suggestions-db` 36；`import-leads-db` 69；main 新增的 `alias-decisions-db` 39、`readiness-count-db` 19；`outcome-winner-db` 18；`org-profiles.test.ts` 30，全部通过 |
+| FIX-21 目录守卫 `project-routes-guard.test.ts` | 98 通过、0 失败（本分支不改 `src/app/api/projects/[id]/**`） |
+| `npm test`（新库 `qy_full_chain1b`，`migrate deploy`） | `720/730 通过, 10 失败`，10 项与既有失败名单逐条相同：来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报真实 Postgres 矩阵（仍是 T4-DB-08 / 09 的前置，16 / 18）、客户报价 PDF 分页布局、招标询价自动起草 DB；Supplier Intel S1 审计脊柱 DB 这次通过 |
+| `npm run test:ci`（不带数据库，与 CI 相同） | PASS（注册校验：已注册 696 个，历史欠账 66 条） |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS（errors 38，基线 53） |
+| `bash scripts/check-test-registry.sh` | 通过（已注册 696 个，欠账 66 条） |
+| `bash scripts/test-runtime-architecture.sh` | PASS（9 / 9） |
+| `openspec validate award-manual-entry-alberta --strict` | valid |
+| `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与代码）**——逐条核实后全部并入四件套（`5d46fb2e`）：
