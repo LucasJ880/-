@@ -70,11 +70,13 @@ function q(evidence: string | null | undefined): string {
 }
 
 /**
- * FIX-14：附件里有 U+0000 被换成空格（勾选框之类的字形抽不出字）且仍记为已解析时，在「已解析」后注明。
- * 这句话里没有「；」，比价回读（notes-parse.ts）按「；」切开后附件段落不进任何回读字段。
+ * FIX-14：附件里有 U+0000 被换成空格（勾选框之类的字形抽不出字）且仍记为已解析时，在「已解析」后注明
+ * （措辞按文案审查调整）。这句话里有一个「；」：比价回读（notes-parse.ts）按「；」切开后，
+ * 两半分别以「附件：」与「请打开原件」开头，都不进任何回读字段（notes-parse.test.ts 往返测试与
+ * extracted-text-other-paths.test.ts「带与不带这句话 parseAutoNotes 结果相同」覆盖）。
  */
 function unreadableSymbolsNote(nulCount: number): string {
-  return `（有 ${nulCount} 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）`;
+  return `（有 ${nulCount} 处符号没读出来，已当空格处理，多半是勾选框；请打开原件核对勾选项和价格）`;
 }
 
 function attachmentParsedLabel(a: AttachmentSeen): string {

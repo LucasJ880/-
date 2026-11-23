@@ -138,8 +138,8 @@ async function main() {
       const failedAudit = audits.find((a) => a.action === "rfq_inbound:failed");
       ok(r1.quoted === 1 && r1.failed === 0, "照抄勾选框那一行的回信：这次入站检查报价 1 家、失败 0", { r1, failedError: failedAudit ? parseJson(failedAudit.afterData).error : null });
       ok(after.status === "quoted" && Number(after.unitPrice) === 12.5 && after.deliveryDays === 30, "询价条目变为「已报价」，单价 12.5 与交期 30 天写入（改动前条目停在「已回复」）", after);
-      ok(!!after.quoteNotes && !unstorable(after.quoteNotes) && after.quoteNotes.includes("附件：q.pdf 已解析（有 1 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）"),
-        "报价备注入库、不含 U+0000，附件一栏注明有 1 处无法识别的符号", after.quoteNotes);
+      ok(!!after.quoteNotes && !unstorable(after.quoteNotes) && after.quoteNotes.includes("附件：q.pdf 已解析（有 1 处符号没读出来，已当空格处理，多半是勾选框；请打开原件核对勾选项和价格）"),
+        "报价备注入库、不含 U+0000，附件一栏注明有 1 处符号没读出来", after.quoteNotes);
       ok(!failedAudit && audits.length === 1 && audits[0].action === "rfq_inbound:applied", "没有「解析失败」审计，只有一条入表审计", audits.map((a) => a.action));
       const auditData = audits[0] ? JSON.stringify(parseJson(audits[0].afterData)) : "";
       ok(!auditData.includes("Thank you for the opportunity") && !auditData.includes("closing sentence for audit check") && auditData.includes('"nulCount":1'),
@@ -147,12 +147,37 @@ async function main() {
       const newNoti = await db.notification.findMany({ where: { projectId: P, id: { notIn: notiBefore.map((n) => n.id) } }, select: { title: true, summary: true } });
       const notiText = JSON.stringify(newNoti);
       ok(!newNoti.some((n) => n.title.includes("解析失败")), "没有「有一封供应商回信解析失败，请手工录入」通知", newNoti);
-      ok(newNoti.some((n) => n.title.includes("报价了")) && !/Unit price|Delivery 30|per flag|Thank you|closing sentence|无法识别的符号/.test(notiText),
+      ok(newNoti.some((n) => n.title.includes("报价了")) && !/Unit price|Delivery 30|per flag|Thank you|closing sentence|符号没读出来/.test(notiText),
         "照常发出「报价了」通知；这次新增的通知标题与摘要里没有附件文字、证据片段与那句提示", newNoti);
       ok(prompts.length === 1 && !unstorable(prompts[0]), "送进模型的提示里没有 U+0000", prompts[0]?.slice(0, 300));
       const r2 = await syncOrgInbound({ orgId: ORG, settingsJson: { tenderRfq: { mailboxEmail: MAILBOX } }, items: [{ ...row, status: "quoted" }] }, deps);
       const after2 = await db.inquiryItem.findUniqueOrThrow({ where: { id: item.id }, select: { quoteNotes: true } });
       ok(r2.duplicates === 1 && r2.quoted === 0 && after2.quoteNotes === after.quoteNotes && prompts.length === 1, "同一封回信再跑一次入站检查：按已处理跳过，不重复处理", r2);
+
+      // 差分：同一封回信带 / 不带勾选框各跑一次，新增通知的标题与摘要逐字相同（提示只在报价备注里）
+      async function runOne(n: number, withCheckbox: boolean) {
+        const P2 = await mkProject();
+        const inq = await db.projectInquiry.create({ data: { projectId: P2, createdById: OWNER, status: "in_progress", roundNumber: 1 } });
+        const T = `t_${stamp}_d${n}`, M = `m_${stamp}_d${n}`;
+        const it = await db.inquiryItem.create({ data: { inquiryId: inq.id, supplierId: supplier.id, status: "sent", sentAt: new Date(), contactNotes: `Gmail messageId=m0 threadId=${T}`, createdById: OWNER } });
+        const doc = buildPdf([withCheckbox
+          ? "BT /F1 12 Tf 72 720 Td (Unit price CAD 12.50 per flag) Tj ET\nBT /F2 12 Tf 250 720 Td <0000> Tj ET\nBT /F1 12 Tf 262 720 Td ( Delivery 30 days) Tj ET"
+          : "BT /F1 12 Tf 72 720 Td (Unit price CAD 12.50 per flag) Tj ET\nBT /F1 12 Tf 262 720 Td ( Delivery 30 days) Tj ET"]);
+        const fixed = async () => JSON.stringify({ contractVersion: INBOUND_CONTRACT_VERSION, isQuote: true, declined: false, currency: "CAD", prices: [{ quantity: null, unitPrice: 12.5, totalPrice: null, evidence: "Unit price CAD 12.50 per flag" }], deliveryDays: 30, deliveryEvidence: "Delivery 30 days", validUntil: null, validUntilEvidence: null, moq: null, incoterm: null, incotermEvidence: null, mandatoryAnswers: [], missingFields: [], attachmentsSeen: [] });
+        const r = { messageId: M, threadId: T };
+        const d = { ...deps, listReplies: async () => ({ messages: [r], historyId: `h_${stamp}_d${n}`, expired: false }), listThreadMessages: async () => [r],
+          getMessage: async () => ({ messageId: M, threadId: T, labelIds: ["INBOX"], date: new Date(), from: "Fixture Supplier <quotes@supplier.fixture.test>", bodyText: "See attached.", attachments: [{ filename: "q.pdf", mimeType: "application/pdf", data: doc }] }),
+          parse: (input: Parameters<typeof parseInboundQuote>[0]) => parseInboundQuote(input, { complete: fixed }) };
+        await syncOrgInbound({ orgId: ORG, settingsJson: { tenderRfq: { mailboxEmail: MAILBOX } }, items: [{ ...row, id: it.id, inquiryId: inq.id, projectId: P2, threadId: T }] }, d);
+        const projectName = (await db.project.findUniqueOrThrow({ where: { id: P2 }, select: { name: true } })).name;
+        const noti = await db.notification.findMany({ where: { projectId: P2 }, orderBy: { createdAt: "asc" }, select: { title: true, summary: true } });
+        const notes = (await db.inquiryItem.findUniqueOrThrow({ where: { id: it.id }, select: { quoteNotes: true } })).quoteNotes ?? "";
+        return { noti: noti.map((x) => ({ title: x.title.split(projectName).join("〈项目〉"), summary: x.summary })), notes };
+      }
+      const withBox = await runOne(1, true);
+      const without = await runOne(2, false);
+      ok(withBox.noti.length > 0 && JSON.stringify(withBox.noti) === JSON.stringify(without.noti) && withBox.notes.includes("符号没读出来") && !without.notes.includes("符号没读出来"),
+        "差分：带勾选框与不带勾选框的同一封回信，新增通知的条数、标题与摘要逐字相同；那句提示只在带勾选框的报价备注里", { withBox: withBox.noti, without: without.noti });
     });
 
     /* ============================ 2. 采购记录附件 ============================ */
@@ -245,6 +270,14 @@ async function main() {
       const t3 = (await db.aiThread.findUniqueOrThrow({ where: { id: thread.id }, select: { title: true } })).title;
       ok(e3 === null && t3.length === 60 && t3.startsWith("附件：") && t3.endsWith(`报${FFFD}`), "只发附件、「附件：〈文件名〉」第 60 字处劈开表情符号：标题写入成功，为前 60 字、以 U+FFFD 结尾（改动前 InvalidArg，这一轮对话报错）", { e3, title: JSON.stringify(t3.slice(-3)) });
 
+      // 持久分流落库（dispatch.ts）：新对话第一条消息第 60 字处劈开表情符号
+      const { createAssistantScenarioBinding } = await import("@/lib/assistant/dispatch");
+      const thread2 = await db.aiThread.create({ data: { userId: OWNER, orgId: ORG, title: "新对话" } });
+      const typed = `${"跟".repeat(59)}😀进客户的报价`;
+      const e7 = await tryWrite(() => createAssistantScenarioBinding({ orgId: ORG, userId: OWNER, threadId: thread2.id, threadTitle: "新对话", message: typed, intent: "unsupported_action" }));
+      const t7 = (await db.aiThread.findUniqueOrThrow({ where: { id: thread2.id }, select: { title: true } })).title;
+      ok(e7 === null && t7.length === 60 && t7.endsWith(`跟${FFFD}`), "持久分流落库：打的字第 60 字处劈开表情符号，标题写入为前 60 字、以 U+FFFD 结尾（改动前 InvalidArg）", { e7, title: JSON.stringify(t7.slice(-3)) });
+
       // 外贸对话：TradeChatMessage.attachments 与 TradeChatSession.title
       const session = await db.tradeChatSession.create({ data: { orgId: ORG, userId: OWNER } });
       const e4 = await tryWrite(() => db.tradeChatMessage.create({ data: { sessionId: session.id, role: "user", content: "看看附件", attachments: (parsed.ok ? parsed.attachments : []) as unknown as object } }));
@@ -287,6 +320,31 @@ async function main() {
       ok(error === null && color?.value === "Red" && color?.sourceLocation === "Color: Red", "规格表一行「\\u0000 Color: Red」：抽出事实 color = Red，原文行为「Color: Red」（改动前写事实失败）", { error, color });
       ok(facts.length >= 2 && facts.every((f) => !unstorable(f.value) && !unstorable(f.normalizedValue) && !unstorable(f.sourceLocation ?? "")), "抽出的每条事实的值、规范值与原文行都不含 U+0000", facts);
       ok(step?.status === "done" && (after.status === "NEEDS_INPUT" || after.status === "PLAN_READY"), "「分析输入」这一步完成，任务状态按缺字段照常变为 NEEDS_INPUT / PLAN_READY（改动前这一步停在进行中）", { step: step?.status, job: after.status });
+
+      // Excel 输入：parse-buffer.ts 按 15 万字截断，「Color: Re😀d」的高位代理正好落在第 15 万字处
+      const { parseFileBuffer } = await import("@/lib/files/parse-buffer");
+      const build = (pad: number) => buildXlsx([{ name: "S", rows: [...Array.from({ length: 149 }, () => ["x".repeat(1000)]), ["x".repeat(pad)], ["Color: Re😀d"]] }]);
+      let pad = 500;
+      for (let k = 0; k < 3; k++) {
+        const t = await parseFileBuffer(build(pad), "spec.xlsx");
+        const at = "text" in t ? t.text.indexOf("Color: Re") : -1;
+        pad += 149_999 - (at + "Color: Re".length);
+      }
+      const xbuf = build(pad);
+      const chk = await parseFileBuffer(xbuf, "spec.xlsx");
+      const job2 = await db.productContentJob.create({ data: { orgId: ORG, title: "Fixture split spec", createdById: OWNER } });
+      const xpath = `product-content/${ORG}/${job2.id}/spec.xlsx`;
+      await putPrivateBlob({ pathname: xpath, body: xbuf, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      await db.productContentJobInput.create({ data: { orgId: ORG, jobId: job2.id, inputType: "excel", blobPathname: xpath, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName: "spec.xlsx", createdById: OWNER } });
+      let error2: string | null = null;
+      try {
+        await analyzeJobInputs(ORG, job2.id, OWNER);
+      } catch (e) {
+        error2 = errText(e);
+      }
+      const color2 = await db.productFact.findFirst({ where: { jobId: job2.id, fieldKey: "color" }, select: { value: true, sourceLocation: true } });
+      ok("text" in chk && /Color: Re[\uD800-\uDBFF]$/.test(chk.text) && error2 === null && color2?.value === `Re${FFFD}` && color2?.sourceLocation === `Color: Re${FFFD}`,
+        "Excel 文字在 15 万字截断处劈开表情符号：事实 color 写入为「Re\uFFFD」（只换 U+0000、不处理落单代理字符时 InvalidArg）", { error2, color2, tail: "text" in chk ? JSON.stringify(chk.text.slice(-4)) : null });
     });
 
     /* ============================ 5. 报价成本表导入 ============================ */
@@ -318,7 +376,15 @@ async function main() {
       const cRow = rowsOf(c.record.reviewJson)[0];
       ok(c.record.status === "REVIEW_REQUIRED" && cRow?.evidence.sheet === "Cost s" && cRow.evidence.pageNumber != null && (cRow.evidence.unitLabel ?? "").startsWith("Sheet「Cost s」"),
         "工作表名带 U+0000：该表的行照常带上可引用单元的页号与标签（与项目文件解析清理后的单元标签对得上）", { status: c.record.status, errorMessage: c.record.errorMessage, evidence: cRow?.evidence });
-      for (const [label, r] of [["a", a], ["b", b], ["c", c]] as const) {
+      // (d) AI 归类给的说明带 U+0000 与落单代理字符（模型 JSON 里的转义解出来就是这两类字符）
+      const desc = `Widget${NUL} assembly \uD83D`;
+      const invoker = async () => ({ content: JSON.stringify({ items: [{ i: 0, category: "MATERIAL", description: desc, confidence: 0.9 }] }), model: "fixture-model", elapsedMs: 1 });
+      const dBuf = buildXlsx([{ name: "Costs", rows: [HEAD, ["Zqx widget assembly", 3, "pcs", 10, 30]] }]);
+      const dRes = await createImportFromUpload({ orgId: ORG, projectId: P, quoteId: quote.id, userId: OWNER, file: { buffer: dBuf, filename: "costs-ai.xlsx", safeName: "costs-ai.xlsx", ext: "xlsx", mime: XLSX_MIME, size: dBuf.length }, supplierCurrency: "CAD", ai: { enabled: true, invoker: invoker as never } });
+      const dRow = ((dRes.record.reviewJson as { rows?: Array<{ suggestedDescription: string; aiSuggested?: boolean }> } | null)?.rows ?? [])[0];
+      ok(dRes.record.status === "REVIEW_REQUIRED" && dRow?.aiSuggested === true && dRow.suggestedDescription === `Widget  assembly ${FFFD}`,
+        "AI 归类给的说明带 U+0000 与落单代理字符：导入「待审核」，入库说明为「Widget  assembly \uFFFD」（第二遍清理兜住；去掉它会 InvalidArg、导入失败）", { status: dRes.record.status, err: dRes.record.errorMessage?.slice(-120), row: dRow ? { ai: dRow.aiSuggested, tail: JSON.stringify(dRow.suggestedDescription.slice(-3)) } : null });
+      for (const [label, r] of [["a", a], ["b", b], ["c", c], ["d", dRes]] as const) {
         ok(r.record.status === "REVIEW_REQUIRED" && !unstorable(r.record.extractedJson) && !unstorable(r.record.reviewJson) && !unstorable(r.record.metadataJson) && !unstorable(r.record.supplierName ?? ""), `导入 ${label}：入库的抽取结果、复核数据、元数据与供应商名不含 U+0000 与落单代理字符`);
       }
     });
@@ -336,6 +402,8 @@ async function main() {
     await d.recordsRequestVersion.deleteMany({ where: { requestId: { in: reqIds } } });
     await d.recordsRequest.deleteMany({ where: { id: { in: reqIds } } });
     await d.task.deleteMany({ where: { OR: [{ sourceId: { in: reqIds } }, { projectId: { in: projectIds } }] } });
+    await d.agentRun.deleteMany({ where: { orgId: ORG } }).catch(() => undefined);
+    await d.agentSession.deleteMany({ where: { orgId: ORG } }).catch(() => undefined);
     await d.aiThread.deleteMany({ where: { userId: OWNER } });
     await d.tradeChatSession.deleteMany({ where: { userId: OWNER } });
     await d.marketResearchRun.deleteMany({ where: { orgId: ORG } });

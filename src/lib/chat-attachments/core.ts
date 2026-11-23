@@ -95,7 +95,8 @@ export type ParseAttachmentsResult =
  * 校验请求体里的 attachments（来自浏览器，不可信）。
  * FIX-14：文件名与正文先清掉写不进库的字符（U+0000 → 空格、落单代理字符 → U+FFFD），
  * 再做「有没有可分析的文本」与长度校验——存进消息记录的与送进模型的都是清理后的这一份。
- * 替换是一个换一个，长度校验的结果不变；正文只有 U+0000 的附件按「没有可分析的文本内容」拒绝。
+ * 替换是一个换一个，长度校验的结果不变；正文清理后只剩空白的附件按「没有可提取的文字（扫描件请直接传图片）」拒绝
+ * （与浏览器上传时的提示同一句）。
  */
 export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
   if (raw === undefined || raw === null) return { ok: true, attachments: [] };
@@ -113,7 +114,7 @@ export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
       return { ok: false, error: `文件名过长：${name.slice(0, 40)}…` };
     }
     const text = typeof rec.text === "string" ? toStorableText(rec.text) : "";
-    if (!text.trim()) return { ok: false, error: `附件「${name}」没有可分析的文本内容` };
+    if (!text.trim()) return { ok: false, error: `附件「${name}」没有可提取的文字（扫描件请直接传图片）` };
     if (text.length > MAX_ATTACHMENT_TEXT_CHARS) {
       return {
         ok: false,
@@ -157,10 +158,14 @@ export function attachmentsFromLegacyFile(fileText: unknown, fileName: unknown):
   // 清理之后再判一次空：只有 U+0000 的文字上面的判空拦不住，清理后才变成空白（没清理掉什么时结果与改动前相同）
   if (text !== cut && !text.trim()) return [];
   const rawName = (typeof fileName === "string" && fileName.trim()) || "上传文件";
-  const name = toStorableText(rawName.slice(0, MAX_ATTACHMENT_NAME_CHARS));
+  const cutName = rawName.slice(0, MAX_ATTACHMENT_NAME_CHARS);
+  const cleanedName = toStorableText(cutName);
+  // 清理改动了文件名时再去首尾空白（与新方式「先清理再去首尾空白」一致：「a.pdf\u0000」→「a.pdf」）；
+  // 不含这两类字符的文件名与改动前逐字相同；清理后只剩空白的按既有的「没有文件名」处理成「上传文件」
+  const name = cleanedName === cutName ? cutName : cleanedName.trim();
   return [
     {
-      name: name.trim() ? name : "上传文件",
+      name: name || "上传文件",
       kind: "document",
       size: 0,
       text,

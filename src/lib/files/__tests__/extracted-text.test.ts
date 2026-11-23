@@ -172,6 +172,9 @@ ok(textOf(decodeTextFile(Buffer.alloc(0))) === "" && textOf(decodeTextFile(Buffe
   const proto = JSON.parse('{"__proto__": {"polluted": "x\\u0000"}}') as Record<string, unknown>;
   const protoOut = toStorableJson(proto) as Record<string, unknown>;
   ok(Object.getPrototypeOf(protoOut) === Object.prototype && Object.prototype.hasOwnProperty.call(protoOut, "__proto__") && ({} as Record<string, unknown>).polluted === undefined, "toStorableJson：键名 __proto__ 仍是自有属性，不改原型");
+  const bare = Object.create(null) as Record<string, unknown>;
+  bare.a = `x${NUL}`;
+  ok((toStorableJson(bare) as Record<string, unknown>).a === "x ", "toStorableJson：原型为 null 的对象也往里清理");
 }
 
 console.log(`\nfiles extracted-text: ${pass} passed, ${fail} failed`);

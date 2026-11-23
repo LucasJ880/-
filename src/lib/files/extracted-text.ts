@@ -66,6 +66,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  *
  * 只往数组与普通对象里递归；数字、布尔、null、undefined 与其它对象（Date、Decimal、Buffer…）原样返回。
  * 不改传进来的值：数组与普通对象都返回新的一份；键名 __proto__ 照样是自有属性（Object.fromEntries）。
+ * 键名清理后若撞上同一对象里另一个键（如「a\u0000」与「a 」），后出现的覆盖先出现的——
+ * 所以只用于键名由代码决定的数据（三个调用点的键都是代码里写死的字段名，实际不会撞）。
  */
 export function toStorableJson<T>(value: T): T {
   if (typeof value === "string") return toStorableText(value) as T;

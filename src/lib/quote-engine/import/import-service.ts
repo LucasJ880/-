@@ -178,7 +178,8 @@ export async function createImportFromUpload(input: {
       const res = await classifyLowConfidenceRows(extraction.rows, { invoker: input.ai.invoker });
       aiUpdated = res.updated;
     }
-    // FIX-14：写导入记录之前整份（含元数据与供应商名）再清理一遍——AI 归类改过的说明在上面才定（classify-ai.ts 截 300 字）
+    // FIX-14：写导入记录之前整份（含元数据与供应商名）再清理一遍——AI 归类改过的说明在上面才定：
+    // 模型返回的 JSON 里的 \u0000、\ud83d 这类转义解出来就是写不进库的字符（classify-ai.ts 只校验长度）
     extraction = toStorableJson(extraction);
     const supplierName = record.supplierName ?? extraction.supplierNameGuess ?? null;
     const status: ImportStatus = "REVIEW_REQUIRED";

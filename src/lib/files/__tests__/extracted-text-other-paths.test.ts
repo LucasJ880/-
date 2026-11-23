@@ -38,7 +38,9 @@ const FFFD = String.fromCharCode(0xfffd);
 const HIGH = "\uD83D"; // 😀 的高位代理
 const EMAIL_DATE = new Date("2026-11-20T09:00:00Z");
 const NOW = new Date("2026-11-20T10:00:00Z");
-const CHECKBOX_NOTE = "（有 1 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）";
+/** G5-B 那句提示（措辞按文案审查调整）：N 处 */
+const symbolsNote = (n: number) => `（有 ${n} 处符号没读出来，已当空格处理，多半是勾选框；请打开原件核对勾选项和价格）`;
+const CHECKBOX_NOTE = symbolsNote(1);
 
 /** 同一行「Unit price CAD 12.50 per flag」+ 一个被抽成 U+0000 的字形 +「Delivery 30 days」 */
 export function buildPriceLinePdf(): Buffer {
@@ -183,10 +185,12 @@ async function inquirySection() {
     const m = spacedModel();
     const parsed = await parseWith("Please see the attached quotation.", m.complete, att);
     const p = plan(parsed);
-    ok(p.notesAppend.includes(`附件：q.pdf 已解析${CHECKBOX_NOTE}`), "附件一栏为「附件：q.pdf 已解析（有 1 处无法识别的符号…请对照原件核对）」", JSON.stringify(p.notesAppend));
+    ok(p.notesAppend.includes(`附件：q.pdf 已解析${CHECKBOX_NOTE}`), "附件一栏为「附件：q.pdf 已解析（有 1 处符号没读出来…请打开原件核对勾选项和价格）」", JSON.stringify(p.notesAppend));
     ok(p.data.unitPrice === 12.5 && p.data.deliveryDays === 30, "价格与交期照常入表", p.data);
     const prompt = m.prompts.map((x) => x.systemPrompt + x.userPrompt).join("\n");
-    ok(!prompt.includes("无法识别的符号") && !/有 \d+ 处/.test(prompt), "送进模型的提示里没有这句话与个数", null);
+    ok(!prompt.includes("符号没读出来") && !/有 \d+ 处/.test(prompt), "送进模型的提示里没有这句话与个数", null);
+    const attLine = (m.prompts[0]?.userPrompt ?? "").split("\n").find((l) => l.startsWith("附件："));
+    ok(attLine === "附件：q.pdf", "送进模型的附件清单一行逐字为「附件：q.pdf」（个数不以任何写法进提示）", attLine);
   }
 
   // 8. 附件没有 U+0000：只写「已解析」
@@ -195,8 +199,36 @@ async function inquirySection() {
     const m = fakeModel(() => ({ isQuote: true, currency: "CAD", prices: [{ quantity: null, unitPrice: 12.5, totalPrice: null, evidence: "Unit price CAD 12.50 per flag" }] }));
     const parsed = await parseWith("See attached.", m.complete, [{ filename: "plain.pdf", mimeType: "application/pdf", data: plain }]);
     const p = plan(parsed);
-    ok(p.notesAppend.endsWith("附件：plain.pdf 已解析") && !p.notesAppend.includes("无法识别"), "附件没有 U+0000：附件一栏与改动前相同，只写「plain.pdf 已解析」", JSON.stringify(p.notesAppend));
+    ok(p.notesAppend.endsWith("附件：plain.pdf 已解析") && !p.notesAppend.includes("没读出来"), "附件没有 U+0000：附件一栏与改动前相同，只写「plain.pdf 已解析」", JSON.stringify(p.notesAppend));
     ok(JSON.stringify(parsed.attachmentsSeen) === JSON.stringify([{ filename: "plain.pdf", parsed: true }]), "没有 U+0000 的附件，审计里的 attachmentsSeen 与改动前相同（不多字段）", parsed.attachmentsSeen);
+  }
+
+  // 8b. 一份附件里 3 个勾选框 → 「有 3 处」（个数按被换掉的 U+0000 逐个计）
+  {
+    const pdf3 = buildPdf(["BT /F1 12 Tf 72 720 Td (Unit price CAD 12.50 per flag) Tj ET\nBT /F2 12 Tf 250 720 Td <000000000000> Tj ET\nBT /F1 12 Tf 300 720 Td ( Delivery 30 days) Tj ET"]);
+    const m = fakeModel(() => ({ isQuote: true, currency: "CAD", prices: [{ quantity: null, unitPrice: 12.5, totalPrice: null, evidence: "Unit price CAD 12.50 per flag" }] }));
+    const parsed = await parseWith("See attached.", m.complete, [{ filename: "q.pdf", mimeType: "application/pdf", data: pdf3 }]);
+    const p = plan(parsed);
+    ok(p.notesAppend.includes(`附件：q.pdf 已解析${symbolsNote(3)}`), "价格行里 3 个勾选框字形 → 附件一栏写「有 3 处」", JSON.stringify(p.notesAppend));
+  }
+
+  // 8c. U+0000 夹在数字中间（已知取舍：证据比较本来就去掉所有空白，U+0000 换成空格后与原文就是「1 25」时相同）
+  {
+    const txt = Buffer.from(`Unit price CAD 1${NUL}25 per flag`, "utf-8");
+    const m = fakeModel(() => ({ isQuote: true, currency: "CAD", prices: [{ quantity: null, unitPrice: 125, totalPrice: null, evidence: "Unit price CAD 125 per flag" }] }));
+    const parsed = await parseWith("See attached.", m.complete, [{ filename: "q.txt", mimeType: "text/plain", data: txt }]);
+    const p = plan(parsed);
+    ok(parsed.prices[0]?.unitPrice === 125 && p.notesAppend.includes(`附件：q.txt 已解析${CHECKBOX_NOTE}`),
+      "附件「Unit price CAD 1\\u000025 per flag」、模型报 125：证据通过核对、单价入表，附件一栏带「请打开原件核对」的提示（改动前这条证据被作废）", { prices: parsed.prices, notes: p.notesAppend });
+  }
+
+  // 8d. 邮件正文里的 U+0000 也清理，但不计数、不加提示（提示只针对附件）
+  {
+    const m = fakeModel(() => ({ isQuote: true, currency: "CAD", prices: [{ quantity: null, unitPrice: 12.5, totalPrice: null, evidence: "Unit price CAD 12.50 per flag Delivery 30 days" }] }));
+    const parsed = await parseWith(`Unit price CAD 12.50 per flag ${NUL} Delivery 30 days`, m.complete);
+    const p = plan(parsed);
+    ok(parsed.prices.length === 1 && !(m.prompts[0]?.userPrompt ?? "").includes(NUL) && !p.notesAppend.includes("没读出来") && parsed.attachmentsSeen.length === 0,
+      "邮件正文里的 U+0000：送进模型前换成空格、价格通过核对；正文不计数，报价备注里没有那句提示", { notes: p.notesAppend });
   }
 
   // 9. 比价回读不受这句话影响
@@ -214,7 +246,7 @@ async function inquirySection() {
     const withNote: ParsedQuote = { ...base, attachmentsSeen: [{ filename: "q.pdf", parsed: true, nulCount: 3 } as ParsedQuote["attachmentsSeen"][number]] };
     const a = planInquiryItemUpdate(sentItem, base, 1500, EMAIL_DATE, { messageId: "m-a", now: NOW });
     const b = planInquiryItemUpdate(sentItem, withNote, 1500, EMAIL_DATE, { messageId: "m-a", now: NOW });
-    ok(b.notesAppend.includes("附件：q.pdf 已解析（有 3 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）") && !a.notesAppend.includes("无法识别"),
+    ok(b.notesAppend.includes(`附件：q.pdf 已解析${symbolsNote(3)}`) && !a.notesAppend.includes("没读出来"),
       "带与不带这句话的两份备注只在附件一栏不同", { a: a.notesAppend, b: b.notesAppend });
     const ra = parseAutoNotes(a.notesAppend);
     const rb = parseAutoNotes(b.notesAppend);
@@ -291,7 +323,11 @@ async function chatSection() {
   // 2. 新方式：正文只有 U+0000 → 400 的那句原因
   {
     const r = parseAttachmentsInput([{ name: "a.pdf", size: 10, text: NUL.repeat(12) }]);
-    ok(!r.ok && r.error === "附件「a.pdf」没有可分析的文本内容", "新方式：正文只由 U+0000 组成 → 「附件「a.pdf」没有可分析的文本内容」（改动前校验通过、写消息 500）", r);
+    ok(!r.ok && r.error === "附件「a.pdf」没有可提取的文字（扫描件请直接传图片）", "新方式：正文只由 U+0000 组成 → 「附件「a.pdf」没有可提取的文字（扫描件请直接传图片）」（改动前校验通过、写消息 500）", r);
+    const r1 = parseAttachmentsInput([{ name: NUL.repeat(3), size: 1, text: "x" }]);
+    ok(!r1.ok && r1.error === "附件缺少文件名", "新方式：文件名只有 U+0000 → 「附件缺少文件名」（先清理再去首尾空白）", r1);
+    const r2 = parseAttachmentsInput([{ name: `a.pdf${NUL}`, size: 1, text: "x" }]);
+    ok(r2.ok && r2.attachments[0].name === "a.pdf", "新方式：文件名「a.pdf\\u0000」→「a.pdf」", r2);
   }
   // 3. 新方式：长度校验结果不变（替换一个换一个）
   {
@@ -309,9 +345,14 @@ async function chatSection() {
     const list = attachmentsFromLegacyFile("some text", name);
     ok(list[0]?.name.length === 200 && list[0].name.endsWith(`n${FFFD}`), "旧方式：文件名超过 200 字、第 200 字处劈开表情符号 → 前 200 字、以 U+FFFD 结尾", list[0]?.name.slice(-3));
   }
-  // 6. 旧方式：正文只有 U+0000 → 按没有附件处理
+  // 6. 旧方式：正文只有 U+0000 → 按没有附件处理；没清理掉什么时与改动前相同
   {
     ok(attachmentsFromLegacyFile(NUL.repeat(8), "x.pdf").length === 0, "旧方式：正文只有 U+0000 → 按没有附件处理", attachmentsFromLegacyFile(NUL.repeat(8), "x.pdf"));
+    const spaces = attachmentsFromLegacyFile(" ".repeat(150_000) + "x", "a.txt");
+    ok(spaces.length === 1 && spaces[0].text === " ".repeat(150_000), "旧方式：前 15 万字全是空白（没有要清理的字符）→ 与改动前一样折算成一个附件", spaces.length);
+    ok(attachmentsFromLegacyFile("body", NUL)[0]?.name === "上传文件", "旧方式：文件名只有 U+0000 → 「上传文件」", attachmentsFromLegacyFile("body", NUL)[0]?.name);
+    ok(attachmentsFromLegacyFile("body", `a.pdf${NUL}`)[0]?.name === "a.pdf", "旧方式：文件名「a.pdf\\u0000」→「a.pdf」（与新方式一致）", attachmentsFromLegacyFile("body", `a.pdf${NUL}`)[0]?.name);
+    ok(attachmentsFromLegacyFile("body", "报价 ")[0]?.name === "报价" && attachmentsFromLegacyFile("body", `${"n".repeat(199)} tail`)[0]?.name === `${"n".repeat(199)} `, "旧方式：不含这两类字符的文件名与改动前逐字相同（截断处的空格照旧保留）");
   }
   // 7. 普通文字不变
   {
@@ -329,6 +370,12 @@ async function chatSection() {
     const title = titleOf(source, 60);
     ok(source.startsWith("附件：") && title.length === 60 && title.endsWith(`报${FFFD}`) && !hasUnstorableChars(title), "只发附件、「附件：〈文件名〉」第 60 字处劈开表情符号 → 标题为前 60 字、以 U+FFFD 结尾", JSON.stringify(title.slice(-3)));
   }
+  // 8b. 持久分流的标题：用户打的字第 60 字处劈开表情符号
+  {
+    const typed = `${"跟".repeat(59)}😀进客户的报价`;
+    const title = titleOf(typed, 60);
+    ok(title.length === 60 && title.endsWith(`跟${FFFD}`), "打的字第 60 字处劈开表情符号 → 标题为前 60 字、以 U+FFFD 结尾", JSON.stringify(title.slice(-3)));
+  }
   // 9. 外贸对话的标题：第 30 字处劈开表情符号
   {
     const content = `${"外".repeat(29)}😀贸对话第一条消息`;
@@ -340,13 +387,20 @@ async function chatSection() {
     const ai = src("src/app/api/ai/threads/[threadId]/messages/route.ts");
     const trade = src("src/app/api/trade/chat/[sessionId]/messages/route.ts");
     const followup = src("src/lib/assistant/followup-task.ts");
+    const dispatch = src("src/lib/assistant/dispatch.ts");
     const count = (code: string, re: RegExp) => (code.match(re) ?? []).length;
     ok(count(ai, /storableTitle\(titleSource, 60\)/g) === 3 && !/titleSource\.slice\(/.test(ai), "接线：主助手 / 项目「问青砚」的 3 处标题都经 storableTitle(titleSource, 60)，没有直接截断", count(ai, /storableTitle\(titleSource, 60\)/g));
     ok(trade.includes('storableTitle(titleSource, 30) + (titleSource.length > 30 ? "..." : "")') && !/titleSource\.slice\(/.test(trade), "接线：外贸对话的标题经 storableTitle(titleSource, 30)，「...」在清理之后拼");
     ok(/storableTitle\(\s*attachmentsTitleSource\(input\.userContent, input\.attachments\),\s*60,?\s*\)/.test(followup) && !/attachmentsTitleSource\([^)]*\)\.slice\(/.test(followup), "接线：助手跟进任务的标题经 storableTitle(…, 60)");
-    for (const [label, code] of [["主助手路由", ai], ["外贸对话路由", trade], ["跟进任务", followup]] as const) {
-      ok(!/\btitle\s*[:=]\s*[^\n]*?\.slice\(/.test(code), `接线：${label}里没有「title: / title = ….slice(」直接截断后写库的写法`);
+    ok(dispatch.includes("? { title: storableTitle(input.userContent, 60) }") && !/userContent\.(slice|substring|substr)\(/.test(dispatch), "接线：持久分流落库（dispatch.ts）的标题经 storableTitle(input.userContent, 60)");
+    ok(count(ai + trade + followup + dispatch, /storableTitle\(/g) === 6, "接线：生成对话标题的 6 处都经同一个 storableTitle", count(ai + trade + followup + dispatch, /storableTitle\(/g));
+    for (const [label, code] of [["主助手路由", ai], ["外贸对话路由", trade], ["跟进任务", followup], ["持久分流", dispatch]] as const) {
+      ok(!/\btitle\s*[:=]\s*[^\n]*?\.(slice|substring|substr)\(/.test(code), `接线：${label}里没有「title: / title = ….slice / substring / substr(」直接截断后写库的写法`);
     }
+    const badRequest = /if \(!parsedAttachments\.ok\) \{\s*return NextResponse\.json\(\{ error: parsedAttachments\.error \}, \{ status: 400 \}\);/;
+    ok(badRequest.test(ai) && badRequest.test(trade), "接线：两个对话路由在附件校验失败时都以 400 返回校验给的原因");
+    const hook = src("src/components/chat-attachments/use-chat-attachments.ts");
+    ok(hook.includes("if (!toStorableText(text).trim()) {") && hook.includes('"没有可提取的文字（扫描件请直接传图片）"'), "接线：浏览器上传时按同一条规则判空（只有 U+0000 的文档当场提示「没有可提取的文字（扫描件请直接传图片）」）");
     ok(count(ai, /body\.attachments/g) === 1 && ai.includes("parseAttachmentsInput(body.attachments)") && count(ai, /body\.fileText/g) === 1 && ai.includes("attachmentsFromLegacyFile(body.fileText, body.fileName)") && ai.includes("{ attachments: attachments as unknown as Prisma.InputJsonValue }"),
       "接线：主助手路由只把校验后的附件（parseAttachmentsInput / attachmentsFromLegacyFile 的结果）写进消息");
     ok(count(trade, /body\.attachments/g) === 1 && trade.includes("parseAttachmentsInput(body.attachments)") && trade.includes("const attachments = parsedAttachments.attachments;") && trade.includes("{ attachments: attachments as unknown as Prisma.InputJsonValue }"),
