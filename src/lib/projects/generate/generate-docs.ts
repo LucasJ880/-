@@ -8,6 +8,7 @@ import { buildProjectAiContextBlock } from "@/lib/projects/project-ai-context";
 import { computePriceGap } from "@/lib/projects/price-gap";
 import { buildProjectRfqSheet } from "@/lib/tender-rfq/sheet-download-service";
 import { rfqSheetRecordTitle } from "@/lib/tender-rfq/sheet-download";
+import { redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
 /**
  * RFQ-PDF-1：发给供应商的文件只有 supplier_rfq（供应商询价单）一种，内容与检查全在 tender-rfq
@@ -299,8 +300,10 @@ export async function generateProjectDocument(input: {
     const syn = (rsj.analystSynthesis ?? null) as {
       clarifications?: Array<{ questionZh?: unknown; reasonZh?: unknown; priority?: unknown }>;
     } | null;
-    const memo = ((roomForRfi?.summaryJson as Record<string, unknown>) ?? {}).bidStrategyMemo as {
+    // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪：碰到成本类字眼的 RFI 不进澄清问题文件
+    const memo = redactLegacyMemo(((roomForRfi?.summaryJson as Record<string, unknown>) ?? {}).bidStrategyMemo ?? null) as {
       strategicRfis?: Array<{ questionZh?: unknown; whyZh?: unknown }>;
+      legacyRfisRemoved?: number;
     } | null;
     const items = buildRfiItems({
       memoRfis: memo?.strategicRfis ?? null,
@@ -318,6 +321,7 @@ export async function generateProjectDocument(input: {
       submitChannel: known("submission_method"),
       items,
       generatedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+      withheldMemoRfis: memo?.legacyRfisRemoved ?? 0,
     });
     textBody = "";
   }

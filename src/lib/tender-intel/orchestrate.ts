@@ -343,7 +343,7 @@ export async function runExternalIntelForProject(input: {
 
     // 情报自动流（包6）：AI 投标策略草案（第 7 槽位）——基于组织级七域投影
     // + 本项目分析摘要合成，AI_INFERRED 标签人审语义。失败不影响其余结果。
-    // 批次一：投标策略备忘录 v2（文档接地深读，替换浅层组织投影草案）。
+    // 批次一：投标策略备忘录（文档接地深读，替换浅层组织投影草案；CHAIN-2d 起为 v3，输入里没有我方成本）。
     // 输入 = 本单 canonical 事实/强制要求 + 综合层 + 组织投影 + 现任供应商
     // 线索（incumbentLead，人工记录）。AI_INFERRED 人审语义，禁整体 GO/NO-GO。
     let strategyGenerated = false;
@@ -404,9 +404,10 @@ export async function runExternalIntelForProject(input: {
       }
       // Lane 3：报价表助手确定性演算进备忘录（评分模型：人工/已推导 > 启发式；对手价：
       // 人工输入 > 联邦对标中位 > 现任价格带中位）。失败温和；模型首次推导时落库供卡片共用。
+      // CHAIN-2d：不带我方成本与目标毛利（见 memo-pricing.ts）。
       let pricingAnalysis: unknown | null = null;
       try {
-        const { buildScenarios, PRICING_MODEL_VERSION } = await import("@/lib/tender-pricing/calc");
+        const { PRICING_MODEL_VERSION } = await import("@/lib/tender-pricing/calc");
         const { heuristicScoringModel, EVAL_FACT_PATTERN } = await import("@/lib/tender-pricing/derive");
         const existingModel = (rsj as { pricingModel?: { version?: string; priceWeightPct?: unknown } })
           .pricingModel;
@@ -422,28 +423,9 @@ export async function runExternalIntelForProject(input: {
           if (model) pricingModelToPersist = model;
         }
         if (model) {
-          const inputs = (rsj as { pricingInputs?: { competitorPriceCad?: number | null; ourCostCad?: number | null; targetMarginPct?: number | null } }).pricingInputs ?? {};
-          const band = (rsj as { incumbentLead?: { priceBandCad?: { low?: number; high?: number } } }).incumbentLead?.priceBandCad;
-          const benchMedian = (vendorPriceBenchmark as { median?: number | null } | null)?.median ?? null;
-          const competitor =
-            inputs.competitorPriceCad ??
-            benchMedian ??
-            (band?.low != null && band?.high != null ? Math.round((band.low + band.high) / 2) : null);
-          const result = buildScenarios(model, {
-            competitorPriceCad: competitor,
-            ourCostCad: inputs.ourCostCad ?? null,
-            targetMarginPct: inputs.targetMarginPct ?? null,
-          });
-          pricingAnalysis = {
-            model: { priceWeightPct: model.priceWeightPct, costFormula: model.costFormula, otherCriteria: model.otherCriteria, source: model.source },
-            inputs: { competitorPriceCad: competitor, ourCostCad: inputs.ourCostCad ?? null, targetMarginPct: inputs.targetMarginPct ?? null },
-            breakEvenPriceCad: result.breakEvenPriceCad,
-            breakEvenNoteZh: result.breakEvenNoteZh,
-            ourOtherPts: result.ourOtherPts,
-            competitorOtherPts: result.competitorOtherPts,
-            scenarios: result.scenarios.map((sc) => ({ key: sc.key, labelZh: sc.labelZh, priceCad: sc.priceCad, ourTotal: sc.ourTotal, competitorTotal: sc.competitorTotal, deltaPts: sc.deltaPts, marginPct: sc.marginPct })),
-            assumptionsZh: result.assumptionsZh,
-          };
+          // CHAIN-2d：备忘给所有项目读者看——演算只用对手价，不读我方成本、成本来源、目标毛利
+          const { buildMemoPricingAnalysis } = await import("./memo-pricing");
+          pricingAnalysis = buildMemoPricingAnalysis({ model, roomSummary: rsj, vendorPriceBenchmark });
         }
       } catch {
         pricingAnalysis = null;
