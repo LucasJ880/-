@@ -4,6 +4,10 @@
  * 报价表助手卡（工作台）：评分模型（自动推导，可人工改权重/得分率）+ 对手价假设
  * （现任线索/联邦合同价格带预填）+ 我方成本/目标毛利 → 情景表与打平价。
  * 结果是假设驱动的情景，不是报价决定；AI 只负责把文件里的评分规则结构化。
+ * CHAIN-2b / FIX-25：读取结果带 costHidden（没有财务查看权）时，我方成本与目标毛利两格都换成一句话，
+ * 不显示毛利一栏与成本加成提示，保存只带对手价（带成本或目标毛利会被 403）。
+ * FIX-25 审查 T7：保存的请求体由纯函数 buildPricingSaveBody 给出，展示部分是纯组件 PricingHelperCardView，
+ * 两者都由测试直接断言（不只靠源码字符串）。
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -22,9 +26,16 @@ import {
   type OurCostSourceClaim,
 } from "@/lib/tender-pricing/compare-cost-source";
 import { CompareCostSourceBlock, MarkupHint } from "./pricing-compare-source";
-import { COST_ACCESS_HINT_ZH, COST_HIDDEN_FIELD_ZH, COST_HIDDEN_NOTE_ZH, COST_TARGET_MARGIN_NOTE_ZH } from "@/lib/tender-pricing/finance-view";
+import {
+  COST_ACCESS_HINT_ZH,
+  COST_HIDDEN_FIELD_ZH,
+  COST_HIDDEN_NOTE_ZH,
+  TARGET_MARGIN_HIDDEN_FIELD_ZH,
+  buildPricingSaveBody,
+  type PricingFormValues,
+} from "@/lib/tender-pricing/finance-view";
 
-type Payload = {
+export type PricingHelperPayload = {
   runId: string | null;
   model: ScoringModel | null;
   modelOrigin: "HUMAN" | "AI_INFERRED" | "HEURISTIC" | "NONE";
@@ -42,13 +53,13 @@ type Payload = {
   note: string | null;
   /** FLOW-H2：开关开启时才有 */
   compareCost?: CompareCostView;
-  /** CHAIN-2b：没有财务查看权时为 true（我方成本为 null、情景按没有成本算） */
+  /** CHAIN-2b / FIX-25：没有财务查看权时为 true（我方成本与目标毛利都为 null、情景按没有成本算） */
   costHidden?: boolean;
   /** CHAIN-2b：没有财务查看权、开关开着时为 true（不带成本建议） */
   compareCostHidden?: boolean;
 };
 
-const ORIGIN_LABEL: Record<Payload["modelOrigin"], string> = {
+const ORIGIN_LABEL: Record<PricingHelperPayload["modelOrigin"], string> = {
   HUMAN: "人工确认",
   AI_INFERRED: "AI 推导 · 待核",
   HEURISTIC: "规则抓取 · 待核",
@@ -70,11 +81,11 @@ export function PricingHelperCard({
   projectId: string;
   canManage: boolean;
 }) {
-  const [data, setData] = useState<Payload | null>(null);
+  const [data, setData] = useState<PricingHelperPayload | null>(null);
   const [busy, setBusy] = useState<"save" | "derive" | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [msgIsError, setMsgIsError] = useState(false);
-  const [form, setForm] = useState<{ competitor: string; cost: string; margin: string }>({
+  const [form, setForm] = useState<PricingFormValues>({
     competitor: "",
     cost: "",
     margin: "",
@@ -83,7 +94,7 @@ export function PricingHelperCard({
   const [costClaim, setCostClaim] = useState<OurCostSourceClaim | null>(null);
 
   const load = useCallback(() => {
-    apiJson<Payload>(`/api/projects/${projectId}/pricing-helper`)
+    apiJson<PricingHelperPayload>(`/api/projects/${projectId}/pricing-helper`)
       .then((res) => {
         setData(res);
         setForm({
@@ -115,7 +126,7 @@ export function PricingHelperCard({
       if (!res.ok) {
         setMsg(json.error ?? "操作失败");
         setMsgIsError(true);
-        // CHAIN-2b：成本不能改（403）时保留表单里刚填的对手价与目标毛利，不重新读取
+        // CHAIN-2b：成本不能改（403）时保留表单里刚填的值，不重新读取
         if (res.status === 403) return;
       }
       else if (kind === "derive")
@@ -133,28 +144,11 @@ export function PricingHelperCard({
   };
 
   const save = () => {
-    const n = (s: string) => (s.trim() === "" ? null : Number(s));
-    // CHAIN-2b：没有财务查看权时不带我方成本（带了会被 403）
-    void post(
-      {
-        action: "save",
-        inputs: {
-          competitorPriceCad: n(form.competitor),
-          ...(data.costHidden ? {} : { ourCostCad: n(form.cost) }),
-          targetMarginPct: n(form.margin),
-        },
-        ...(costClaim ? { ourCostSource: costClaim } : {}),
-      },
-      "save",
-    );
+    // CHAIN-2b / FIX-25：没有财务查看权时不带我方成本与目标毛利（带了会被 403）；请求体由纯函数给出
+    void post(buildPricingSaveBody(form, data.costHidden === true, costClaim), "save");
   };
 
-  const m = data.model;
-  const r = data.result;
   const cc = data.compareCost;
-  const costHidden = data.costHidden === true;
-  // 目标毛利写法与成本加成提示只由目标毛利算出：开关开着时（有建议，或没有财务查看权而只带 compareCostHidden）都显示
-  const compareOn = !!cc || data.compareCostHidden === true;
   // 按钮只填输入框，不保存
   const fill = () => {
     if (!cc) return;
@@ -163,6 +157,47 @@ export function PricingHelperCard({
     setForm(filled.form);
     setCostClaim(filled.claim);
   };
+
+  return (
+    <PricingHelperCardView
+      data={data}
+      form={form}
+      canManage={canManage}
+      busy={busy}
+      msg={msg}
+      msgIsError={msgIsError}
+      onFieldChange={(k, value) => {
+        setForm((f) => ({ ...f, [k]: value }));
+        if (k === "cost") setCostClaim(null);
+      }}
+      onSave={save}
+      onDerive={() => void post({ action: "derive" }, "derive")}
+      onFill={fill}
+    />
+  );
+}
+
+export type PricingHelperCardViewProps = {
+  data: PricingHelperPayload;
+  form: PricingFormValues;
+  canManage: boolean;
+  busy: "save" | "derive" | null;
+  msg: string | null;
+  msgIsError: boolean;
+  onFieldChange: (k: keyof PricingFormValues, value: string) => void;
+  onSave: () => void;
+  onDerive: () => void;
+  onFill: () => void;
+};
+
+/** 卡片的展示部分：只由 props 决定（FIX-25 审查 T7：测试用 renderToStaticMarkup 直接断言没有财务查看权时的样子） */
+export function PricingHelperCardView({ data, form, canManage, busy, msg, msgIsError, onFieldChange, onSave, onDerive, onFill }: PricingHelperCardViewProps) {
+  const m = data.model;
+  const r = data.result;
+  const cc = data.compareCost;
+  const costHidden = data.costHidden === true;
+  // 目标毛利写法只由目标毛利算出：开关开着时（有建议，或没有财务查看权而只带 compareCostHidden）都按「按售价」写；成本加成提示没有财务查看权时不渲染
+  const compareOn = !!cc || data.compareCostHidden === true;
 
   return (
     <div className="rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid="pricing-helper">
@@ -179,7 +214,7 @@ export function PricingHelperCard({
             type="button"
             data-testid="pricing-derive"
             disabled={busy != null}
-            onClick={() => void post({ action: "derive" }, "derive")}
+            onClick={onDerive}
             className="flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-foreground/80 hover:bg-accent/5"
           >
             {busy === "derive" ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
@@ -246,6 +281,11 @@ export function PricingHelperCard({
                 我方成本
                 <span className="mt-0.5 block text-[11px] text-foreground/80">{COST_HIDDEN_FIELD_ZH}</span>
               </p>
+            ) : k === "margin" && costHidden ? (
+              <p key={k} className="text-[10px] text-muted" data-testid="pricing-margin-hidden">
+                目标毛利
+                <span className="mt-0.5 block text-[11px] text-foreground/80">{TARGET_MARGIN_HIDDEN_FIELD_ZH}</span>
+              </p>
             ) : (
               <label key={k} className="text-[10px] text-muted">
                 {label}
@@ -254,23 +294,20 @@ export function PricingHelperCard({
                   min={0}
                   value={form[k]}
                   disabled={!canManage}
-                  onChange={(e) => {
-                    setForm((f) => ({ ...f, [k]: e.target.value }));
-                    if (k === "cost") setCostClaim(null);
-                  }}
+                  onChange={(e) => onFieldChange(k, e.target.value)}
                   className="mt-0.5 w-full rounded border border-border bg-transparent px-1.5 py-1 text-[11px] text-foreground"
                 />
               </label>
             ))}
           </div>
-          <MarkupHint enabled={compareOn} margin={form.margin} />
-          {costHidden ? <p className="mt-1 text-[10px] text-muted">{COST_TARGET_MARGIN_NOTE_ZH}</p> : null}
+          {/* FIX-25：成本加成提示由目标毛利算出，没有财务查看权时不渲染 */}
+          <MarkupHint enabled={compareOn && !costHidden} margin={form.margin} />
           {canManage ? (
             <button
               type="button"
               data-testid="pricing-save"
               disabled={busy != null}
-              onClick={save}
+              onClick={onSave}
               className="mt-2 rounded border border-border px-2 py-1 text-[11px] text-foreground/80 hover:bg-accent/5"
             >
               {busy === "save" ? "保存中…" : "保存并重算"}
@@ -284,7 +321,7 @@ export function PricingHelperCard({
         </div>
       </div>
 
-      {cc ? <CompareCostSourceBlock view={cc} canManage={canManage} onFill={fill} /> : null}
+      {cc ? <CompareCostSourceBlock view={cc} canManage={canManage} onFill={onFill} /> : null}
 
       {/* CHAIN-2b：没有财务查看权时，情景表上方说明少了什么、找谁 */}
       {costHidden && r ? (

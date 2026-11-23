@@ -518,6 +518,8 @@ npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts
 npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts
+npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts
+NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts
 # 情报调研树（TREE-1）
 npx tsx src/lib/text/__tests__/html-to-text.test.ts
 npx tsx src/lib/web-reader/__tests__/web-reader-pure.test.ts

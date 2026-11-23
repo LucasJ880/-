@@ -29,7 +29,8 @@ export async function GET(
     if (!room) {
       return NextResponse.json({ room: null }, { status: 200 });
     }
-    // CHAIN-2b：房间 JSON 里的我方成本与成本来源不给项目读者（界面不读它们；成本走报价表助手、按财务查看权）
+    // CHAIN-2b / FIX-25：房间 JSON 对所有人去掉整个 pricingInputs（成本、目标毛利、镜像的我方报价）、bidDraft 与投标策略备忘
+    // （界面不读它们；成本与目标毛利走报价表助手、按财务查看权）
     return NextResponse.json({ room: { ...room, summaryJson: redactRoomSummaryCost(room.summaryJson) } });
   } catch (err) {
     // 表未迁移时仍允许项目页打开
