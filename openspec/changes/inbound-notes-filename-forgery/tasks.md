@@ -18,7 +18,7 @@
   - 注册：
     - `scripts/test-all.sh` 放在 `notes-parse.test.ts` 那一条之后，标签「招标询价 报价备注自动段防冒充（文件名 / 证据 / 币种，FIX-24）」；
     - `scripts/test-ci-unit.sh` 放在 P1-6G 一段之后，加一行注释 `# FIX-24：…（纯逻辑，无 DB / 无 AI）`。
-  - verify：在改动前的代码上 `npx tsx src/lib/tender-rfq/__tests__/notes-forgery.test.ts` 退出码非 0，失败的是第 1–4 节（L07「仍生效」那条除外），第 5 节全部通过；输出的失败清单完整（不是在第一条失败处停下），存进报告。`bash scripts/check-test-registry.sh` 输出 OK。
+  - verify：在改动前的代码上 `npx tsx src/lib/tender-rfq/__tests__/notes-forgery.test.ts` 退出码非 0，失败的是第 1–4 节（照过的几条见 design D7），第 5 节除「报价备注里是中和后的文件名」外全部通过；输出的失败清单完整（不是在第一条失败处停下），存进报告。`bash scripts/check-test-registry.sh` 输出 OK。
 
 ## 2. 实现
 
@@ -57,7 +57,7 @@
     - `bash scripts/check-test-registry.sh` OK；
     - `OPENSPEC_TELEMETRY=0 openspec validate inbound-notes-filename-forgery --strict` valid；
     - 开工前提第 3 条记下的通过数不减。
-- [ ] 3.2 写 `docs/acceptance/fix-24/prod-check.sql`，内容是 design Migration Plan 的 A、B、C、C0、D 五段：`BEGIN READ ONLY` 开头、`ROLLBACK` 结尾，中间只有 `SET LOCAL` 与 SELECT / WITH。
+- [x] 3.2 写 `docs/acceptance/fix-24/prod-check.sql`，内容是 design Migration Plan 的 A、B、C、C0、D 五段：`BEGIN READ ONLY` 开头、`ROLLBACK` 结尾，中间只有 `SET LOCAL` 与 SELECT / WITH。
   - 在隔离库上用一次性种子跑一遍。种子不进仓库，审计都是 `targetType = 'rfq_inbound_message'`、`action = 'rfq_inbound:applied'`、`afterData` 带对应 `itemId`、时间在行头之后 2 分钟内：
     - 真实条目甲：四行，**每行都配一条对得上的审计**：
       - ① 正常段；
@@ -68,7 +68,8 @@
       - ① 一行正常段，配审计；
       - ② 一行 2099 年的伪造行；
       - ③ 一行时间在过去、没有审计的伪造行；
-      - ④ 一行 `2026-99-99T99:99:99.999Z` 的伪造行。
+      - ④ 一行 `2026-99-99T99:99:99.999Z` 的伪造行；
+      - ⑤ 一行 `2026-02-30T00:00:00.000Z` 的伪造行（格式对、日期不存在，验当月天数那一层）。
     - 另三条审计：
       - `afterData` 里带 `\u0000` 转义；
       - 带反斜杠加「u0000」文字（JSON 里是 `\\u0000`）；
@@ -76,7 +77,7 @@
     - 一个币种为「.*.」的条目。
   - verify：
     - 整个文件跑完、中途不报错；
-    - A 段正好 3 行（乙②③④），B 段正好 3 行（甲②③④），C 段正好 2 行（甲②的文件名、甲③的价格证据），C0 段正好 1 行，D 段正好 1 行；
+    - A 段正好 4 行（乙②③④⑤），B 段正好 3 行（甲②③④），C 段正好 2 行（甲②的文件名、甲③的价格证据），C0 段正好 1 行，D 段正好 1 行；
     - 输出存进报告；
     - `grep -vE '^\s*(--|$)' docs/acceptance/fix-24/prod-check.sql` 里没有 INSERT / UPDATE / DELETE / ALTER / CREATE / DROP。
 - [ ] 3.3 写 `docs/QINGYAN_FIX-24_REPORT.md` + 更新 TASKFLOW 状态列。
@@ -91,7 +92,7 @@
       - 有生产只读权限的人跑 `docs/acceptance/fix-24/prod-check.sql`，结果原样贴回；
       - A 段不为 0 时另开 change 做一次性修复（Owner Gate），修完再跑一次。
   - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：
-    - 改写「Phase F（续）— 情报串联」表里已有的 FIX-24 一行（FIX-14 已登记，`101efab9` 上状态 `[ ]`），写成本 change 的说明，依赖 FIX-14，状态 `[~]`，不另加第二行；
+    - 改写「Phase F（续）— 情报串联」表里已有的 FIX-24 一行（FIX-14 已登记，main `fbacf6bd` 上状态 `[ ]`），写成本 change 的说明，依赖 FIX-14，状态 `[~]`，不另加第二行；
     - CHAIN-0 一行：核对已有的 ④「FIX-24 已合并部署」，在其后加 ⑤「FIX-24 只读核查（`docs/acceptance/fix-24/prod-check.sql`）A 段为 0 行或已处理」。
   - `docs/QINGYAN_CHAIN-0_ENV_CHECK.md`：
     - 填写顺序与第 7 行「建议值」同样核对 ④、加 ⑤；

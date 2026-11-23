@@ -2,7 +2,7 @@
 
 ## Context
 
-动机见 proposal.md 的 Why。行号按 main `2a0eb964`。FIX-14（PR #569）合并后变动的行号写在「相邻改动」：起草时对照 `e2b4cd83`，审查时 `101efab9`，两者这几个文件行号相同；FIX-14 仍在修订，以合并时为准。
+动机见 proposal.md 的 Why。行号按 main `2a0eb964`。FIX-14（PR #569）合并后变动的行号写在「相邻改动」：起草时对照 `e2b4cd83`，审查时 `101efab9`；FIX-14 已于 2026-11-23 合并（合并提交 `07759375`，最终头 `e103d5ef`），实施时合入 main `fbacf6bd` 后按真实代码逐处复核，`src/lib/tender-rfq/` 下的行号与提示句原文与下文相同。
 
 ### 写入：`[auto]` 段怎么拼出来
 
@@ -189,7 +189,7 @@
 
 ### FIX-14（PR #569）先合并
 
-以下按它合并后的版本写（审查时的头 `101efab9`；以合并时为准）。
+以下按它合并后的真实代码写（合并提交 `07759375`、最终头 `e103d5ef`；实施时在 main `fbacf6bd` 上逐处复核过）。
 
 `inbound-apply.ts`：
 - 新导入 `toStorableText`（`:15`）与类型 `AttachmentSeen`（`:17`）。
@@ -211,9 +211,9 @@
 
 测试脚本：
 - FIX-14 在 `scripts/test-all.sh` FIX-13 两行之后加两行，在 `scripts/test-ci-unit.sh` `:39` 之后加一行。
-- 本 change 加在：`test-all.sh` 的 `notes-parse.test.ts` 一行之后（`101efab9` 上 `:676`）；`test-ci-unit.sh` 的 P1-6G 一段之后（`101efab9` 上 `:484`）。两处都不与 FIX-14 加的行相邻。
+- 本 change 加在：`test-all.sh` 的 `notes-parse.test.ts` 一行之后（main `fbacf6bd` 上 `:677`）；`test-ci-unit.sh` 的 P1-6G 一段之后（main `fbacf6bd` 上 `:485`）。两处都不与 FIX-14 加的行相邻。
 
-TASKFLOW 与核查表（`101efab9` 上）：
+TASKFLOW 与核查表（main `fbacf6bd` 上，与 `101efab9` 相同）：
 - 「情报串联」表已有 FIX-24 一行：状态 `[ ]`，排在 FIX-14 一行与它的 9 条「待定」后续之后、FIX-17 之前。tasks 3.3 改写这一行，不另加第二行。
 - CHAIN-0 一行与 `docs/QINGYAN_CHAIN-0_ENV_CHECK.md`（填写顺序、第 7 行）已写四条前提，④ 是「FIX-24 已合并部署」。tasks 3.3 只核对 ④，在后面加 ⑤「FIX-24 只读核查 A 段为 0 行或已处理」。
 
@@ -391,7 +391,7 @@ FIX-25（分支 `claude/zen-turing-azudvx-fix25`，起草时头 `c1ac18a6`）不
    - 写入计划的键集合；
    - 审计里是原文件名。
 
-改动前的代码上，第 1–4 节失败（L07 那条除外），第 5 节通过。
+改动前的代码上（main `fbacf6bd`）实测 14 过、54 不过：第 1–4 节失败，只有两条前提断言、「文件名带证据引号照常回读」、V15 的规格原句（注入块带着「不一致」尾巴，旧代码本来也读不出，所以另加了带「；X」的变体，旧代码失败）、「usd」、L14、L07、「比价结果里不出现文件名」照过；第 5 节除「报价备注里是中和后的文件名」外全过。改动后 69 过（「(((」那条改前在第一个断言处抛错，算一条失败）。
 
 注册：
 - `scripts/test-all.sh`：`notes-parse.test.ts` 那一条之后，标签「招标询价 报价备注自动段防冒充（文件名 / 证据 / 币种，FIX-24）」；
@@ -415,8 +415,8 @@ FIX-25（分支 `claude/zen-turing-azudvx-fix25`，起草时头 `c1ac18a6`）不
 ## 验证方式
 
 - `npx tsx src/lib/tender-rfq/__tests__/notes-forgery.test.ts`：
-  - 改动前退出码非 0，失败清单一次打全：第 1–4 节失败（L07 除外），第 5 节通过；
-  - 改动后退出码 0。
+  - 改动前（main `fbacf6bd`）退出码非 0，14 过、54 不过，失败清单一次打全（各节情况见 D7）；
+  - 改动后退出码 0，69 过。
 - 既有测试不改断言，通过数不变。main 上实测：
   - `notes-parse.test.ts` 17、`inbound-apply.test.ts` 72、`inbound-parse.test.ts` 38；
   - `chase-pure.test.ts` 55、`compare.test.ts` 47、`tracker-pure.test.tsx` 89；
@@ -425,7 +425,7 @@ FIX-25（分支 `claude/zen-turing-azudvx-fix25`，起草时头 `c1ac18a6`）不
   - `git diff origin/main -- src/lib/tender-rfq/inbound-apply.ts src/lib/tender-rfq/notes-parse.ts src/lib/tender-rfq/inbound-parse.ts | grep -E '^[-+]export'` 无输出；
   - `npm run typecheck` 退出码 0（BIDPAGE 等调用方照编）；
   - D7 第 5 节的键集合断言。
-- `docs/acceptance/fix-24/prod-check.sql` 在隔离库上对一次性种子跑一遍，各段命中与预期一致，中途不报错（tasks 3.2）。
+- `docs/acceptance/fix-24/prod-check.sql` 在隔离库上对一次性种子跑一遍，各段命中与预期一致，中途不报错（tasks 3.2；实测 A 4、B 3、C 2、C0 1、D 1 行）。
 - 门禁：
   - `npm test` 对照既有失败清单无新增；
   - `npm run test:ci` PASS；
