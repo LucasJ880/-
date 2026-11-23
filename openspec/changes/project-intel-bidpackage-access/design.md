@@ -189,10 +189,10 @@
    - 发通知（`notify*`、`createNotification*`、`deliver*Notification`）；
    - 写审计（名字里含 `audit`，不分大小写）。
 4. 第一次调用守卫之前，`await` 只能是两种：
-   - 取路由参数：`await ctx.params`、`await params` 这类取 `params` 的写法；
-   - 读请求体：`request.json() / formData() / text()`，包括后面接 `.catch(…)` 的写法，例如 `await request.json().catch(() => ({}))`（`finance/expenses/[expenseId]/route.ts:64`、`quote-engine/[quoteId]/status/route.ts:9`）。
-5. 守卫的返回值必须赋给一个变量，并且被检查：
-   - 返回响应的守卫：`x instanceof NextResponse) return x` 或 `isAccessError(x)) return x`；
+   - 取路由参数：`await ctx.params`（`ctx` 是处理函数的第二个参数，名字不限）、`await params`（第二个参数写成 `{ params }` 解构时，如 `src/app/api/projects/[id]/route.ts`）；
+   - 读请求体：`request.json() / formData() / text()`（`request` 是处理函数的第一个参数，名字不限），包括后面接 `.catch(…)` 的写法，例如 `await request.json().catch(() => ({}))`（`finance/expenses/[expenseId]/route.ts:64`、`quote-engine/[quoteId]/status/route.ts:9`）。
+5. 守卫的返回值必须赋给一个变量，并且被检查；不通过就直接返回拒绝响应，中间不做别的事（`if` 分支里只有这一条 `return`，返回语句里不 `await`、不碰第 3 条列的东西）：
+   - 返回响应的守卫：`if (x instanceof NextResponse) return x` 或 `if (isAccessError(x)) return x`；返回的也可以是把 `x` 换成的另一个拒绝响应——`tender-intel/sourcing` 与 `tender-rfq/attachment` 的 `GET` 把非 401 的拒绝换成 404 / 提示页（实现时核对：只认 `return x` 会对这两个已有守卫的处理函数误报）；
    - 返回布尔的守卫：`if (!x) return …`。
 6. 第一次调用守卫的那条语句，必须是处理函数正文的顶层语句，形如 `const x = await 守卫(…)`；不能在 `if`、`try`、循环、三元、`&&` / `||` / `??`、内层函数里。
 7. 紧接着的下一条语句就是第 5 条的检查。先调守卫、读完库再检查结果，判失败。
@@ -272,6 +272,7 @@
 - main `2ef4f9c8`：251 个处理函数里只有 8 个不过，是本次 6 个与 FIX-17 的 2 个；batch-followup 按例外通过。FIX-17 分支上只剩本次 6 个。
 - 第 4 条如果不认 `.catch(…)`，会多误报 2 个：`finance/expenses/[expenseId]` `PATCH`、`quote-engine/[quoteId]/status` `POST`。`join-brief` `POST` 先读请求体（不带 `.catch`）再调守卫，按第 4 条通过。
 - 第 6–8 条在 main 的 242 个、FIX-17 分支的 244 个已有守卫的处理函数上 **0 个误报**。`handoff/preview` 里第二次调写权限守卫只是探测能力，不是第一个守卫，不受第 7 条约束。
+- 实现时（FIX-17 合并后的 main `07c02358` 合入本分支）：176 个文件、251 个处理函数，只有本次 6 个不过，244 个通过、1 个按例外通过。把并行 BIDPAGE 分支的 `bid-page-summary/route.ts`（先判开关、再 `await params`、再不带条件地调读权限守卫并紧接着检查）临时放进目录跑过一次，按合规通过（245 个），没进仓库。
 - 三段合成的漏洞写法，第 2–5 条全部放行，第 6–8 条各指出一段：守卫只在 `if` 里；守卫后先读库再检查；守卫查请求体里的项目 ID。
 
 **与 FIX-17 `files-route-guard.test.ts` 的重叠**：`files/` 下 3 个文件两份测试都会查。保留两份，不合并。
