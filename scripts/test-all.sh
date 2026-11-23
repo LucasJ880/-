@@ -689,6 +689,8 @@ run_test "招标询价 发出之后分析更新过的提示（FLOW-H3）" "npx t
 run_test "招标询价 发出之后分析更新过的提示 DB（隔离库执行，否则跳过，FLOW-H3）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts"
 run_test "报价表助手 比价矩阵成本来源（FLOW-H2）" "npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx"
 run_test "报价表助手 比价矩阵成本来源 DB（隔离库执行，否则跳过，FLOW-H2）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts"
+run_test "报价表助手 我方成本只给有财务查看权的人：纯函数与接线（CHAIN-2b）" "npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts"
+run_test "报价表助手 我方成本只给有财务查看权的人 DB（隔离库执行，否则跳过，CHAIN-2b）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts"
 run_test "询价追踪页（T-2）" "npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx"
 run_test "询价追踪页 DB（隔离库执行，否则跳过，T-2）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts"
 run_test "组织页 询价与落地价设置（W-2）" "npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx"
