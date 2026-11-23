@@ -1,19 +1,18 @@
 /**
  * FB-4/5 — Tender 生成文档（HTML，中文安全，基准=McMaster 管理层决策备忘录）
  *
- * 两类文档语义分离：
- *   internal_analysis → 内部「管理层决策备忘录」：合并 Analyst 分析（结论/前置条件/
- *     范围/关键要求/风险/报价关注/澄清/下一步）。企业能力适配表为待人工补充框架，
- *     绝不由 AI 编造公司能力/利润判断。
- *   supplier_rfq → 供应商响应表：仅面向供应商的要求清单 + 「是否满足」+ 报价栏，
- *     不含内部判断/价值测算/风险结论。
+ * internal_analysis → 内部「管理层决策备忘录」：合并 Analyst 分析（结论/前置条件/
+ *   范围/关键要求/风险/报价关注/澄清/下一步）。企业能力适配表为待人工补充框架，
+ *   绝不由 AI 编造公司能力/利润判断。
+ *
+ * RFQ-PDF-1：这里不再有发给供应商的文件。供应商询价单只从已人工确认的供应商侧要求排出
+ * （src/lib/tender-rfq/），不读 Analyst 分析综合——那是写给我方看的。
  *
  * 输出为自包含 HTML（系统中文字体栈），浏览器/Word 均可打开并打印为 PDF——
  * 根治 jsPDF 无 CJK 字体导致的乱码。纯函数，便于单测。
  */
 
 import type { TenderAnalystSynthesisV1 } from "@/lib/tender-analyst/contract";
-import type { IdentitySegment } from "@/lib/bid-workflow/project-identity-deny";
 
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -82,52 +81,6 @@ function headerBlock(h: TenderDocHeader, docTitle: string, confidential: string)
     h.clientOrganization ? `采购方 ${esc(h.clientOrganization)} ｜ ` : ""
   }${h.closeDate ? `投标截止 ${esc(h.closeDate)} ｜ ` : ""}生成于 ${esc(h.generatedAt)}</p>
 <div class="hr"></div>`;
-}
-
-/**
- * CHAIN-4b：发给供应商的文件只用这个抬头——类型上就拿不到项目名称、项目编号、采购方与投标截止。
- * reference 是对供应商的中性询价编号。
- */
-export type SupplierDocHeader = { reference: string; generatedAt: string };
-
-const SUPPLIER_RFQ_TITLE = "供应商询价与符合性确认表（Supplier RFQ）";
-
-function supplierHeaderBlock(h: SupplierDocHeader, docTitle: string): string {
-  return `<h1>${esc(docTitle)}</h1>
-<p class="meta">询价编号 ${esc(h.reference)} ｜ 生成于 ${esc(h.generatedAt)}</p>
-<div class="hr"></div>`;
-}
-
-/** 去标签、还原本文件用到的三个转义，得到供应商看到的文字（供身份检查用） */
-export function htmlToText(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
-}
-
-function supplierRfqRows(syn: TenderAnalystSynthesisV1) {
-  return [...syn.technicalRequirements, ...syn.commercialAndDelivery].filter(
-    (k) => k.impact !== "CONTRACT_ONLY" && k.impact !== "INFORMATIONAL",
-  );
-}
-
-/**
- * CHAIN-4b：供应商询价表的身份检查分段——抬头与固定文字是我方撰写（五类全查），
- * 每条要求来自分析（不查项目名称）。
- */
-export function supplierRfqScanSegments(h: SupplierDocHeader, syn: TenderAnalystSynthesisV1): IdentitySegment[] {
-  const rows = supplierRfqRows(syn);
-  const rowText = (k: (typeof rows)[number]) => `${stripRefs(k.titleZh)}\n${stripRefs(k.explanationZh)}`;
-  // 同一份文件去掉要求行 = 抬头 + 固定文字。生成日期是我方元数据、不是招标身份，不参与比对
-  // （否则在截标当天生成会撞上截标日期词条）
-  const fixed = htmlToText(buildSupplierRfqHtml({ ...h, generatedAt: "" }, { ...syn, technicalRequirements: [], commercialAndDelivery: [] }));
-  return [
-    { where: "文件抬头与固定文字", text: fixed, kind: "authored" },
-    ...rows.map((k, i): IdentitySegment => ({ where: `第 ${i + 1} 条要求`, text: rowText(k), kind: "tender" })),
-  ];
 }
 
 function keyItemRows(items: TenderAnalystSynthesisV1["keyRequirements"]): string {
@@ -250,32 +203,4 @@ ${["资质与年限要求", "案例与推荐人", "技术 / 生产能力", "检�
 <p class="muted">覆盖率：上传 ${syn.coverage.uploaded} · 纳入分析 ${syn.coverage.analyzed}${
     syn.coverage.excluded.length ? ` · 排除 ${syn.coverage.excluded.length}（${syn.coverage.excluded.map((e) => esc(e.filename)).join("、")}）` : ""
   }。本备忘录由青砚 Tender Analyst 生成，关键结论可在系统内「查看证据」回溯原文页码。</p>`;
-}
-
-/** 供应商响应表（RFQ）：要求 + 是否满足 + 报价栏；不含内部判断。CHAIN-4b：对外抬头，不印招标身份 */
-export function buildSupplierRfqHtml(
-  h: SupplierDocHeader,
-  syn: TenderAnalystSynthesisV1,
-): string {
-  const rows = supplierRfqRows(syn)
-    .map(
-      (k, i) =>
-        `<tr><td>${i + 1}</td><td><b>${t(k.titleZh)}</b><br/><span class="muted">${t(
-          k.explanationZh,
-        )}</span></td><td class="fill">□ 满足 ｜ □ 部分满足 ｜ □ 不满足</td><td class="fill">（说明）</td><td class="fill">（单价 / 报价）</td></tr>`,
-    )
-    .join("");
-  return `${STYLE}
-${supplierHeaderBlock(h, SUPPLIER_RFQ_TITLE)}
-<p>请贵司针对下列要求逐项确认<b>是否满足</b>，并提供<b>报价</b>与必要说明。对「部分满足 / 不满足」项，请说明差异与替代方案。</p>
-<table><tr><th>#</th><th>要求</th><th>符合性确认</th><th>说明</th><th>报价</th></tr>${rows}</table>
-<h2>报价与交付信息</h2>
-<table>
-<tr><th>报价币种 / 有效期</th><td class="fill">（请填写）</td></tr>
-<tr><th>交货周期</th><td class="fill">（请填写）</td></tr>
-<tr><th>最小起订量 / 分批</th><td class="fill">（请填写）</td></tr>
-<tr><th>检测报告 / 认证清单</th><td class="fill">（请列明可提供的报告与标准号）</td></tr>
-<tr><th>样品提供</th><td class="fill">（可否 / 周期 / 费用）</td></tr>
-</table>
-<p class="muted">本表仅用于询价与符合性确认，不构成采购承诺。</p>`;
 }
