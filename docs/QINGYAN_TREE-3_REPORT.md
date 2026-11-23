@@ -22,7 +22,7 @@ PR：[LucasJ880/-#584](https://github.com/LucasJ880/-/pull/584)。任务书：`d
 
 | 文件 | 内容 | 条数 |
 |---|---|---|
-| `research-branches-pure.test.ts` | 验收合成数 23.00 / 25.00 / 21.00、四舍五入与不到半分、金额 / 数量 / 年份写法（法文、倍数、空格分组、区间、认不清的点千分位、减项）、币种（写明 / 推断 / 冲突 / 两种都写 / 页级缺省 / 别的币种 / $ CA）、口径（提示词正反例、一年与交货时间不算）、可比度表与边界、记录组装（两组、页级缺省、组名归一与碰撞、上限）、联邦数据行（去重、不相干合同、采购人名）、联邦数据检索词（数字进不去、敏感词）、条款规则正反例、成段与上限、引文原文 / 段号仿冒 / 降级 / 矛盾、草稿、事实值清洗、项目资料清洗、收尾原因、树干条款摘要、读取视图状态、超时信号 | 216 |
+| `research-branches-pure.test.ts` | 验收合成数 23.00 / 25.00 / 21.00、四舍五入与不到半分、金额 / 数量 / 年份写法（法文、倍数、空格分组、区间、认不清的点千分位、减项）、币种（写明 / 推断 / 冲突 / 两种都写 / 页级缺省 / 别的币种 / $ CA）、口径（提示词正反例、一年与交货时间不算）、可比度表与边界、记录组装（两组、页级缺省、组名归一与碰撞、上限）、联邦数据行（去重、不相干合同、采购人名）、联邦数据检索词（数字进不去、敏感词）、条款规则正反例、成段与上限、引文原文 / 段号仿冒 / 降级 / 矛盾、草稿、事实值清洗、项目资料清洗、收尾原因、树干条款摘要、读取视图状态、超时信号 | 220 |
 | `tree3-research-branches.test.ts` | 条款员（接受等效品带第 7 页、都没有、没有标书 / 扫描件、格式不对、请求过续跑、结论记下续跑、让出、额度 0、开关关、矛盾）；联邦数据（两条记录与额度、续跑恢复、额度占满、敏感词被拦、开关没开、出错、没有英文检索词、去重与不相干合同、两次查询之间让出、请求失败与撞截止后行还在、抛错、额度不够记一行、查询中断、开关关零查询）；同类记录（两组单价与币种与口径、零散事实、模型后来不可用、币种 / 口径对不上、组名 Lot 1 / Lot 2、规格关键词）；测试注入漏项报错 | 62 |
 | `research-branches-db.isolated.test.ts` | 隔离库：真页表读到第 7 页、读数量与合同期、读取接口开关关 404、开关关 + 非成员 403、非成员 403、没有树、在查、条款员经生产库跑一次只多审计、查完读到结论不含网址金额、再关开关 404、Job 取消时「停下了」 | 15 |
 | `research-clauses-card.test.tsx` | 卡片各状态文字（查完、出处对不上、证明挂在等效品下、品牌措辞、草稿指向 RFI、没有内部说法、都未写明、未接通不重复短标签、在查、停下了、矛盾、发起时间）、只读、404 / 500 / 读取中 / 没有树不显示、重读与出错保留 | 25 |
@@ -102,7 +102,15 @@ GitHub CI（`validate-lint-typecheck-test-build`）在 `368c8e13` 上 success（
 - 【低，顺手改】「over the 2022-2025 fiscal years」「FY 2024-2027」被当单个财年去掉【改：起止只差一年的才去掉】；「price guarantee: 3 years」被当保修【改：后置写法只认 warranty】；「合同期3年保修1年」丢了合同期【改：「期」后面的年数不当保修】；「en euros」「euros : 230 000」不算欧元、括号里小写币种字母不认【改】；「3-year warranty and maintenance contract」没有测试守着【补】；另补「warranty – 5 years」「warranty (5 years)」「Garantie : 5 ans」「质保期：3年」不算多年期。
 - 【不改，记下】「supply and deliver the bins by March 31」「delivered to the site no later than June 30」按含送货算；「supply plus delivery」按「plus 运费」= 不含处理（只会少口径）；「FY 2024-25 to FY 2026-27」、2.5 years、18 months 不认多年期。
 
-这一轮修改后纯函数测试 210 → 216（否定词收窄、交货时间收窄各做了变异，测试变红），其余 TREE-2 / TREE-3 测试照旧全过（160、85、62、15、36、25），typecheck 与改动文件的 eslint 通过。口径与写法的规则已经收敛到「认不清就不认」：剩下的漏认只会让口径变「不明」、单价不算，不会算错。
+这一轮修改在提交 `27c0a6bd`（纯函数测试 210 → 216）。
+
+**第四次复核**（同一个复核子 agent 看 `27c0a6bd`；按收敛规则：只有错数、错币种、错单价、把上一版认的常见写法拒了、或新规则没测试才阻断，只会少认的算可后续）。结论「改完再合（两处）」，第三轮的问题都修好、之前的探查结果一字不差：
+- 【要改】新的「garantie」规则往后跨 30 个字找年数，把魁北克常见的合同期写法删了（「garantie et contrat de 3 ans」「Service après-vente et garantie : contrat de 5 ans」「warranty (3-year contract)」「Warranty – 3 year term」等）【改：garantie 与年数之间只放过形容词一类的词（pièces et main-d'œuvre、prolongée、du fabricant…）；年数后面跟着 contract / term / agreement / contrat / durée 的不当保修；8 种有「照认」用例】。
+- 【要改】三条新规则没有测试（「Freight: N/A」「frais de livraison exclus」与 supply plus delivery——后者根本不起作用，因为「plus delivery」先被当成不含运费）【改：前两条补用例；去掉 supply 后面的 plus，「supply plus delivery」按不含运费处理并补用例】。
+- 【可后续里最该先改的，顺手改】「Delivery charges will be extra」「Freight will be charged extra」「Freight charges, if any, are extra」「Les frais de livraison sont en sus」「Prices do not include delivery」「Shipping costs to be added」被标成含运费（标错，不是不明）【改：否定词前允许 will be / to be / sont / if any，另认 do not include、to be added、charged separately；用例】；「with delivery in March」「including delivery in 30 days」【改：in 也认，日期要像日期——月份（「Mar-Tech」不算）、天数周数、年份；「en 3 lots」「within 50 km」照认含运费；用例】。
+- 【可后续，记下】括号里小写的「(500 can)」「(12 us)」一类数量不认（只少单价）；「Euro 2024 Ltd」会让币种不明；「fiscal year 2024-2025 to fiscal year 2026-2027」不认多年期。
+
+这一轮修改后纯函数测试 216 → 220（新加的四条规则各做了变异，测试都变红），其余 TREE-2 / TREE-3 测试照旧全过（160、85、62、15、36、25），typecheck 与改动文件的 eslint 通过。口径与写法的规则已经收敛到「认不清就不认」：剩下的漏认只会让口径变「不明」、单价不算，不会算错数、错币种。
 
 ## 6. 对 TREE-2 测试的修改（逐条）
 

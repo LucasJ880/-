@@ -258,15 +258,19 @@ export const SCOPE_BASIS_UNCLEAR_ZH = "不明";
 /** 交货时间的说法（跟在「送货」后面时不算含运费） */
 const MONTH_WORD =
   "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\\b";
-/** 交货时间的说法（跟在「送货」后面时不算含运费）：日期 / 时间表一类的词，或 by / within / en / le 后面紧跟日期、月份、天数 */
+/** 日期一类的词：月份（后面不接连字符或字母，「Mar-Tech」不算）、「30 days」「6 semaines」、「15 mai」「1er mars」、年份、 3/31 */
+const DATE_TOKEN =
+  `(?:${MONTH_WORD}(?![-\\p{L}])|\\d{1,3}\\s*(?:business\\s+|calendar\\s+|working\\s+)?(?:days?|weeks?|months?|jours?|semaines?|mois)\\b|` +
+  `\\d{1,2}(?:st|nd|rd|th|er|e)?\\s+${MONTH_WORD}|(?:19|20)\\d{2}\\b|\\d{1,2}[/.-]\\d{1,2}\\b)`;
+/** 交货时间的说法（跟在「送货」后面时不算含运费）：日期 / 时间表一类的词，或 by / within / in / en / le 后面紧跟日期、月份、天数 */
 const NOT_TIMING =
   "(?!\\s*(?:(?:dates?|schedules?|timelines?|times?|periods?|windows?|deadlines?|prévue|prévues|délai|calendrier)\\b|" +
-  `(?:within|by|before|no\\s+later\\s+than|on\\s+or\\s+before|le|en|avant|d'ici)\\s+(?:\\d|${MONTH_WORD}|the\\s+end\\b|end\\s+of\\b|la\\s+fin\\b)))`;
+  `(?:within|by|before|in|no\\s+later\\s+than|on\\s+or\\s+before|le|en|avant|d'ici)\\s+(?:${DATE_TOKEN}|the\\s+end\\b|end\\s+of\\b|la\\s+fin\\b)))`;
 /** 写明不含运费的（「Freight not included」「delivery charges are extra」「hors livraison」「不含运费」）：含运费的提示词不作数 */
 //   否定词要紧跟在运费词后面（中间只许 charges / costs / fees / frais 与 is / are / 冒号）：「Delivery included, installation
 //   extra」「free delivery, no extra charge」「Delivery included at no additional cost」不算不含
 const FREIGHT_NEGATED_RE =
-  /(?:freight|shipping|delivery|transport(?:ation)?|livraison)(?:\s+(?:charges?|costs?|fees?))?\s*(?:is\s+|are\s+|:\s*)?(?:not\s+included|not\s+incl\b|excluded|extra\b|additional\b|en\s+sus|non\s+compris(?:e|es)?|en\s+plus|n\/a\b)|frais\s+de\s+(?:livraison|transport)\s+(?:en\s+sus|en\s+plus|non\s+compris(?:e|es)?|exclus)|(?:excluding|excludes|exclusive\s+of|plus|hors|sans|not\s+including)\s+(?:the\s+)?(?:freight|shipping|delivery|transport|livraison)|不含运费|运费另计|不包括运费|运费另付/iu;
+  /(?:freight|shipping|delivery|transport(?:ation)?|livraison)(?:\s+(?:charges?|costs?|fees?))?(?:\s*,\s*if\s+any\s*,)?\s*(?:is\s+|are\s+|will\s+be\s+(?:charged\s+)?|to\s+be\s+|sont\s+|:\s*)?(?:not\s+included|not\s+incl\b|excluded|extra\b|additional\b|added\b|(?:charged|billed|invoiced)\s+separately|en\s+sus|non\s+compris(?:e|es)?|en\s+plus|n\/a\b)|frais\s+de\s+(?:livraison|transport)\s+(?:sont\s+)?(?:en\s+sus|en\s+plus|non\s+compris(?:e|es)?|exclus)|(?:excluding|excludes|exclusive\s+of|plus|hors|sans|not\s+including|do(?:es)?\s+not\s+include|n['’]incluent\s+pas|ne\s+comprennent\s+pas)\s+(?:the\s+|la\s+|les\s+frais\s+de\s+)?(?:freight|shipping|delivery|transport|livraison)|不含运费|运费另计|不包括运费|运费另付/iu;
 
 const BASIS_HINTS: Record<ScopeBasisTag, RegExp> = {
   installation: /install|montage|mise en place|安装/i,
@@ -279,7 +283,7 @@ const BASIS_HINTS: Record<ScopeBasisTag, RegExp> = {
       "freight|shipping|shipped|transport(?:ation)?\\s+(?:costs?|charges?|fees?|included|incl)",
       "\\bf\\.?o\\.?b\\b|\\bd\\.?d\\.?p\\b|delivered\\s+duty\\s+paid|\\bFAB\\s+destination|franco\\s+(?:de\\s+port|destination)",
       // 后面跟着日期 / 时间表的不算（「Supply and delivery dates」「include delivery schedule」「avec livraison prévue」）
-      `(?:supply|supplying)\\s*(?:,|and|&|plus)\\s*(?:the\\s+)?deliver(?:y|ing)?\\b${NOT_TIMING}`,
+      `(?:supply|supplying)\\s*(?:,|and|&)\\s*(?:the\\s+)?deliver(?:y|ing)?\\b${NOT_TIMING}`,
       "deliver(?:y|ed)?(?:\\s+and\\s+installation)?\\s+(?:at\\s+)?no\\s+(?:extra|additional)\\s+(?:cost|charge)",
       `(?:include[sd]?|including|inclusive\\s+of|incl\\.?|with)\\s+(?:the\\s+)?(?:delivery|shipping)\\b${NOT_TIMING}`,
       "deliver(?:y|ed)?(?:\\s+and\\s+installation)?\\s*(?:is\\s+|are\\s+|:\\s*)?(?:included|incl\\b|incl\\.|inclusive|cost|costs|charges?|fees?)(?!\\s+in\\s+(?:the\\s+)?(?:schedule|timeline|calendar))",
@@ -315,14 +319,19 @@ function multiYearRangeOk(text: string): boolean {
  * （「fiscal year 2024-2025」「exercice 2024-2025」——加拿大的财年本身就是一年）
  */
 const WARRANTY_SPAN = "(?:\\d+|two|three|four|five|six|seven|eight|nine|ten)";
+/** 年数后面跟着合同期的说法：不当保修去掉 */
+const NOT_TERM_AFTER = "(?!['’]?\\s*(?:contracts?|terms?|agreements?|de\\s+contrat|contrat|durée)\\b)";
+/** 「garantie」与年数之间只放过的词（「garantie pièces et main-d'œuvre de 5 ans」「garantie prolongée de 3 ans」） */
+const GARANTIE_ADJ = "(?:pièces\\s+et\\s+main-d['’](?:œ|oe)uvre|pièces|main-d['’](?:œ|oe)uvre|prolongée|limitée|complète|totale|du\\s+fabricant|fabricant)";
 const WARRANTY_ADJ = "(?:manufacturer'?s?|manufacturer’s|limited|extended|full|standard|parts\\s+(?:and|&)\\s+labou?r|parts|labou?r|product|structural|frame|on-site)";
 const NOT_CONTRACT_TERM_RE = new RegExp(
   [
     // 「N 年 / 月 + 保修」：中间只放过形容词一类的词（manufacturer's、limited、extended…），「3-year service and warranty
     // contract」「5-year maintenance and warranty agreement」这种合同期不去掉
     `\\b${WARRANTY_SPAN}[\\s-]*(?:years?|yrs?|months?)['’]?\\s+(?:${WARRANTY_ADJ}\\s+){0,2}(?:warrant(?:y|ies)|guarantee)\\b(?!\\s+(?:and|&|plus)\\b)`,
-    `warrant(?:y|ies)\\b\\s*(?:period\\s*)?(?:of|for|[:–—(-])?\\s*${WARRANTY_SPAN}[\\s-]*(?:years?|months?)`,
-    `garantie\\b[^.;\\n\\d]{0,30}?(?:de\\s+|[:(–—-]\\s*)?(?:\\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\\s+(?:ans|mois)`,
+    // 后置写法（「warranty: 2 years」「Garantie : 5 ans」）：年数后面跟着 contract / term / contrat / durée 的是合同期，不去掉
+    `warrant(?:y|ies)\\b\\s*(?:period\\s*)?(?:of|for|[:–—(-])?\\s*${WARRANTY_SPAN}[\\s-]*(?:years?|months?)\\b${NOT_TERM_AFTER}`,
+    `garantie\\b(?:\\s+${GARANTIE_ADJ})*\\s*(?:de\\s+|[:(–—-]\\s*)?(?:\\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\\s+(?:ans|mois)\\b${NOT_TERM_AFTER}`,
     `(?:\\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\\s+(?:ans|mois)\\s+de\\s+garantie`,
     "(?:质保|保修)(?:期)?\\s*[:：]?\\s*(?:为|是)?\\s*(?:\\d+|[两三四五六七八九十])\\s*(?:年|个月)",
     // 「合同期3年保修1年」：「期」后面的年数是合同期，不当保修去掉
