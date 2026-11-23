@@ -12,8 +12,8 @@
 
 ## 3. 门禁
 
-- [ ] 3.1 全量与各项门禁（verify：`npm test` 失败清单与 main 基线 10 项逐条相同；`npm run test:ci` PASS；`npm run typecheck` 退出码 0；`npm run lint:baseline` PASS；`bash scripts/check-test-registry.sh` 通过且 `ci/test-registry-baseline.txt` 不变；`bash scripts/test-runtime-architecture.sh` 通过；`npx openspec validate quote-pdf-no-margin --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空）
+- [x] 3.1 全量与各项门禁（verify：`npm test` 失败清单与 main 基线 10 项逐条相同；`npm run test:ci` PASS；`npm run typecheck` 退出码 0；`npm run lint:baseline` PASS；`bash scripts/check-test-registry.sh` 通过且 `ci/test-registry-baseline.txt` 不变；`bash scripts/test-runtime-architecture.sh` 通过；`npx openspec validate quote-pdf-no-margin --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空）
 
 ## 4. 报告与 TASKFLOW
 
-- [ ] 4.1 写 `docs/QINGYAN_FIX-26a_REPORT.md` + 更新 TASKFLOW：在 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 「FIX-21 后续 8」那一行之后加 FIX-26a 一行（状态 `[~]`）。报告写明：合并后谁会发现什么变了、没有开关合并即生效、PDF 删掉与核对过的字段、改前 / 改后测试数字、门禁数字、没验证到的（`isInternal` 行、中文字体）、回退办法、**已发出去的 PDF 系统里查不到，要不要通知客户由人定**；「多维审查」一节留空（verify：`grep -n "^| FIX-26a |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有且只有一行、状态列 `[~]`；`ls docs/QINGYAN_FIX-26a_REPORT.md` 存在）
+- [x] 4.1 写 `docs/QINGYAN_FIX-26a_REPORT.md` + 更新 TASKFLOW：在 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 「FIX-21 后续 8」那一行之后加 FIX-26a 一行（状态 `[~]`）。报告写明：合并后谁会发现什么变了、没有开关合并即生效、PDF 删掉与核对过的字段、改前 / 改后测试数字、门禁数字、没验证到的（`isInternal` 行、中文字体）、回退办法、**已发出去的 PDF 系统里查不到，要不要通知客户由人定**；「多维审查」一节留空（verify：`grep -n "^| FIX-26a |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有且只有一行、状态列 `[~]`；`ls docs/QINGYAN_FIX-26a_REPORT.md` 存在）
