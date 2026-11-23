@@ -115,6 +115,8 @@ export async function translateRequirementTexts(
           // gpt-5.6 reasoning 计入 max_completion_tokens：50 条批给 16k 宽裕预算
           maxTokens: 16_000,
           timeoutMs: Math.min(60_000, remaining),
+          // 重试与换模型也不越过中文化的总预算（FIX-12）
+          deadlineAt: deadline,
         },
         translateResultSchema,
       );

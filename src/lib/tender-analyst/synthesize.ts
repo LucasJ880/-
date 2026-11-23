@@ -71,6 +71,8 @@ export async function runAnalystPassA(input: {
   result: AnalysisResultV2;
   invoker: LlmInvoker;
   timeoutMs?: number;
+  /** 调用截止时间（epoch ms，FIX-12） */
+  deadlineAt?: number;
 }): Promise<AnalystPassAResult> {
   const context = buildTenderAnalystContext(input.result);
   const t0 = Date.now();
@@ -83,6 +85,7 @@ export async function runAnalystPassA(input: {
       userPrompt: buildAnalystUserPrompt(context),
       maxTokens: ANALYST_MAX_TOKENS,
       timeoutMs: clampAnalystTimeout(input.timeoutMs),
+      ...(input.deadlineAt != null ? { deadlineAt: input.deadlineAt } : {}),
     },
     analystLlmOutputSchema,
   );
@@ -98,6 +101,8 @@ export async function runAnalystPassB(input: {
   draft: AnalystLlmOutput;
   invoker: LlmInvoker;
   timeoutMs?: number;
+  /** 调用截止时间（epoch ms，FIX-12） */
+  deadlineAt?: number;
 }): Promise<AnalystPassBResult> {
   const context = buildTenderAnalystContext(input.result);
   const draftValidation = validateTenderAnalystSynthesis(input.draft, input.result);
@@ -115,6 +120,7 @@ export async function runAnalystPassB(input: {
       ),
       maxTokens: ANALYST_MAX_TOKENS,
       timeoutMs: clampAnalystTimeout(input.timeoutMs),
+      ...(input.deadlineAt != null ? { deadlineAt: input.deadlineAt } : {}),
     },
     analystQaOutputSchema,
   );
