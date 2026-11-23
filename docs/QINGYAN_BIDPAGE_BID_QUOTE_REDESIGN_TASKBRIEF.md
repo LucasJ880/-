@@ -279,6 +279,9 @@ Sunny 现在手工怎么算（需求方 2026-11-22 提供的一份真实项目�
 | China Brief | （随 #544 定） |
 | RFQ | 询价 |
 | RFI | 澄清问题 |
+| 价格表单位 Each / Pack / Box / Roll / Pair / Set / Case / Bag / kg / m / ft / sqft | 保留原文（与招标方价格表一致，导出原样写回），下拉附中文：个 / 包 / 盒 / 卷 / 双 / 套 / 箱 / 袋 / 千克 / 米 / 英尺 / 平方英尺（BIDPAGE-3 补；BIDPAGE-8 守卫列为例外） |
+| 加拿大税名 GST / HST / PST | 保留原文（BIDPAGE-3 补） |
+| 币种代码 CAD / CNY / USD / EUR / GBP | 加元 / 人民币 / 美元 / 欧元 / 英镑；选币种处写「人民币（CNY）」（BIDPAGE-3 补） |
 
 实现中遇到表里没有的英文界面词：先按最直白的中文翻，记进本表，随 PR 一并提交。
 
