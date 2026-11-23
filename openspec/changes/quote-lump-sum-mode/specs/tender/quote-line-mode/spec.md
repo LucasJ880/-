@@ -48,6 +48,33 @@
 - **WHEN** 一份供货加安装或长期供货协议报价的配置里带着逐行的做法字段
 - **THEN** 不算逐行报价，按专业模式打开（`npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts`）
 
+### Requirement: 逐行保存只动自己管的成本行
+逐行保存（`PUT /api/projects/{id}/bid-page/quotes/{quoteId}/line`）SHALL 只新建、更新、删除带逐行行身份的成本行；在专业模式里加的、没有逐行行身份的成本行（包括从只报总价转来、带总价项身份的行）SHALL 不被改动并照样计入四个数，页面 SHALL 写明另有几条其它成本行、标了金额的已算进报价合计和成本合计，从只报总价转来的写明来历。提交里的行 id 不是这份报价的货品行时 SHALL 当作新行，原来那一行不动。保存 SHALL 带读取时的修改时间，库里已被别人改过时 SHALL 返回 409 且不写，界面 SHALL 写明这次的修改还在框里、怎么看最新内容；已冻结（已批准等）的报价 SHALL 返回 409 并写出状态名；校验不过 SHALL 返回 400 并在说明里指到第几行。保存成功 SHALL 写一条报价修改的审计（带做法与行数）。
+
+#### Scenario: 其它成本行不被碰
+- **WHEN** 专业模式里加了一条加拿大境内运费 400，再在逐行表里保存
+- **THEN** 那一条原样还在、计入成本（`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts`）；读回写「另有 1 条其它成本行」并列出 400（`npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx`）
+
+#### Scenario: 从只报总价转来的项
+- **WHEN** 总价报价转成逐行后，报价里留着海运费金额 6,000 与安装 2,000 两项，在逐行表里保存
+- **THEN** 两项原样还在、计入成本，列表写着它们是从只报总价转来的（`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts` 与 `npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx`）
+
+#### Scenario: 行 id 指向不是货品的行
+- **WHEN** 提交的一行带着同一份报价里一条预置行的 id
+- **THEN** 新建一条货品行，那条预置行仍是预置行（`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts`）
+
+#### Scenario: 并发
+- **WHEN** 拿读取时的旧修改时间保存
+- **THEN** 409「这份报价刚被别人改过」，不写（同一测试）
+
+#### Scenario: 已冻结
+- **WHEN** 报价已批准，再逐行保存
+- **THEN** 409，写明「这份报价「已批准」，内容锁定」（同一测试；`npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx`）
+
+#### Scenario: 审计
+- **WHEN** 逐行保存两行报价成功
+- **THEN** 审计里有一条报价修改，带做法为逐行、行数 2（`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts`）
+
 ### Requirement: 报价列表
 报价列表（`GET /api/projects/{id}/bid-page/quotes`）SHALL 返回每份报价的名称、编号、版本、状态、做法（逐行、只报总价或专业模式）、币种、报价合计、是否我方报价、专业模式地址，以及能否编辑、可用价格表行数、能否导出（不能时的原因）；金额 SHALL 按每份报价自己的币种写。逐行报价与总价报价 SHALL 能在 ② 里直接打开。报价没有名称时 SHALL 显示业务类型加报价编号，SHALL NOT 显示内部标题（那里可能是英文类型码）。
 

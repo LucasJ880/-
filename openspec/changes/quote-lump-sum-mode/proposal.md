@@ -15,7 +15,7 @@ TASKFLOW：BIDPAGE-4（Phase F（续）— 标书与报价页改版；任务书 
 - 把三项预置 + 现金备用金照逐行报价的写法默认带上、可改可关。
 - 加定价一行：目标毛利率（按售价）→ 成本合计、税前报价、销售税、含税总价、利润、毛利率，一律取报价引擎结果；下方写出真实算式。
 - 让货品一项既可直接填一个总数（可从询价回复的总价点选），也可展开成明细（型号 × 数量 × 单价，可从询价回复的单价点选）；点选的回复都在服务端核对，供应商取自库里。
-- 加逐行 ↔ 总价的转换：逐行 → 总价随时可以；总价 → 逐行只在货品已展开成明细、且是只供货时可以；转换前后报价引擎算出的数不变。
+- 加逐行 ↔ 总价的转换：逐行 → 总价随时可以（没冻结时）；总价 → 逐行只在货品已展开成明细、且是只供货时可以；转换前后报价引擎算出的数不变，不变才转；入口在两种表的「更多」里，先确认一次。
 - 加接口 `GET` / `PUT /api/projects/{id}/bid-page/quotes/{quoteId}/lump` 与 `POST …/{quoteId}/convert`；列表与新建接口收「只报总价」；守卫与金额门同逐行报价。
 - 改逐行报价的列表、新建与导出说明：列表里总价报价写「只报总价」并能在页内打开；我方报价是总价报价时导出处写明没有逐行单价、不能按价格表导出。
 
@@ -29,13 +29,15 @@ TASKFLOW：BIDPAGE-4（Phase F（续）— 标书与报价页改版；任务书 
 6. 「互转一次」理解为一次性的转换动作（不是来回预览），不限次数；总价 → 逐行时逐行表管不了的项（海运金额、关税金额、安装等）变成「其它成本行」，金额不丢（D6）。
 7. 「旁边是 BIDPAGE-5 的 AI 建议」：本 change 不放按钮，BIDPAGE-5 加。
 8. 逐行报价已有的两条出入照旧适用：没有财务查看权的人看不到任何金额；有编辑权、没有财务查看权的人不能做报价（BIDPAGE-3 design D7）。
+9. 逐行 → 总价时货品不合成一个数，保留成明细（表上货品一项照样显示合计、可展开）；任务书写「各行按类别汇总」，合成一个数后就转不回逐行（D9）。
+10. 总价 → 逐行除「货品已有明细」外还要求是只供货报价：逐行报价只配只供货（BIDPAGE-3 出入，D1）。
 
 ## Out of scope
 
 - AI 毛利建议（BIDPAGE-5）、一次定价与「提交给负责人」（BIDPAGE-6）、第 ① 步（BIDPAGE-2）、第 ③ 步（BIDPAGE-7）、专业模式与模板说明的中文化（BIDPAGE-8）。
 - 总价表并排多列对比（判断点 3，后续队列第 1 项）。
 - 不改 `computeQuote`、`computeTax`、`QUOTE_ENGINE_CALC_VERSION`、`QUOTE_TRANSITIONS`、成本类别与计算方式、模板、专业模式页面与它保存报价的校验（`quoteHeaderSchema`）、给客户的报价单与 PDF。
-- 不碰 CHAIN-2e（#556）在改的文件（`quote-engine/access.ts`、`pricing-control-center.tsx`、`quote-engine/[quoteId]/route.ts` 等）。
+- 不碰 CHAIN-2e（#556）在改的源码文件（`quote-engine/access.ts`、`project-finance/access.ts`、`pricing-control-center.tsx`、`quote-engine/[quoteId]/route.ts` 等）；与它共同改动的只有 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 的注册行与 TASKFLOW，改的位置不重叠。
 - 不改环境变量、不打开开关。
 
 ## Capabilities
@@ -46,11 +48,11 @@ TASKFLOW：BIDPAGE-4（Phase F（续）— 标书与报价页改版；任务书 
 
 ### Modified Capabilities
 
-- `tender/quote-line-mode`：新建两问多一个「只报总价」；做法字段接受 `LUMP_SUM`；列表里总价报价写「只报总价」并能在页内打开；我方报价是总价报价时导出不可用的原因。
+- `tender/quote-line-mode`：新建两问多一个「只报总价」；做法字段接受 `LUMP_SUM`；逐行表里从只报总价转来的项写明来历（逐行保存照旧不碰）；列表里总价报价写「只报总价」并能在页内打开；我方报价是总价报价时导出不可用的原因；专业模式入口也给总价报价。
 
 ## Impact
 
 - 新增：`src/lib/bid-page-v2/lump-sum/`（契约与校验、成本行映射、转换为纯函数，服务一个）；`src/app/api/projects/[id]/bid-page/quotes/[quoteId]/lump/route.ts`、`…/convert/route.ts`；`src/components/bid-page-v2/lump-sum-editor.tsx`；共用的界面小件从 `quote-step.tsx` 挪到 `src/components/bid-page-v2/quote-ui.tsx`；测试三份（纯逻辑、渲染、隔离库端到端），在 `scripts/test-all.sh` / `scripts/test-ci-unit.sh` 注册。
-- 修改：`src/lib/quote-engine/contract.ts`（`QUOTE_ENTRY_MODES` 加 `LUMP_SUM`）；`src/lib/bid-page-v2/quote-line/`（行身份多一种、新建与列表收总价报价、导出可用性的原因）；`src/components/bid-page-v2/quote-step.tsx`（新建两问、列表、打开总价报价）；BIDPAGE-3 的两条测试（「LUMP_SUM 是不认识的做法」改用别的取值）。
+- 修改：`src/lib/quote-engine/contract.ts`（`QUOTE_ENTRY_MODES` 加 `LUMP_SUM`）；`src/lib/bid-page-v2/quote-line/`（行身份多一种、新建与列表收总价报价、导出可用性的原因）；`src/components/bid-page-v2/quote-step.tsx`（新建两问、列表、打开总价报价）；BIDPAGE-3 的测试按 tasks 1 / 3 列出的几条改（`LUMP_SUM` 不再是不认识的做法；挪到 `quote-ui.tsx` 的两个小件的源码断言改读新文件），被断言的行为不变。
 - 开关关着时：旧页面、旧接口、专业模式行为不变（`engineConfigSchema` 对没有做法字段的配置解析结果不变，测试对照冻结的旧 schema）。
 - 零 schema；无新增模型调用、出站、队列 / 定时任务。
