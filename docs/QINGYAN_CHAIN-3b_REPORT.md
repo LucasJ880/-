@@ -7,6 +7,7 @@
 | 拍板 | Lucas 2026-11-20：「投标准备度的「进口线索」阶段读取 CHAIN-3 导入的记录。」 |
 | OpenSpec change | `openspec/changes/bid-readiness-import-leads/`（修改 `tender/bid-workspace` 1 条、`tender/stage-policy` 1 条（只改正文措辞）、`tender/bid-workspace-panel` 1 条） |
 | 基线 | origin/main `91d928e4` |
+| PR | #535，2026-11-23 合并（合并提交 `595fb896`）；归档 `openspec/changes/archive/2026-11-23-bid-readiness-import-leads/`；归档后 `openspec validate --specs --strict` 149 / 149 |
 | 开关 | 没有新开关：跟随进口线索导入（`TENDER_IMPORT_LEADS_ENABLED` + 白名单）与投标工作区的既有开关 |
 
 ## 1. 做了什么
