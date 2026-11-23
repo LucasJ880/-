@@ -23,7 +23,7 @@
 |---|---|---|---|---|
 | `bid-page-v2-shell` | BIDPAGE-1 | 已合并、已归档 | #557（合并 `d1b0d3e2`）；归档 #561（合并 `b717427f`） | `claude/laughing-curie-2b9s1v` |
 | `quote-line-mode-persist` | BIDPAGE-3 | 已合并、已归档 | #564（合并 `c376be86`）；归档 #572（合并 `325cbdc0`） | `claude/laughing-curie-2b9s1v` |
-| `quote-lump-sum-mode` | BIDPAGE-4 | 待合并 | 本次开的 PR | `claude/laughing-curie-2b9s1v` |
+| `quote-lump-sum-mode` | BIDPAGE-4 | 待合并 | #581 | `claude/laughing-curie-2b9s1v` |
 | `quote-one-step-confirm` | BIDPAGE-6 | 未开始 | — | — |
 | `quote-margin-advice-market` | BIDPAGE-5 | 未开始 | — | — |
 | `bid-page-sourcing-step` | BIDPAGE-2 | 未开始 | — | — |

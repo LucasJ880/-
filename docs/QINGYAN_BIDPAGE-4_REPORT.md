@@ -5,7 +5,7 @@
 | TASKFLOW | BIDPAGE-4（Phase F（续）— 标书与报价页改版） |
 | 任务书 | `docs/QINGYAN_BIDPAGE_BID_QUOTE_REDESIGN_TASKBRIEF.md`「BIDPAGE-4」、判断点 3 / 5、验收 3 / 4 |
 | OpenSpec change | `openspec/changes/quote-lump-sum-mode/`（新能力 `tender/quote-lump-sum-mode` 19 条；改 `tender/quote-line-mode` 6 条） |
-| 合并 | 见 §3 末「开 PR 之后」（PR 开出后补） |
+| 合并 | PR #581（开于 2026-11-23）；合并后补合并提交 |
 | 基线 | 开工时 origin/main `325cbdc0`（#572 BIDPAGE-3 归档合并后）；之后合入 main `fc321a7d`、`fbacf6bd`（见 §3） |
 | 开关 | `TENDER_BID_PAGE_V2_ENABLED` + `TENDER_BID_PAGE_V2_ORG_ALLOWLIST`，默认关（与 BIDPAGE-1 / 3 同一组） |
 
