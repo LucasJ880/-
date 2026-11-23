@@ -71,6 +71,11 @@ export const EXEMPTIONS: readonly Exemption[] = [
   },
 ];
 
+/** 第 9 条：例外名单里已经不存在的路由文件（不在了就要删掉那条例外） */
+export function missingExemptionFiles(list: readonly Exemption[], exists: (absPath: string) => boolean = existsSync): string[] {
+  return list.filter((e) => !exists(join(process.cwd(), e.file))).map((e) => e.file);
+}
+
 /** 第 3 条：守卫之前不得出现的调用（按被调用的函数名或方法名认） */
 const TOUCH_CALLS: ReadonlyArray<[RegExp, string]> = [
   [/^(?:putPrivateBlob|readBlobBuffer|readBlobStream|deleteBlob)$/, "文件存储"],
@@ -679,6 +684,9 @@ export async function POST() {
 }`, EXEMPT_POST);
 ok(goneNot410.length === 1 && /不再固定返回 410/.test(goneNot410[0].problem ?? ""), "检查器：例外接口不再返回 410 被指出", goneNot410);
 
+const goneMissingFile = missingExemptionFiles([{ file: `${ROUTES_DIR}/no-such-retired-route-${Date.now()}/route.ts`, method: "POST", reason: "自测" }]);
+ok(goneMissingFile.length === 1, "检查器：例外名单里的路由文件不存在被指出（提示删掉这条例外）", goneMissingFile);
+
 const goneMissingMethod = checkRouteSource(`
 import { NextResponse } from "next/server";
 export async function GET() { return NextResponse.json({}, { status: 410 }); }`, EXEMPT_POST);
@@ -833,9 +841,8 @@ const FIX21_FILES = [
 ];
 ok(routeFiles.length >= 170, `目录下至少找到 170 个路由文件（实际 ${routeFiles.length} 个）`, routeFiles.length);
 ok(FIX21_FILES.every((f) => routeFiles.includes(f)), "FIX-21 的 4 个路由文件都在枚举结果里", FIX21_FILES.filter((f) => !routeFiles.includes(f)));
-for (const e of EXEMPTIONS) {
-  ok(existsSync(join(process.cwd(), e.file)), `例外名单里的 ${e.file} 还在（不在了就删掉这条例外）`, e.file);
-}
+const missingExempt = missingExemptionFiles(EXEMPTIONS);
+ok(missingExempt.length === 0, `例外名单里的 ${EXEMPTIONS.length} 个路由文件都还在（不在了就删掉那条例外）`, missingExempt);
 
 const offenders: Array<{ file: string; method: string; problem: string }> = [];
 let handlerCount = 0;

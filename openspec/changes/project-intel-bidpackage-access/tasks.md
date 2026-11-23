@@ -18,7 +18,7 @@
 
 ## 3. 验收
 
-- [ ] 3.1 全部门禁。verify：
+- [x] 3.1 全部门禁。verify：
   - `npm test` 对照既有失败清单无新增；
   - `npm run test:ci` PASS；
   - `npm run typecheck` 退出码 0；
@@ -26,7 +26,7 @@
   - `bash scripts/check-test-registry.sh` OK；
   - `OPENSPEC_TELEMETRY=0 openspec validate project-intel-bidpackage-access --strict` valid；
   - 1.1 记下的模块测试通过数不减。
-- [ ] 3.2 写 `docs/QINGYAN_FIX-21_REPORT.md` 并更新 TASKFLOW 状态列。报告包含：
+- [x] 3.2 写 `docs/QINGYAN_FIX-21_REPORT.md` 并更新 TASKFLOW 状态列。报告包含：
   - 六个处理函数的级别与先例表；
   - 安全视图给了谁、裁掉了什么；
   - 改动前 / 改动后的两份测试输出；
