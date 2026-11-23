@@ -382,6 +382,8 @@ npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts
 npx tsx src/lib/accounting/__tests__/accounting.test.ts
 # PERM-4c1：项目财务 / 报价引擎按岗位（决策表 + 源码断言）
 npx tsx src/lib/project-finance/__tests__/finance-access.test.ts
+# CHAIN-2e：比价落地价与报价引擎按财务查看权（隔离库执行，CI 无隔离库时跳过）
+NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-view-compare-quote-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts
