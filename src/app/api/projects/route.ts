@@ -103,7 +103,8 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const unavailable = bidWorkflowUnavailableFields();
   const mapped = projects.map((p) => {
     if (!usedFallback) {
-      // CHAIN-2b：房间 JSON 里的我方成本与成本来源不给项目读者（界面不读它们；成本走报价表助手、按财务查看权）
+      // CHAIN-2b / FIX-25：房间 JSON 对所有人去掉整个 pricingInputs（成本、目标毛利、镜像的我方报价）、bidDraft 与投标策略备忘
+      // （界面不读它们；成本与目标毛利走报价表助手、按财务查看权）
       const room = (p as { intelligenceRoom?: { summaryJson?: unknown } | null }).intelligenceRoom;
       return {
         ...p,
