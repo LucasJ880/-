@@ -58,11 +58,13 @@ import {
   type AnalystCoverage,
   type TenderAnalystSynthesisV1,
 } from "@/lib/tender-analyst/contract";
+import { TENDER_CALL_DEADLINE_CODE } from "@/lib/ai/model-policy";
 import { mapV2Result, type V2MappedResult } from "./v2-map";
 import { TenderV2LeaseLostError } from "./v2-errors";
 import {
   callTimeoutFor,
   canStartPhase,
+  PHASE_SAFETY_MS,
   computeV2Fingerprint,
   MAX_ANALYST_ATTEMPTS,
   MAX_WINDOW_ATTEMPTS,
@@ -175,6 +177,17 @@ export async function advanceV2Analysis(
       analysisDate: cursor.analysisDate,
     });
 
+  /**
+   * 本阶段的调用截止时间（FIX-12）：切片截止 − PHASE_SAFETY_MS（最短为现在之后 1 秒）。
+   * 本阶段所有请求连同重试 / 换模型都不越过它。
+   * 不限预算（单次编排 / 测试）→ undefined，行为不变。
+   */
+  const callDeadlineFor = (): number | undefined => {
+    if (!Number.isFinite(args.deadlineAt)) return undefined;
+    // 锚定切片截止（不受阶段内同步计算耗时影响）；最短为现在之后 1 秒，与 callTimeoutFor 的下限一致
+    return Math.max(now() + 1_000, args.deadlineAt - PHASE_SAFETY_MS);
+  };
+
   for (;;) {
     ensureLease();
     const remaining = remainingMs(args.deadlineAt, now());
@@ -192,8 +205,9 @@ export async function advanceV2Analysis(
 
       const batch = pending.slice(0, concurrency);
       const timeoutMs = callTimeoutFor(remaining);
+      const deadlineAt = callDeadlineFor();
       const results = await Promise.all(
-        batch.map((w) => runExtractionWindow(invoker, w, { timeoutMs })),
+        batch.map((w) => runExtractionWindow(invoker, w, { timeoutMs, deadlineAt })),
       );
       batch.forEach((w, i) => {
         const res = results[i]!;
@@ -211,6 +225,10 @@ export async function advanceV2Analysis(
       });
       groundedMemo = null;
       await checkpoint();
+      // 截止触发的窗口失败已记一次尝试：本切片到此为止，下一切片满预算重来（FIX-12）
+      if (results.some((r) => !r.ok && r.errorCode === TENDER_CALL_DEADLINE_CODE)) {
+        return yieldNow(cursor, "WINDOWS", CALL_DEADLINE_YIELD_REASON);
+      }
       continue;
     }
 
@@ -230,10 +248,14 @@ export async function advanceV2Analysis(
 
       const res = await resolveClarificationItem(next, invoker, {
         timeoutMs: callTimeoutFor(remaining),
+        deadlineAt: callDeadlineFor(),
       });
       cursor.logs.push(...res.logs);
       cursor.clarify.resolutions[next.key] = res.resolution;
       await checkpoint();
+      if (res.errorCode === TENDER_CALL_DEADLINE_CODE) {
+        return yieldNow(cursor, "CLARIFY", CALL_DEADLINE_YIELD_REASON);
+      }
       continue;
     }
 
@@ -259,6 +281,7 @@ export async function advanceV2Analysis(
           result: buildResult(),
           invoker,
           timeoutMs: callTimeoutFor(remaining),
+          deadlineAt: callDeadlineFor(),
         });
         cursor.analyst.logs.push(...passA.logs);
         cursor.analyst.analystLatencyMs = passA.latencyMs;
@@ -274,6 +297,9 @@ export async function advanceV2Analysis(
         cursor.analyst.passAErrorCode = analystExceptionCode(e);
       }
       await checkpoint();
+      if (cursor.analyst.passAErrorCode === TENDER_CALL_DEADLINE_CODE) {
+        return yieldNow(cursor, "ANALYST_A", CALL_DEADLINE_YIELD_REASON);
+      }
       continue;
     }
 
@@ -300,6 +326,7 @@ export async function advanceV2Analysis(
           draft,
           invoker,
           timeoutMs: callTimeoutFor(remaining),
+          deadlineAt: callDeadlineFor(),
         });
         cursor.analyst.logs.push(...passB.logs);
         cursor.analyst.reviewLatencyMs = passB.latencyMs;
@@ -314,6 +341,9 @@ export async function advanceV2Analysis(
         cursor.analyst.passBErrorCode = analystExceptionCode(e);
       }
       await checkpoint();
+      if (cursor.analyst.passBErrorCode === TENDER_CALL_DEADLINE_CODE) {
+        return yieldNow(cursor, "ANALYST_B", CALL_DEADLINE_YIELD_REASON);
+      }
       continue;
     }
 
@@ -355,6 +385,9 @@ export async function advanceV2Analysis(
     };
   }
 }
+
+/** 本阶段的请求撞上调用截止后让出的理由（FIX-12） */
+export const CALL_DEADLINE_YIELD_REASON = "call_deadline";
 
 /* ------------------------------ 内部纯helpers ------------------------------ */
 

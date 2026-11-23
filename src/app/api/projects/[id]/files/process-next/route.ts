@@ -5,6 +5,7 @@ import { parseAndStoreContent } from "@/lib/files/parse-content";
 import { generateDocumentSummary } from "@/lib/files/ai-summary";
 import { generateProjectIntelligence } from "@/lib/files/ai-intelligence";
 import { enqueueTenderPackageIfReady } from "@/lib/tender-auto-analysis/enqueue-package";
+import { requireProjectReadAccess } from "@/lib/projects/access";
 
 /** 自动入队业务结果诊断（附在 process-next 响应上；绝不包含 secret） */
 type AutoEnqueueDiagnostic = {
@@ -72,9 +73,14 @@ async function maybeAutoEnqueueOnReady(
  *   3. 项目情报分析（所有文档摘要完成后触发一次）
  *
  * 返回 { step, documentId?, remaining, done }
+ *
+ * 需项目读权限（成员/owner/admin），与上传同级：文件抽屉在上传后自动调这里，
+ * 打开时发现失败文件还会自动带 ?retry=1。检查必须在任何读写、解析、模型调用、入队之前。
  */
 export const POST = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
 
   // ?retry=1 → 重置失败/卡住的文件，重新处理
   const retry = request.nextUrl.searchParams.get("retry") === "1";

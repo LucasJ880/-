@@ -102,5 +102,8 @@ ok("写有「领取文件不等于投标」「不含 HST」的来源与 403 文�
 ok("面板挂在「标书与报价」页签里", /import \{ BidWorkspacePanel \} from "@\/components\/tender\/bid-workspace-panel";/.test(tab) && /<BidWorkspacePanel projectId=\{projectId\} canManage=\{canManage\} \/>/.test(tab));
 ok("计算成功后判定改用接口返回的判定；保存、清空、失败后作废", /onReadiness\(json\.readiness \?\? null\)/.test(code) && (code.match(/onReadiness\(null\)/g) ?? []).length === 3 && /setCostReadiness\(null\);\s*return null;/.test(code) && panel.includes("已计入本次成本核算"));
 ok("导入入口只对有写权限的人显示", (code.match(/canManage &&/g) ?? []).length >= 3);
+// CHAIN-3b：未接通清单的标题照实说；取决于来源的阶段写出说明（不只在悬停提示里）
+ok("未接通清单的标题是「未接通或仅人工的来源」", code.includes('<ListBlock title="未接通或仅人工的来源" empty="没有"') && !code.includes('title="未接通的来源"'));
+ok("取决于来源的阶段在下面写出「{阶段}：{说明}」", /stages\.filter\(\(s\) => s\.stageClass === "SOURCE_DEPENDENT"\)\.map\(\(s\) => \(\s*<li key=\{s\.key\}>\{`\$\{s\.labelZh\}：\$\{s\.detailZh\}`\}<\/li>/.test(code));
 
 console.log(`\n✓ panel-helpers: ${passed} 项断言全部通过`);

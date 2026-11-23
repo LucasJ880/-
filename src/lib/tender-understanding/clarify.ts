@@ -165,9 +165,16 @@ export function planClarifications(
 export async function resolveClarificationItem(
   item: ClarificationPlanItem,
   invoker: LlmInvoker,
-  opts: { timeoutMs?: number } = {},
-): Promise<{ resolution: ResolutionOutputV2 | null; logs: LlmCallLog[] }> {
-  if (item.candidatePages.length === 0) return { resolution: null, logs: [] };
+  opts: { timeoutMs?: number; deadlineAt?: number } = {},
+): Promise<{
+  resolution: ResolutionOutputV2 | null;
+  logs: LlmCallLog[];
+  /** 调用失败时的错误码（成功或无候选页为 null） */
+  errorCode: string | null;
+}> {
+  if (item.candidatePages.length === 0) {
+    return { resolution: null, logs: [], errorCode: null };
+  }
   const call = await callStructured(
     invoker,
     {
@@ -185,11 +192,14 @@ export async function resolveClarificationItem(
         Math.min(opts.timeoutMs ?? RESOLVE_TIMEOUT_MS, RESOLVE_TIMEOUT_MS),
       ),
       tenderStage: "eligibility",
+      ...(opts.deadlineAt != null ? { deadlineAt: opts.deadlineAt } : {}),
     },
     resolutionOutputSchema,
   );
-  // 调用失败（transient/invalid）→ 视为未解决，仍生成澄清（保守方向）
-  return { resolution: call.ok ? call.value : null, logs: call.logs };
+  // 调用失败（transient/invalid/截止）→ 视为未解决，仍生成澄清（保守方向）
+  return call.ok
+    ? { resolution: call.value, logs: call.logs, errorCode: null }
+    : { resolution: null, logs: call.logs, errorCode: call.errorCode };
 }
 
 /**

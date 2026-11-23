@@ -5,12 +5,11 @@ import { FileDown, Loader2, ChevronDown, ExternalLink, Download } from "lucide-r
 import { apiJson } from "@/lib/api-fetch";
 import { cn } from "@/lib/utils";
 import { BidDraftGateNotes, type BidDraftGates } from "@/components/tender/bid-draft-card";
+import { RETIRED_PROJECT_PDF_DOC_TYPES } from "@/lib/bid-workflow/pdf-doc-types";
 
 const OPTIONS = [
   { docType: "analyst_memo", label: "投标分析师备忘录 PDF（事实+标准展开+市场基准+GO/NO-GO）" },
-  { docType: "china_supplier_brief", label: "国内供应商简报 PDF（China Brief）" },
-  { docType: "supplier_rfq", label: "国内供应商询价 PDF" },
-  { docType: "tech_confirm", label: "供应商技术确认表 PDF" },
+  { docType: "supplier_rfq", label: "供应商询价单 PDF" },
   { docType: "internal_analysis", label: "内部项目分析 PDF" },
   { docType: "teammate_tasks", label: "同事执行任务单 PDF" },
   { docType: "owner_clarification", label: "RFI 问题清单 PDF（中英，可直接提交）" },
@@ -104,15 +103,17 @@ export function ProjectGenerateMenu({
         if (round === 11) throw new Error("多轮生成超出轮次上限，请再点一次继续");
       }
       await load();
-      setOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "生成失败");
     }
+    // 成功、失败都收起下拉层：它是浮层，开着会盖住下面那行说明
+    setOpen(false);
     setBusy(null);
     setProgressZh(null);
   };
 
-  const staleHint = docs.some((d) => d.stale);
+  // 已停用的旧文件不能再生成，不拿它们来提示「建议重新生成」
+  const staleHint = docs.some((d) => d.stale && !Object.prototype.hasOwnProperty.call(RETIRED_PROJECT_PDF_DOC_TYPES, d.docType));
 
   return (
     <div className="rounded-xl border border-border bg-card-bg p-5">
@@ -166,7 +167,7 @@ export function ProjectGenerateMenu({
         <p className="mt-2 text-[11px] text-accent">{progressZh}（全文多轮推理，可能需要几分钟）</p>
       ) : null}
       {error ? (
-        <p className="mt-2 text-[11px] text-red-500">{error}</p>
+        <p role="alert" className="mt-2 text-xs leading-relaxed text-red-500">{error}</p>
       ) : null}
 
       {docs.length > 0 ? (
@@ -174,15 +175,20 @@ export function ProjectGenerateMenu({
           {docs.slice(0, 8).map((d) => {
             const url = resolveDocUrl(d);
             const filename = d.title.endsWith(".pdf") ? d.title : `${d.title}.pdf`;
+            // RFQ-PDF-1：已停止生成的两类供应商文件，旧文件还能打开，标明不是现在该发的那一份
+            const retired = Object.prototype.hasOwnProperty.call(RETIRED_PROJECT_PDF_DOC_TYPES, d.docType);
             return (
               <li
                 key={d.id}
                 className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-2.5 py-2"
               >
-                <span className="min-w-0 flex-1 truncate">
-                  {d.title}
-                  {d.stale ? (
-                    <span className="ml-1 text-[10px] text-amber-600">可能过期</span>
+                {/* 标题单独截断，标记不参与截断：窄屏上长标题不会把标记挤没 */}
+                <span className="flex min-w-0 flex-1 items-center gap-1">
+                  <span className="min-w-0 truncate">{d.title}</span>
+                  {retired ? (
+                    <span className="shrink-0 text-[10px] text-muted">已停用</span>
+                  ) : d.stale ? (
+                    <span className="shrink-0 text-[10px] text-amber-600">可能过期</span>
                   ) : null}
                 </span>
                 {url ? (
@@ -211,7 +217,7 @@ export function ProjectGenerateMenu({
         </ul>
       ) : (
         <p className="mt-2 text-xs text-muted">
-          生成供应商询价、内部分析或同事任务单，自动读取当前项目资料。生成后可直接下载发送。
+          生成供应商询价单、内部分析或同事任务单，自动读取当前项目资料。生成后可直接下载发送。
         </p>
       )}
     </div>
