@@ -165,6 +165,8 @@ export function lumpStateFromLines(
     const name = key === "other" ? `「${line.description}」` : `「${LUMP_ITEM_SPEC[key].labelZh}」`;
     if (line.included && kind === "amount") fxr.note(line);
     const stored = kind === "amount" ? num(line.unitCost) : num(line.rate);
+    // 计入了但没填数（例如逐行报价里海运每柜被专业模式清空后转过来）：引擎按未定价算、挡着送审；这里按没填显示，保存会改成不计入——照实说
+    if (line.included && stored == null) notices.push(`${name}计入了但没填数（暂按 0 算、挡着提交与批准）；这里按没填显示，在这里保存会改成不计入，要计入请在这里填上数`);
     if (!line.included && stored != null) notices.push(`${name}在专业模式里设成了不计入（原来填的是 ${kind === "amount" ? formatMoneyZh(stored, line.sourceCurrency) : `${fmtAmt(stored)}%`}），这里按没填显示；要计入请在这里重新填`);
     if (key !== "other") {
       const expected = lumpItemDescriptionZh(key, kind, null);

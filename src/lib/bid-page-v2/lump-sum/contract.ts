@@ -458,7 +458,7 @@ export function lumpEngineErrorZh(code: string, fallback: string): string {
 export function lumpEngineWarningZh(code: string, fallback: string): string {
   switch (code) {
     case "LINE_UNPRICED":
-      return "货品（或货品明细里有的行）还没填价，或某条预置的比例 / 月数空着，暂按 0 算；填完才能提交、批准";
+      return "货品（或货品明细里有的行）还没填价，或某一项计入了但没填数、某条预置的比例 / 月数空着，暂按 0 算；填完才能提交、批准";
     case "NO_CONTINGENCY":
       return "没有下错单 / 漏单预备金；需要的话从「添加一项」里加";
     case "NEGATIVE_MARGIN":

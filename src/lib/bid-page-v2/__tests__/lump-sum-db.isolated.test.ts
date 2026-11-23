@@ -454,6 +454,21 @@ async function main() {
     const { computeForQuote } = await import("@/lib/quote-engine/service");
     const zAfter = computeForQuote(zAfterQ).calc;
     ok(!!zBefore && zAfter.ok && (zStatus === 409 ? (zAfterQ.engineJson as { entryMode?: string }).entryMode === "LUMP_SUM" : zStatus === 200 && zAfter.estimatedCost === zBefore.estimatedCost && zAfter.sellingPrice === zBefore.sellingPrice), "审查反例（行的先后会让预备金差一分）：要么 409 不转、库里还是只报总价，要么转换后按库里顺序重算完全相同", { zStatus, zBefore, after: zAfter.ok ? [zAfter.estimatedCost, zAfter.sellingPrice] : zAfter });
+    // 还没有货品行的逐行报价（刚新建、没有价格表）也能转成总价；GST + PST 两项税；手填货品总数不用提交里的供应商
+    const cn = await create(PX, { entryMode: "LINE", businessType: "SUPPLY_ONLY" });
+    const QN = String(cn.body.id);
+    const vn0 = (await getLine(PX, QN)).body as unknown as LineView;
+    const cvn = await convert(PX, QN, { to: "LUMP_SUM", baseUpdatedAt: vn0.quote.updatedAt });
+    const vn1 = (await getLump(PX, QN)).body as unknown as LumpView;
+    ok(cvn.status === 200 && vn0.state.rows.length === 0 && vn1.state.goods.mode === "total" && vn1.state.goods.amount === null, "还没有货品行的逐行报价转成总价：200，货品填总数、空着", cvn.body.error);
+    const pn = await putLump(PX, QN, { baseUpdatedAt: vn1.quote.updatedAt, state: { ...vn1.state, goods: { ...vn1.state.goods, amount: 1000, evidenceKind: "ESTIMATE", supplierId: "spoofed0", supplierName: "任意供应商" }, tax: { hstPct: null, gstPct: 5, pstPct: 7 }, targetMarginPct: 20 } });
+    const vn2 = pn.body as unknown as LumpView;
+    const gtn = (await db.quoteCostLine.findMany({ where: { quoteId: QN } })).find((l) => readLumpMeta(l.metadata)?.key === "goods_total");
+    const tn = vn2.computed?.ok ? vn2.computed.totals : null;
+    const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    ok(pn.status === 200 && gtn?.supplierId === null && gtn?.supplierName === null, "手填货品总数：提交里带的供应商不用（库里没有供应商）", pn.body.error);
+    ok(!!tn && tn.salesTax === r2(r2(tn.sellingPrice * 0.05) + r2(tn.sellingPrice * 0.07)) && tn.totalWithTax === r2(tn.sellingPrice + tn.salesTax) && tn.salesTax > 0, "GST 5% + PST 7%：销售税 = 两项各自取到分再相加，含税总价 = 税前报价 + 销售税", tn);
+
     // 开关关：拿真实报价、合法请求体调存与转换，守卫后立刻 404，没读请求体、库里不变
     const vOff = (await getLump(PX, QX)).body as unknown as LumpView;
     const beforeOff = await snap(QX);

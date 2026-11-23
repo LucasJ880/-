@@ -443,7 +443,32 @@ console.log("\n━━━ 6b. 互转的性质与边界（审查补充） ━━�
   // 引擎核对也比未定价的行数
   const fakeAfter = inputsOf(dbOrder(cAfter)).map((l) => (l.calculationType === "FIXED" && l.category === "FREIGHT" ? { ...l, unitCost: 0 } : l));
   const fake = compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: 20 }, engine: {}, before: inputsOf(dbOrder(cleared)), after: fakeAfter });
-  ok(!fake.ok && fake.reasonZh.includes("还没填价的行会变"), "核对：转换后未定价的行数变了（未定价被当成已填 0）就不转", fake);
+  ok(!fake.ok && fake.reasonZh.includes("会被当成已填 0"), "核对：转换后未定价的行变少（未定价被当成已填 0）就不转", fake);
+  // 未定价变多是更保守的方向：还没有货品行的逐行报价（刚新建、没有价格表）照样能转成总价
+  const emptyLine = stateToWrites({ ...defaultLineModeState([]), shared: { ...defaultLineModeState([]).shared, customs: { amount: 500, currency: "CAD" } }, targetMarginPct: 20 }, []).creates.map((c) => toDb(c));
+  const er = convertLineToLump(emptyLine);
+  const ecmp = er.ok ? compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: 20 }, engine: {}, before: inputsOf(dbOrder(emptyLine)), after: simulateWrites(emptyLine, er.writes) }) : null;
+  ok(!!ecmp && ecmp.ok, "还没有货品行的逐行报价（只填了报关费）转成总价：能转（新建的货品总数空着、按未定价提示）", (ecmp ?? er));
+  // 计入了但没填数的项：读出时照实提示，保存会改成不计入
+  const incEmpty = cAfter.length ? lumpStateFromLines(cAfter, quoteOf({ rate: 20 })) : null;
+  ok(!!incEmpty && incEmpty.notices.some((n) => n.includes("「海运费」计入了但没填数") && n.includes("保存会改成不计入")), "海运费计入了但没填数（未定价）：读出时写明保存会改成不计入", incEmpty?.notices);
+  // 提示原因：海运按柜换成金额没有真的四舍五入（2 柜 × 3,000）时，不说是海运取整
+  ok(convertHintZh(lineDb2, "LUMP_SUM") === undefined && typeof convertHintZh(stateToWrites({ ...ls, shared: { ...ls.shared, oceanFreight: { containers: 1.5, perContainer: 0.0033, currency: "CAD" } } }, []).creates.map((c) => toDb(c)), "LUMP_SUM") === "string", "提示原因：只有海运换成金额真的要四舍五入时才说是海运取整，否则按行的先后说");
+  // 专业模式改了预备金的基数：归其它成本行、保存不改回
+  const cb = save({ ...acceptance3(), items: [...acceptance3().items, item("contingency", { ratePct: 3 })] });
+  const cbChanged = cb.map((l) => (readLumpMeta(l.metadata)?.key === "contingency" ? { ...l, calculationBase: "LANDED" } : l));
+  const cbr = lumpStateFromLines(cbChanged, quoteOf({ rate: 25 }));
+  const cbLine = cbChanged.find((l) => readLumpMeta(l.metadata)?.key === "contingency")!;
+  ok(!cbr.state.items.some((i) => i.key === "contingency") && cbr.others.some((o) => o.line.id === cbLine.id) && !lumpStateToWrites(cbr.state, cbChanged).updates.some((u) => u.id === cbLine.id), "专业模式把预备金的基数改成到岸成本：归其它成本行，保存不改回");
+  // 同一项两条：只管排在前面的那条，多出来的归其它成本行
+  const dupIns = [...cb, toDb({ ...lumpStateToWrites({ ...defaultLumpState(), items: [item("installation", { amount: 2 })] }, []).creates.find((c) => readLumpMeta(c.metadata)?.key === "installation")!, sortOrder: 9000 }), toDb({ ...lumpStateToWrites({ ...defaultLumpState(), items: [item("installation", { amount: 1 })] }, []).creates.find((c) => readLumpMeta(c.metadata)?.key === "installation")!, sortOrder: 3070 })];
+  const dr2 = lumpStateFromLines(dupIns, quoteOf({ rate: 25 }));
+  ok(dr2.state.items.filter((i) => i.key === "installation").length === 1 && dr2.state.items.find((i) => i.key === "installation")?.amount === 1 && dr2.others.some((o) => Number(o.line.unitCost) === 2 && o.reasonZh?.includes("同一项有两条")), "库里同一项有两条安装：只管排在前面的那条（1），另一条（2）归其它成本行并写明", dr2.state.items.map((i) => [i.key, i.amount]));
+  // 海运按柜、专业模式填了数量：换成金额 = 数量 × 柜数 × 每柜
+  const qOcean = lineDb2.map((l) => (readBidLineMeta(l.metadata)?.role === "shared" && l.calculationType === "PER_CONTAINER" ? { ...l, quantity: new Prisma.Decimal(3) } : l));
+  const qr = convertLineToLump(qOcean);
+  const qAmt = qr.ok ? qr.writes.updates.find((u) => readLumpMeta(u.data.metadata)?.key === "ocean_freight")?.data.unitCost : null;
+  ok(qAmt === 18000 && qr.ok && compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: 20 }, engine: {}, before: inputsOf(dbOrder(qOcean)), after: simulateWrites(qOcean, qr.writes) }).ok, "海运按柜、专业模式把数量改成 3：换成金额 3 × 2 柜 × 3,000 = 18,000，前后相同", qAmt);
 
   // 总价表那一项空着、另有一条计入的同名共用参数（逐行留下的）：转逐行时留下计入的那条，删掉空着的总价项
   const sLump = save({ ...acceptance3(), goods: { ...acceptance3().goods, mode: "detail" }, details: [rowOf()], items: [item("ocean_freight", { amount: 60000 }), item("duty", { amount: 40000 }), item("customs")] });
