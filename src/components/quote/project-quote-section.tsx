@@ -8,10 +8,12 @@ import {
   Loader2,
   ChevronRight,
   DollarSign,
+  Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 import { TEMPLATE_LABELS, QUOTE_STATUS_LABELS, type TemplateType, type QuoteStatus } from "@/lib/quote/types";
+import { legacyQuoteEditHintZh, type LegacyQuoteCaps } from "@/lib/quote/finance-view";
 
 interface QuoteSummary {
   id: string;
@@ -28,9 +30,11 @@ interface QuoteSummary {
   _count: { lineItems: number };
 }
 
+/** 读取报价单列表（只列旧报价单，FIX-26）；能不能新建看接口给的 capabilities */
 export function ProjectQuoteSection({ projectId }: { projectId: string }) {
   const router = useRouter();
   const [quotes, setQuotes] = useState<QuoteSummary[]>([]);
+  const [capabilities, setCapabilities] = useState<LegacyQuoteCaps | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
@@ -40,6 +44,7 @@ export function ProjectQuoteSection({ projectId }: { projectId: string }) {
       if (res.ok) {
         const data = await res.json();
         setQuotes(data.quotes ?? []);
+        setCapabilities(data.capabilities ?? null);
       }
     } finally {
       setLoading(false);
@@ -66,6 +71,40 @@ export function ProjectQuoteSection({ projectId }: { projectId: string }) {
   }
 
   return (
+    <ProjectQuoteSectionView
+      quotes={quotes}
+      capabilities={capabilities}
+      loading={loading}
+      creating={creating}
+      onCreate={createQuote}
+      onOpen={(quoteId) => router.push(`/projects/${projectId}/quotes/${quoteId}`)}
+    />
+  );
+}
+
+/**
+ * FIX-26：不能编辑报价的人不出「新建报价」，换成一句为什么、找谁（没有真人负责人 / 暂时无法确认时换句）；
+ * 列表照旧显示标题、模板、行数、总额。还不知道能力（读取中 / 读取失败）时也不出「新建报价」。
+ */
+export function ProjectQuoteSectionView({
+  quotes,
+  capabilities,
+  loading,
+  creating,
+  onCreate,
+  onOpen,
+}: {
+  quotes: QuoteSummary[];
+  capabilities: LegacyQuoteCaps | null;
+  loading: boolean;
+  creating: boolean;
+  onCreate: () => void;
+  onOpen: (quoteId: string) => void;
+}) {
+  const canEdit = capabilities?.canEdit === true;
+  const editHint = capabilities && !capabilities.canEdit ? legacyQuoteEditHintZh(capabilities.hintReason) : null;
+
+  return (
     <div className="rounded-xl border border-border/60 bg-card-bg">
       <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
         <div className="flex items-center gap-2">
@@ -77,16 +116,25 @@ export function ProjectQuoteSection({ projectId }: { projectId: string }) {
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={createQuote}
-          disabled={creating}
-          className="inline-flex items-center gap-1 rounded-md bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
-        >
-          {creating ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
-          新建报价
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={onCreate}
+            disabled={creating}
+            className="inline-flex items-center gap-1 rounded-md bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+          >
+            {creating ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
+            新建报价
+          </button>
+        )}
       </div>
+
+      {editHint && (
+        <p className="flex items-start gap-1.5 border-b border-border/30 px-4 py-2 text-[11px] text-muted">
+          <Info size={12} className="mt-0.5 shrink-0" />
+          <span>{editHint}</span>
+        </p>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-8">
@@ -96,9 +144,11 @@ export function ProjectQuoteSection({ projectId }: { projectId: string }) {
         <div className="px-4 py-8 text-center">
           <FileText size={24} className="mx-auto text-muted/30" />
           <p className="mt-2 text-sm text-muted">暂无报价单</p>
-          <p className="mt-1 text-xs text-muted/60">
-            创建报价单，AI 副驾驶会帮你检查和生成建议
-          </p>
+          {canEdit && (
+            <p className="mt-1 text-xs text-muted/60">
+              创建报价单，AI 副驾驶会帮你检查和生成建议
+            </p>
+          )}
         </div>
       ) : (
         <div className="divide-y divide-border/30">
@@ -106,7 +156,7 @@ export function ProjectQuoteSection({ projectId }: { projectId: string }) {
             <button
               key={q.id}
               type="button"
-              onClick={() => router.push(`/projects/${projectId}/quotes/${q.id}`)}
+              onClick={() => onOpen(q.id)}
               className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/5"
             >
               <FileText size={14} className="shrink-0 text-accent/60" />

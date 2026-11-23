@@ -598,6 +598,9 @@ npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx
 NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts
 # FIX-26a（openspec change quote-pdf-no-margin）：报价单 PDF 永远不印利润率
 npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts
+# FIX-26（openspec change legacy-quote-finance-gate）：旧报价单的财务查看裁剪（纯函数 + 渲染 + 源码断言）与审计详情裁剪守卫，无 DB
+npx tsx src/lib/quote/__tests__/legacy-quote-finance-view.test.ts
+npx tsx src/lib/audit/__tests__/audit-detail-redaction.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

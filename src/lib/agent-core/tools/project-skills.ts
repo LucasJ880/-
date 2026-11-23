@@ -8,6 +8,7 @@
 
 import { registry } from "../tool-registry";
 import { runStaticSkill } from "../skills/static-bridge";
+import { probeProjectAccess } from "@/lib/supplier-intel/access";
 import type {
   ToolExecutionContext,
   ToolExecutionResult,
@@ -30,11 +31,21 @@ function makeParams(
   };
 }
 
-function makeExecute(skillId: string) {
+/** FIX-26：与「项目不在本组织」同一句，不说出项目在不在 */
+const PROJECT_NOT_VISIBLE_ZH = "项目不存在或不属于当前组织";
+
+/**
+ * opts.requireProjectRead：先按项目读权限判调用者（与 requireProjectReadAccess 判定树逐条一致的服务层投影），
+ * 不过时不执行技能。FIX-26 只对 project_bid_quote 打开（其余八个静态技能的口径不在本 change）。
+ */
+function makeExecute(skillId: string, opts: { requireProjectRead?: boolean } = {}) {
   return async (ctx: ToolExecutionContext): Promise<ToolExecutionResult> => {
     const { projectId, ...input } = ctx.args;
     if (typeof projectId !== "string" || !projectId) {
       return { success: false, data: null, error: "缺少 projectId" };
+    }
+    if (opts.requireProjectRead && !(await probeProjectAccess({ orgId: ctx.orgId, userId: ctx.userId }, projectId, "read"))) {
+      return { success: false, data: { summary: PROJECT_NOT_VISIBLE_ZH }, error: PROJECT_NOT_VISIBLE_ZH };
     }
     const result = await runStaticSkill(skillId, {
       projectId,
@@ -126,7 +137,7 @@ registry.register({
       description: "报价单 ID（review 时可选，默认取最新报价）",
     },
   }),
-  execute: makeExecute("quote"),
+  execute: makeExecute("quote", { requireProjectRead: true }),
 });
 
 registry.register({

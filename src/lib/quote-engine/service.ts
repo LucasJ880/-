@@ -348,7 +348,8 @@ export async function reviseQuote(input: { quoteId: string; projectId: string; u
   }
   if (syncResult) await tb.auditSyncResult({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: "revise", result: syncResult });
   await snapshotQuote(created.id, input.projectId);
-  await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_VERSION_CREATED, targetType: QUOTE_AUDIT_TARGET, targetId: created.id, beforeData: { sourceQuoteId: q.id, sourceVersion: q.version, sourceSellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null, sourceCost: (q.summaryJson as { estimatedCost?: number } | null)?.estimatedCost ?? null, sourceMargin: (q.summaryJson as { grossMarginPct?: number } | null)?.grossMarginPct ?? null }, afterData: { version: created.version, reason: input.reason } }).catch(() => undefined);
+  // FIX-26：不再记原版的估算成本与毛利率（原版报价不删，按 sourceQuoteId 查得到；审计详情对没有财务查看权的人另有读取侧裁剪）
+  await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_VERSION_CREATED, targetType: QUOTE_AUDIT_TARGET, targetId: created.id, beforeData: { sourceQuoteId: q.id, sourceVersion: q.version, sourceSellingPrice: (q.summaryJson as { sellingPrice?: number } | null)?.sellingPrice ?? null }, afterData: { version: created.version, reason: input.reason } }).catch(() => undefined);
   if (q.status === "approved") await logAudit({ userId: input.userId, orgId: input.orgId, projectId: input.projectId, action: QUOTE_AUDIT_ACTIONS.QUOTE_SUPERSEDED, targetType: QUOTE_AUDIT_TARGET, targetId: q.id, afterData: { supersededBy: created.id } }).catch(() => undefined);
   return getQuote(created.id, input.projectId);
 }

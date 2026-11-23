@@ -9,6 +9,8 @@ interface Props {
   lines: QuoteLineItemData[];
   onChange: (lines: QuoteLineItemData[]) => void;
   disabled?: boolean;
+  /** FIX-26：看的人有没有财务查看权——没有时不显示「成本价」一栏（不是置灰：置灰的空格读起来像「还没填」） */
+  showCost: boolean;
 }
 
 const CATEGORIES = Object.entries(LINE_CATEGORY_LABELS) as [LineCategory, string][];
@@ -29,7 +31,7 @@ function emptyLine(sortOrder: number): QuoteLineItemData {
   };
 }
 
-export function QuoteLineTable({ lines, onChange, disabled }: Props) {
+export function QuoteLineTable({ lines, onChange, disabled, showCost }: Props) {
   function updateLine(idx: number, patch: Partial<QuoteLineItemData>) {
     const updated = lines.map((l, i) => {
       if (i !== idx) return l;
@@ -79,7 +81,7 @@ export function QuoteLineTable({ lines, onChange, disabled }: Props) {
               <th className="w-20 px-2 py-2 text-right">数量</th>
               <th className="w-24 px-2 py-2 text-right">单价</th>
               <th className="w-24 px-2 py-2 text-right">总价</th>
-              <th className="w-24 px-2 py-2 text-right text-accent/60">成本价</th>
+              {showCost && <th className="w-24 px-2 py-2 text-right text-accent/60">成本价</th>}
               <th className="min-w-[80px] px-2 py-2 text-left">备注</th>
               <th className="w-8 px-2 py-2" />
             </tr>
@@ -87,7 +89,7 @@ export function QuoteLineTable({ lines, onChange, disabled }: Props) {
           <tbody>
             {lines.length === 0 && (
               <tr>
-                <td colSpan={12} className="py-8 text-center">
+                <td colSpan={showCost ? 12 : 11} className="py-8 text-center">
                   <div className="text-xs text-muted">
                     暂无行项目 · 可手动添加或使用右侧 AI 生成草稿
                   </div>
@@ -156,14 +158,16 @@ export function QuoteLineTable({ lines, onChange, disabled }: Props) {
                     {line.totalPrice != null ? formatNum(line.totalPrice) : "—"}
                   </div>
                 </td>
-                <td className="px-1 py-1.5">
-                  <NumInput
-                    value={line.costPrice}
-                    onChange={(v) => updateLine(idx, { costPrice: v })}
-                    disabled={disabled}
-                    className="text-accent/70"
-                  />
-                </td>
+                {showCost && (
+                  <td className="px-1 py-1.5">
+                    <NumInput
+                      value={line.costPrice}
+                      onChange={(v) => updateLine(idx, { costPrice: v })}
+                      disabled={disabled}
+                      className="text-accent/70"
+                    />
+                  </td>
+                )}
                 <td className="px-1 py-1.5">
                   <CellInput
                     value={line.remarks}

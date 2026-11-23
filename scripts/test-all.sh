@@ -857,6 +857,9 @@ run_test "采购监控 新标匹配度 DB（隔离库执行，否则跳过，P2-
 run_test "CanadaBuys 截标时间按东部当地时间（P2-1b）" "npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间 DB（隔离库执行，否则跳过，P2-1b）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts"
 run_test "报价单 PDF 永远不印利润率：Node 里生成真 PDF 抽页面文字、源码断言（FIX-26a）" "npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts"
+run_test "旧报价单的内部成本和利润率只给有财务查看权的人：裁剪 / 白名单 / 句子 / 判定兜底 / 规则检查 / Excel 两种 / 编辑器与报价管理区块渲染 / 接线源码断言（FIX-26）" "npx tsx src/lib/quote/__tests__/legacy-quote-finance-view.test.ts"
+run_test "审计日志详情按财务查看权裁剪成本与毛利：纯函数 + 扫全仓审计写入的守卫（FIX-26）" "npx tsx src/lib/audit/__tests__/audit-detail-redaction.test.ts"
+run_test "旧报价单 / 报价 AI / 智能体报价技能 / 问青砚两个报价工具 / 审计详情按财务查看权 DB+HTTP（八种身份；本机假模型；隔离库执行，否则跳过，FIX-26）" "NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

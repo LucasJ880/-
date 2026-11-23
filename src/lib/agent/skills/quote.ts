@@ -1,5 +1,11 @@
 /**
  * 报价助手 Skill — 合并 recommend / draft / review 三个动作
+ *
+ * FIX-26：按执行这一步的人（ctx.userId）判财务查看权（与成本核算、报价引擎同一口径，见 src/lib/quote/legacy-access.ts）：
+ * - review：指定的 quoteId 必须属于本项目（否则「报价单不存在」）；看不到时不调模型、规则检查不出利润率检查项、结果带 costHidden
+ * - draft：看不到时不调模型（起草要看供应商报价并填成本价），返回失败与固定句子
+ * - recommend：不涉及成本，照旧
+ * 有财务查看权的人行为与改动前相同。
  */
 
 import { db } from "@/lib/db";
@@ -7,6 +13,8 @@ import { createCompletion } from "@/lib/ai/client";
 import { getQuoteTemplatePrompt, getQuoteDraftPrompt, getQuoteReviewPrompt } from "@/lib/ai/prompts";
 import { getProjectAiMemory, buildMemoryBlock } from "@/lib/ai/memory";
 import { runQuoteChecks, countByType } from "@/lib/quote/rules";
+import { AGENT_QUOTE_DRAFT_HIDDEN_ZH } from "@/lib/quote/finance-view";
+import { resolveLegacyQuoteCapsForUser } from "@/lib/quote/legacy-access";
 import type { QuoteHeaderData, QuoteLineItemData } from "@/lib/quote/types";
 import { registerSkill } from "./registry";
 import type { SkillContext, SkillResult, CheckReport, CheckIssue } from "../types";
@@ -84,6 +92,11 @@ async function executeRecommend(ctx: SkillContext): Promise<SkillResult> {
 
 async function executeDraft(ctx: SkillContext): Promise<SkillResult> {
   try {
+    const caps = await resolveLegacyQuoteCapsForUser(ctx.userId, ctx.projectId);
+    if (!caps.canViewInternal) {
+      return { success: false, data: { costHidden: true }, summary: AGENT_QUOTE_DRAFT_HIDDEN_ZH, error: AGENT_QUOTE_DRAFT_HIDDEN_ZH };
+    }
+
     const templateType = (ctx.input.templateType as string) || "export_standard";
 
     const [project, inquiryItems, memory] = await Promise.all([
@@ -176,8 +189,8 @@ async function executeReview(ctx: SkillContext): Promise<SkillResult> {
       }
     }
 
-    const quote = await db.projectQuote.findUnique({
-      where: { id: quoteId },
+    const quote = await db.projectQuote.findFirst({
+      where: { id: quoteId, projectId: ctx.projectId },
       include: {
         lineItems: { orderBy: { sortOrder: "asc" } },
         project: {
@@ -227,48 +240,53 @@ async function executeReview(ctx: SkillContext): Promise<SkillResult> {
       isInternal: l.isInternal,
     }));
 
-    const ruleChecks = runQuoteChecks(header, lines);
+    const caps = await resolveLegacyQuoteCapsForUser(ctx.userId, ctx.projectId);
+    const costHidden = !caps.canViewInternal;
+    const ruleChecks = runQuoteChecks(header, lines, undefined, { costHidden });
     const ruleCounts = countByType(ruleChecks);
 
     let aiReview: Record<string, unknown> | null = null;
-    try {
-      const prompt = getQuoteReviewPrompt({
-        templateType: quote.templateType,
-        header: {
-          currency: header.currency,
-          tradeTerms: header.tradeTerms,
-          paymentTerms: header.paymentTerms,
-          deliveryDays: header.deliveryDays,
-          validUntil: header.validUntil,
-          moq: header.moq,
-          originCountry: header.originCountry,
-        },
-        lineItems: lines.map((l) => ({
-          category: l.category, itemName: l.itemName,
-          quantity: l.quantity, unitPrice: l.unitPrice,
-          totalPrice: l.totalPrice, costPrice: l.costPrice,
-        })),
-        totals: {
-          subtotal: decToNum(quote.subtotal) ?? 0,
-          internalCost: decToNum(quote.internalCost) ?? 0,
-          profitMargin: decToNum(quote.profitMargin),
-        },
-        projectDescription: quote.project.description,
-        supplierQuoteCount,
-      });
+    // 看不到成本的人不调模型：审查的输入就是每行成本价、内部成本与利润率（aiReview: null 与 AI 失败时形状相同）
+    if (!costHidden) {
+      try {
+        const prompt = getQuoteReviewPrompt({
+          templateType: quote.templateType,
+          header: {
+            currency: header.currency,
+            tradeTerms: header.tradeTerms,
+            paymentTerms: header.paymentTerms,
+            deliveryDays: header.deliveryDays,
+            validUntil: header.validUntil,
+            moq: header.moq,
+            originCountry: header.originCountry,
+          },
+          lineItems: lines.map((l) => ({
+            category: l.category, itemName: l.itemName,
+            quantity: l.quantity, unitPrice: l.unitPrice,
+            totalPrice: l.totalPrice, costPrice: l.costPrice,
+          })),
+          totals: {
+            subtotal: decToNum(quote.subtotal) ?? 0,
+            internalCost: decToNum(quote.internalCost) ?? 0,
+            profitMargin: decToNum(quote.profitMargin),
+          },
+          projectDescription: quote.project.description,
+          supplierQuoteCount,
+        });
 
-      const raw = await createCompletion({
-        systemPrompt: "你是报价审查专家。输出 JSON 审查报告。只输出 JSON。",
-        userPrompt: prompt,
-        mode: "normal",
-        maxTokens: 3000,
-      });
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        aiReview = JSON.parse(jsonMatch[0]);
+        const raw = await createCompletion({
+          systemPrompt: "你是报价审查专家。输出 JSON 审查报告。只输出 JSON。",
+          userPrompt: prompt,
+          mode: "normal",
+          maxTokens: 3000,
+        });
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          aiReview = JSON.parse(jsonMatch[0]);
+        }
+      } catch {
+        // AI 审查失败时继续用规则检查结果
       }
-    } catch {
-      // AI 审查失败时继续用规则检查结果
     }
 
     const issues: CheckIssue[] = ruleChecks
@@ -289,7 +307,7 @@ async function executeReview(ctx: SkillContext): Promise<SkillResult> {
 
     return {
       success: true,
-      data: { ruleChecks, ruleCounts, aiReview, checkReport },
+      data: { ruleChecks, ruleCounts, aiReview, checkReport, ...(costHidden ? { costHidden: true } : {}) },
       summary: `审查完成：评分 ${score}，${ruleCounts.passed} 项通过，${ruleCounts.issues} 项问题（${ruleCounts.urgent} 项高风险）`,
       checkReport,
     };

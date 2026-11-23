@@ -21,6 +21,7 @@ import { useCurrentUser } from "@/lib/hooks/use-current-user";
 import { useOrganizations } from "@/lib/hooks/use-organizations";
 import { canViewAdminPages } from "@/lib/permissions-client";
 import { cn } from "@/lib/utils";
+import { AUDIT_COST_HIDDEN_HINT_ZH } from "@/lib/audit/redact-finance";
 
 interface AuditLogRow {
   id: string;
@@ -120,6 +121,8 @@ function AuditLogsContent() {
   const [page, setPage] = useState(parseInt(searchParams.get("page") ?? "1", 10) || 1);
 
   const [selectedLog, setSelectedLog] = useState<AuditLogDetail | null>(null);
+  /** FIX-26：这条记录里的成本 / 毛利类数值因为没有财务查看权被置空了 */
+  const [selectedCostHidden, setSelectedCostHidden] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const loadLogs = useCallback(() => {
@@ -169,10 +172,12 @@ function AuditLogsContent() {
   async function openDetail(logId: string) {
     setDetailLoading(true);
     try {
-      const d = await apiJson<{ log?: AuditLogDetail }>(`/api/audit-logs/${logId}`);
+      const d = await apiJson<{ log?: AuditLogDetail; costHidden?: boolean }>(`/api/audit-logs/${logId}`);
       setSelectedLog(d.log ?? null);
+      setSelectedCostHidden(d.costHidden === true);
     } catch {
       setSelectedLog(null);
+      setSelectedCostHidden(false);
     } finally {
       setDetailLoading(false);
     }
@@ -383,6 +388,12 @@ function AuditLogsContent() {
                     </div>
                   ))}
                 </div>
+
+                {selectedCostHidden && (
+                  <p className="rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted">
+                    {AUDIT_COST_HIDDEN_HINT_ZH}
+                  </p>
+                )}
 
                 {selectedLog.beforeData && (
                   <div>

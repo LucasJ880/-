@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireProjectReadAccess } from "@/lib/projects/access";
 import { db } from "@/lib/db";
+import { legacyQuoteWriteForbiddenZh } from "@/lib/quote/finance-view";
+import { resolveLegacyQuoteCaps } from "@/lib/quote/legacy-access";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -9,11 +11,17 @@ type Ctx = { params: Promise<{ id: string }> };
  *
  * 将 AI 投标方案生成的报价草稿保存为正式报价单（含行项目）。
  * body: { draft: { header, lines[], summary }, templateType }
+ * FIX-26：要能编辑报价（与新建同口径），否则 403、不读请求体、不写库。
  */
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
   const access = await requireProjectReadAccess(request, id);
   if (access instanceof NextResponse) return access;
+
+  const caps = await resolveLegacyQuoteCaps(access);
+  if (!caps.canEdit) {
+    return NextResponse.json({ error: legacyQuoteWriteForbiddenZh(caps.hintReason) }, { status: 403 });
+  }
 
   const body = await request.json();
   const { draft, templateType = "export_standard" } = body;

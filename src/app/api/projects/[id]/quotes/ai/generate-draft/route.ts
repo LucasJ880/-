@@ -5,13 +5,24 @@ import { createCompletion } from "@/lib/ai/client";
 import { getQuoteDraftPrompt } from "@/lib/ai/prompts";
 import { buildMemoryBlock, getProjectAiMemory } from "@/lib/ai/memory";
 import type { TemplateType } from "@/lib/quote/types";
+import { legacyQuoteAiDraftForbiddenZh } from "@/lib/quote/finance-view";
+import { resolveLegacyQuoteCaps } from "@/lib/quote/legacy-access";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * FIX-26：起草把供应商报价交给模型、返回带成本价的草稿，草稿只能应用到编辑器里——只给能编辑报价的人；
+ * 不能编辑的人 403、不读请求体、不调模型。有资格的人请求与模型输入不变。
+ */
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
   const access = await requireProjectReadAccess(request, id);
   if (access instanceof NextResponse) return access;
+
+  const caps = await resolveLegacyQuoteCaps(access);
+  if (!caps.canEdit) {
+    return NextResponse.json({ error: legacyQuoteAiDraftForbiddenZh(caps.hintReason) }, { status: 403 });
+  }
 
   const body = await request.json();
   const templateType = (body.templateType ?? "export_standard") as TemplateType;

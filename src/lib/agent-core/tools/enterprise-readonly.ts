@@ -7,6 +7,8 @@
 import { db } from "@/lib/db";
 import { canSeeResource, salesAssignableScope } from "@/lib/rbac/data-scope";
 import { listProjectSimilaritiesForApi } from "@/lib/projects/similarity";
+import { probeProjectAccess } from "@/lib/supplier-intel/access";
+import { resolveLegacyQuoteCapsForUser } from "@/lib/quote/legacy-access";
 import { registry } from "../tool-registry";
 import type { ToolExecutionContext } from "../types";
 import { ok } from "./sales-helpers";
@@ -531,6 +533,12 @@ registry.register({
 
     const project = await loadOrgProject(String(ctx.args.projectId), ctx.orgId);
     if (!project) return { success: false, data: { error: "项目不存在或不属于当前组织" } };
+    // FIX-26：先按项目读权限判调用者（不是项目成员的普通组织成员拿不到）；不过时与「项目不在本组织」同一句
+    if (!(await probeProjectAccess({ orgId: ctx.orgId, userId: ctx.userId }, project.id, "read"))) {
+      return { success: false, data: { error: "项目不存在或不属于当前组织" } };
+    }
+    // 利润率（含报价引擎写进同一列的毛利率）只给有财务查看权的人；小计与总额照旧
+    const caps = await resolveLegacyQuoteCapsForUser(ctx.userId, project.id);
 
     const quotes = await db.projectQuote.findMany({
       where: { projectId: project.id },
@@ -552,7 +560,8 @@ registry.register({
         updatedAt: true,
       },
     });
-    return ok({ quotes });
+    if (caps.canViewInternal) return ok({ quotes });
+    return ok({ quotes: quotes.map((q) => ({ ...q, profitMargin: null })), costHidden: true });
   },
 });
 
