@@ -26,7 +26,7 @@
 |---|---|---|---|
 | 询价回信 | `src/lib/tender-rfq/inbound-parse.ts`：每个附件的文字与文件名先清理再判断有没有文字，并记下被换掉的 U+0000 个数（校验后类型 `attachmentsSeen` 每项可选 `nulCount`，只在大于 0 时出现；邮件正文里的 U+0000 不计数）；正文与附件拼好、截到 16000 字之后再清理（模型与证据核对共用这一份）。`src/lib/tender-rfq/inbound-apply.ts`：这次追加的整段报价备注写库前清理；附件一栏「已解析」后加那句提示 | 模型在勾选框处写空格：价格证据 `EVIDENCE_NOT_IN_TEXT` 被作废，不报错、不通知，条目变「已回复」、备注「缺：价格」；模型照抄：备注带 U+0000，`recordQuote` 写库失败（报错只留前 300 字，22021 被截掉，只看得到 ``Invalid `db.inquiryItem.update()` invocation…``），记 `rfq_inbound:failed`，通知「有一封供应商回信解析失败，请手工录入」，条目停在「已回复」 | 两种模型都通过核对：单价 12.5、交期 30 天入表，条目「已报价」，照常发「报价了」通知与既有 Muse 事件（带 / 不带勾选框的同一封回信，新增通知逐字相同）；备注附件一栏「附件：q.pdf 已解析（有 1 处符号没读出来，已当空格处理，多半是勾选框；请打开原件核对勾选项和价格）」；只有 U+0000 的附件记「附件无可提取文本（可能是扫描件）」 |
 | 采购记录附件 | `src/lib/procurement-records/attachments.ts`：PDF 每页文字先清理再判断要不要 OCR；工作表文字、单元标签、`sheetRangesJson` 的工作表名先清理；明细写库前整条过 `toStorableJson`。CSV / TXT 不改（G3-A） | 勾选框 PDF / xlsx 单元格 `_x0000_`：写解析单元报 22021，附件停在「解析中」；一行明细在第 1000 字处劈开表情符号：附件「已解析」、明细为零、按口径分析没跑（`InvalidArg`） | 都「已解析」，页文字「…check the box.\n  The Bidder declares…」，只有 U+0000 的页标需要 OCR；长明细入库、原文片段以 U+FFFD 结尾、待复核，分析照常多一个版本 |
-| AI 对话附件与对话标题 | `src/lib/chat-attachments/core.ts`：新方式先清理文件名与正文再判空与长度；旧方式截断（文件名 200 字、正文 15 万字）之后清理，清理掉东西且只剩空白时按没有附件处理，文件名被清理改动时再去首尾空白；新增 `storableTitle`（截断再清理）。6 处标题改用它：`src/app/api/ai/threads/[threadId]/messages/route.ts` 3 处（`:432`、`:721`、`:1242`，60 字）、`src/app/api/trade/chat/[sessionId]/messages/route.ts` 1 处（`:124`，30 字，「...」在清理之后拼）、`src/lib/assistant/followup-task.ts` 1 处（`:236`，60 字）、`src/lib/assistant/dispatch.ts` 1 处（`:196`，主助手分流落库，60 字，多维审查补上）。`src/components/chat-attachments/use-chat-attachments.ts:129`：浏览器上传判空按同一条规则。`src/lib/market-intelligence/research-runtime.ts`：市场证据截到 2 万字后清理 | 附件正文带 U+0000：写消息 22P05，接口 500，消息没存下；旧客户端文件名 / 标题 / 市场证据在截断处劈开表情符号：`InvalidArg`（外贸对话是消息与回复都已存、模型已调用之后才 500）；只有 U+0000 的文档在浏览器里显示可发送 | 消息存下、附件正文该处为空格；标题写入成功，末尾会显示一个「�」；调研任务建成（等待研究）；只有 U+0000 的文档上传时就提示「没有可提取的文字（扫描件请直接传图片）」，服务端收到这样的附件返回 **400「附件「〈文件名〉」没有可提取的文字（扫描件请直接传图片）」**（正文为空白的附件原来的 400「附件「…」没有可分析的文本内容」也改成这句） |
+| AI 对话附件与对话标题 | `src/lib/chat-attachments/core.ts`：新方式先清理文件名与正文再判空与长度；旧方式截断（文件名 200 字、正文 15 万字）之后清理，清理掉东西且只剩空白时按没有附件处理，文件名被清理改动时再去首尾空白；新增 `storableTitle`（截断再清理）。6 处标题改用它：`src/app/api/ai/threads/[threadId]/messages/route.ts` 3 处（`:432`、`:721`、`:1242`，60 字）、`src/app/api/trade/chat/[sessionId]/messages/route.ts` 1 处（`:124`，30 字，「...」在清理之后拼）、`src/lib/assistant/followup-task.ts` 1 处（`:236`，60 字）、`src/lib/assistant/dispatch.ts` 1 处（`:196`，主助手分流落库，60 字，多维审查补上）。`src/components/chat-attachments/use-chat-attachments.ts:129`：浏览器上传判空按同一条规则。`src/lib/market-intelligence/research-runtime.ts`：市场证据截到 2 万字后清理 | 附件正文带 U+0000：写消息 22P05，接口 500，消息没存下；旧客户端文件名 / 标题 / 市场证据在截断处劈开表情符号：`InvalidArg`（外贸对话是消息与回复都已存、模型已调用之后才 500）；只有 U+0000 的文档在浏览器里显示可发送 | 消息存下、附件正文该处为空格；标题写入成功，末尾会显示一个「�」；调研任务建成（等待研究）；只有 U+0000 的文档上传时就提示「没有可提取的文字（扫描件请直接传图片）」，服务端收到这样的附件返回 **400「附件「〈文件名〉」没有可提取的文字（扫描件请直接传图片）」**；没有这两类字符、正文本来就是空白或缺字段的附件（含图片正文为空）照旧 400「附件「〈文件名〉」没有可分析的文本内容」，逐字不变 |
 | 产品资料录入 | `src/lib/product-content/intake/analyze.ts`：事实抽取函数第一步清理传进来的文字（文件 PDF / Excel、网页、文字、语音转写四种来源都经这一处） | 规格 PDF 一行「\u0000 Color: Red」：写事实 22021，「分析输入」停在 running，任务停在「分析中」（ANALYZING），接口 500，每次重跑一样；Excel 文字在 15 万字截断处劈开表情符号同样失败 | 事实 color = Red、原文行「Color: Red」，这一步完成，任务按缺字段照常到 NEEDS_INPUT / PLAN_READY；劈开处的事实值以 U+FFFD 结尾 |
 | 报价成本表导入 | `src/lib/quote-engine/import/import-service.ts`（只改 `createImportFromUpload` 内部）：抽取结果出来马上整份过 `toStorableJson`（对可引用单元与 AI 归类之前）；写导入记录前抽取结果、元数据与供应商名再清理一遍（AI 归类给的说明在这之后才定）；失败原因 `e.message.slice(0, 500)` → `toStorableParseError(e.message)` | 三份夹具（说明格带 `_x0000_`、说明第 300 字处劈开表情符号、工作表名带 `_x0000_`）整份导入都「失败」，`errorMessage` 含 `22P05` 或 `unexpected end of hex escape`，界面「抽取失败：…」；AI 归类给的说明带这两类字符时同样失败 | 状态「待审核」，说明「Flag  nylon 3x5」；第 300 字处劈开表情符号的说明与原文片段以 U+FFFD 结尾；工作表名带 U+0000 的行照常带上可引用单元的页号与标签；AI 给的说明入库为「Widget  assembly �」 |
 
@@ -47,12 +47,13 @@
    - proposal：Impact「接口」补旧客户端 400「消息不能为空」，Muse 一条改为「比价表里多出以前被作废的价格与交期；那句提示不在任何回读字段里，Muse 不会念」，开工一条改为「没有共同代码文件」。
    - tasks 7.1：后续任务 7 → 9 条，另登记 FIX-24；「| 待定 |」原有条数写到 `2a0eb964` 的 19。
    - 规格要求条数是 **14**（`grep -c '^### Requirement'`），上一版报告写 13 是错的，已改。
+5. 交叉验证（在 `41870a9a` 上）后按协调会话的意见改：AI 对话 400 的新措辞只在清理确实清掉了这两类字符、清理后只剩空白时用；没有这两类字符、正文本来就是空白或缺字段的附件（含图片附件正文为空）照旧「没有可分析的文本内容」——上一轮把所有空白正文都改成了新句子，对已经传了图片的人说「直接传图片」不对，也违反「不含这两类字符的输入改前改后逐字相同」（规格补「本来就是空白的附件正文」场景，design D5、proposal What / Impact、本报告 §2、TASKFLOW 同步）；补一个多附件计数用例抓住 4 个存活变异；§5 已知限制加两条。规格「AI 对话附件在服务端收下时清理」的正文因此超过 500 字（`openspec validate --strict` 告警），把文件名去空白、旧客户端判空等细节移进场景（新增「旧客户端的文字只有 U+0000」场景），正文 353 字，要求条数仍是 14。
 
 ## 4. 验证
 
 ### 4.1 新增测试（都已注册：前者进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`，后者只进 `scripts/test-all.sh`）
 
-`env -u DATABASE_URL -u DIRECT_URL npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts`（不用数据库）：真实 unpdf 读 FIX-13 夹具现拼的 PDF、SheetJS 现写的 xlsx、字符串现拼的截断场景；询价回信两个假模型（勾选框处写空格 / 原样照抄收到的那一行）；另有接线断言（读源码）。**78 过 0 败**；把本 change 改的 13 个源文件换回 `origin/main` 版本：21 过 50 败后在成本表段中途抛错（`toStorableJson is not a function`）。CI 只跑这个不连库的测试，上游漏清理（询价附件文字、拼好的整段文字、新方式附件这几处）只有它在 CI 里能抓到，所以它必须一直留在 CI 子集。
+`env -u DATABASE_URL -u DIRECT_URL npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts`（不用数据库）：真实 unpdf 读 FIX-13 夹具现拼的 PDF、SheetJS 现写的 xlsx、字符串现拼的截断场景；询价回信两个假模型（勾选框处写空格 / 原样照抄收到的那一行）；另有接线断言（读源码）。**81 过 0 败**；把本 change 改的 13 个源文件换回 `origin/main` 版本：22 过 52 败后在成本表段中途抛错（`toStorableJson is not a function`）。CI 只跑这个不连库的测试，上游漏清理（询价附件文字、拼好的整段文字、新方式附件这几处）只有它在 CI 里能抓到，所以它必须一直留在 CI 子集。
 
 `NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts`（隔离库 `qy_iso_f`）：五个入口各走一遍真实写库。**38 过 0 败**；13 个源文件换回 `origin/main`：**1 过 37 败**（唯一通过的是「同一封回信再跑一次按已处理跳过」）。
 
@@ -89,6 +90,12 @@
 | C1 | 分流落库标题换回 `.slice(0, 60)` | 隔离库 36/1；不用库 75/3 | 分流落库标题以 U+FFFD 结尾（变异下 InvalidArg）；接线 |
 | U3 | 浏览器上传判空换回 `text.trim()` | 不用库 77/1 | 浏览器判空接线 |
 | S3 / 正文 U+0000 | `inbound-parse.ts` 换回 `origin/main` 版本 | 不用库两项都失败 | 数字中间的 U+0000：改动前证据被作废；正文 U+0000：改动前价格被作废 |
+| 交叉验证：400 措辞 | 所有空白正文都用新句子（即 `41870a9a` 的写法） | 不用库 80/1 | 本来就是空白 / 图片正文为空 / 没有正文字段 → 原句 |
+| 交叉验证：400 措辞 | 所有空白正文都用原句 | 不用库 80/1 | 正文只有 U+0000 → 新句子 |
+| 交叉验证 M02 | `nulCount` 为 0 也写进 `attachmentsSeen` | 不用库 79/2 | 两个附件逐字断言；没有 U+0000 的附件不多字段 |
+| 交叉验证 M03 | 每个已解析附件都记全封总数 | 不用库 79/2 | 两个附件逐字断言；b.pdf 只写「已解析」 |
+| 交叉验证 M20 | `countNul` 跳过第 0 位 | 不用库 79/2 | 两个附件逐字断言（a.pdf 变成 2）；备注一栏 |
+| 交叉验证 M22 | 正文里的 U+0000 计进第一个附件 | 不用库 79/2 | 两个附件逐字断言（a.pdf 变成 4）；备注一栏 |
 
 审查员另列的 Q04 / Q05（冗余防御，实际等价）、Q06 / Q07（没有注入缝，`toStorableParseError` 已单测）、D02（文字 / 语音来自库）按清单不补。
 
@@ -96,22 +103,22 @@
 
 `inbound-parse` 38、`inbound-apply` 72、`notes-parse` 17、`tracking-notify-wiring` 67、`chat-attachments` 54、`durable-followup-pure` 73、`durable-followup-m1.isolated` 61、`daily-brief-scenario` 6、`dispatch-policy` 11、`human-signals` 80、`mail-untrusted-guard` 56、`tool-list-modules` 37、`mail-tool-visibility` 69、`effective-platform-role` 63、`digital-employee` 50、`residual-reads` 76、`b1-tenant-context-static` 20、`research-runtime` 13、`quote-import` 74、`quote-ops-contract` 75、`disclosure-analysis-pure` 50、`procurement-records-db.isolated` 158、`priority-conflict` 10、`page-parse` 29。`git diff origin/main -- src/lib/tender-rfq/inbound-sync.ts src/lib/tender-rfq/inbound-contract.ts src/lib/tender-rfq/notes-parse.ts` 为空。
 
-### 4.4 门禁（多维审查修订后、合入 main `2a0eb964` 后重跑）
+### 4.4 门禁（交叉验证修订后、合入 main `325cbdc0` 后重跑）
 
 | 门禁 | 命令 | 结果 |
 |---|---|---|
-| 全量 | 删库重建 `qy_full_fix14`（`DROP / CREATE DATABASE` 后 `npx prisma migrate deploy`）上 `npm test < /dev/null`（提交 `101efab9`） | **731/742 通过、11 失败**：10 项与本机 main 基线逐条相同（来信观察 DB（MAIL-2）、Sunny 工艺单 DB、Phase3A-3 Approvals Smoke、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Autopilot A2-P0 Isolated E2E、Phase3A-5 Overview Acceptance、T4 授标情报真实 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草第 1 轮 DB）；多出的 1 项「日历观察 DB 端到端（CAL-1）」79/80，失败的是「GET 无 syncToken / pageToken 字样」——断言里有一条 `!g1.text.includes("t2")`，那次运行的时间戳夹具是 `mwt2hvol`，本身就含「t2」（`src/lib/calendar-watch/__tests__/calendar-watch-db.isolated.test.ts:415`），与本 change 无关；在 `qy_iso_f` 单独重跑两次都是 80/80。本 change 的两个新测试 78 / 38 全过，`extracted-text` 53 过 |
-| CI 子集 | `env -u DATABASE_ENVIRONMENT DATABASE_URL=…ci… DIRECT_URL=…ci… JWT_SECRET=ci-only-… NODE_ENV=test npm run test:ci` | 末行 `CI unit subset PASS`（新测试 78 过） |
+| 全量 | 删库重建 `qy_full_fix14`（`DROP / CREATE DATABASE` 后 `npx prisma migrate deploy`）上 `npm test < /dev/null`（提交 `3ecdce90`） | **735/745 通过、10 失败**，与本机 main 基线逐条相同：来信观察 DB（MAIL-2）、Sunny 工艺单 DB、Phase3A-3 Approvals Smoke、Phase3A-4 Governance Smoke、Phase3A-4 Acceptance、Autopilot A2-P0 Isolated E2E、Phase3A-5 Overview Acceptance、T4 授标情报真实 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草第 1 轮 DB；三项偶发（Supplier Intel S1 T20、网站询盘并发认领、CAL-1 日历观察 DB）这次都通过。本 change 的两个新测试 81 / 38 全过，`extracted-text` 53 过 |
+| CI 子集 | `env -u DATABASE_ENVIRONMENT DATABASE_URL=…ci… DIRECT_URL=…ci… JWT_SECRET=ci-only-… NODE_ENV=test npm run test:ci` | 末行 `CI unit subset PASS`（新测试 81 过） |
 | 类型 | `NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` | 退出码 0 |
 | lint | `npm run lint:baseline` | PASS（errors 38，没有新增 fingerprint） |
-| 测试注册 | `bash scripts/check-test-registry.sh` | OK（已注册 708 个，基线 66 条未增） |
-| 运行时架构 | `bash scripts/test-runtime-architecture.sh` | PASS（9 过） |
-| OpenSpec | `openspec validate extracted-text-nul-other-paths --strict` | valid |
-| 归档演练 | 把 `openspec/` 拷到 scratchpad 里跑 `openspec archive extracted-text-nul-other-paths --yes`，前后各跑 `openspec validate --specs --strict` | 归档前 156 过 0 败 → 归档后 157 过 0 败，「+ 14 added」；每条要求正文最长 465 字（≤ 500） |
+| 测试注册 | `bash scripts/check-test-registry.sh` | OK（已注册 710 个，基线 66 条未增） |
+| 运行时架构 | `bash scripts/test-runtime-architecture.sh` | PASS |
+| OpenSpec | `openspec validate extracted-text-nul-other-paths --strict` | valid（没有告警） |
+| 归档演练 | 把 `openspec/` 拷到 scratchpad 里跑 `openspec archive extracted-text-nul-other-paths --yes`，前后各跑 `openspec validate --specs --strict` | 归档前 157 过 0 败 → 归档后 158 过 0 败，「+ 14 added」，没有超过 500 字的告警 |
 | 冻结面 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json .claude/launch.json openspec/specs openspec/config.yaml` | 为空 |
-| 开关前提 | `grep -c "FIX-14 部署之后" docs/QINGYAN_CHAIN-0_ENV_CHECK.md`；`grep -n "^| CHAIN-0 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`；`grep -n "^| FIX-14 \|^| FIX-24 "`；`grep -c "| 待定 |"` | 2；CHAIN-0 行含「FIX-14 部署之后」与四条前提；FIX-14 在 `:299`（FIX-13 在 `:298`）、FIX-24 在 `:309`；28（main `2a0eb964` 原有 19 + 9） |
+| 开关前提 | `grep -c "FIX-14 部署之后" docs/QINGYAN_CHAIN-0_ENV_CHECK.md`；`grep -n "^| CHAIN-0 " docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`；`grep -n "^| FIX-14 \|^| FIX-24 "`；`grep -c "| 待定 |"` | 2；CHAIN-0 行含「FIX-14 部署之后」与四条前提；FIX-14 在 `:299`（FIX-13 在 `:298`）、FIX-24 在 `:309`；28（main 原有 19 + 9） |
 
-第一轮（审查前，提交 `b4f416d0`）全量为 722/732、10 项失败与基线逐条相同。
+前几轮：审查前（`b4f416d0`）722/732、10 项与基线相同；多维审查修订后（`101efab9`）731/742、11 项失败，多出的 CAL-1 日历观察 DB 是夹具时间戳 `mwt2hvol` 含「t2」撞上断言 `!g1.text.includes("t2")`（`src/lib/calendar-watch/__tests__/calendar-watch-db.isolated.test.ts:415`），与本 change 无关，单独重跑两次 80/80。
 
 ## 5. 没验证到的与已知限制
 
@@ -130,6 +137,8 @@
 - **整份只有 U+0000 的附件被说成「扫描件」**：询价回信记「附件无可提取文本（可能是扫描件）」、采购 PDF 整页只有 U+0000 时记「需要 OCR」、AI 对话提示「扫描件请直接传图片」——下一步（人工看原件 / 传图片）是对的，原因写的不准。
 - **工作表名清理后撞名**：「A\u0000」与「A 」两张表清理后同名，成本表可引用单元的 `evidence.sheet` 可能指到另一张、采购附件的单元标签与 `sheetRangesJson` 出现两条同名（`import-service.ts:93–110`、`:164`；`attachments.ts:139`）。只有文件作者能构造（Excel 界面不允许这样的表名），不越权；改动前整份导入失败。
 - **`toStorableJson` 键名撞键时后出现的覆盖**：`{"a\u0000":1,"a ":2}` → `{"a ":2}`。三个调用点的键都是代码写死的字段名，实际不撞；函数注释写明只用于键名由代码决定的数据。
+- **今后对审计 `afterData` 做 `::jsonb` 的查询会撞上转义**：部署后入表的回信，审计 `afterData` 里 `prices` 的证据片段可能带 `\u0000` / 落单 `\ud83d` 这类转义（审计先 `JSON.stringify` 再存 text 列，写库不失败），PostgreSQL 把这样的 text 转 `jsonb` 时会报错（22P05 / 22P02）。§9 的查询只看 `createdAt < deploy_at` 的行，不受影响；以后有人对部署后的行做 `::jsonb` 查询要先排除或改用文本匹配。
+- **询价回信的失败审计没有收口**：`src/lib/tender-rfq/inbound-sync.ts:260` 的 `error.slice(0, 300)`（写进 `:262–268` 的 `rfq_inbound:failed` 审计）没经 `toStorableParseError`；审计是 String 列、先 `JSON.stringify`，写库不会失败，超出本次范围，不改。
 - **主助手页收到 400 时刚发的消息会消失**：已有回复的对话里，发送收到 400（比如这次的「没有可提取的文字…」）时页面会「找回回复」，刚发的消息消失、也不显示报错（`src/app/(main)/assistant/page.tsx:793–795`、`:319–370`）；改动前 500 也一样，不是变坏。浏览器上传时已经先提示，正常使用碰不到这个 400。登记为后续任务 9。
 
 ## 6. 没有开关，合并即在生产生效；回退办法
@@ -290,8 +299,20 @@ ROLLBACK;
 | 6.1 门禁 + 7.1 报告、开关前提与 TASKFLOW | `503e99f9` |
 | 多维审查修订：代码与测试（合入 main `2a0eb964`） | `52f4eb22` |
 | 多维审查修订：四件套、报告、核查表与 TASKFLOW | `101efab9` |
-| 多维审查修订：门禁数字写进报告 | 本提交 |
+| 多维审查修订：门禁数字写进报告 | `41870a9a` |
+| 交叉验证修订：代码与测试（合入 main `325cbdc0`） | `3ecdce90` |
+| 交叉验证修订：四件套、报告、TASKFLOW；门禁数字 | 本提交 |
 
 ## 13. 多维审查
 
-（留空，由协调会话补）
+五个维度各一个子 agent，各自在 `503e99f9` 的干净快照上做，互相不看结论——**都没有阻断项**：
+
+| 维度 | 主要发现 | 处理 |
+|---|---|---|
+| 正确性与回归（145 组正常输入改前改后对照 + 隔离库 8 组真实写库） | 正常输入逐字相同；「不进模型提示」字面不成立（报价备注整段进报价草稿 / 报价分析两个既有提示）；`toStorableJson` 撞键；成本表第二次清理的理由写错 | 措辞收窄并列出两个既有消费者；撞键写进注释与已知限制；理由改正 |
+| 安全 / 隐私与八条硬纪律（36 种注入输入） | 八条都遵守；开关前提写得不全；U+0000 对证据闸透明（数字拼接）；工作表名清理后撞名；**既有问题：供应商附件文件名能伪造报价备注字段** | 核查表第 7 行写全前提；Risks 写明；已知限制；文件名伪造另开 **FIX-24**（询价开关前提 ④） |
+| 规格—代码—测试一致性（改前数字重跑、§9 SQL 实跑、归档演练） | 主助手分流落库的标题漏了一处；§9 SQL 照原样跑不通；要求条数是 14 不是 13 | `dispatch.ts:196` 一并清理（6 处）；SQL 修到能跑并带项目名 / 供应商 / 用户；条数改正 |
+| 使用流畅与文案 | 提示句基本看不到（只在投标页询价表备注列悬停可见）；只有勾选框字形的对话附件前后端两个说法；白话说明太长、有术语 | 如实写清在哪看得到（露出来另登记后续）；前端判空把 U+0000 当空白、前后端同一句；提示措辞改通俗；白话重写 |
+| 测试质量（64 个变异：41 行为断言抓住、12 只靠源码匹配、11 存活，其中 2 个等价） | 9 个真缺口：个数计数、提示进模型提示换措辞、400 状态码、成本表 AI 归类路径、产品资料落单代理字符等 | T1–T11 全补，每个在对应变异下失败 |
+
+**交叉验证**（另起一个没参与实现与上面审查的子 agent，在 `41870a9a` 上亲自跑：五个入口 6 组正常输入改前改后对照 124 个输出键、新提示句「；」回读 35 / 35、自己设计的 22 个变异抓 18、与 main `325cbdc0` 试合无冲突并在合并后的树上跑门禁、§9 SQL 实跑、归档演练）：**代码可以合并**。它提的：400 新措辞对没有这两类字符的空正文附件也生效（改成只在清掉了东西时用新句）；4 个存活变异（补一个多附件用例）；`afterData::jsonb` 与失败审计未收口（写进已知限制）——都在 `3ecdce90`（代码与测试）与本节所在提交（文档）处理，见 §3。这一轮之后：不用库测试 78 → 81（空白正文 / 图片空正文 / 没有正文字段照旧原句；正文带 U+0000 + 两个附件逐字断言个数），400 措辞两个方向的变异各 80/1，M02 / M03 / M20 / M22 各 79/2，还原后 81/0。

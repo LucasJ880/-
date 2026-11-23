@@ -15,7 +15,7 @@ FIX-13（#546）只修了项目文件的两条解析路径；询价回信、采�
 - 清理采购记录附件 PDF 每一页的文字，在判断该页是否需要 OCR 之前做。
 - 清理采购记录附件 Excel 每个工作表转出的文字、单元标签与记进工作表范围的工作表名。
 - 清理采购记录附件抽出的明细的每个文字字段，在按字数截断之后、写库之前做。
-- 清理 AI 对话附件的文件名与正文：新客户端的附件列表在「有没有可分析的文本」与长度校验之前清理；旧客户端的单个文件文字在截断（文件名 200 字、正文 15 万字）之后清理；新方式下清理后只剩空白的附件返回 400「附件「〈文件名〉」没有可提取的文字（扫描件请直接传图片）」（与浏览器上传时的提示同一句）；浏览器上传文档时按同一条规则判空，只有 U+0000 的文档当场提示。
+- 清理 AI 对话附件的文件名与正文：新客户端的附件列表在「有没有可分析的文本」与长度校验之前清理；旧客户端的单个文件文字在截断（文件名 200 字、正文 15 万字）之后清理；新方式下正文清理掉了这两类字符、清理后只剩空白的附件返回 400「附件「〈文件名〉」没有可提取的文字（扫描件请直接传图片）」（与浏览器上传时的提示同一句），本来就是空白的正文照旧「没有可分析的文本内容」；浏览器上传文档时按同一条规则判空，只有 U+0000 的文档当场提示。
 - 清理对话标题：主助手 / 项目「问青砚」（3 处）、外贸对话（1 处）、助手跟进任务（1 处）与主助手分流落库（1 处，多维审查补上）由消息文字或附件名生成、按 60 / 30 字截断的标题，在截断之后、写库之前清理（design G6，Lucas 2026-11-22 已定 A）。
 - 清理转为后台市场调研时写进调研任务输入的「市场证据」，在截断之后、写库之前做。
 - 清理产品资料任务每个输入（PDF、Excel、网页、文字、语音转写）的文字，在抽取产品事实之前做。
@@ -41,7 +41,7 @@ FIX-13（#546）只修了项目文件的两条解析路径；询价回信、采�
 - 依赖：FIX-13（#546）已于 2026-11-22 合并（main `13c7ed33`，FIX-13 最终提交 `f8cc2bdb`）；复用它的 `toStorableText` 与 `toStorableParseError`，以及测试夹具 `src/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf.ts`。
 - 代码：`src/lib/tender-rfq/inbound-parse.ts`、`src/lib/tender-rfq/inbound-apply.ts`；`src/lib/procurement-records/attachments.ts`；`src/lib/chat-attachments/core.ts`、`src/components/chat-attachments/use-chat-attachments.ts`（上传判空一行）、`src/app/api/ai/threads/[threadId]/messages/route.ts`、`src/app/api/trade/chat/[sessionId]/messages/route.ts`、`src/lib/assistant/followup-task.ts`、`src/lib/assistant/dispatch.ts`（标题一行）、`src/lib/market-intelligence/research-runtime.ts`；`src/lib/product-content/intake/analyze.ts`；`src/lib/quote-engine/import/import-service.ts`；`src/lib/files/extracted-text.ts`（加一个遍历函数）。
 - 文档（实现 PR 里改）：`docs/QINGYAN_CHAIN-0_ENV_CHECK.md`（「填写顺序」与第 7 行建议值）；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`（CHAIN-0 行的开关前提、新增 FIX-14 行）；新增 `docs/QINGYAN_FIX-14_REPORT.md`。
-- 接口：`POST /api/ai/threads/[threadId]/messages`、`POST /api/trade/chat/[sessionId]/messages` 对「附件正文只有 U+0000」的请求由写库失败的 500 改为 400「附件「〈文件名〉」没有可提取的文字（扫描件请直接传图片）」（正文为空白的附件原来的 400 也改成这句）；主助手的旧客户端只传文件文字、文字只有 U+0000 且没有消息正文时，由 500 改为既有的 400「消息不能为空」；其余接口的请求与返回形状不变。
+- 接口：`POST /api/ai/threads/[threadId]/messages`、`POST /api/trade/chat/[sessionId]/messages` 对「附件正文只有 U+0000」的请求由写库失败的 500 改为 400「附件「〈文件名〉」没有可提取的文字（扫描件请直接传图片）」；没有这两类字符、正文本来就是空白的附件照旧 400「附件「〈文件名〉」没有可分析的文本内容」，逐字不变；主助手的旧客户端只传文件文字、文字只有 U+0000 且没有消息正文时，由 500 改为既有的 400「消息不能为空」；其余接口的请求与返回形状不变。
 - 行为变化：以前因写库失败的询价回信、采购附件、对话消息、产品资料分析、成本表导入现在能成功；以前跨过 U+0000 的询价证据被作废，现在能通过核对；采购附件里去掉 U+0000 后有效文字不足 20 个的页改判「需要 OCR」（以前 U+0000 也算有效文字）；对话标题在截断处劈开表情符号时以 U+FFFD 结尾，不再让这一轮对话报错（外贸对话以前在消息与回复都已存下之后返回 500）。以前失败、现在入表的询价回信照常走既有的报价 / 回信通知、Muse 事件与定时检查（缺字段时起草追问卡，经审批或既有的跟进授权才发出）。
 - Muse：不改 `src/lib/muse-bridge/**`。间接影响：修好后入表的回信照常推既有的 `quote.parsed` / `missing_fields`（按钮指向 `compare` / `next_step` / `rfq`）与 `reply.received`（按钮指向 `status`）事件；比价表（含 `compare` 意图）里多出以前被作废的价格与交期；那句提示不在任何回读字段里，Muse 不会念。
 - 测试：新增 `src/lib/files/__tests__/extracted-text-other-paths.test.ts`（进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`）、`src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts`（只进 `scripts/test-all.sh`）；遍历函数的用例补进 FIX-13 已注册的 `src/lib/files/__tests__/extracted-text.test.ts`。
