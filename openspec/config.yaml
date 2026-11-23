@@ -8,6 +8,7 @@ schema: spec-driven
 #       Decision A（2026-10-23，PR #237：Muse 通道允许出供应商落地价）、PR #238 邮箱拆分、
 #       docs/QINGYAN_TENDER_P1-8_ADVISORY_PREFS_TASKBRIEF.md §2.2 / §5。
 #       PROC-1 例外（第 1、3 条，Lucas 2026-11-05 批准）：docs/QINGYAN_PROC-1_REPORT.md §9、design「与八条硬纪律的关系」。
+#       TREE-0 例外（第 7 条例外二，Evan 2026-11-22 拍板）：docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md「拍板结果」第 1–3、5 项。
 # "一个 change = 一个 PR"与"archive 时同步更新 TASKFLOW 状态"是 SDD-0 提议的约定。
 # ─────────────────────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ context: |
   4. 脱敏（Decision A，2026-10-23，PR #237）：Muse 通道不出的只有三样——毛利率、项目估值、我方最终报价（winningBidPrice）；所选供应商的落地价允许出。命中敏感内容即整段替换为脱敏提示，不做局部遮盖。price_scenario 不把目标毛利传进情景计算，成本线就是落地价本身，避免用两价反推毛利率；noteZh / assumptionsZh 仍不出。决定 B（2026-10-27，TASKFLOW S1）：销售意图只对管理角色输出商机金额，销售角色不输出。
   5. 不爬登录页：外部情报只用开放数据 / 公开页面，不触碰任何需要登录的站点。
   6. 邮箱分离（2026-10-23，PR #238）：展示发件人 fromEmail（project@）与授权邮箱 mailboxEmail（lucas@）是两个设置；EmailProvider 只按组织设置里的 mailboxEmail 查找，永不从请求 payload 取。
-  7. 确定性优先：next_step 等"下一步"判断是查表，不让 LLM 决定；不增加新的 LLM 调用；偏好记忆里不存任何金额。唯一例外（KPI-2，Evan 2026-10-29 拍板）：销售期间看板的 AI 解读可调用一次 LLM，只解读已算好的期间汇总；输出数字不在输入中即整段丢弃；开关默认关。
+  7. 确定性优先：next_step 等"下一步"判断是查表，不让 LLM 决定；不增加新的 LLM 调用；偏好记忆里不存任何金额。例外一（KPI-2，Evan 2026-10-29 拍板）：销售期间看板的 AI 解读可调用一次 LLM，只解读已算好的期间汇总；输出数字不在输入中即整段丢弃；开关默认关。例外二（TREE-0 情报调研树，Evan 2026-11-22 拍板，任务书 docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md）：调研树的分支子代理可在分支内由模型自行决定下一步搜索、读页或结束，上限为每支 16 次搜索、12 次读页、模型请求 30 次（每决定一步算一次，同一次请求里的重试与换备用模型不另算），每棵树 24 个分支、最深 5 层；条款员每棵树调用模型一次；核对员每条待核事实调用模型一次；以上上限写成常量，组织设置只能调低；调研树只由人发起（项目页「开始调研」或确认招标要求），任何定时任务里不跑，开关 TENDER_RESEARCH_TREE_ENABLED 默认关；骨架怎么分叉、单价、可比度、建议区间与结论句仍是规则与纯函数，模型不写结论里的数字。同一拍板反转两处既有范围：允许读公开网页全文（反转 CHAIN 任务书「系统不抓任何第三方网站」与供应商发现「只用搜索索引」；第 5 条不变）；允许给出建议报价区间（改 CHAIN-2「不推导建议报价」：区间只由代码从已核实的证据算，最终报价仍由人定）。
   8. 测试注册：任何 src/lib/**/__tests__/*.test.ts 必须在 scripts/test-all.sh 注册，否则 scripts/check-test-registry.sh 失败；历史欠账在 ci/test-registry-baseline.txt，只能删不能加。
 
   工作约定：
