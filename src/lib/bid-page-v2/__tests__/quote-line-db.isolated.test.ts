@@ -157,7 +157,8 @@ async function main() {
     ok(c2.status === 201 && c2.body.entryMode === null && String(c2.body.proModeHref).endsWith(`/quote-engine/${Q2}`) && q2!.quoteType === "PROJECT_SUPPLY_INSTALL" && !(q2!.engineJson as { entryMode?: string }).entryMode && q2!.costLines.length > 20, "供货加安装：照改版前模板新建、不记做法、返回专业模式地址", { body: c2.body, lines: q2!.costLines.length });
     const notLine = await getLine(P, Q2);
     ok(notLine.status === 409 && String(notLine.body.error).includes("专业模式"), "不是逐行报价：读逐行视图 409，叫去专业模式");
-    const bad = await create(P, { entryMode: "LUMP_SUM" });
+    // BIDPAGE-4 起 LUMP_SUM 是认识的做法（只报总价，新建是 201）；「不认识的做法 400」改用另一个未知值，被断言的行为不变
+    const bad = await create(P, { entryMode: "FREESTYLE" });
     ok(bad.status === 400, "不认识的做法：400");
 
     // —— 3. 读与存 ——

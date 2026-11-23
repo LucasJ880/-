@@ -198,12 +198,12 @@ export type EngineConfig = {
   standingOffer?: StandingOfferInput | null;
   /** 风险阈值（情景风险指示用，可配置） */
   marginRiskPct?: { high: number; medium: number };
-  /** 报价做法（BIDPAGE-3，新版「标书与报价」页写入）：LINE = 逐行报价。不参与计算；没有这个字段 = 专业模式 */
+  /** 报价做法（新版「标书与报价」页写入）：LINE = 逐行报价（BIDPAGE-3），LUMP_SUM = 只报总价（BIDPAGE-4）。不参与计算；没有这个字段 = 专业模式 */
   entryMode?: QuoteEntryMode;
 };
 
-/** 报价做法（engineJson.entryMode）。BIDPAGE-4 再加 LUMP_SUM */
-export const QUOTE_ENTRY_MODES = ["LINE"] as const;
+/** 报价做法（engineJson.entryMode）：LINE = 逐行报价（BIDPAGE-3），LUMP_SUM = 只报总价（BIDPAGE-4） */
+export const QUOTE_ENTRY_MODES = ["LINE", "LUMP_SUM"] as const;
 export type QuoteEntryMode = (typeof QUOTE_ENTRY_MODES)[number];
 
 export const DEFAULT_SCENARIOS: ScenarioParam[] = [

@@ -217,9 +217,9 @@ export type SaveLineModeRequest = z.infer<typeof saveLineModeRequestSchema>;
 
 export type LineModeIssue = { rowNo: number | null; messageZh: string };
 
-const squash = (s: string) => s.replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim();
+export const squash = (s: string) => s.replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim();
 /** 小数位不超过 n（与库里 Decimal 的位数一致；0.00004 这类会被取成 0 的数也在这里挡住） */
-const fitsDecimals = (v: number, n: number) => {
+export const fitsDecimals = (v: number, n: number) => {
   const t = String(Math.abs(v));
   if (/e-/i.test(t)) return false;
   if (/e\+/i.test(t)) return true;
@@ -347,7 +347,8 @@ export type InquiryQuoteOption = {
   currency: string;
 };
 
-export type OtherCostLineView = { id: string; description: string; category: string; amount: number | null; included: boolean };
+/** fromLump：带「只报总价」行身份的行（总价报价转成逐行后留下的项），界面写明来历，不说成专业模式里加的 */
+export type OtherCostLineView = { id: string; description: string; category: string; amount: number | null; included: boolean; fromLump?: boolean };
 
 export type LineModeView = {
   quote: { id: string; name: string | null; quoteNumber: string | null; quoteType: string; version: number; status: string; currency: string; updatedAt: string; frozen: boolean };
@@ -374,7 +375,8 @@ export type QuoteListItem = {
   quoteType: string;
   /** 报价币种（专业模式能改）；逐行报价只按加元做 */
   currency: string;
-  entryMode: "LINE" | null;
+  /** LINE = 逐行报价，LUMP_SUM = 只报总价（BIDPAGE-4），null = 专业模式 */
+  entryMode: "LINE" | "LUMP_SUM" | null;
   sellingPrice: number | null;
   updatedAt: string;
   isOurBid: boolean;
@@ -396,7 +398,7 @@ export const BUSINESS_TYPE_ZH: Record<BusinessType, string> = { SUPPLY_ONLY: "�
 export const BUSINESS_TYPE_TO_QUOTE_TYPE: Record<BusinessType, string> = { SUPPLY_ONLY: "SUPPLY_ONLY", SUPPLY_INSTALL: "PROJECT_SUPPLY_INSTALL", STANDING_OFFER: "STANDING_OFFER" };
 
 export const createQuoteRequestSchema = z.object({
-  entryMode: z.enum(["LINE"]),
+  entryMode: z.enum(["LINE", "LUMP_SUM"]),
   businessType: z.enum(BUSINESS_TYPES).default("SUPPLY_ONLY"),
   name: z.string().max(160).nullable().optional(),
 });
