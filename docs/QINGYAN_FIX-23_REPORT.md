@@ -192,14 +192,14 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm test`（`qy_full_fix23` 删掉重建、`prisma migrate deploy` 后跑，本机没有别的全量在跑时开始；日志 `/home/user/full-agent-tasks-recent-safe-view.log`） | FULL_TEST_RESULT_2 |
-| `npm run test:ci`（`env -u DATABASE_ENVIRONMENT` + CI 库） | CI_RESULT_2 |
+| `npm test`（`qy_full_fix23` 删掉重建、`prisma migrate deploy` 后跑，本机没有别的全量在跑时开始；日志 `/home/user/full-agent-tasks-recent-safe-view.log`） | **720 / 730 通过，10 失败，与 main 基线逐条相同**（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB）；上次多出的「Supplier Intel S1 审计脊柱 DB」这次通过，没有再出现。本 change 的三个测试在全量里：隔离库 85 / 0、截获参数 20 / 0、`dto.test.ts` 33 / 0；05:43–06:08，期间本机没有别的全量或 CI 子集在跑 |
+| `npm run test:ci`（`env -u DATABASE_ENVIRONMENT` + CI 库） | **CI unit subset PASS**（含 `dto.test.ts` 33 / 0、`authz-contract.test.ts` 13 / 0、`recent-route-args.test.ts` 20 / 0）；在全量跑完之后单独跑 |
 | `npm run typecheck` | 退出码 0 |
-| `npm run lint:baseline` | LINT_RESULT_2 |
-| `bash scripts/check-test-registry.sh` | REG_RESULT_2 |
+| `npm run lint:baseline` | PASS（current errors 38，baseline 53，无新增 fingerprint） |
+| `bash scripts/check-test-registry.sh` | OK：已注册 696 个；历史欠账基线剩余 66 条（`ci/test-registry-baseline.txt` 未改） |
 | `bash scripts/test-runtime-architecture.sh` | PASS（repo conformance 9 / 0）；`src/lib/runtime-architecture/` 对 main 无差异 |
 | `OPENSPEC_TELEMETRY=0 openspec validate agent-tasks-recent-safe-view --strict` | valid |
-| 归档演练 | ARCHIVE_RESULT_2 |
+| 归档演练 | 在临时副本里 `openspec archive agent-tasks-recent-safe-view --yes`：`agents/agent-tasks-recent-view` 新建，+10 条要求；`openspec validate --specs --strict` 归档前 151 / 0，归档后 152 / 0；主规格 10 条要求、27 个场景，正文最长 315 字 |
 | 开工前基线 | `dto.test.ts` 23 → 33、`authz-contract.test.ts` 9 → 13、`search-where.test.ts` 28 → 28，都不减 |
 
 第一版（`eb32b0e7`）的全量：714 / 725，10 项与基线相同，另 1 项「Supplier Intel S1 审计脊柱 DB」的 T20 并发计时断言（`childSettledAt` 比 `holderCommittedAt` 早 1 ms；当时本机同时在跑 CI 子集），单独重跑 3 次 86 / 0。
@@ -285,7 +285,8 @@
 | `eb32b0e7` | 报告、prod-check.sql、TASKFLOW |
 | `951849be` | 合入 main `a8caa985` |
 | `4b285ce9` | 审查后修订（代码与测试）：`parseListLimit`、项目任务列表 `limit`、截获参数测试、契约测试加固、隔离库测试补用例 |
-| （本提交） | 审查后修订（文档）：规格 / proposal / design / tasks、prod-check.sql、TASKFLOW、报告 |
+| `b885aa79` | 审查后修订（文档）：规格 / proposal / design / tasks、prod-check.sql、TASKFLOW、报告 |
+| （本提交） | 补全量、CI 子集与归档演练的数字 |
 
 ## 13. 多维审查
 
