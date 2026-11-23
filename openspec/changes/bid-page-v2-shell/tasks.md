@@ -20,7 +20,7 @@
 
 ## 5. 报告与 TASKFLOW
 
-- [ ] 5.1 写 `docs/QINGYAN_BIDPAGE-1_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含做了什么、与任务书的出入（规则顺序、金额门）、门禁结果、多维审查与交叉验证每条意见的去向、没验证到的地方、回退办法；TASKFLOW BIDPAGE-1 行改为 `[~]`（PR 待合）或合并后的实际值）
+- [x] 5.1 写 `docs/QINGYAN_BIDPAGE-1_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含做了什么、与任务书的出入（规则顺序、金额门）、门禁结果、多维审查与交叉验证每条意见的去向、没验证到的地方、回退办法；TASKFLOW BIDPAGE-1 行改为 `[~]`（PR 待合）或合并后的实际值）
 
 ## Workflow follow-up
 

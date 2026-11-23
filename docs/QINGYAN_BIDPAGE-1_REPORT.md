@@ -39,11 +39,13 @@
 | 项 | 结果 |
 |---|---|
 | `npm test`（全量，带隔离库），main `13c7ed33` 基线 | 705/715，10 项失败 |
-| `npm test`，本分支（审查修订后 `9b0828ac`） | **708/718，10 项失败，与 main 逐项相同**（多出的 3 项是本 PR 的三份新测试，都过） |
-| 本 PR 新测试 | `next-step.test.ts` 124/124；`bid-page-v2.test.tsx` 97/97；`bid-page-summary-db.isolated.test.ts` 55/55 |
+| `npm test`，本分支（审查修订后 `9b0828ac`，基于 `13c7ed33`） | **708/718，10 项失败，与 main 逐项相同**（多出的 3 项是本 PR 的三份新测试，都过） |
+| `npm test`，变基到最新 main `595fb896` 后（`a03255e9`） | **715/725，10 项失败，与 main 那 10 项逐项相同** |
+| `npm run test:ci`（CI 同款环境变量：占位 `DATABASE_URL`、`NODE_ENV=test`、不设 `DATABASE_ENVIRONMENT`），变基后 | `CI unit subset PASS` |
+| 本 PR 新测试 | `next-step.test.ts` 124/124；`bid-page-v2.test.tsx` 100/100；`bid-page-summary-db.isolated.test.ts` 55/55 |
 | `npm run typecheck` | 通过 |
 | `npm run lint:baseline` | PASS（无新增 error fingerprint） |
-| `bash scripts/check-test-registry.sh` | 通过（已注册 684，历史欠账 66 条未增） |
+| `bash scripts/check-test-registry.sh` | 通过（变基后已注册 691，历史欠账 66 条未增） |
 | `npx -y @fission-ai/openspec@1.15.0 validate bid-page-v2-shell --strict` | valid |
 | `git diff origin/main -- prisma/ vercel.json` | 空 |
 
