@@ -6,8 +6,8 @@
 - [x] 4. `bid-page-v2.tsx` 的 ② 换成新区块（我方报价卡保留、`#bid-quote-area` 保留、不再挂投标工作区面板与旧报价区、旧版报价单折叠在金额门里）；「已定」的按钮按我方报价的做法与看的人去 ② / ③（verify：`npx tsx src/lib/bid-page-v2/__tests__/next-step.test.ts` 与 `npx tsx src/components/bid-page-v2/__tests__/bid-page-v2.test.tsx` 全过，BIDPAGE-1 的开关关零变化断言照过；「已定」三种做法与看不到金额的人：`npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts` 的 7a 节全过）
 - [x] 5. 新测试注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`（verify：`bash scripts/check-test-registry.sh` 输出 OK、历史欠账不增）
 - [ ] 6. 变基到最新 origin/main 后跑门禁（verify：`npm test` 失败名单与 main 逐条相同；CI 同款环境变量下 `npm run test:ci` 输出 `CI unit subset PASS`；`npm run lint:baseline` PASS；`npx -y @fission-ai/openspec@1.15.0 validate quote-line-mode-persist --strict` valid；`git diff origin/main -- prisma/ vercel.json` 为空）
-- [ ] 7. 浏览器抽检（本地合成数据，开关开）：新建逐行报价、两行报价（逐键输入一个带小数的汇率）、共用参数、四个数、差额说明、导出；开关关时页签与 main 截图一致（verify：截图存 `docs/acceptance/bidpage-3/`）
-- [ ] 8. 写 `docs/QINGYAN_BIDPAGE-3_REPORT.md`（改了什么、与任务书的出入、门禁、审查意见与去向、要 Lucas / Evan 确认的、未验证、回退）+ 更新 TASKFLOW 状态列与 BIDPAGE-3 行的义务文字（「恢复编辑报价」改判为不恢复）+ 交接文档（verify：报告存在；TASKFLOW BIDPAGE-3 为 `[~]`）
+- [x] 7. 浏览器抽检（本地合成数据，开关开）：新建逐行报价、两行报价（逐键输入一个带小数的汇率）、共用参数、四个数、差额说明、导出；开关关时页签与 main 截图一致（verify：截图存 `docs/acceptance/bidpage-3/`）
+- [x] 8. 写 `docs/QINGYAN_BIDPAGE-3_REPORT.md`（改了什么、与任务书的出入、门禁、审查意见与去向、要 Lucas / Evan 确认的、未验证、回退）+ 更新 TASKFLOW 状态列与 BIDPAGE-3 行的义务文字（「恢复编辑报价」改判为不恢复）+ 交接文档（verify：报告存在；TASKFLOW BIDPAGE-3 为 `[~]`）
 
 ## Workflow follow-up
 
