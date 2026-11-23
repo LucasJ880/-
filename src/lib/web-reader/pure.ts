@@ -188,7 +188,15 @@ export function isUmbrellaSite(siteKey: string): boolean {
   return UMBRELLA_SITES.has(siteKey);
 }
 
-const EMBEDDED_HOST_RE = /(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?\.)+\p{L}[\p{L}\p{N}-]{1,62}/gu;
+/** 伞形域名下的别名前缀（www2.canada.ca、m.canada.ca、origin-www.canada.ca 都是 canada.ca 这个站） */
+export function stripUmbrellaAlias(siteKey: string): string {
+  const stripped = siteKey.replace(/^(?:www\d*|m|origin(?:-www)?)\./, "");
+  return isUmbrellaSite(stripped) ? stripped : siteKey;
+}
+
+const EMBEDDED_HOST_RE = /(?:[\p{L}\p{N}\p{M}](?:[\p{L}\p{N}\p{M}-]{0,61}[\p{L}\p{N}\p{M}])?\.)+\p{L}[\p{L}\p{N}\p{M}-]{1,62}/gu;
+/** 网址解析时会被删掉的字符（制表符、换行）与主机名里会被忽略的字符（软连字符、零宽字符、变体选择符等） */
+const HOST_IGNORABLE_RE = /[\t\n\r\u00ad\u034f\u180b-\u180f\u200b-\u200f\u2060-\u2064\ufe00-\ufe0f\ufeff]/g;
 
 /** 宽松的百分号解码：只解合法的 %XX 连续段，按 UTF-8 解（坏的字节变 U+FFFD，不抛错）；+ 当空格 */
 function lenientDecode(s: string): string {
@@ -227,7 +235,9 @@ export function embeddedHostsOf(url: URL): EmbeddedHosts {
   const own = siteKeyOfHost(hostOf(url));
   const out = new Set<string>();
   outer: for (const level of levels) {
-    for (const m of level.replace(UNICODE_DOTS_RE, ".").matchAll(EMBEDDED_HOST_RE)) {
+    // 先按 NFKC 归一（圈字母、全角字母、分解写法都还原），再删掉网址解析时会删的字符，最后统一句点
+    const cleaned = level.normalize("NFKC").replace(HOST_IGNORABLE_RE, "").replace(UNICODE_DOTS_RE, ".");
+    for (const m of cleaned.matchAll(EMBEDDED_HOST_RE)) {
       const h = normalizeHost(m[0]);
       if (h && siteKeyOfHost(h) !== own) out.add(h);
       if (out.size > EMBEDDED_MAX_HOSTS) {

@@ -934,13 +934,83 @@ async function main() {
   {
     // 国际化域名：传回 Unicode 写法的被挡站、网址里嵌着 Unicode 写法的被挡站
     const w = makeWorld();
-    w.handlers.set("https://xn--gv-eka.example/p", () => html(LONG_HTML));
+    w.handlers.set("https://xn--gv-fka.example/p", () => html(LONG_HTML));
     w.handlers.set("https://pp.example/?u=g%C3%B6v.example", () => html(LONG_HTML));
     const s = await openSession(w);
     const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "idn", budget: budget(), blockedSites: ["göv.example"] });
     const a = await readPublicPage("https://göv.example/p", c);
     const b = await readPublicPage("https://pp.example/?u=g%C3%B6v.example", c);
     ok("国际化域名的被挡站（Unicode 写法传回 / 嵌在网址里）都按被挡", a.reason === "site_blocked_in_branch" && b.reason === "site_blocked_in_branch" && w.log.length === 0, [a.reason, b.reason]);
+  }
+
+  console.log("第六轮挑错后补：网址里藏的字符、www- 前缀代理、不碰站的 www. 写法、伞形域名别名、退回次数、被挡站入参");
+  {
+    const w = makeWorld();
+    w.handlers.set("https://gz.example/a", () => status(403));
+    const s = await openSession(w);
+    const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "hid", budget: budget() });
+    await readPublicPage("https://gz.example/a", c);
+    for (const piece of ["g%09z.example", "g%0Az.example", "g%C2%ADz.example", "g%E2%80%8Bz.example", "%E2%93%96%E2%93%A9.example", "gz%EF%B8%8F.example"]) {
+      const u = `https://hp.example/?u=https://${piece}/a`;
+      const r = await readPublicPage(u, c);
+      ok(`嵌着的被挡站里藏了会被删掉 / 归一的字符也认得（${piece}）`, r.reason === "site_blocked_in_branch" && !w.log.some((l) => l.url.startsWith("https://hp.example")), r.reason);
+    }
+    for (const h of ["www.gz.example.mirror-proxy.example", "www-gz-example.someproxy.example"]) {
+      const r = await readPublicPage(`https://${h}/a`, c);
+      ok(`被挡站不带 www. 时，带 www 的代理式主机名也按被挡（${h}）`, r.reason === "site_blocked_in_branch", r.reason);
+    }
+    for (const h of ["www.linkedin.com.someproxy.example", "www-linkedin-com.someproxy.example", "www.merx.com.someproxy.example"]) {
+      const r = await readPublicPage(`https://${h}/x`, c);
+      ok(`以不碰站（带 www. 的写法）打头的代理式主机名：不读（${h}）`, r.reason === "site_denied", r.reason);
+    }
+    const nfd = await readPublicPage("https://hp.example/?u=go%CC%88v.example", s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "nfd", budget: budget(), blockedSites: ["göv.example"] }));
+    ok("分解写法（NFD）的国际化域名也认得", nfd.reason === "site_blocked_in_branch", nfd.reason);
+  }
+  {
+    const w = makeWorld();
+    w.handlers.set("https://www.canada.ca/a", () => status(403));
+    for (const h of ["www2.canada.ca", "m.canada.ca", "origin-www.canada.ca", "x.www.canada.ca", "open.canada.ca"]) w.handlers.set(`https://${h}/p`, () => html(LONG_HTML));
+    const s = await openSession(w);
+    const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "alias", budget: budget() });
+    await readPublicPage("https://www.canada.ca/a", c);
+    for (const h of ["www2.canada.ca", "m.canada.ca", "origin-www.canada.ca", "x.www.canada.ca"]) {
+      const r = await readPublicPage(`https://${h}/p`, c);
+      ok(`伞形域名的别名与被挡主机的子域名按被挡（${h}）`, r.reason === "site_blocked_in_branch" && !w.log.some((l) => l.url === `https://${h}/p`), r.reason);
+    }
+    const open = await readPublicPage("https://open.canada.ca/p", c);
+    ok("伞形域名下别的站照读（open.canada.ca）", open.outcome === "ok", open.reason);
+  }
+  {
+    // 读完只退计上的次数：先 6 次只取 robots，再 6 次跨源跳转，之后只取 robots 最多还能 6 次（合计 12）
+    const w = makeWorld();
+    for (let i = 0; i < 20; i++) w.handlers.set(`https://ro${i}.example/robots.txt`, () => robots("User-agent: *\nDisallow: /"));
+    for (let i = 0; i < 6; i++) {
+      w.handlers.set(`http://xo${i}.example/p`, () => redirect(`https://www.xo${i}.example/p`, 301));
+      w.handlers.set(`https://www.xo${i}.example/p`, () => html(LONG_HTML));
+    }
+    const s = await openSession(w);
+    const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "refund", budget: budget() });
+    for (let i = 0; i < 6; i++) await readPublicPage(`https://ro${i}.example/p`, c);
+    for (let i = 0; i < 6; i++) await readPublicPage(`http://xo${i}.example/p`, c);
+    const more = [];
+    for (let i = 6; i < 20; i++) more.push(await readPublicPage(`https://ro${i}.example/p`, c));
+    const extra = more.filter((r) => r.reason === "robots_disallow").length;
+    ok("只取 robots 的读页合计不超过 12 次（读了页的读页只退它计上的次数）", extra === 6 && more[6].reason === "robots_limit", [extra, more[6]?.reason]);
+  }
+  {
+    const w = makeWorld();
+    for (const h of ["gov3.example", "gov4.example", "gov5.example"]) w.handlers.set(`https://${h}/p`, () => html(LONG_HTML));
+    const s = await openSession(w);
+    const c = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "entries", budget: budget(), blockedSites: ["gov3.example:443", "https://gov4.example/", "HTTP://WWW.GOV5.EXAMPLE/x"] });
+    const rs = await Promise.all(["gov3.example", "gov4.example", "gov5.example"].map((h) => readPublicPage(`https://${h}/p`, c)));
+    ok("传回的被挡站带端口 / 是网址：取出主机名后生效", rs.every((r) => r.reason === "site_blocked_in_branch") && w.log.length === 0, rs.map((r) => r.reason));
+    let rejected = false;
+    try {
+      s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "garbage", budget: budget(), blockedSites: ["not a host"] });
+    } catch (e) {
+      rejected = e instanceof WebReaderContextError && e.code === "INVALID_CONTEXT";
+    }
+    ok("传回取不出主机名的被挡站：拒绝建上下文", rejected);
   }
 
   console.log(`\nweb-reader-edges: ${passed} passed, ${failed} failed`);

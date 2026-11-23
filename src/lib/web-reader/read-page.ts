@@ -8,10 +8,10 @@
  *   2. 表明身份：用户代理写明青砚与联系网址，不冒充浏览器。
  *   3. 不登录：只发 GET，不带 cookie / Authorization / 任何凭证，不存 cookie，不提交表单。
  *   4. 被挡即停：登录页、人机验证、401 / 403 / 407、跳转到登录地址、robots 不许读 → blocked，不重试、不换地址，
- *      同一支里不再向那个站及其子域名发请求；超时 / 中断 / 5xx 最多重试 2 次（等 1 秒、3 秒）；429 只在对方给出
+ *      同一支里不再向那个站（按去掉 www. 比）及其子域名发请求（伞形政府域名只认同一个站）；超时 / 中断 / 5xx 最多重试 2 次（等 1 秒、3 秒）；429 只在对方给出
  *      ≤30 秒的等待时间时等够再试一次。
  *   5. 限量：每次读页在真正发出第一个页面请求前扣这一支 1 次额度（跳转、重试、robots 不另扣；每支最多 12 次）；
- *      每支发起取 robots 最多 12 次；每支最多记 24 个被挡站；每棵树最多 24 支。这些账按 Job 记在进程内的
+ *      每支在没扣读页额度的读页里取 robots 最多 12 次；每支最多记 24 个被挡站；每棵树最多 24 支。这些账按 Job 记在进程内的
  *      「树账本」里（同一 Job 的多个会话共用），建会话时再与审计历史取大，重建会话、并发会话都不会清零或翻倍；
  *      同一站点两次请求的开始时间间隔 ≥2 秒（进程内所有会话共享）。
  *   6. 同一读页会话（一棵树的一次处理）内同一网址只读一次（并发合并）；跨处理的去重靠调用方传入的持久缓存。
@@ -49,6 +49,7 @@ import {
   readOrgSiteOverride,
   isUmbrellaSite,
   normalizeHost,
+  stripUmbrellaAlias,
   reasonMessageZh,
   siteKeyOfHost,
   type RobotsGroup,
@@ -512,7 +513,10 @@ function openBranch(sess: SessionState, session: ResearchReadSession, b: ForBran
   if (rawBlocked != null) {
     for (const s of rawBlocked as Iterable<unknown>) {
       if (passedBlocked.length >= 1000) fail("被挡站太多");
-      if (typeof s === "string" && s.trim()) passedBlocked.push(normalizeHost(s));
+      if (typeof s !== "string" || !s.trim()) continue;
+      const h = hostFromBlockedEntry(s);
+      if (!h) fail("被挡站要是主机名或网址");
+      passedBlocked.push(h as string);
     }
   }
   const ledger = sess.ledger;
@@ -547,6 +551,18 @@ function openBranch(sess: SessionState, session: ResearchReadSession, b: ForBran
   });
   branchStates.set(ctx, st);
   return ctx;
+}
+
+/** 调用方传回的被挡站：主机名（可带端口）或网址都取出主机名归一；取不出返回 null */
+function hostFromBlockedEntry(raw: string): string | null {
+  const t = raw.trim();
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `http://${t}`);
+    const h = normalizeHost(u.hostname);
+    return h && h.includes(".") ? h : null;
+  } catch {
+    return null;
+  }
 }
 
 export function createMemoryPageCache(): TreePageCache {
@@ -679,10 +695,30 @@ function sanitizeCached(raw: unknown, key: string): PageReadResult | null {
 function hostInBlocked(host: string, b: string): boolean {
   const hk = siteKeyOfHost(host);
   const bk = siteKeyOfHost(b);
-  if (hk === bk) return true;
-  if (!isUmbrellaSite(bk) && hk.endsWith(`.${bk}`)) return true;
-  for (const p of new Set([b, bk])) {
-    if (host.startsWith(`${p}.`) || host.startsWith(`${p.replace(/\./g, "-")}.`)) return true;
+  const umbrella = stripUmbrellaAlias(bk);
+  if (isUmbrellaSite(umbrella)) {
+    // 伞形域名：同一个站含它的别名（www. / www2. / m. / origin-www.）；被挡的是别名主机（如 www.canada.ca）时
+    // 它自己的子域名也算，伞形根本身被挡则不连带子域名
+    if (stripUmbrellaAlias(hk) === umbrella) return true;
+    if (b !== umbrella && host.endsWith(`.${b}`)) return true;
+  } else if (hk === bk || hk.endsWith(`.${bk}`)) {
+    return true;
+  }
+  return startsWithSite(host, [b, bk]);
+}
+
+/**
+ * 代理式主机名：主机（或去掉开头 www. / www- 的主机）以某个站打头，点或横线写法都算
+ * （`gov.example.mirror.example`、`www-gov-example.proxy.example`、`www.linkedin.com.proxy.example`）。
+ */
+function startsWithSite(host: string, sites: readonly string[]): boolean {
+  const hosts = new Set([host, host.replace(/^www[.-]/, "")]);
+  for (const s of sites) {
+    for (const p of new Set([s, s.replace(/^www\./, "")])) {
+      const dotted = `${p}.`;
+      const dashed = `${p.replace(/\./g, "-")}.`;
+      for (const h of hosts) if (h.startsWith(dotted) || h.startsWith(dashed)) return true;
+    }
   }
   return false;
 }
@@ -707,7 +743,7 @@ function blockedSiteForUrl(st: BranchState, url: URL): string | null {
 
 /** 以「不碰」站打头的代理式主机名（`linkedin.com.proxy.example`、`linkedin-com.proxy.example`）也算不碰 */
 function deniedByPrefix(host: string, policy: SitePolicy): boolean {
-  return policy.deny.some((e) => host.startsWith(`${e}.`) || host.startsWith(`${e.replace(/\./g, "-")}.`));
+  return startsWithSite(host, policy.deny);
 }
 
 /** 网址的主机在「不碰」名单里 → site_denied；嵌着的主机在名单里 → embedded_site_denied；嵌着的网址认不清 → embedded_url_unclear */

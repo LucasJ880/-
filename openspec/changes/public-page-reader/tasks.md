@@ -25,6 +25,8 @@
 
 - [x] 5.2 第五轮挑错（design D15）：被挡匹配改回站点键 + 后缀、伞形政府域名例外；代理式主机名按被挡主机与站点键、以不碰站打头也不读；宽松解码；已扣额度后取 robots 不查不计、只退计上的；国际化域名归一（verify：`web-reader-edges.test.ts` 新增 18 条在修前的代码上 14 条失败、修后全过；其余 5 份测试与 `openspec validate public-page-reader --strict` 通过）
 
+- [x] 5.3 第六轮挑错（design D16）：嵌入扫描 NFKC + 删可忽略字符 + 组合符号；前缀比较两边都去 www. / www-；不碰名单同样；伞形别名与别名主机的子域名；被挡站入参可带端口 / 网址、取不出主机名拒绝；补「只退计上的」测试（verify：`web-reader-edges.test.ts` 新增 19 条在修前的代码上 18 条失败、修后全过，「只退计上的」那条在改成退全部时变红；其余测试与 `openspec validate public-page-reader --strict` 通过）
+
 ## 6. 门禁与报告
 
 - [x] 6.1 全量门禁与零变化核对（verify：`npm test` 只有 main 基线上同样的失败；`npm run test:ci`（不连库，同 CI）、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/test-runtime-architecture.sh` 通过；全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `trade/email-forward-parse.ts` 外为空；`git diff origin/main -- prisma/ vercel.json next.config.ts src/lib/workforce-runtime/` 为空）

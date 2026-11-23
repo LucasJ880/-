@@ -58,7 +58,7 @@
 - **THEN** 发出 4 个请求后停止，返回「打不开」，原因是跳转过多（`web-reader.test.ts`）
 
 ### Requirement: 被挡即停
-遇到下列任一情况，系统 SHALL 返回「被挡」并写明原因与真正挡住我们的站点，SHALL NOT 重试、SHALL NOT 换地址再读：HTTP 401、403、407；跳转目标是登录地址或页面用 meta refresh 跳到登录地址（不请求该地址，挡住我们的是发出跳转的站）；返回的页面是登录页（有密码输入框且正文少于 2000 字）；返回的页面是人机验证；robots 声明不许读或读取失败；对方限流且不能按规定等待（见「临时故障有限重试」）；该站点在这一支里已经被挡过。被挡记在真正挡住我们的主机上；之后同一支里 SHALL NOT 再向这个站（按去掉 `www.` 比）及其子域名发出任何请求，伞形政府域名（canada.ca、gc.ca 与各省政府域名）只认同一个站、不连带子域名（被挡一得出就记，每次发请求前都再查一次；别的支已经读到的结果照常从缓存取，不发请求）。调用方直接给出的网址本身是登录地址时，系统 SHALL 返回「不读」、不发请求，且 SHALL NOT 把该站点记为这一支里被挡过。
+遇到下列任一情况，系统 SHALL 返回「被挡」并写明原因与真正挡住我们的站点，SHALL NOT 重试、SHALL NOT 换地址再读：HTTP 401、403、407；跳转目标是登录地址或页面用 meta refresh 跳到登录地址（不请求该地址，挡住我们的是发出跳转的站）；返回的页面是登录页（有密码输入框且正文少于 2000 字）；返回的页面是人机验证；robots 声明不许读或读取失败；对方限流且不能按规定等待（见「临时故障有限重试」）；该站点在这一支里已经被挡过。被挡记在真正挡住我们的主机上；之后同一支里 SHALL NOT 再向这个站（按去掉 `www.` 比）及其子域名发出任何请求，伞形政府域名（canada.ca、gc.ca、各省政府域名）只认同一个站及其别名（www2. / m. 等），不连带别的子域名（被挡一得出就记，每次发请求前都再查；别的支已读到的结果照常从缓存取）。调用方直接给出的网址本身是登录地址时，系统 SHALL 返回「不读」、不发请求，且 SHALL NOT 把该站点记为这一支里被挡过。
 
 #### Scenario: 登录页、验证码、403
 - **WHEN** 读页目标分别返回登录页、人机验证页、401、403、407、跳到登录地址
@@ -81,15 +81,15 @@
 - **THEN** 直接返回「被挡」（原因：这一支里该站点已被挡），不发请求、不扣额度（`web-reader.test.ts`、`web-reader-edges.test.ts`）
 
 ### Requirement: 不经代理换地址
-被挡之后系统 SHALL NOT 经第三方抓取代理、网页快照或翻译代理换地址读同一个站：这类服务（如 r.jina.ai、translate.goog、web.archive.org、archive.ph、12ft.io）SHALL 预置在「不碰」里；网址路径或查询里（只解合法的百分号编码、最多三层，全角句点当「.」，国际化域名按 punycode）嵌着这一支被挡过的站，或主机名以被挡站打头（点或横线写法），SHALL 按「这一支里该站点已被挡」处理；嵌着「不碰」站、以「不碰」站打头、或嵌着的网址认不清（还能再解、超过 4096 字或 64 个主机）SHALL 返回「不读」。每一跳都查；缓存照取。
+被挡之后系统 SHALL NOT 经第三方抓取代理、网页快照或翻译代理换地址读同一个站：这类服务（如 r.jina.ai、translate.goog、web.archive.org、archive.ph、12ft.io）SHALL 预置在「不碰」里；网址路径或查询里（只解合法的百分号编码、最多三层，按 NFKC 归一、删去网址解析时会删的字符，全角句点当「.」，国际化域名按 punycode）嵌着这一支被挡过的站，或主机名（去掉开头的 www. / www- 也算）以被挡站打头（点或横线写法），SHALL 按「这一支里该站点已被挡」处理；嵌着「不碰」站、以「不碰」站打头、或嵌着的网址认不清（还能再解、超过 4096 字或 64 个主机）SHALL 返回「不读」。每一跳都查；缓存照取。
 
 #### Scenario: 经代理换地址
 - **WHEN** gov.example 返回 403 后，同一支读 `https://r.jina.ai/https://gov.example/a` 等预置代理网址、`https://fetcher.example/get?u=https%3A%2F%2Fgov.example%2Fa`、一个跳转到这种网址的页面；以及嵌着 LinkedIn 的代理网址
 - **THEN** 预置代理与嵌着 LinkedIn 的返回「不读」，嵌着 gov.example 的返回「被挡」（站点 gov.example），代理与 gov.example 上都没有请求；别的支读不在名单里的代理网址照读（`web-reader-edges.test.ts`、`web-reader-pure.test.ts`）
 
 #### Scenario: 前缀式代理、认不清与被挡站归属
-- **WHEN** gx.example 被挡后读 `gx.example.mirror-proxy.example`、`gx-example.someproxy.example`；读一个嵌着四层编码网址的网址；一个嵌着 gx.example 的代理网址在等 robots 时 gx.example 被挡
-- **THEN** 前两个「被挡」；四层编码的「不读」（嵌着的网址认不清）；代理网址「被挡」且被挡站记 gx.example，代理站别的页照读（`web-reader-edges.test.ts`）
+- **WHEN** gx.example 被挡后读 `gx.example.mirror-proxy.example`、`gx-example.someproxy.example`、`www-gx-example.someproxy.example`；读一个嵌着四层编码网址的网址；一个嵌着 gx.example 的代理网址在等 robots 时 gx.example 被挡；嵌着的被挡站别处有坏的百分号编码、或里面藏了制表符 / 零宽字符 / 圈字母、或是 Unicode（含分解写法）写的国际化域名；读 `www.linkedin.com.someproxy.example`
+- **THEN** 前三个「被挡」；四层编码的「不读」（嵌着的网址认不清）；代理网址「被挡」且被挡站记 gx.example，代理站别的页照读；藏字符与国际化域名的都按被挡；LinkedIn 那个「不读」（`web-reader-edges.test.ts`）
 
 ### Requirement: 其它状态码
 HTTP 404、410 等其它 4xx（401、403、407、429 之外）与 1xx，系统 SHALL 返回「打不开」（原因：页面不存在或已下线）、不重试。3xx 系统 SHALL 只跟 301、302、303、307、308 且带 Location 的；其它 3xx（如 300、304）或没有 Location 的 SHALL 返回「打不开」（原因：跳转地址无效）、不请求别处。
@@ -230,11 +230,11 @@ robots 的跳转 SHALL 只跟到别处的 `/robots.txt`（最多 5 次），跳�
 - **THEN** 前者不读、没有请求、额度不变；后者照读；不给检查的建立失败；后几种都不读（`web-reader-edges.test.ts`）
 
 ### Requirement: 分支上下文的入参
-建立某一支的读页上下文时，调用方 SHALL 给分支标识（1–100 字）、额度、网址检查，可给截止时间（有限的毫秒时间戳）与这一支已被挡的主机。已被挡的主机按主机名归一（小写、去首尾空白、去末尾的点，保留 `www.`），与审计历史并入同一份账；超过 1000 个、或截止时间不是有限数、或缺分支标识 / 网址检查时，系统 SHALL 拒绝建立。
+建立某一支的读页上下文时，调用方 SHALL 给分支标识（1–100 字）、额度、网址检查，可给截止时间（有限的毫秒时间戳）与这一支已被挡的主机。已被挡的主机可以是主机名（可带端口）或网址，取出主机名后归一（小写、去末尾的点、国际化域名转 punycode，保留 `www.`），与审计历史并入同一份账；有取不出主机名的、超过 1000 个、截止时间不是有限数、或缺分支标识 / 网址检查时，系统 SHALL 拒绝建立。
 
 #### Scenario: 入参
-- **WHEN** 传回 `WWW.GOV.EXAMPLE.`、`www.gov.example`、` Gov.Example ` 作为已被挡；传 1001 个；传 NaN 截止时间
-- **THEN** 前三种都让 gov.example 不再请求；后两种建立失败（`web-reader-edges.test.ts`）
+- **WHEN** 传回 `WWW.GOV.EXAMPLE.`、`www.gov.example`、` Gov.Example `、`gov3.example:443`、`https://gov4.example/`、`göv.example` 作为已被挡；传 `not a host`；传 1001 个；传 NaN 截止时间
+- **THEN** 前六种都让对应的站不再请求；后三种建立失败（`web-reader-edges.test.ts`）
 
 ### Requirement: 审计不记正文
 每次发出过请求、或这一支发起过取 robots 的读页，以及这一支从缓存拿到被挡结果而新记下被挡站时，系统 SHALL 写一条审计，内容只有分支、网址、最终网址（各不超过 2048 字）、结果类别、HTTP 状态、正文字数、是否截断、原因、页面请求数、robots 请求数、取 robots 次数、站点、被挡站与是否来自缓存，记在发起人名下、指向调研 Job；这些审计同时是重建会话时恢复账的依据。仓库里读网页模块以外 SHALL NOT 写这个审计动作。审计、日志与错误信息 SHALL NOT 包含页面正文、请求头或响应头。
