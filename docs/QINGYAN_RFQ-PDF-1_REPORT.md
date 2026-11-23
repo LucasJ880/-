@@ -1,8 +1,9 @@
 # 青砚 · RFQ-PDF-1 报告：菜单里的供应商文件收口到询价单
 
-- OpenSpec change：`supplier-docs-converge`（`openspec/changes/supplier-docs-converge/`）
+- OpenSpec change：`supplier-docs-converge`（已归档：`openspec/changes/archive/2026-11-23-supplier-docs-converge/`）
 - 任务书：`docs/QINGYAN_RFQ-PDF_TASKBRIEF.md` §5「T1」
 - 分支：`claude/adoring-feynman-w8btkv`；核对基线：main `91d928e4`
+- 结果：PR #544 由 Lucas 于 2026-11-22（多伦多时间）合并；2026-11-23 归档为 `openspec/changes/archive/2026-11-23-supplier-docs-converge`，主规格 `tender/rfq-sheet-download`（新，11 条）与 `tender/supplier-identity-guard`（改 6 条）。归档时把增量里「供应商侧生成文件」一条的正文压到 500 字以内，否则归档后的主规格过不了 `openspec validate --specs --strict`。归档由一个子 agent 核对（主规格与增量逐块比对一致、规格里的说明文字与代码逐字一致、文档与合并记录一致），它指出压短时丢了两句：这一条不再写「内容只取自询价单本身」，「SHALL NOT 含…」的清单里少了「项目名称」（抬头那一句的「不印项目名称」还在；`tender/rfq-sheet-download`「询价单文件不输出什么」写着我方撰写的部分不含项目名称，代码行为没有变）。另有一处引文与界面差一个标点（规格写「此前生成的 PDF 可能过期，建议重新生成」，界面是「…可能过期。建议重新生成。」）。主规格不手写，这两处留给 RFQ-PDF-2 的增量补回（那里本来就要改这两条）
 - 日期：2026-11-21。授权：Evan 2026-11-21 在本会话说「现在你来全权负责……如果需要合并你来做，如果有问题，按照你推荐的做」
 
 ## 1. 做了什么

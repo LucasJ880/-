@@ -1,11 +1,11 @@
 # 询价单 PDF（RFQ-PDF-1 / RFQ-PDF-2）· 交接（HANDOFF）
 
 > 新会话做这条线从这里进。先读本文件，再读任务书 `docs/QINGYAN_RFQ-PDF_TASKBRIEF.md`，按「下一步」执行，不凭记忆重写。只记核对过的事实；没核对的写明。每完成一个节点更新本文件并提交。
-> 招投标主线的总交接是 `docs/QINGYAN_TENDER_FLOW_HANDOFF.md`（另有会话的 PR #537、#541 正在改它，本线不动它，避免冲突）。
+> 招投标主线的总交接是 `docs/QINGYAN_TENDER_FLOW_HANDOFF.md`（由另一条会话线维护，本线不动它，避免冲突）。
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-21 第一次（RFQ-PDF-1 的 PR #544 已开，等 CI 与最后一轮全量测试） |
+| 最后更新 | 2026-11-23 第二次（RFQ-PDF-1 已合并 #544 并归档；RFQ-PDF-2 还没开工，从 §0 第 2 条进） |
 | 任务来源 | Evan，2026-11-20：「国内供应商询价 PDF 很差」；任务书由产品侧会话写，§4 七项已拍板 |
 | 授权 | Evan 2026-11-21 在 Coding 会话原话：「现在你来全权负责，需要做多轮交叉验证，如果需要合并你来做，如果有问题，按照你推荐的做，需要多个子AGENT 从多方面来审计PR……这个是个长任务，做好hand off」。任务书 §1 的其余边界照旧：不开 `TENDER_RFQ_ATTACHMENT_ENABLED`、不在真实供应商的询价卡上点批准、不改生产环境变量、不发对外邮件 |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F（续）— 询价单 PDF：RFQ-PDF-1、RFQ-PDF-2 两行 |
@@ -13,16 +13,14 @@
 
 ## 0. 下一步
 
-1. **RFQ-PDF-1 收尾**（PR [#544](https://github.com/LucasJ880/-/pull/544)，Draft）：
-   - 等 CI（eslint 基线 + typecheck + `test:ci` + build）与本机最后一轮 `npm test` 跑完，把结果填进 `docs/QINGYAN_RFQ-PDF-1_REPORT.md` §5，tasks 4.2 / 4.3 打勾，TASKFLOW 状态列写上 PR 号。
-   - 全绿后把 PR 转为可合并并合并（授权见上）。若 #538 先合并了，先 `git merge origin/main`：冲突只在 `src/lib/projects/generate/generate-docs.ts` 的 import 块，保留本分支的两行 import（`buildProjectRfqSheet`、`rfqSheetRecordTitle`），再加 #538 的 `redactLegacyMemo` 那一行。
-   - 合并后 `/opsx:archive supplier-docs-converge --yes`，独立小 PR：同步 TASKFLOW 状态列为 `[x]`，至少派一个子 agent 核对归档后的主规格（`tender/rfq-sheet-download` 新、`tender/supplier-identity-guard` 改六条）与增量逐条一致。
-2. **RFQ-PDF-2**（`rfq-sheet-template-v2`，任务书 §5「T2」）：从合并后的 main 开工，`/opsx:propose` → 独立审四件套 → apply → 全量测试 → verify → 多维审查两轮 → 开 PR。报告里要有 8pt 与 7.5pt 两份样张的页数与首页截图。**字号由 Evan 打印后定（任务书 §4 第 6 项：定稿前不合并 RFQ-PDF-2）**——这一项是 Evan 自己要看实物才能定的，开出 PR、附上样张后停下来问他，不要替他定。
+1. **RFQ-PDF-1 已做完**：PR [#544](https://github.com/LucasJ880/-/pull/544) 由 Lucas 2026-11-22 合并；归档走独立小 PR（本文件这次更新所在的那个）。合并时 #538（CHAIN-2d）还没合并：它后合并时在 `src/lib/projects/generate/generate-docs.ts` 的 import 块会冲突，保留 main 上的两行（`buildProjectRfqSheet`、`rfqSheetRecordTitle`），再加它的 `redactLegacyMemo` 那一行。线上验证（在一个真实投标项目上点一次「供应商询价单 PDF」）还没有人做。
+2. **RFQ-PDF-2**（`rfq-sheet-template-v2`，任务书 §5「T2」）：**下一步就是它**。从最新 main 开工（#533 已合并并归档，`tender/rfq-web-entry` 现在是 14 条，写增量前按 main 上的条目名写），`/opsx:propose` → 独立审四件套 → apply → 全量测试 → verify → 多维审查两轮 → 开 PR。报告里要有 8pt 与 7.5pt 两份样张的页数与首页截图。**字号由 Evan 打印后定（任务书 §4 第 6 项：定稿前不合并 RFQ-PDF-2）**——这一项是 Evan 自己要看实物才能定的，开出 PR、附上样张后停下来问他，不要替他定。
    - T2 的 8 组内容如果装不下 8 条 task，按任务书拆成两个 change，但只升一次版式版本。
    - RFQ-PDF-1 的审查带出三件事，已定并入 RFQ-PDF-2（TASKFLOW 那一行已写）：
      a. 回复截止不再落在截标当天（`build.ts` `computeReplyBy` 的下限是「今天 + 2 天」，截标前 2 天正好等于截标日，模板文字过禁出清单就命中「截标日期·询价附件」，起草询价与菜单询价单都生成不了；提前量设成 0 时每次都这样）。建议规则：回复截止不晚于截标前一天，算不出来就写「请尽快」。同时把 `attachment-db.isolated.test.ts` 等走真实时钟、截标日 2026-12-05 的夹具改成注入 `now`（否则 2026-12-03 当天会红）。
      b. 内部字段词表扩充（`build.ts` `INTERNAL_FIELD_PATTERNS` 现在只有 estimatedValue / ourBidPrice / winningBidPrice / 毛利 / 利润率 / 底价 / 我方预算 / 中标概率），要求编号与数量也过检查。安全审查实跑：「我方报价 98.7 万」「target margin 31%」、数量事实带金额、编号「底价-987654」之外的写法都会照印。
      c. 两句说明给出出路：身份命中的「供应商侧文件含招标身份信息（命中：…），未生成。」与「没有已确认且属于供应商侧的要求……」（后者在「都确认了但没有一条属于供应商侧」时指错路）。
+     d. 归档核对带出的两处规格措辞，用 RFQ-PDF-2 的增量补回（主规格不手写）：`tender/supplier-identity-guard`「供应商侧生成文件」归档时为了不超过 500 字压短，丢了「内容只取自询价单本身」与「我方撰写的部分 SHALL NOT 含项目名称」两句（改这一条时注意正文仍要 ≤ 500 字，否则 `openspec validate --specs --strict` 不过）；`tender/rfq-sheet-download`「菜单入口与说明」里那句提示的引文与界面差一个标点（界面是「项目文件可能已更新，此前生成的 PDF 可能过期。建议重新生成。」）。
 3. **不在这条线里做、但要有人知道的**（都不是本线引入，报告 §6 有出处）：CI 不跑隔离库测试（`ci.yml` 没设 `DATABASE_ENVIRONMENT=isolated`）；地点事实缺失时交付事实里的门牌地址、换了写法的截标日期绕得过禁出清单；生成接口兜底的 500 会回显异常原文；内容安全策略挡不住 meta refresh；同一项目并发生成会出重复版本号；询价入口等既有说明把「招标要求」页签叫成「需求」（12 处）；菜单生成新版后立刻提示「可能过期」。
 
 ## 1. 进度
@@ -31,10 +29,10 @@
 |---|---|
 | 任务书入库 | 完成（`docs/QINGYAN_RFQ-PDF_TASKBRIEF.md`） |
 | RFQ-PDF-1 四件套 | 完成，经开工前一轮独立审查修订 |
-| RFQ-PDF-1 实现 | 完成（tasks 1.1–4.1 已勾） |
+| RFQ-PDF-1 实现 | 完成（tasks 8 条全勾） |
 | RFQ-PDF-1 多维审查 | 两轮做完（第一轮五个维度、第二轮三个子 agent），无阻断，逐条处理见报告 §5a |
-| RFQ-PDF-1 PR | [#544](https://github.com/LucasJ880/-/pull/544) Draft，等 CI 与最后一轮全量测试 |
-| RFQ-PDF-1 合并 / 归档 | 未做 |
+| RFQ-PDF-1 PR | [#544](https://github.com/LucasJ880/-/pull/544)，2026-11-22 由 Lucas 合并 |
+| RFQ-PDF-1 归档 | 完成（`2026-11-23-supplier-docs-converge`；`openspec validate --specs --strict` 149 / 149） |
 | RFQ-PDF-2 | 未开工；事实摸底已做（§3） |
 
 ## 2. 已核对的要点（RFQ-PDF-1 做完后系统是什么样）
@@ -95,7 +93,7 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.te
 ## 6. 不要做的事
 
 - 不打开 `TENDER_RFQ_ATTACHMENT_ENABLED`，不做 staging 收信核对（要 Vercel 权限）。
-- 不碰 FIX-12 / FIX-13 与另一会话的待合并 PR（#532–#541）。
+- 不碰另一会话的 change 与 PR（2026-11-23 时 `openspec list` 里还有一个别人的 `pricing-helper-finance-gate` 等归档；#538 等还开着）。
 - 不做 Excel 回复表、按价格表行项询价（任务书 §7）。
 - 不手写 `openspec/specs/**`，不删 `docs/` 下任何文件，不动 `.claude/launch.json`。
 - RFQ-PDF-2 的字号不要替 Evan 定。
