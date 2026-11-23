@@ -402,7 +402,7 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 3. **GATE：别名裁决的权限**（CHAIN-3；**11-20 已定只限组织管理员并做撤回，CHAIN-3c #534**）：现在能修改本项目的人就能做对全组织生效、不能撤回的「疑似同一家」裁决（确认框写明了范围）；要不要提高到组织管理员、要不要做撤回，等 GATE 定。
 4. **小 change（容器里能做，未开）**：
    - 报价表助手的落地价按财务权限收口：`GET /api/projects/[id]/pricing-helper` 在 `TENDER_PRICING_COMPARE_SOURCE_ENABLED` 开着时把比价矩阵的落地价给所有项目读者，而成本表接口与 CHAIN-2 寻源卡都按 `resolveFinancePrivilege(...).canReadAll` 收口。同一个 GET 不论开关都把已保存的 `inputs.ourCostCad`（我方成本）返回给项目读者，开关开着时 `compareCost.source` 里也带已记录的落地价——三处一起核对、一起收口（CHAIN-2 审查时发现，报告 §5；会话里只排成了建议任务「Gate landed cost in pricing-helper by finance access」，新会话看不到，以本条为准，未做）。
-   - 主规格 `tender/rfq-web-entry` 第 6 条要求超过 500 字，`openspec validate --specs --strict` 143 过 1 不过（144 项，含本次归档的 `tender/import-leads`；只有这一条警告）。超长的是「原地审批与待批轮次保护」（522 字，CHAIN-4a 归档 #527 的 MODIFIED 增量把它从 351 字撑上去）；拆成两条要求即可，走一个只改规格的小 change。
+   - ~~主规格 `tender/rfq-web-entry` 第 6 条要求超过 500 字…~~ **已做**（2026-11-23 注）：CHAIN-4c `rfq-web-entry-spec-split`（#533）把「原地审批与待批轮次保护」（522 字）拆成「询价卡的原地审批与待批轮次保护」（390 字）与「询价单 PDF 对不上时只给驳回」（198 字），已合并并归档（`2026-11-23-rfq-web-entry-spec-split`）；`openspec validate --specs --strict` 现在 147 / 147。
    - 投标准备度「进口线索」阶段（`src/lib/tender-bid-readiness/stage-policy.ts`）还不读 CHAIN-3 导入的记录（CHAIN-3 Out of scope）。
 5. **生产**：上面「等人做的」第 1–6 项。
 

@@ -7,6 +7,7 @@
 | 拍板 | Lucas 2026-11-20：「拆短 tender/rfq-web-entry 里 522 字的那条要求，让 openspec validate --strict 对这份规格通过，不改行为。」 |
 | OpenSpec change | `openspec/changes/rfq-web-entry-spec-split/`（`tender/rfq-web-entry`：REMOVED 1 条、ADDED 2 条） |
 | 基线 | origin/main `91d928e4` |
+| PR | #533，2026-11-23 合并（合并提交 `07c02358`）；归档 `openspec/changes/archive/2026-11-23-rfq-web-entry-spec-split/`；归档后 `openspec validate --specs --strict` 147 / 147 |
 | 开关 | 不涉及（只改规格，不改代码、测试、界面文字） |
 
 ## 1. 做了什么
