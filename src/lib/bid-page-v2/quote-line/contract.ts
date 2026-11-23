@@ -9,6 +9,7 @@
  *
  * 词表与两个既有词表逐项相同（`QUOTE_EVIDENCE_KINDS`、`PRICE_SCHEDULE_UOMS`——那两处引 Prisma，进不了浏览器），由测试对照。
  */
+import type { OurBidLine } from "../quote-confirm/contract";
 import { z } from "zod";
 import { QUOTE_CURRENCIES, engineConfigSchema } from "@/lib/quote-engine/contract";
 
@@ -390,6 +391,8 @@ export type QuoteListView = {
   quotes: QuoteListItem[];
   scheduleLineCount: number;
   export: ExportAvailability;
+  /** BIDPAGE-6：② 最上面的「我方报价」一行 */
+  ourBid: OurBidLine;
 };
 
 export const BUSINESS_TYPES = ["SUPPLY_ONLY", "SUPPLY_INSTALL", "STANDING_OFFER"] as const;

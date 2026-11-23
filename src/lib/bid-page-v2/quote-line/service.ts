@@ -31,7 +31,6 @@ import { exportOfficialPriceSchedule } from "@/lib/tender-price-schedule/officia
 import { allocateFromEngine, exportUnitPrices } from "./allocation";
 import {
   BUSINESS_TYPE_TO_QUOTE_TYPE,
-  QUOTE_STATUS_ZH,
   currencyLabelZh,
   engineErrorZh,
   isLineModeQuote,
@@ -49,6 +48,9 @@ import {
 } from "./contract";
 import { costLinesToState, defaultLineModeState, linePrefillMessageZh, seedRowsFromSchedule, stateToWrites, type CostLineWrite } from "./mapping";
 import { isLumpSumQuote, readLumpMeta } from "../lump-sum/contract";
+import { frozenNoteZh } from "../quote-confirm/contract";
+import { buildOurBidLine } from "../quote-confirm/service";
+import type { TenderBidResolution } from "@/lib/quote-engine/tender-bid";
 
 /** 我方报价是总价报价时导出处的原因（spec tender/quote-line-mode「按招标方价格表导出」） */
 export const LUMP_EXPORT_UNAVAILABLE_ZH = "我方报价是只报总价的，没有逐行单价，不能按招标方价格表导出；招标方要价格表的话，请用逐行报价做一份并定为我方报价";
@@ -56,7 +58,8 @@ export const LUMP_EXPORT_UNAVAILABLE_ZH = "我方报价是只报总价的，没�
 export type LineCaps = { canEdit: boolean; canApprove: boolean };
 
 export const QUOTE_CHANGED_ZH = "这份报价刚被别人改过（也可能是你在专业模式里改的），这次没保存";
-export const frozenZh = (status: string) => `这份报价「${QUOTE_STATUS_ZH[status] ?? status}」，内容锁定；要改请在专业模式里另起新版`;
+/** 冻结提示（BIDPAGE-6：已批准的写「另起新版」，不再叫人去专业模式） */
+export const frozenZh = (status: string) => frozenNoteZh(status);
 
 /**
  * 导出的 CSV 会被人用表格软件打开：以 = + - @ 或制表符、回车开头的品名会被当成公式，前面加一个 ' 让它按文字显示
@@ -107,10 +110,15 @@ export function writeData(orgId: string | null, w: CostLineWrite) {
 
 type OurBid = { id: string | null; status: string };
 
+const ourBidOf = (bid: TenderBidResolution): OurBid => ({ id: bid.status === "AUTHORITATIVE" ? bid.quote?.id ?? null : null, status: bid.status });
+
 async function ourBidQuoteId(projectId: string, orgId: string): Promise<OurBid> {
-  const bid = await resolveTenderBid({ projectId, orgId, internal: true });
-  return { id: bid.status === "AUTHORITATIVE" ? bid.quote?.id ?? null : null, status: bid.status };
+  return ourBidOf(await resolveTenderBid({ projectId, orgId, internal: true }));
 }
+
+/** 导出不可用的原因：没定 / 新版没定时说在这一页定（BIDPAGE-6，spec tender/quote-line-mode「按招标方价格表导出」） */
+export const EXPORT_NOT_DECIDED_ZH = "报价定为我方报价后才能导出：打开一份逐行报价点「定为我方报价」（没有批准权限的点「提交给负责人」）";
+export const EXPORT_REVISION_PENDING_ZH = "我方报价有新版还没定：新版定为我方报价后才能导出";
 
 export async function exportAvailability(projectId: string, orgId: string, known?: OurBid): Promise<ExportAvailability> {
   const bid = known ?? (await ourBidQuoteId(projectId, orgId));
@@ -118,9 +126,7 @@ export async function exportAvailability(projectId: string, orgId: string, known
     return {
       available: false,
       reasonZh:
-        bid.status === "QUOTE_REVISION_PENDING"
-          ? "我方报价有新版还没定：新版批准并定为我方报价后才能导出（提交、批准、定为我方报价目前在专业模式里做）"
-          : "报价定为我方报价后才能导出（提交、批准、定为我方报价目前在专业模式里做）",
+        bid.status === "QUOTE_REVISION_PENDING" ? EXPORT_REVISION_PENDING_ZH : EXPORT_NOT_DECIDED_ZH,
     };
   }
   const q = await db.projectQuote.findFirst({ where: { id: bid.id, projectId, orgId }, select: { id: true, version: true, engineJson: true, quoteType: true } });
@@ -130,15 +136,16 @@ export async function exportAvailability(projectId: string, orgId: string, known
 }
 
 export async function listLineQuotes(input: { projectId: string; orgId: string; caps: LineCaps }): Promise<QuoteListView> {
-  const [rows, bid, schedule] = await Promise.all([
+  const [rows, resolution, schedule] = await Promise.all([
     db.projectQuote.findMany({
       where: { projectId: input.projectId, quoteType: { not: "CUSTOM" } },
       orderBy: [{ updatedAt: "desc" }],
       select: { id: true, name: true, quoteNumber: true, version: true, status: true, quoteType: true, currency: true, engineJson: true, summaryJson: true, updatedAt: true },
     }),
-    ourBidQuoteId(input.projectId, input.orgId),
+    resolveTenderBid({ projectId: input.projectId, orgId: input.orgId, internal: true }),
     usableSchedule(input.projectId),
   ]);
+  const bid = ourBidOf(resolution);
   const quotes = rows.map((q) => {
     const sp = (q.summaryJson as { sellingPrice?: unknown } | null)?.sellingPrice;
     return {
@@ -156,7 +163,8 @@ export async function listLineQuotes(input: { projectId: string; orgId: string; 
       proModeHref: proModeHrefOf(input.projectId, q.id),
     };
   });
-  return { capabilities: input.caps, quotes, scheduleLineCount: schedule?.length ?? 0, export: await exportAvailability(input.projectId, input.orgId, bid) };
+  const [exportView, ourBid] = await Promise.all([exportAvailability(input.projectId, input.orgId, bid), buildOurBidLine(input.projectId, resolution)]);
+  return { capabilities: input.caps, quotes, scheduleLineCount: schedule?.length ?? 0, export: exportView, ourBid };
 }
 
 /* ---------------------------------- 新建 ---------------------------------- */

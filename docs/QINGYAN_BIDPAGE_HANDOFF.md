@@ -12,20 +12,21 @@
 
 | 项 | 值 |
 |---|---|
-| 当前 main | `4b6c3dd4`（#581 BIDPAGE-4 合并后；2026-11-23 13:50 UTC 核对） |
+| 当前 main | `c339cb40`（#578 FIX-25 合并后；2026-11-23 核对） |
 | 工作分支 | `claude/laughing-curie-2b9s1v`（每个 PR 合并后从最新 main 重开同名分支做下一个） |
 | BIDPAGE-1 | **已合并**（#557，`d1b0d3e2`，2026-11-23）；开关默认关，合并后页面无变化；生产部署：**已部署**——2026-11-23 04:41 UTC `release-drift`（workflow_dispatch，run 45113342662）读到线上 `deployedCommit = f9c73ba`，即 main 当时的最新提交，`d1b0d3e` 是它的祖先（中间只多了 FIX-21 的归档 #560）。合并后约 1.5 分钟那次查时线上还是 `212613e`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-bid-page-v2-shell`（主规格 `tender/bid-page` 13 条），归档 PR 见下表 |
 | BIDPAGE-3 | **已合并**（#564，`c376be86`，2026-11-23 09:31）；开关默认关；生产部署：**已部署**——2026-11-23 09:47 UTC `release-drift`（workflow_dispatch，run 45150109772）读到线上 `deployedCommit = c376be8`，与 main 一致；合并后约 1 分钟那次（run 45147965079）线上还是 `2a0eb96`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-line-mode-persist`（主规格 `tender/quote-line-mode` 15 条、`tender/bid-page` 改 3 条），归档 PR 见下表 |
 | BIDPAGE-4 | **已合并**（#581，`4b6c3dd4`，2026-11-23）；开关默认关；生产部署：**已部署**——2026-11-23 13:50 UTC `release-drift`（workflow_dispatch，run 45187960729）读到线上 `deployedCommit = 4b6c3dd`，与 main 一致。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-lump-sum-mode`（主规格新增 `tender/quote-lump-sum-mode` 19 条、`tender/quote-line-mode` 改 6 条；1 个子代理逐字核对主规格与增量一致），归档 PR 见下表 |
-| 正在做 | BIDPAGE-4 归档小 PR；之后 BIDPAGE-6 `quote-one-step-confirm` |
-| 下一步 | 归档 PR 合并 → BIDPAGE-6 四件套 → 开工前审查 → 实现 → 门禁 → 六维审查 + 交叉验证 → PR → 合并 |
+| BIDPAGE-6 | **PR #587 审核中**（开关默认关）；报告 `docs/QINGYAN_BIDPAGE-6_REPORT.md`；开工前审查 + 六维审查 + 交叉验证都做完，意见去向见报告 §5 |
+| 正在做 | BIDPAGE-6 PR：CI 绿后合并 → 确认部署 → 归档小 PR |
+| 下一步 | BIDPAGE-5 `quote-margin-advice-market`（AI 毛利建议；审查多一个「模型调用」维度） |
 
 | change | ID | 状态 | PR | 分支 |
 |---|---|---|---|---|
 | `bid-page-v2-shell` | BIDPAGE-1 | 已合并、已归档 | #557（合并 `d1b0d3e2`）；归档 #561（合并 `b717427f`） | `claude/laughing-curie-2b9s1v` |
 | `quote-line-mode-persist` | BIDPAGE-3 | 已合并、已归档 | #564（合并 `c376be86`）；归档 #572（合并 `325cbdc0`） | `claude/laughing-curie-2b9s1v` |
-| `quote-lump-sum-mode` | BIDPAGE-4 | 已合并、归档中 | #581（合并 `4b6c3dd4`）；归档小 PR（本次） | `claude/laughing-curie-2b9s1v` |
-| `quote-one-step-confirm` | BIDPAGE-6 | 未开始 | — | — |
+| `quote-lump-sum-mode` | BIDPAGE-4 | 已合并、已归档 | #581（合并 `4b6c3dd4`）；归档 #582（合并 `9ff1b29e`） | `claude/laughing-curie-2b9s1v` |
+| `quote-one-step-confirm` | BIDPAGE-6 | PR 审核中 | #587 | `claude/laughing-curie-2b9s1v` |
 | `quote-margin-advice-market` | BIDPAGE-5 | 未开始 | — | — |
 | `bid-page-sourcing-step` | BIDPAGE-2 | 未开始 | — | — |
 | `bid-page-documents-step` | BIDPAGE-7 | 未开始 | — | — |
@@ -51,7 +52,7 @@
 | 不确定处 1 / 4 | 逐行只用引擎一套算法，四个数取引擎；Σ行合计与引擎合计差 ≤ Σ(数量 × 0.005)（数量带小数的行再各加 0.005），数量大时可达上百加元；行毛利率接近整体但不总相同 | 任务书附录 C；BIDPAGE-3 design D4；报告 §6 第 4 条请 Evan 确认 |
 | BIDPAGE-3 出入 | 七条（proposal）：没有财务查看权的人看不到报价合计；不恢复编辑；逐行只配只供货；提交批准仍在专业模式；行实际从招标分析带入；差额上限；类别与说明细节 | `openspec/changes/archive/2026-11-23-quote-line-mode-persist/proposal.md`；报告 §6 |
 | 不确定处 3 | 未核实（BIDPAGE-2 时复现） | — |
-| 不确定处 5 | 实现会话连不上生产库，未核实；用合成数据回归，只读查询留给 Lucas / Evan | BIDPAGE-6 时写出查询 |
+| 不确定处 5 | 实现会话连不上生产库，未核实；BIDPAGE-6 用合成数据回归（0 份 / 1 份 / 已有另一份 / 两份已批准没选 / 另一份已中标）；只读查询在 `docs/acceptance/bidpage-6/prod-check.sql`，留给 Lucas / Evan 跑 | BIDPAGE-6 design「Migration Plan」 |
 | BIDPAGE-1「下一步」规则 | 「已定」「有未定的报价」挪到找供应商之前；招标分析那条只在没往下走时命中；新增「看供应商回复，把报价录入」；询价按每家供应商最近一次算（共 8 条出入） | `openspec/changes/archive/2026-11-23-bid-page-v2-shell/design.md` D3；主规格 `tender/bid-page` |
 | BIDPAGE-1 金额门 | 内部成本权限（`resolveQuoteCapabilities`）∧ 财务查看权（`canReadAll`），与报价引擎开关无关；只决定新页面挂不挂带金额的旧组件，不是数据保护 | design D4 / D5 |
 | BIDPAGE-1 临时出入 | 看不到金额的人在新页面 ① ② 暂时不能起草询价、编辑报价。起草询价由 BIDPAGE-2 恢复；编辑报价**不恢复**——Evan 2026-11-22 对 CHAIN-2e 的答复 ①（`docs/QINGYAN_CHAIN-2b_REPORT.md` §6 第 4 条）：不是项目负责人的投标同事不新建、编辑、批准报价，谁做报价谁就是负责人（负责人有财务特权）；逐行表本身就是成本，编辑必须看见成本 | BIDPAGE-1 design D5；BIDPAGE-3 design D7 |
@@ -89,6 +90,19 @@
   - FIX-14（#569）只改 `import-service.ts`、`inbound-apply.ts` 内部；FIX-24 之后改 `inbound-apply.ts`、`inbound-parse.ts`、`notes-parse.ts`，都不动导出。FIX-25（`target-margin-finance-gate`）让没有财务查看权的人拿不到目标毛利、项目列表与调查室读取接口去掉 `pricingInputs`，不碰 `bid-page-summary`。完整顺序见 `docs/QINGYAN_TENDER_FLOW_HANDOFF.md` §0.5k。
 - 本地隔离库：容器里 Postgres 16 已起、`vector` 扩展可用（`postgresql-16-pgvector` 装不上但扩展已在），库 `qingyan_test` 已 `prisma migrate deploy`。**容器会重启**（2026-11-23 07:17、10:05 左右各重启过一次，Postgres 随之停了；07:17 那次紧接着跑的全量门禁 161 项连库失败、作废）：跑门禁前先 `service postgresql status`，停了就 `service postgresql start`；`uptime -s` 能看出什么时候重启的。
 
+- **BIDPAGE-6 的做法与留下的事**（细节见 `openspec/changes/quote-one-step-confirm/design.md`，归档后在 `openspec/changes/archive/` 下）：
+  - 一次定价（提交 + 批准 + 选定）在一个事务里，迁移与台账用 `transitionQuote` 抽出的同一段代码（`applyQuoteTransitionTx`）；锁的顺序是**报价行 → 马上项目行**（台账写入对项目行取共享锁、同步取排他锁，两份报价同时定时若先各拿共享锁会互锁——开工前审查指出、实测复现）。
+  - **专业模式状态接口的并发缺口（原有）**：`transitionQuote` 在事务外读状态、更新不带状态条件。新页面一次定价与专业模式「送审 / 退回」同时发时，状态会被专业模式改回，项目的我方报价指针与金额还写着已定（审查 ② 与交叉验证实测）。修法：`applyQuoteTransitionTx` 的更新加 `where status = from`、0 行 → 409；会改专业模式的库写语句，BIDPAGE-6 不做，报告 §6 第 4 条列给 Evan。
+  - 与修订 / 中标交错时数据库偶尔判互锁（40P01）：一次定价返回 409「同一时间有别的操作…请再点一次」，整笔没写。
+  - 编辑权限的人可以「新页面提交 → 专业模式退回（编辑级）→ 再提交」反复给负责人发高优先级通知（只是站内打扰；审查 ③ 实测）。没有加时间窗口。
+  - 「提交给负责人」的通知用既有类型 `project_update`、对象类型 `bid_quote`；开关关掉以后点这类通知落到项目的标书页签（旧页面没有 `#bid-quote-{id}` 锚点，不报错）。
+  - 报价列表接口多返回 `ourBid`（② 最上面那一行）；金额取 `resolveTenderBid` 现算的税前报价。
+  - 新页面不再挂 `TenderOurBidCard`；改版前的页面与工作台照旧挂（它的中文化归 BIDPAGE-8）。
+  - ② 标题右边那句状态没带版本（不改 `next-step.ts`，避开 CHAIN-2e 在改的 `next-step.test.ts`）；CHAIN-2e 合并后可以补。
+- **写文件时 `\u` 转义会被解码成真字符**（BIDPAGE-6 踩过两次）：经工具参数写进文件的 `\u200B`、`\u202E` 之类会变成不可见的方向 / 零宽字符，GitHub 会弹双向文字警告。要写转义就用脚本写 `\\u…`；`quote-confirm.test.ts` 第 10 节扫 BIDPAGE-6 的源码与测试。
+- **只杀自己的进程**：停门禁时别用 `pkill -f "npx tsx"`（BIDPAGE-6 误杀过同时在跑的审查子代理的测试）；按 cwd 或 PID 杀。
+- **本地浏览器抽检的演示账号**：`qingyan_dev` 的演示组织 `bpshot_org` 没有行业包；纯会计岗位的人会被路由门送到 `/accounting`，挂上「招投标」岗位以后项目页仍被路由门挡住（原因未核实，与 BIDPAGE 无关）。BIDPAGE-6 的「只有编辑权限」那一步改用他本人的会话直接调接口。夹具在会话草稿区，不入库。
+
 ## 5. 上线时要设的环境变量（八个都合并、预发验收通过后，由 Evan / Lucas 设）
 
 | 变量 | 值 | 说明 |
@@ -101,6 +115,8 @@
 1. 八个 change 都已合并，预发验收按任务书「验收」九条走过。
 2. 旧接口的金额口径：CHAIN-2e 已合并；或由 Lucas / Evan 明确接受「开关开着时旧接口照今天的口径给金额」（BIDPAGE-1 design D1 / D5）。**BIDPAGE-4 起这也包括总价报价的备注**：专业模式读接口（`GET /api/projects/{id}/quote-engine/{quoteId}`，`read` 级、`canViewInternal` 即给内部视图）在 CHAIN-2e 合并前会把总价报价各项的备注与金额给有编辑权、没有财务查看权的人（BIDPAGE-4 审查 ③ 实测；那个文件归 CHAIN-2e，BIDPAGE-4 不改）。
 3. `TENDER_QUOTE_ENGINE_ENABLED` 在生产已开（未核实，任务书说已开）。
+3a. **FIX-26 的审计裁剪先合**（BIDPAGE-6）：新页面「另起新版」沿用既有修订审计，`beforeData` 里有原版的估算成本与毛利率（`sourceCost` / `sourceMargin`），没有财务查看权的组织管理员、项目管理员能在审计详情里读到（审查 ③ 实测）。FIX-26 计划写入侧去掉、读取侧裁剪。
+3b. 生产上已有的待批准、已批准报价与负责人在职情况：跑 `docs/acceptance/bidpage-6/prod-check.sql`（只读）。负责人不是在职成员的项目，「提交给负责人」没人收到。
 4. **开关开着时每次进页签都会先闪一下整个旧页面**（入口第一次渲染必须是旧 `BidTab` 才能保证「开关关 = 零变化」；旧组件的取数先于入口执行，所以必定先闪）。这与验收第 1 条「只看到下一步 + 三个分区」不符，CHAIN-2e 合并后也不会消失。打开开关前要么由 Lucas / Evan 明确接受，要么另起一个 change 解决（例如服务端渲染时就知道开关结果——要改项目页取数，届时再评估）。（BIDPAGE-1 交叉验证 2026-11-23 指出）
 
 ## 6. 本地跑测试

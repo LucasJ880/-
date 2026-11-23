@@ -782,6 +782,9 @@ run_test "BIDPAGE-3 逐行报价 DB+HTTP（开关 / 新建 / 存取 / 换人看�
 run_test "BIDPAGE-4 只报总价：判定、类别对照、范围、销售税、验收 3 的数、算式、往返、专业模式改过以后、互转前后引擎结果相同与拒绝、接口写法（纯函数）" "npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts"
 run_test "BIDPAGE-4 ② 总价构成表：开始的 4 行、添加一项、默认填法与基数说明、六个数与算式、成本加成、算不出、明细与改回总数、其它成本行、互转入口、不写浏览器（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx"
 run_test "BIDPAGE-4 只报总价 DB+HTTP（开关 / 新建 / 验收 3 与 4 / 换人看到同样的数 / 明细与点选 / 其它成本行 / 并发 / 专业模式改过以后 / 金额门与各种身份 / 跨项目 / 互转往返与拒绝 / 导出原因 / 另起新版；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts"
+run_test "BIDPAGE-6 定报价只点一次：主按钮矩阵、不可点原因、确认框、请求体、通知文字与结果、跳转地址、冻结提示、导出原因、我方报价一行、接口守卫级别、事务结构、不放中标（纯函数 + 源码断言）" "npx tsx src/lib/bid-page-v2/__tests__/quote-confirm.test.ts"
+run_test "BIDPAGE-6 ② 主按钮、确认、我方报价一行、接进两个编辑器与刷新（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/quote-actions.test.tsx"
+run_test "BIDPAGE-6 定报价 DB+HTTP（开关 / 守卫与门 / 0 份、已有另一份、两份没选、跟随新版、已中标 / 审计各一条与台账 / 修改时间与报价合计核对 / 并发 / 同步与镜像失败回滚 / 提交与通知 / 退回 / 另起新版 / 专业模式报价 / 谁定的 / 专业模式状态接口照旧；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-confirm-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"

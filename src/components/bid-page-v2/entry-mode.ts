@@ -73,7 +73,8 @@ export function sectionForAnchor(hash: string | null | undefined): BidPageSectio
   id = id.trim();
   if (!id) return null;
   if (id === "rfq-section" || id.startsWith("rfq-round-") || id === "bid-page-sourcing") return "sourcing";
-  if (id === "bid-quote-area" || id === "bid-workspace" || id === "bid-page-quote") return "quote";
+  // #bid-quote-{报价 id}：负责人从「报价等你批准」通知点进来（BIDPAGE-6）
+  if (id === "bid-quote-area" || id.startsWith("bid-quote-") || id === "bid-workspace" || id === "bid-page-quote") return "quote";
   if (id === "bid-page-documents") return "documents";
   return null;
 }

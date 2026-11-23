@@ -41,6 +41,9 @@ function entityHref(item: NotificationLinkTarget): string | null {
     // 询价轮次（T-1）：项目「标书与报价」并展开该轮；缺项目 id 按取用顺序回落
     case "tender_rfq_round":
       return projectId && id && `/projects/${projectId}?tab=bid#rfq-round-${id}`;
+    // 新版「标书与报价」页提交待批准的报价（BIDPAGE-6）：回到 ② 并打开这份报价
+    case "bid_quote":
+      return projectId && id && `/projects/${projectId}?tab=bid#bid-quote-${id}`;
     case "project":
       return id && `/projects/${id}`;
     // 业务对象

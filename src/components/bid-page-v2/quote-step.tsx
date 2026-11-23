@@ -3,12 +3,14 @@
 /**
  * BIDPAGE-3 新版「标书与报价」页 ② 定报价：报价列表、新建两问、逐行报价、按招标方价格表导出
  * BIDPAGE-4：新建两问多「只报总价」，列表里的总价报价在页内打开（`lump-sum-editor.tsx`），逐行报价能转成只报总价
+ * BIDPAGE-6：编辑器标题旁是主按钮（定为我方报价 / 提交给负责人 …，`quote-actions.tsx`），不再叫人去专业模式提交；
+ *   最上面是「我方报价」一行（代替改版前的我方报价卡）；地址带 #bid-quote-{id} 时打开那份报价；操作后刷新列表与汇总
  *
  * 只挂在看得到金额的人的新页面上（`bid-page-v2.tsx` 的金额门）；接口自己再判一次（报价权限守卫 + 财务查看权）。
  * 所有数都由服务端用报价引擎算好再返回；这里不算数，只在保存前标明「数字是上次保存时的」。
  * 不写浏览器本地存储里的成本；只读一次旧的本地成本草稿，提示过后记一个不含金额的标记。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api-fetch";
 import {
@@ -41,6 +43,8 @@ import { parseSchedulePaste } from "@/lib/tender-bid-workspace/paste-import";
 import type { LumpView } from "@/lib/bid-page-v2/lump-sum/contract";
 import { CurrencySelect, InquiryPicker, InvalidContext, Note, NumInput, PRESET_EXPLAIN_ZH, PresetRows, money, pct, unitMoney, useInvalidRegistry } from "./quote-ui";
 import { LumpSumEditor } from "./lump-sum-editor";
+import { OurBidLineView, QuoteActionBar, type QuoteActionDone, type QuoteActionNotice } from "./quote-actions";
+import { frozenNoteZh as frozenNoteText, quoteIdFromHash, type OurBidLine, type ReviseResult } from "@/lib/bid-page-v2/quote-confirm/contract";
 
 export { PRESET_EXPLAIN_ZH };
 
@@ -58,7 +62,6 @@ export const QUOTE_STEP_TEXT = {
   proMode: "专业模式",
   openInProMode: "在专业模式里打开",
   openLineInProMode: "用专业模式打开",
-  submitInProMode: "提交、批准在专业模式里做",
   dirty: "有修改还没保存：下面的数字是上次保存时的，保存后更新",
   marginNote: "毛利率已扣销售提成，所以比目标毛利率低（目标毛利率按扣提成前算）",
   exportButton: "按招标方价格表导出",
@@ -83,8 +86,8 @@ export const QUOTE_STEP_TEXT = {
   fromLump: "从只报总价转来的项（照样计入；这里改不了，要改请转回只报总价或在专业模式里改）",
 } as const;
 
-/** 锁定的报价：带上状态名（「已定」在这一页指「定为我方报价」，已批准但没选上的也锁着） */
-export const frozenNoteZh = (status: string) => `这份报价「${QUOTE_STATUS_ZH[status] ?? status}」，内容锁定；要改请在专业模式里另起新版`;
+/** 锁定的报价：带上状态名（「已定」在这一页指「定为我方报价」，已批准但没选上的也锁着）；已批准的写「另起新版」（BIDPAGE-6） */
+export const frozenNoteZh = (status: string, canEdit = true) => frozenNoteText(status, canEdit);
 
 export const LINE_TABLE_HEADERS = ["品名", "数量", "供应商报价（原币）", "到手单位成本（加元）", "我方单价", "行合计", "毛利率"] as const;
 
@@ -249,7 +252,7 @@ export function LineTotals({ view, dirty }: { view: LineModeView; dirty: boolean
   );
 }
 
-export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined }: { projectId: string; view: LineModeView; onSaved: (v: LineModeView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void }) {
+export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted = () => undefined, ourBid = null, onAction = () => undefined, actionNotice = null }: { projectId: string; view: LineModeView; onSaved: (v: LineModeView) => void; onClose: () => void; onConverted?: (quoteId: string, entryMode: "LINE" | "LUMP_SUM") => void; ourBid?: OurBidLine | null; onAction?: (done: QuoteActionDone) => void; actionNotice?: QuoteActionNotice | null }) {
   const [state, setState] = useState<LineModeState>(view.state);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -367,9 +370,6 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted
         <div className="font-medium">
           逐行报价 · {quoteDisplayName(view.quote)} · 第 {view.quote.version} 版 · {QUOTE_STATUS_ZH[view.quote.status] ?? view.quote.status}
         </div>
-        <a className="text-xs text-accent underline-offset-2 hover:underline" href={view.proModeHref}>
-          {QUOTE_STEP_TEXT.submitInProMode}
-        </a>
         <div className="relative ml-auto">
           <button type="button" className="rounded border border-border px-2 py-1 text-xs" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}>
             更多
@@ -393,7 +393,20 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted
         </button>
       </div>
 
-      {view.quote.frozen ? <Note>{frozenNoteZh(view.quote.status)}</Note> : !view.capabilities.canEdit ? <Note>{QUOTE_STEP_TEXT.readOnly}</Note> : null}
+      <QuoteActionBar
+        key={view.quote.id}
+        projectId={projectId}
+        quote={view.quote}
+        capabilities={view.capabilities}
+        ourBid={ourBid}
+        label="报价合计"
+        sellingPrice={view.computed.ok ? view.computed.totals.sellingPrice : null}
+        dirty={dirty}
+        hasUnpriced={view.computed.ok && view.computed.warnings.some((w) => w.code === "LINE_UNPRICED")}
+        onDone={onAction}
+        notice={actionNotice}
+      />
+      {view.quote.frozen ? <Note>{frozenNoteZh(view.quote.status, view.capabilities.canEdit)}</Note> : !view.capabilities.canEdit ? <Note>{QUOTE_STEP_TEXT.readOnly}</Note> : null}
       {view.notices.map((n) => (
         <Note key={n} tone="warn">
           {n}
@@ -686,7 +699,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted
 
 type ListState = { kind: "loading" } | { kind: "disabled" } | { kind: "error"; messageZh?: string | null } | { kind: "ready"; view: QuoteListView };
 
-export function QuoteStep({ projectId }: { projectId: string }) {
+export function QuoteStep({ projectId, onBidChanged = () => undefined }: { projectId: string; onBidChanged?: () => void }) {
   const router = useRouter();
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [open, setOpen] = useState<{ kind: "line"; view: LineModeView } | { kind: "lump"; view: LumpView } | null>(null);
@@ -761,12 +774,54 @@ export function QuoteStep({ projectId }: { projectId: string }) {
     [loadList, openQuote],
   );
 
+  // BIDPAGE-6：定 / 提交 / 退回 / 另起新版之后，刷新列表、重新打开报价（新版本或新草稿），并让页签刷新汇总
+  const afterRevise = useCallback(
+    (r: ReviseResult) => {
+      void loadList();
+      onBidChanged();
+      if (r.entryMode) void openQuote(r.id, r.entryMode);
+      else router.push(r.proModeHref);
+    },
+    [loadList, openQuote, onBidChanged, router],
+  );
+  // 操作成功后的提示：编辑器随新视图重挂，提示留在这里，只给同一份报价显示；换开别的报价时清掉
+  const [actionNotice, setActionNotice] = useState<({ quoteId: string } & QuoteActionNotice) | null>(null);
+  const onAction = useCallback(
+    (done: QuoteActionDone, entryMode: "LINE" | "LUMP_SUM") => {
+      setActionNotice(done.notice ? { quoteId: done.quoteId, ...done.notice } : null);
+      if (done.kind === "revised") return afterRevise(done.result);
+      void loadList();
+      void openQuote(done.quoteId, entryMode);
+      onBidChanged();
+    },
+    [afterRevise, loadList, openQuote, onBidChanged],
+  );
+
+  // 地址带 #bid-quote-{id}（负责人从通知点进来）：列表加载后打开那份报价（只打开一次；之后地址再变再打开）
+  const openedFromHash = useRef<string | null>(null);
+  const readyView = list.kind === "ready" ? list.view : null;
+  useEffect(() => {
+    if (!readyView) return;
+    const openFromHash = () => {
+      const id = quoteIdFromHash(window.location.hash);
+      if (!id || openedFromHash.current === id) return;
+      const q = readyView.quotes.find((x) => x.id === id);
+      if (!q?.entryMode) return;
+      openedFromHash.current = id;
+      void openQuote(q.id, q.entryMode);
+    };
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, [readyView, openQuote]);
+
   if (list.kind === "loading") return <Note>正在加载报价…</Note>;
   if (list.kind === "disabled") return <Note testId="quote-step-disabled">{QUOTE_STEP_TEXT.notEnabled}</Note>;
   if (list.kind === "error") return <Note tone="error">{list.messageZh ?? QUOTE_STEP_TEXT.loadFailed}</Note>;
   return (
     <div className="space-y-4" data-testid="quote-step">
-      <QuoteListPanel view={list.view} onOpen={(q) => void openQuote(q.id, q.entryMode === "LUMP_SUM" ? "LUMP_SUM" : "LINE")} onCreate={create} creating={creating} createError={createError} />
+      <OurBidLineView projectId={projectId} line={list.view.ourBid} canEdit={list.view.capabilities.canEdit} onRevised={afterRevise} />
+      <QuoteListPanel view={list.view} onOpen={(q) => { setActionNotice(null); void openQuote(q.id, q.entryMode === "LUMP_SUM" ? "LUMP_SUM" : "LINE"); }} onCreate={create} creating={creating} createError={createError} />
       {openError ? <Note tone="error">{openError}</Note> : null}
       {open?.kind === "line" ? (
         <LineQuoteEditor
@@ -778,6 +833,9 @@ export function QuoteStep({ projectId }: { projectId: string }) {
           }}
           onClose={() => setOpen(null)}
           onConverted={onConverted}
+          ourBid={list.view.ourBid}
+          onAction={(d) => onAction(d, "LINE")}
+          actionNotice={actionNotice?.quoteId === open.view.quote.id ? actionNotice : null}
         />
       ) : null}
       {open?.kind === "lump" ? (
@@ -790,6 +848,9 @@ export function QuoteStep({ projectId }: { projectId: string }) {
           }}
           onClose={() => setOpen(null)}
           onConverted={onConverted}
+          ourBid={list.view.ourBid}
+          onAction={(d) => onAction(d, "LUMP_SUM")}
+          actionNotice={actionNotice?.quoteId === open.view.quote.id ? actionNotice : null}
         />
       ) : null}
       <ExportBar projectId={projectId} availability={list.view.export} />

@@ -49,10 +49,15 @@ function ok(cond: boolean, name: string) {
   ok(/isLedgerProducerActive/.test(helperBody), "沿用 canonical producer 开关（无第二套激活判定）");
   ok(/quoteStatusEventKey/.test(helperBody) && /禁止 Math\.random\(\) \/ Date\.now\(\)/.test(keys), "key 构造收敛到 canonical event-keys 模块（含纪律注释）");
   ok(/prevAward/.test(src) && /findUniqueOrThrow.*updatedAt/.test(src), "prevUpdatedAt 在事务内、迁移前读取（重试稳定基准）");
-  const t = src.indexOf("appendQuoteLedgerEventTx(tx", src.indexOf("syncResult = await db.$transaction"));
-  const tEnd = src.indexOf("});", src.indexOf("syncResult = await db.$transaction"));
-  ok(t > -1 && t < src.indexOf("if (!needsSync)"), "transition 路径：append 位于状态更新后、事务提交前");
-  void tEnd;
+  // BIDPAGE-6：transition 的库写抽到 applyQuoteTransitionTx（transitionQuote 与一次定价共用）
+  const step = src.slice(src.indexOf("export async function applyQuoteTransitionTx("), src.indexOf("export function transitionAuditAction("));
+  const prevAt = step.indexOf("findUniqueOrThrow");
+  const upd = step.indexOf("await tx.projectQuote.update(");
+  const app = step.indexOf("appendQuoteLedgerEventTx(tx");
+  ok(prevAt > -1 && upd > prevAt && app > upd && !step.includes("db."), "transition 步骤：迁移前读 updatedAt → 状态更新 → append，全部走调用方的 tx");
+  const trans = src.slice(src.indexOf("export async function transitionQuote("), src.indexOf("export async function reviseQuote("));
+  const call = trans.indexOf("await applyQuoteTransitionTx(tx", trans.indexOf("syncResult = await db.$transaction"));
+  ok(call > -1 && call < trans.indexOf("if (!needsSync)"), "transition 路径：append 位于状态更新后、事务提交前");
 }
 
 console.log("");

@@ -592,6 +592,9 @@ NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.
 npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts
 npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx
 NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts
+npx tsx src/lib/bid-page-v2/__tests__/quote-confirm.test.ts
+npx tsx src/components/bid-page-v2/__tests__/quote-actions.test.tsx
+NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-confirm-db.isolated.test.ts
 # FIX-26a（openspec change quote-pdf-no-margin）：报价单 PDF 永远不印利润率
 npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts
 
