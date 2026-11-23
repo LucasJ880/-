@@ -4,10 +4,11 @@
 
 | 项 | 值 |
 |---|---|
-| change | `quote-pdf-no-margin`（新能力 `projects/legacy-quote-pdf`，2 条要求） |
+| change | `quote-pdf-no-margin`（已归档到 `openspec/changes/archive/2026-11-23-quote-pdf-no-margin/`；新能力 `projects/legacy-quote-pdf`，2 条要求） |
+| PR | #574，2026-11-23 合并（合并提交 `71a86a0a`）；归档后 `openspec validate --specs --strict` 160 / 160 |
 | TASKFLOW | FIX-26a（从 FIX-26 / 「待定」FIX-21 后续 8 拆出；协调会话 2026-11-23 定 GATE ④ 不出内部版 PDF、⑤ PDF 单独先做）；TASKFLOW 在「FIX-21 后续 8」那一行之后新增 FIX-26a 一行，状态 `[~]` |
 | 分支 | `claude/zen-turing-azudvx-fix26a`，从 main `325cbdc0` 切出；审查修订时先后合入 main `70da7956`、`fbacf6bd`（都没有冲突，本 change 的文件都没变） |
-| 性质 | 堵住内部数字外流。零 schema、不调模型、没有新增出站、没有新队列。**没有开关——合并即在生产生效** |
+| 性质 | 堵住内部数字外流。零 schema、不调模型、没有新增出站、没有新队列。**没有开关——已随合并（2026-11-23）在生产生效** |
 
 ## 1. 改了什么
 
