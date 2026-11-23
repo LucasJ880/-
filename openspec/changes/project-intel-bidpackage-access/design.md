@@ -170,54 +170,60 @@
 
 **枚举**：目录下所有名为 `route.ts` 或 `route.tsx` 的文件（与 FIX-17 的 `files-route-guard.test.ts` 一致），每个文件导出的每个 `GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS`。
 
-**规则**：
+**规则**（多维审查后收紧，Lucas 2026-11-23 的修订清单第 1、14 条）：
 
 1. 认不出处理函数正文的导出写法判失败：
-   - `export { … }`、`export * from`；
-   - `export const GET = 某个变量`、`withAuth(某个函数名)` 这类正文不在导出语句里的写法。
-2. 处理函数里必须调用名单里的一个守卫。守卫按导入它的模块与原始导出名认定：
+   - `export { … }`、`export * from`、解构的 `export const { GET, POST } = handlers`；
+   - `export const GET = 某个变量`、`withAuth(某个函数名)` 这类正文不在导出语句里的写法；
+   - 包装函数只认从 `@/lib/common/api-helpers` 导入的 `withAuth`，别的包装函数（如 `withRateLimit(async …)`）判失败。
+2. 处理函数里必须调用名单里的一个守卫。守卫、守卫结果的判定函数（`isAccessError`，只认 `@/lib/tender-auto-analysis/api-access` 导出的）、`NextResponse`（只认 `next/server` 导出的）都按导入的来源模块与原始导出名认定：
    - `import { requireDiagnosticProjectReadAccess as requireProjectReadAccess }` 按 diagnostic-access 认；
-   - 从别处导入的同名函数不算；
+   - 从别处导入的同名函数、文件里自己定义的同名函数不算；
+   - 处理函数里（含参数与内层函数）有与它们同名的局部声明，判失败（函数声明会提升，能冒名顶替）；
    - 被注释掉的调用不算。
-3. 第一次调用守卫之前不得出现：
-   - `db.`；
-   - 文件存储读写（`putPrivateBlob / readBlobBuffer / readBlobStream / deleteBlob`）；
-   - 解析（`parseAndStoreContent / parseDocumentPagesAndStore`）；
-   - 模型调用（`createCompletion*`、`generate*`、`runStaticSkill`）；
-   - 建任务（`create*Task`）；
-   - 入队（`enqueue*`、`maybeEnqueue*`、`maybeAutoEnqueue*`）；
-   - 发通知（`notify*`、`createNotification*`、`deliver*Notification`）；
-   - 写审计（名字里含 `audit`，不分大小写）。
-4. 第一次调用守卫之前，`await` 只能是两种：
-   - 取路由参数：`await ctx.params`（`ctx` 是处理函数的第二个参数，名字不限）、`await params`（第二个参数写成 `{ params }` 解构时，如 `src/app/api/projects/[id]/route.ts`）；
-   - 读请求体：`request.json() / formData() / text()`（`request` 是处理函数的第一个参数，名字不限），包括后面接 `.catch(…)` 的写法，例如 `await request.json().catch(() => ({}))`（`finance/expenses/[expenseId]/route.ts:64`、`quote-engine/[quoteId]/status/route.ts:9`）。
-5. 守卫的返回值必须赋给一个变量，并且被检查；不通过就直接返回拒绝响应，中间不做别的事（`if` 分支里只有这一条 `return`，返回语句里不 `await`、不碰第 3 条列的东西）：
-   - 返回响应的守卫：`if (x instanceof NextResponse) return x` 或 `if (isAccessError(x)) return x`；返回的也可以是把 `x` 换成的另一个拒绝响应——`tender-intel/sourcing` 与 `tender-rfq/attachment` 的 `GET` 把非 401 的拒绝换成 404 / 提示页（实现时核对：只认 `return x` 会对这两个已有守卫的处理函数误报）；
-   - 返回布尔的守卫：`if (!x) return …`。
+3. 取路由参数、读请求体之后的第一步就是守卫。守卫之前的顶层语句只允许：
+   - 取路由参数：`const { id } = await ctx.params`、`const p = await params`（`ctx` 是处理函数的第二个参数，名字不限；`params` 是第二个参数写成 `{ params }` 时解构出来的，如 `src/app/api/projects/[id]/route.ts`）；
+   - 读请求体：`const body = await request.json() / formData() / text()`（`request` 是处理函数的第一个参数，名字不限），可接 `.catch(() => 常量)`，例如 `await request.json().catch(() => ({}))`；先 `let body;` 再 `body = await request.json()`；以及 `join-brief` 的 `try { body = await request.json(); } catch { return 400 }`（读失败只回一个内容由常量构成的 400）；
+   - 常量别名：`const M = 文件顶层常量`（`tender-rfq/attachment` 的写法），不含调用、`await`、`new`、赋值。
+   其余一律判失败：任何表达式语句（不 `await` 的调用、`void …`、`after(…)`、`.catch(…)`）、`if`、提前 `return`、`await` 别的调用、`.catch` 里不是返回常量。数据库按导入来源认：`@/lib/db` 的 `db` 及其别名导入（`import { db as prisma }`），出现在守卫之前就点名「碰了数据库」。
+4. （并入第 3 条。）
+5. 守卫的返回值必须赋给一个变量，并且下一条语句就检查它，不通过就直接返回，中间不做别的事（`if` 分支里只有这一条 `return`，没有 `else`）：
+   - 返回响应的守卫：`if (x instanceof NextResponse) return …` 或 `if (isAccessError(x)) return …`；
+   - 返回布尔的守卫：`if (!x) return …`；
+   - 返回的只能是：守卫结果 `x` 本身；`NextResponse.json(常量, { status: 401 | 403 | 404, … })`；文件里由常量构造拒绝页的辅助函数（第一个参数是 401 / 403 / 404，其余参数是常量，如 `tender-rfq/attachment` 的 `messagePage(404, M.notFound)`；或没有参数、正文直接返回一个上面那种响应的 `const notFound = () => …`）；三元的两边各自满足（条件里不得有调用），如 `tender-intel/sourcing` 的 `access.status === 401 ? access : NextResponse.json({ … }, { status: 404 })`。返回 200、先调用别的函数再返回，都判失败。
 6. 第一次调用守卫的那条语句，必须是处理函数正文的顶层语句，形如 `const x = await 守卫(…)`；不能在 `if`、`try`、循环、三元、`&&` / `||` / `??`、内层函数里。
 7. 紧接着的下一条语句就是第 5 条的检查。先调守卫、读完库再检查结果，判失败。
-8. 守卫的项目参数（第二个参数）必须是解构路由参数里 `id` 这个键得到的变量：`const { id } = await ctx.params` 里的 `id`，或 `const { id: projectId } = await params` 这类改名后的变量（改成什么名字都行，认的是它来自 `id` 这个键）。传的是嵌套路由的其它参数（`quoteId`、`runId` 等），或请求体、查询串里的另一个项目，判失败。
+8. 检查的是地址里的项目，也是这个请求：
+   - 守卫的项目参数（第二个参数）必须是 `const` 解构路由参数里 `id` 这个键得到的变量（`const { id } = await ctx.params` 的 `id`，或 `const { id: projectId } = await params` 这类改名后的变量），或 `const p = await ctx.params` 的 `p.id`；`let` 绑定、处理函数里任何地方对它重新赋值（含解构赋值、`++`）都判失败；
+   - 守卫之后不得再取一次路由参数（防止「守卫查一个、后面用另一个」）；
+   - 传的是嵌套路由的其它参数（`quoteId`、`runId` 等），或请求体、查询串里的另一个项目，判失败；
+   - 返回响应的守卫，第一个参数必须是处理函数收到的请求本身（第一个参数），伪造的请求判失败。
 9. 例外名单里的文件按「已下线」检查：只导入 `next/server`，不出现 `db`，不出现 `await`，正文里返回 410。例外名单里的文件不存在也判失败，提示删掉这条例外。
-10. 防空跑：断言目录下至少找到 170 个路由文件、240 个处理函数（main 上是 176 个、251 个），并断言本次 4 个文件都在。
-11. 检查器自测。下面每一种写法都必须被指出（含 FIX-17 那份的全部 7 种反例，再加本次新规则的）：
-    - 完全不调守卫；
-    - 先读库、后调守卫；
-    - 调了守卫不看结果；
-    - 检查的不是守卫的返回值（另一个变量）；
-    - 被注释掉的守卫；
-    - 守卫之前先 `await` 一个本地函数（里面写库）；
-    - 冒名守卫（同名、从别处导入）；
-    - `export { … as DELETE }` 与 `export * from`；
-    - 守卫只在 `if` 分支里调用；
-    - 调了守卫，先读库、再检查结果；
-    - 守卫查的是请求体里的另一个项目 ID；
-    - 例外接口被改回干活（读库、`await`、不再返回 410）；例外文件不存在。
+10. 防空跑：断言目录下至少找到 170 个路由文件、240 个处理函数（实现时是 176 个、251 个），并断言本次 4 个文件都在。
+11. 守卫前预处理名单（实现时核对出来的既有写法，名单只减不增）：目录里有 3 个处理函数在守卫之前先做了不碰数据、不 `await` 的预处理，按第 3 条会不过：
+    - `src/app/api/projects/[id]/route.ts` `PATCH`：鉴权前先过运行环境隔离闸 `assertNonProdSideEffectsAllowed("write")`，非生产环境禁写时直接返回它的响应；
+    - `finance/expenses/[expenseId]/route.ts` `PATCH`：按请求体里的动作算出 `requireCostAccess` 要的权限；
+    - `quote-engine/[quoteId]/status/route.ts` `POST`：先校验请求体里的目标状态（无效回 400「无效状态」），再按目标状态选 `requireQuoteAccess` 的级别。
+    改它们不在本 change 范围（不顺手改别的接口），所以列进名单：名单里的处理函数在守卫之前额外允许不含 `await`、不碰数据的 `const` 声明与 `if (…) return …`，其余规则照旧；它们改成守卫第一步之后测试会提示删掉对应条目（名单只减不增）；名单里的文件或方法不在了也判失败。新接口不进这个名单。改它们登记为后续任务。
+    - 被否决：照修订清单的字面「守卫之前一律不允许 return / 表达式」直接收紧。这 3 个既有处理函数会不过（审查时以为 0 个），要么本 change 去改它们（超范围），要么测试一直红。
+    - 被否决：对所有处理函数放宽成「守卫之前允许不 `await`、不碰数据的预处理」。新接口就又能先判开关再调守卫，修订清单要堵的正是这个。
+12. 检查器自测。下面每一种写法都必须被指出：
+    - 完全不调守卫；先读库、后调守卫；守卫之前先 `await` 一个本地函数（里面写库）；守卫之前提前 `return`（先判开关再调守卫）；守卫之前不 `await` 的写库调用；守卫之前不 `await` 地调用一个导入的函数；读请求体的 `.catch(…)` 里写库；守卫之前用 `db` 的别名导入读库、`const { projectDocument } = db`；
+    - 调了守卫不看结果（不赋值、赋值了不检查）；检查的不是守卫的返回值（另一个变量）；调了守卫，先读库、再检查结果；拒绝分支先读写库再返回；拒绝分支返回 200；拒绝分支调用别的函数再返回；布尔守卫按 `instanceof` 检查；
+    - 被注释掉的守卫；冒名守卫（同名、从别处导入；同名、文件里自己定义；处理函数里同名局部函数遮蔽导入的守卫）；文件里自己定义的、或从别处导入的同名 `isAccessError`；
+    - `export { … as DELETE }`、`export * from`、`export const { GET, POST } = handlers`、`export const GET = 变量`、`withAuth(函数名)`、`withAuth` 以外的包装函数；
+    - 守卫只在 `if` / `try` / 三元里调用；
+    - 守卫查的是请求体里的另一个项目 ID（`body.projectId`、从请求体解构出的 `projectId`）、嵌套路由的另一个参数；项目 ID 用 `let` 绑定；守卫之后对它重新赋值；守卫之后又从 `ctx.params` 取一次 `id`；守卫的第一个参数不是处理函数收到的请求；
+    - 例外接口被改回干活（读库、`await`、不再返回 410）；例外名单里的文件不存在、方法不存在；
+    - 预处理名单：同一写法不在名单里判失败；名单里的处理函数在守卫之前 `await` 别的调用、碰数据库仍判失败；名单里的处理函数改成守卫第一步后提示删掉这一条；名单里的方法不存在。
 
     下面几种正例必须通过（正例都是合成的、不在任何名单里的路由源码，同时覆盖规格「新加的接口不用登记」）：
-    - 先过守卫再碰数据的 `withAuth` 写法与 `export async function` 写法；
-    - 先 `await request.json().catch(…)` 再调守卫；
-    - 别名导入的调试面守卫；
-    - 返回布尔的讨论区守卫。
+    - 先过守卫再碰数据的 `withAuth` 写法与 `export async function` 写法；第二个参数解构出 `{ params }` 再 `await params`；
+    - 守卫第一步、之后才判开关（BIDPAGE `bid-page-summary` 现行版本 `9b0828ac` 的写法）；`const p = await ctx.params` 再传 `p.id`；
+    - 先 `await request.json().catch(…)` 再调守卫；`try` 里读请求体再调守卫，按内容在分支里再调写权限守卫不受约束；
+    - 守卫前取文件常量的别名、拒绝时返回由常量构造的 401 / 404 页；拒绝时把守卫的响应换成另一个拒绝响应；
+    - 别名导入的调试面守卫；返回布尔的讨论区守卫；`isAccessError(x)) return x`；预处理名单里的既有写法。
+13. 一键投标方案两个路由照抄的固定提示（第 D12 节）与 `src/lib/agent-tasks/dto.ts` 的 `SAFE_STEP_ERROR_MESSAGE` 一字不差：按源码文本比较（读文件、解析语法树，不导入冻结面）。
 
 **守卫名单与出处**：每一个都读过代码，确认里面包含项目可见性判断（要么直接调读 / 写守卫，要么自己按同样的规则判），有的在前面先判开关或平台管理员。括号里是 main 上以它为第一个守卫的处理函数数。
 
@@ -257,9 +263,9 @@
 
   - 守卫从名单里的模块按原名导入，例如 `import { requireProjectReadAccess } from "@/lib/projects/access"`；
   - 处理函数正文写在导出语句里（第 1 条）；
-  - 守卫调用是处理函数正文的顶层语句，赋给一个变量，下一条语句就是 `instanceof NextResponse` 检查（第 5–7 条）；
-  - 第二个参数是解构路由参数 `id` 得到的变量（第 8 条）；
-  - 守卫之前只 `await` 路由参数和读请求体（第 4 条），不碰 `db` 等（第 3 条）。
+  - 守卫调用是处理函数正文的顶层语句，赋给一个变量，下一条语句就是 `instanceof NextResponse` 检查，拒绝时返回守卫结果或 401 / 403 / 404（第 5–7 条）；
+  - 第一个参数是处理函数收到的请求，第二个参数是 `const` 解构路由参数 `id` 得到的变量，之后不改写、不再取路由参数（第 8 条）；
+  - 守卫之前只取路由参数和读请求体（第 3 条）：不判开关、不提前 return、不调任何函数；开关之类放在守卫之后。
 - 只有两种情况要改测试里的名单，都与新接口放在同一个 PR：
   - 新接口用了名单以外的守卫（例如新写一个包装守卫）：把它按「来源模块、原始导出名、出处行号、里面怎么判项目可见性」加进守卫名单；
   - 新接口是固定返回 410 的已下线接口：加进例外名单，写明下线理由与出处。
@@ -272,13 +278,14 @@
 - main `2ef4f9c8`：251 个处理函数里只有 8 个不过，是本次 6 个与 FIX-17 的 2 个；batch-followup 按例外通过。FIX-17 分支上只剩本次 6 个。
 - 第 4 条如果不认 `.catch(…)`，会多误报 2 个：`finance/expenses/[expenseId]` `PATCH`、`quote-engine/[quoteId]/status` `POST`。`join-brief` `POST` 先读请求体（不带 `.catch`）再调守卫，按第 4 条通过。
 - 第 6–8 条在 main 的 242 个、FIX-17 分支的 244 个已有守卫的处理函数上 **0 个误报**。`handoff/preview` 里第二次调写权限守卫只是探测能力，不是第一个守卫，不受第 7 条约束。
-- 实现时（FIX-17 合并后的 main `07c02358` 合入本分支）：176 个文件、251 个处理函数，只有本次 6 个不过，244 个通过、1 个按例外通过。把并行 BIDPAGE 分支的 `bid-page-summary/route.ts`（先判开关、再 `await params`、再不带条件地调读权限守卫并紧接着检查）临时放进目录跑过一次，按合规通过（245 个），没进仓库。
+- 实现时（FIX-17 合并后的 main `07c02358` 合入本分支）：176 个文件、251 个处理函数，只有本次 6 个不过，244 个通过、1 个按例外通过。
+- 多维审查后收紧（合入 main `22a87fb7` 后）：176 个文件、251 个处理函数，严格通过 247 个、守卫前预处理名单 3 个（第 11 条）、例外 1 个，改动前只点名本次 6 个。BIDPAGE `bid-page-summary` 现行版本（`9b0828ac`）已改成守卫第一步、之后才判开关，按这个写法的合成正例通过；它起初的写法（先判开关再调守卫）现在会被指出（「守卫之前提前 return」反例）。
 - 三段合成的漏洞写法，第 2–5 条全部放行，第 6–8 条各指出一段：守卫只在 `if` 里；守卫后先读库再检查；守卫查请求体里的项目 ID。
 
 **与 FIX-17 `files-route-guard.test.ts` 的重叠**：`files/` 下 3 个文件两份测试都会查。保留两份，不合并。
 
 - FIX-17 那份对 `files/` 更严：守卫必须是取参数后的第一个 `await`，先读请求体也算违规。它的规格 Scenario 点名了那条命令，删掉要改 FIX-17 的规格。
-- 新的这份把「先读请求体」放宽到全目录现有写法都能满足的程度（第 4 条），同时加了 FIX-17 那份没有的第 6–8 条；`files/` 下现有写法两份都能过。
+- 新的这份把「先读请求体」放宽到全目录现有写法都能满足的程度（第 3 条），同时加了 FIX-17 那份没有的第 5–8、11 条；`files/` 下现有写法两份都能过。
 - 被否决：把 FIX-17 的检查器原样扩到整个目录。上面 3 个先读请求体的处理函数会误报，改它们不在本次范围。
 - 被否决：把两份合成一个共享检查器。要动 FIX-17 的测试文件与规格，没有行为上的收益。
 - 被否决：沿用 `authz-contract.test.ts` 那种「文件 → 必需符号」的固定清单。管不到以后新加的文件。
@@ -313,10 +320,15 @@
     - 任务「丙-末步」：前 3 步已完成，只剩最后一步待执行，这一步是文档摘要。项目丙没有待摘要文件，所以这一步不调模型。
   - 项目甲二（组织甲，未分发）：一个 `queued` 任务。
   - 项目乙（组织乙）：一个自己的任务。
-  - 项目丁（没有所属组织，已分发）：负责人同上，项目甲的项目管理员也是它的 active 项目管理员；用来测「没有所属组织的项目里，项目管理员不过写权限」（`access.ts:93`）。
+  - 项目丁（没有所属组织，已分发）：负责人同上，项目甲的项目管理员也是它的 active 项目管理员；用来测「没有所属组织的项目里，项目管理员不过写权限」（`access.ts:93`）；只读成员也是它的 active 成员，测读权限放行。
+  - 多维审查后补的夹具（修订清单第 2、10、12、15、16 条）：
+    - 项目甲另加测试、财务审核两个角色的 active 成员，与一个只剩最后一步的任务（改动前被拒的执行会让任务完成、给全组发通知）；
+    - 项目丙另加：一个 `custom_flow` 类型、只剩最后一步的任务；「带报错但状态是已完成」「状态是失败但没有报错」的边界步骤；下一步是未知报价动作的任务（技能返回失败、不带报错，不调模型）；
+    - 项目「模」（组织甲）：报价草稿任务（假服务回一段不是 JSON 的原文 → 技能 `success=false`、报错是模型原文）与单个询价项的邮件草稿任务（假服务回 400 → 技能抛错，走 `run-step` 的 catch 分支），各给项目管理员与 super_admin 一个；带一个供应商、一轮询价与一个询价项；
+    - 组织「预」（岗位模式，`window_covering_services_v1`，种好岗位）与项目「预」：以岗位预览身份访问的 super_admin 是组织「预」的 active 成员、项目「预」的只读成员，带签好的预览 cookie。
 - **不调模型怎么观察**：照 `src/lib/sales/__tests__/period-narrative-db.isolated.test.ts:3`、`:51`、`:81-82` 的做法，本机起一个 OpenAI 兼容假服务，把 `OPENAI_BASE_URL` 指过去、`OPENAI_API_KEY` 设成测试值，统计收到的请求数。
   - 每个被拒用例前后请求数不变。
-  - 放行用例也挑不需要调模型的路径（项目丙没有可用文档；执行的那一步是无事可做的文档摘要），所以整个测试应当是 0 次请求。
+  - 放行用例大多挑不需要调模型的路径（项目丙没有可用文档；执行的那一步是无事可做的文档摘要）；只有项目「模」的 4 次执行故意调模型（看失败时报错给谁看）。所以被拒用例 0 次请求，整个测试只有项目「模」的 4 次。
   - 被否决：不配模型密钥，靠「没密钥就报错」判断。被拒和「调了但失败」分不开。
 - **不改数据怎么观察**：被拒前后逐字段比对这些记录：
   - 项目甲的情报行、项目行、相似项目记录；
@@ -371,6 +383,14 @@
 - 被否决：新写一套投影函数。只在路由里照 `dto.ts` 的口径写两行（同一句固定提示、同一条「失败或带报错」判断），不另起投影模块。
 - 实现时改：起草时写的是「直接导入 `dto.ts` 的固定提示与报错脱敏」。`src/lib/agent-tasks` 是 runtime-architecture 冻结面（`src/lib/runtime-architecture/guards.ts` 的 `FROZEN_IMPORT_TARGETS["agent-tasks-legacy"]`），新文件导入它会让 `bash scripts/test-runtime-architecture.sh` 以 `NEW_FROZEN_MODULE_IMPORTER_FORBIDDEN` 失败；改 baseline 等于给冻结面加消费者。所以两个路由各照抄一句固定提示（注释写明出处），对外行为不变；与 `dto.ts` 的 `SAFE_STEP_ERROR_MESSAGE` 一字不差由隔离库测试断言（测试文件导入 `dto.ts` 做比较，测试不在冻结面普查范围内）。
 
+### D13 一键投标方案两个接口只认 `ai_bid_package` 任务（多维审查后加，修订清单第 2 条）
+
+`GET …/ai-bid-package?taskId=…` 与 `run-step` 按 `id + projectId + taskType = "ai_bid_package"` 找任务；同项目里别的类型的 AgentTask（如 `custom_flow`）按「任务不存在」404，不返回、不执行、不发「AI 投标方案已生成」通知。
+
+- 理由：这两个接口是一键投标方案的专用入口，界面只用它查看与执行 `ai_bid_package` 任务；不加类型条件时，能过写权限的人可以借这个入口执行同项目里别的 AgentTask 的下一步（跳过 `/api/agent/tasks/:taskId/execute` 自己的检查），读接口也会把别的任务的步骤按这里的口径返回。
+- 改口径影响谁：没有人。界面只拿这两个接口查看与执行一键投标方案任务；`/api/agent/tasks` 的通用入口不变。
+- 被否决：不加。审查（安全 3）实测可以借 `run-step` 执行同项目里的 `custom_flow` 任务。
+
 ## 与八条硬纪律的关系
 
 1. 零 schema：遵守。不新增 model / 字段 / migration；测试只往隔离库写夹具并清理。
@@ -389,9 +409,11 @@
 
 - `npx tsx src/lib/projects/__tests__/project-routes-guard.test.ts`：
   - 改动前退出码非 0，失败清单只有本次 6 个处理函数；其余处理函数（含 batch-followup 例外；main `2ef4f9c8` 上是 245 个，开工时按实际数）全部通过，也就是在真实目录上零误报。
-  - 检查器自测（D9 第 11 条）全部通过。
+  - 检查器自测（D9 第 12 条）与固定提示比较（第 13 条）全部通过；真实目录零误报（收紧后严格通过 + 守卫前预处理名单 + 例外 = 全部处理函数）。
   - 改动后退出码 0。
 - `NODE_ENV=test DATABASE_ENVIRONMENT=isolated DATABASE_URL=… DIRECT_URL=… npx tsx src/lib/projects/__tests__/intel-bidpackage-access-db.isolated.test.ts`：改动前被拒用例与安全视图用例失败，改动后全部通过；连跑 3 次结果一致。
+- 变异：把 `run-step` 三处失败分支、正常分支的 `data`、`GET` 的 `data` 与报错判断（`|| s.error`、失败状态）、两处 `taskType` 条件分别改回去，隔离库测试都失败（「成功但带报错」那一边现有技能走不到，见报告「已知限制」）。
+- 归档演练：在临时副本里 `openspec archive project-intel-bidpackage-access --yes` 后 `openspec validate --specs --strict` 不新增失败，每条要求正文 ≤ 500 字。
 - `npx tsx src/lib/projects/__tests__/files-route-guard.test.ts`（FIX-17）仍通过。
 - 其余门禁：
   - `npm test` 对照既有失败清单无新增；
@@ -413,7 +435,12 @@
   - 改用名单里的守卫，或把新守卫连同出处加进名单；
   - 按内容选级别时，先不带条件地调读权限守卫，再在分支里调写权限守卫，照 `join-brief/route.ts:104-111` 的写法。
   - 名单故意不认「任意名字里带 Access 的函数」。
-- [守卫测试靠读源码判断先后] 处理函数把读写藏进一个在守卫之前、且不需要 `await` 的本地函数里，它认不出来。行为由隔离库测试兜底。
+- [守卫测试靠读源码判断，仍有认不出的写法（已知盲区）] 收紧后（第 3、5、8 条），守卫之前不 `await` 地调用导入的写库函数、`const { projectDocument } = db` 再用、伪造第一个参数都会被指出。仍认不出的：
+  - 名单里的守卫函数本身写错（测试只认来源，不查守卫内部）；守卫结果检查通过之后的行为（例如只按 `access.user` 再查一次别的项目）；
+  - 守卫前预处理名单里那 3 个处理函数在守卫之前的不 `await` 调用里藏副作用（第 11 条，名单只减不增，改它们是后续任务）；
+  - 常量表达式里的属性读取若是有副作用的 getter；
+  - 不在 `src/app/api/projects/[id]/` 下、却按项目 ID 读写的接口（如 `/api/agent/tasks/recent`，后续任务 FIX-23）。
+  行为由隔离库测试兜底（本次 6 个处理函数）。
 - [依赖 FIX-17] FIX-17 没合并时，目录守卫测试会指出 `files/` 下那 2 个处理函数。FIX-17（#548）合并后把 main 合入本分支再开工（tasks 开头的开工前提与 1.1）。
 - [每个请求多几次主键查询] 用户一次、项目与成员关系各一次。相对一次模型调用可以忽略。
 

@@ -17,8 +17,10 @@
  *   - 固定提示与 src/lib/agent-tasks/dto.ts 的 SAFE_STEP_ERROR_MESSAGE 比较：两个路由不能导入冻结面 agent-tasks，
  *     在路由里照抄了这一句，两处漂移时这里失败。
  *
- * 模型端是本机起的 OpenAI 兼容假服务（OPENAI_BASE_URL 指过去），统计收到的请求数。放行用例都挑不调模型的路径
- * （项目丙没有可用文档；执行的那一步是无事可做的文档摘要或未知技能），所以整个测试应当是 0 次模型请求。
+ * 模型端是本机起的 OpenAI 兼容假服务（OPENAI_BASE_URL 指过去），统计收到的请求数：被拒用例应当是 0 次模型请求。
+ * 放行用例大多挑不调模型的路径（项目丙没有可用文档；执行的那一步是无事可做的文档摘要、未知技能或未知报价动作）；
+ * 只有「执行失败时报错给谁看」用专用项目「模」：假服务对它的报价草稿回一段不是 JSON 的原文（技能返回 success=false、
+ * 报错夹带模型原文），对它的询价邮件草稿回 400（技能抛错），两条路径各让项目管理员与 super_admin 执行一次。
  * 执行完最后一步发的通知不 await，按 projectId + sourceKey 前缀轮询到预期条数。
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -55,25 +57,41 @@ function ok(cond: boolean, name: string, detail?: unknown) {
 
 // ── 本机 OpenAI 兼容假服务：只数请求，一律回一个空对象 ──
 const modelRequests: string[] = [];
+/** 专用项目「模」的名字里带这个标记；假服务按它决定回什么（main 里赋值） */
+const modelRoute = { projectMark: "", rawOutputMark: "", errorMark: "" };
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", () => {
-    modelRequests.push(`${req.method} ${req.url}`);
     let model = "test-model";
+    let system = "";
+    let user = "";
     try {
-      model = (JSON.parse(body || "{}") as { model?: string }).model ?? model;
+      const parsed = JSON.parse(body || "{}") as { model?: string; messages?: Array<{ role: string; content: string }> };
+      model = parsed.model ?? model;
+      system = parsed.messages?.find((m) => m.role !== "user")?.content ?? "";
+      user = parsed.messages?.find((m) => m.role === "user")?.content ?? "";
     } catch {
       /* 不是 JSON 也照样回 */
     }
+    const forModelProject = !!modelRoute.projectMark && user.includes(modelRoute.projectMark);
+    modelRequests.push(`${forModelProject ? "model-project" : "other"} ${req.method} ${req.url}`);
     res.setHeader("content-type", "application/json");
+    if (forModelProject && !system.includes("报价编制助手")) {
+      // 询价邮件草稿：回 400，技能抛错（run-step 的 catch 分支）
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: { message: modelRoute.errorMark, type: "invalid_request_error" } }));
+      return;
+    }
+    // 报价草稿：回一段不带花括号的原文，技能返回 success=false、error 是模型原文（run-step 的正常分支）
+    const content = forModelProject ? `${modelRoute.rawOutputMark} 这不是 JSON` : "{}";
     res.end(
       JSON.stringify({
         id: "chatcmpl-fix21",
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
         model,
-        choices: [{ index: 0, message: { role: "assistant", content: "{}" }, finish_reason: "stop" }],
+        choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }),
     );
@@ -91,6 +109,8 @@ async function main() {
   const { db } = await import("@/lib/db");
   const { createSession } = await import("@/lib/auth/session");
   const { SAFE_STEP_ERROR_MESSAGE } = await import("@/lib/agent-tasks/dto");
+  const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
+  const { signPreviewToken } = await import("@/lib/preview/token");
   const bidPackageRoute = await import("@/app/api/projects/[id]/ai-bid-package/route");
   const runStepRoute = await import("@/app/api/projects/[id]/ai-bid-package/run-step/route");
   const regenerateRoute = await import("@/app/api/projects/[id]/intelligence/regenerate/route");
@@ -104,6 +124,10 @@ async function main() {
   const REVIEWER_MARK = `REVIEWER_${tag}`;
   const META_MARK = `META_MARK_${tag}`;
   const SECRET_TEXT = `Tender requirement text for ${tag}: mandatory bid bond 10 percent, delivery within 30 days of award.`;
+  const WARN_MARK = `STEP_WARNING_MARK_${tag}`;
+  modelRoute.projectMark = `MODELPROJ_${tag}`;
+  modelRoute.rawOutputMark = `RAW_MODEL_OUTPUT_MARK_${tag}`;
+  modelRoute.errorMark = `MODEL_ERROR_MARK_${tag}`;
 
   // ───────────────────────── 夹具：人 ─────────────────────────
   const mkUser = (slug: string, opts: { status?: string; role?: string } = {}) =>
@@ -126,7 +150,10 @@ async function main() {
   const uOutsider = await mkUser("f21_outsider"); // 组织乙管理员
   const uSuper = await mkUser("f21_super", { role: "super_admin" }); // 不属于任何组织
   const uSuspended = await mkUser("f21_suspended", { status: "suspended" }); // 账号已停用，曾是项目甲的项目管理员
-  const allUsers = [uOwner, uOrgAdmin, uProjAdmin, uViewer, uOperator, uSameOrg, uInactiveMember, uExOrgAdmin, uOutsider, uSuper, uSuspended];
+  const uTester = await mkUser("f21_tester"); // 项目甲的测试
+  const uAccounting = await mkUser("f21_accounting"); // 项目甲的财务审核
+  const uPreviewSuper = await mkUser("f21_preview_super", { role: "super_admin" }); // 以岗位预览身份访问的 super_admin
+  const allUsers = [uOwner, uOrgAdmin, uProjAdmin, uViewer, uOperator, uSameOrg, uInactiveMember, uExOrgAdmin, uOutsider, uSuper, uSuspended, uTester, uAccounting, uPreviewSuper];
 
   const orgA = await db.organization.create({
     data: { name: `F21 OrgA ${tag}`, code: `f21a_${tag}`, ownerId: uOwner.id, status: "active" },
@@ -145,6 +172,8 @@ async function main() {
       { orgId: orgA.id, userId: uInactiveMember.id, role: "org_member", status: "active" },
       { orgId: orgA.id, userId: uExOrgAdmin.id, role: "org_admin", status: "inactive" },
       { orgId: orgA.id, userId: uSuspended.id, role: "org_member", status: "active" },
+      { orgId: orgA.id, userId: uTester.id, role: "org_member", status: "active" },
+      { orgId: orgA.id, userId: uAccounting.id, role: "org_member", status: "active" },
       { orgId: orgB.id, userId: uOutsider.id, role: "org_admin", status: "active" },
     ],
   });
@@ -157,7 +186,13 @@ async function main() {
   const projA2 = await mkProject(orgA.id, uOwner.id, "ProjA2", "pending_dispatch"); // 未分发
   const projB = await mkProject(orgB.id, uOutsider.id, "ProjB"); // 组织乙
   const projD = await mkProject(null, uOwner.id, "ProjD"); // 没有所属组织
-  const projectIds = [projA.id, projC.id, projA2.id, projB.id, projD.id];
+  const projM = await mkProject(orgA.id, uOwner.id, `ProjM ${modelRoute.projectMark}`); // 专用项目「模」：执行失败的两条路径
+  // 岗位预览：另一个按岗位模式的组织，预览用的 super_admin 是它的 active 成员、是项目「预」的只读成员
+  const orgP = await db.organization.create({
+    data: { name: `F21 OrgP ${tag}`, code: `f21p_${tag}`, ownerId: uOwner.id, status: "active", industryPackId: "window_covering_services_v1" },
+  });
+  const projP = await mkProject(orgP.id, uOwner.id, "ProjP");
+  const projectIds = [projA.id, projC.id, projA2.id, projB.id, projD.id, projM.id, projP.id];
   await db.projectMember.createMany({
     data: [
       { projectId: projA.id, userId: uProjAdmin.id, role: "project_admin", status: "active" },
@@ -170,6 +205,11 @@ async function main() {
       { projectId: projC.id, userId: uOperator.id, role: "operator", status: "active" },
       { projectId: projA2.id, userId: uViewer.id, role: "viewer", status: "active" },
       { projectId: projD.id, userId: uProjAdmin.id, role: "project_admin", status: "active" },
+      { projectId: projD.id, userId: uViewer.id, role: "viewer", status: "active" },
+      { projectId: projA.id, userId: uTester.id, role: "tester", status: "active" },
+      { projectId: projA.id, userId: uAccounting.id, role: "accounting", status: "active" },
+      { projectId: projM.id, userId: uProjAdmin.id, role: "project_admin", status: "active" },
+      { projectId: projP.id, userId: uPreviewSuper.id, role: "viewer", status: "active" },
     ],
   });
 
@@ -220,11 +260,11 @@ async function main() {
   });
   const t0 = new Date("2026-11-20T10:00:00Z");
   const t1 = new Date("2026-11-20T10:00:07Z");
-  const mkTask = async (projectId: string, status: string, steps: StepSeed[], extra: { currentStepIndex?: number } = {}) =>
+  const mkTask = async (projectId: string, status: string, steps: StepSeed[], extra: { currentStepIndex?: number; taskType?: string } = {}) =>
     db.agentTask.create({
       data: {
         projectId,
-        taskType: "ai_bid_package",
+        taskType: extra.taskType ?? "ai_bid_package",
         triggerType: "manual",
         intent: "AI 一键生成投标方案",
         riskLevel: "medium",
@@ -281,6 +321,52 @@ async function main() {
   ], { currentStepIndex: 3 });
   const taskCLast = await lastStepTask();
   const taskCLastSuper = await lastStepTask();
+  // 项目甲：只剩最后一步的任务（改动前别的组织的人执行这一步会让任务完成、给全组发通知）
+  const taskALast = await mkTask(projA.id, "running", [
+    { skillId: "intelligence_report", status: "completed", outputJson: JSON.stringify({ report: "x" }), outputSummary: "情报完成" },
+    { skillId: "quote", status: "completed", outputJson: JSON.stringify({ recommendation: { templateType: "standard" } }), outputSummary: "报价" },
+    { skillId: "email_draft", status: "completed", outputJson: JSON.stringify({ subject: "s" }), outputSummary: "邮件" },
+    { skillId: "document_summary", status: "pending" },
+  ], { currentStepIndex: 3 });
+  // 项目丙：同项目里一个不是一键投标方案的任务（custom_flow），只剩最后一步
+  const taskCCustom = await mkTask(projC.id, "running", [
+    { skillId: "quote", status: "completed", outputJson: quoteOutput, outputSummary: "报价草稿 1 项" },
+    { skillId: "document_summary", status: "pending" },
+  ], { currentStepIndex: 1, taskType: "custom_flow" });
+  // 项目丙：安全视图的边界——带报错但状态不是 failed、failed 但没有报错、正常完成
+  const taskCEdge = await mkTask(projC.id, "running", [
+    { skillId: "intelligence_report", status: "completed", outputJson: JSON.stringify({ report: "x" }), outputSummary: "情报完成", error: WARN_MARK },
+    { skillId: "quote", status: "failed", inputJson: JSON.stringify({ action: "'draft'" }) },
+    { skillId: "email_draft", status: "completed", outputJson: JSON.stringify({ subject: "s" }), outputSummary: "邮件" },
+  ], { currentStepIndex: 2 });
+  // 项目丙：下一步是未知报价动作（技能返回 success=false、不带 error，不调模型）
+  const bogusQuoteTask = () => mkTask(projC.id, "running", [
+    { skillId: "document_summary", status: "completed", outputJson: JSON.stringify({ processed: 0 }), outputSummary: "无需处理" },
+    { skillId: "quote", status: "pending", inputJson: JSON.stringify({ action: "'bogus'" }) },
+  ], { currentStepIndex: 1 });
+  const taskCBogus = await bogusQuoteTask();
+  const taskCBogusSuper = await bogusQuoteTask();
+  // 项目「模」：报价草稿（假服务回非 JSON 原文 → success=false）与单个询价项的邮件草稿（假服务回 400 → 技能抛错）
+  const supplier = await db.supplier.create({ data: { orgId: orgA.id, name: `F21 Supplier ${tag}`, contactEmail: "supplier@example.invalid", createdById: uOwner.id } });
+  const inquiryM = await db.projectInquiry.create({ data: { projectId: projM.id, roundNumber: 1, title: "F21 询价", createdById: uOwner.id } });
+  const inquiryItemM = await db.inquiryItem.create({ data: { inquiryId: inquiryM.id, supplierId: supplier.id, status: "pending", createdById: uOwner.id } });
+  const quoteDraftTask = () => mkTask(projM.id, "queued", [{ skillId: "quote", status: "pending", inputJson: JSON.stringify({ action: "'draft'" }) }]);
+  const emailThrowTask = () => mkTask(projM.id, "queued", [{ skillId: "email_draft", status: "pending", inputJson: JSON.stringify({ inquiryItemId: `'${inquiryItemM.id}'` }) }]);
+  const taskMQuote = await quoteDraftTask();
+  const taskMQuoteSuper = await quoteDraftTask();
+  const taskMEmail = await emailThrowTask();
+  const taskMEmailSuper = await emailThrowTask();
+  // 项目「预」：与「丙-展示」同样的内容，给以岗位预览身份访问的 super_admin 看
+  const taskPShow = await mkTask(projP.id, "failed", [
+    { skillId: "quote", status: "completed", outputJson: quoteOutput, outputSummary: "报价草稿 1 项", inputJson: JSON.stringify({ action: "'draft'" }) },
+    { skillId: "email_draft", status: "failed", error: `${RAW_ERROR_MARK}: preview` },
+  ], { currentStepIndex: 1 });
+  // 岗位预览：组织「预」按岗位模式、预览用的 super_admin 是它的 active 成员，签一张预览 token
+  await db.organizationMember.create({ data: { orgId: orgP.id, userId: uPreviewSuper.id, role: "org_member", status: "active" } });
+  await seedOrgAuthorizationProfiles(orgP.id);
+  const previewPosition = await db.roleProfile.findFirst({ where: { orgId: orgP.id, principalType: "HUMAN", status: "active" }, orderBy: { key: "asc" } });
+  const previewToken = previewPosition ? (await signPreviewToken({ userId: uPreviewSuper.id, orgId: orgP.id, keys: [previewPosition.key] })).token : null;
+  const previewTokens: Record<string, string> = previewToken ? { [uPreviewSuper.id]: previewToken } : {};
   // 下一步是未知技能：执行时走「未知技能」失败分支（不调模型），用来看失败时的报错给谁看
   const unknownSkill = `no_such_skill_${tag}`;
   const unknownTask = () => mkTask(projC.id, "running", [
@@ -322,7 +408,9 @@ async function main() {
   // ───────────────────────── 请求 ─────────────────────────
   type TestUser = { id: string; email: string; role: string };
   const cookieFor = async (user: TestUser | null) =>
-    user ? `qy_session=${await createSession({ sub: user.id, email: user.email, role: user.role })}` : "";
+    user
+      ? `qy_session=${await createSession({ sub: user.id, email: user.email, role: user.role })}${previewTokens[user.id] ? `; qy_preview=${previewTokens[user.id]}` : ""}`
+      : "";
   const mkRequest = async (user: TestUser | null, method: string, url: string, body?: unknown) => {
     const headers: Record<string, string> = {};
     const cookie = await cookieFor(user);
@@ -396,6 +484,15 @@ async function main() {
     return countDoneNotifications(projectId, taskId);
   };
 
+  /** 不 await 的通知：等 waitMs 毫秒（每 100 毫秒看一次），返回这期间按前缀数到的条数 */
+  const settleDoneNotifications = async (projectId: string, taskId: string, waitMs = 1500) => {
+    for (let i = 0; i < waitMs / 100; i += 1) {
+      if ((await countDoneNotifications(projectId, taskId)).length > 0) break;
+      await sleep(100);
+    }
+    return (await countDoneNotifications(projectId, taskId)).length;
+  };
+
   const baseline = await deniedSnapshot();
   const baselineReviewA = await reviewFields(projA.id);
 
@@ -435,7 +532,14 @@ async function main() {
       ok(JSON.stringify(now.intelA) === JSON.stringify(base.intelA), "被拒的重新生成：情报记录（含审核状态、备注、评分、审核人）与请求前一致", now.intelA);
       ok(JSON.stringify(now.projectA) === JSON.stringify(base.projectA), "被拒的重新生成：项目记录与请求前一致（结构化摘要没刷新）");
       ok(JSON.stringify(now.simsA) === JSON.stringify(base.simsA), "被拒的重新生成：相似项目记录没被删、没被重建", now.simsA);
-      ok(now.tasksD === 0 && (await db.agentTask.count({ where: { projectId: projA.id } })) === 2, "被拒的建任务：项目甲的任务数不变", now.tasksD);
+      ok(now.tasksD === 0 && (await db.agentTask.count({ where: { projectId: projA.id } })) === 3, "被拒的建任务：项目甲的任务数不变", now.tasksD);
+
+      const rl = await runStep(uOutsider, projA.id, taskALast.id);
+      ok(rl.status === 403 && rl.body.error === "无权修改该项目" && noContent(rl), "别的组织的管理员执行一个只剩最后一步的任务 → 403", rl);
+      const lateNotifications = await settleDoneNotifications(projA.id, taskALast.id);
+      ok(lateNotifications === 0 && (await db.notification.count({ where: { projectId: projA.id } })) === 0, "被拒的执行（只剩最后一步）：没有「AI 投标方案已生成」通知，项目甲没有任何新通知", lateNotifications);
+      ok((await tasksOf(projA.id)) === base.tasksA, "被拒的执行（只剩最后一步）：任务没有被标成已完成，各步骤都没变");
+      ok(modelRequests.length === before, "被拒的执行（只剩最后一步）：假模型服务收到 0 次请求", modelRequests.slice(before));
     }
 
     // ───────────────────────── 同组织但不是项目成员 ─────────────────────────
@@ -470,7 +574,7 @@ async function main() {
     }
 
     // ───────────────────────── 只读成员与操作员不能建任务、不能执行 ─────────────────────────
-    console.log("一键投标方案的建任务与逐步执行只对项目管理者开放：只读成员、操作员");
+    console.log("一键投标方案的建任务与逐步执行只对项目管理者开放：只读成员、操作员、测试、财务审核");
     {
       const before = modelRequests.length;
       const rs = [
@@ -478,10 +582,14 @@ async function main() {
         ["只读成员", "执行", await runStep(uViewer, projA.id, taskAQueued.id)],
         ["操作员", "建任务", await createBidPackage(uOperator, projA.id)],
         ["操作员", "执行", await runStep(uOperator, projA.id, taskAQueued.id)],
+        ["测试", "建任务", await createBidPackage(uTester, projA.id)],
+        ["测试", "执行", await runStep(uTester, projA.id, taskAQueued.id)],
+        ["财务审核", "建任务", await createBidPackage(uAccounting, projA.id)],
+        ["财务审核", "执行", await runStep(uAccounting, projA.id, taskAQueued.id)],
       ] as const;
       for (const [who, what, r] of rs) ok(r.status === 403 && r.body.error === "无权修改该项目", `${who}${what} → 403「无权修改该项目」`, r);
       ok(rs.every(([, , r]) => noContent(r)), "响应不带任务内容");
-      ok((await db.agentTask.count({ where: { projectId: projA.id } })) === 2, "项目甲的任务数不变");
+      ok((await db.agentTask.count({ where: { projectId: projA.id } })) === 3, "项目甲的任务数不变");
       ok((await tasksOf(projA.id)) === JSON.parse(baseline).tasksA, "已有任务的各步骤状态不变");
       ok(modelRequests.length === before, "没有发起模型调用", modelRequests.slice(before));
     }
@@ -525,6 +633,31 @@ async function main() {
     // 被拒用例全部结束：项目甲 / 甲二 / 乙 / 丁的数据与开头逐字段一致
     ok((await deniedSnapshot()) === baseline, "全部被拒用例之后：甲、甲二、乙的任务与步骤，丁的任务数，甲的情报、项目、相似项目、待摘要文件、通知数都与开头一致");
     ok(modelRequests.length === 0, "全部被拒用例之后：假模型服务一共收到 0 次请求", modelRequests);
+
+    // ───────────────────────── 放行：super_admin 对未分发项目、没有组织的项目里的成员 ─────────────────────────
+    console.log("super_admin 对未分发的项目同样放行；没有组织的项目里 active 成员有读权限");
+    {
+      const r1 = await getBidPackage(uSuper, projA2.id, taskA2Queued.id);
+      ok(r1.status === 200 && r1.body.taskId === taskA2Queued.id, "super_admin 对未分发的项目调 GET …/ai-bid-package → 200", r1.status);
+      const r2 = await runStep(uSuper, projA2.id, taskA2Queued.id);
+      ok(r2.status === 200 && r2.body.success === true && r2.body.skillId === "document_summary", "super_admin 对未分发的项目调 run-step → 200（第一步是无事可做的文档摘要）", r2.body);
+      const r3 = await getBidPackage(uViewer, projD.id);
+      ok(r3.status === 200 && r3.body.taskId === null, "没有所属组织的项目里，只读成员调 GET …/ai-bid-package → 200", r3);
+      const r4 = await getReview(uViewer, projD.id);
+      ok(r4.status === 404 && r4.body.error === "该项目尚无情报报告", "没有所属组织的项目里，只读成员调 GET …/intelligence/review 过了权限检查（项目没有情报，404「该项目尚无情报报告」）", r4);
+    }
+
+    // ───────────────────────── 只认本项目的一键投标方案任务 ─────────────────────────
+    console.log("一键投标方案只认本项目的 ai_bid_package 任务");
+    {
+      const before = await tasksOf(projC.id);
+      const r1 = await getBidPackage(uProjAdmin, projC.id, taskCCustom.id);
+      ok(r1.status === 404 && r1.body.error === "任务不存在" && !r1.text.includes(PRICE_MARK) && !("steps" in r1.body), "同项目里的 custom_flow 任务：GET …/ai-bid-package?taskId=… → 404「任务不存在」，不返回它的步骤", r1);
+      const r2 = await runStep(uProjAdmin, projC.id, taskCCustom.id);
+      ok(r2.status === 404 && r2.body.error === "任务不存在", "同项目里的 custom_flow 任务：run-step → 404「任务不存在」", r2);
+      ok((await tasksOf(projC.id)) === before, "custom_flow 任务没有被执行，项目丙的任务与步骤都没变");
+      ok((await settleDoneNotifications(projC.id, taskCCustom.id)) === 0, "custom_flow 任务没有触发「AI 投标方案已生成」通知");
+    }
 
     // ───────────────────────── 放行：情报接口与查看 ─────────────────────────
     console.log("情报接口与一键投标方案的查看只对与项目有关的人开放（放行）");
@@ -608,6 +741,53 @@ async function main() {
       ok(rsr.status === 200 && JSON.stringify(rsr.body.data) === JSON.stringify({ processed: 0 }), "super_admin 自己执行：响应 data 是技能的原始输出", rsr.body);
     }
 
+    console.log("安全视图的边界：带报错但没失败、失败但没报错");
+    {
+      const rv = await getBidPackage(uViewer, projC.id, taskCEdge.id);
+      const sv = (rv.body.steps ?? []) as StepView[];
+      ok(rv.status === 200 && sv.length === 3, "只读成员查看边界任务 → 200", rv.status);
+      ok(sv[0]?.error === SAFE_STEP_ERROR_MESSAGE && !rv.text.includes(WARN_MARK), "只读成员：状态是已完成、但带报错的步骤，error 是固定提示（不出现原始报错）", sv[0]);
+      ok(sv[1]?.error === SAFE_STEP_ERROR_MESSAGE, "只读成员：状态是失败、但没有报错的步骤，error 也是固定提示", sv[1]);
+      ok(sv[2]?.error === null, "只读成员：正常完成的步骤 error 为 null", sv[2]);
+      const rs = await getBidPackage(uSuper, projC.id, taskCEdge.id);
+      const ss = (rs.body.steps ?? []) as StepView[];
+      ok(ss[0]?.error === WARN_MARK && ss[1]?.error === null, "super_admin：带报错的步骤给原文，失败但没有报错的步骤为 null", ss.map((x) => x.error));
+
+      const rb = await runStep(uProjAdmin, projC.id, taskCBogus.id);
+      ok(rb.status === 200 && rb.body.success === false && rb.body.error === SAFE_STEP_ERROR_MESSAGE && JSON.stringify(rb.body.data) === "{}", "项目管理员执行一步失败、技能没给报错（未知报价动作）：error 仍是固定提示", rb.body);
+      const rbs = await runStep(uSuper, projC.id, taskCBogusSuper.id);
+      ok(rbs.status === 200 && rbs.body.success === false && !("error" in rbs.body), "super_admin 执行同样的一步：原文就是没有报错，响应不带 error", rbs.body);
+    }
+
+    console.log("执行失败的两条路径（技能返回失败、技能抛错）：报错给谁看");
+    {
+      const before = modelRequests.length;
+      const q = await runStep(uProjAdmin, projM.id, taskMQuote.id);
+      ok(q.status === 200 && q.body.success === false && q.body.error === SAFE_STEP_ERROR_MESSAGE && !q.text.includes(modelRoute.rawOutputMark), "项目管理员执行报价草稿、模型回的不是 JSON（技能返回 success=false，报错是模型原文）：error 是固定提示，响应里没有模型原文", q.body);
+      const qStep = await db.agentTaskStep.findFirst({ where: { taskId: taskMQuote.id, stepIndex: 0 } });
+      ok(qStep?.status === "failed" && (qStep.error ?? "").includes(modelRoute.rawOutputMark), "库里照旧写入原始报错（含模型原文）", qStep?.error);
+      const qs = await runStep(uSuper, projM.id, taskMQuoteSuper.id);
+      ok(qs.status === 200 && qs.body.success === false && typeof qs.body.error === "string" && qs.body.error.includes(modelRoute.rawOutputMark), "super_admin 执行同样的一步：error 是原始报错（含模型原文）", qs.body);
+      const e = await runStep(uProjAdmin, projM.id, taskMEmail.id);
+      ok(e.status === 200 && e.body.success === false && e.body.error === SAFE_STEP_ERROR_MESSAGE && !e.text.includes(modelRoute.errorMark), "项目管理员执行询价邮件草稿、模型服务回 400（技能抛错）：error 是固定提示，响应里没有原始报错", e.body);
+      const eStep = await db.agentTaskStep.findFirst({ where: { taskId: taskMEmail.id, stepIndex: 0 } });
+      ok(eStep?.status === "failed" && (eStep.error ?? "").includes(modelRoute.errorMark), "库里照旧写入原始报错", eStep?.error);
+      const es = await runStep(uSuper, projM.id, taskMEmailSuper.id);
+      ok(es.status === 200 && es.body.success === false && typeof es.body.error === "string" && es.body.error.includes(modelRoute.errorMark), "super_admin 执行同样的一步：error 是原始报错", es.body);
+      ok(modelRequests.length - before === 4 && modelRequests.slice(before).every((m) => m.startsWith("model-project")), "这两条路径一共向假模型服务发了 4 次请求，都是项目「模」的", modelRequests.slice(before));
+    }
+
+    console.log("以岗位预览身份访问的 super_admin 只拿安全视图");
+    {
+      ok(previewToken !== null, "组织「预」按岗位模式，签出了预览 token", previewPosition?.key);
+      const rp = await getBidPackage(uPreviewSuper, projP.id, taskPShow.id);
+      const sp = (rp.body.steps ?? []) as StepView[];
+      ok(rp.status === 200 && sp.length === 2 && sp.every((x) => JSON.stringify(x.data) === "{}"), "以岗位预览身份访问的 super_admin：每一步 data 是空对象", rp.status === 200 ? sp.map((x) => x.data) : rp);
+      ok(sp.find((x) => x.status === "failed")?.error === SAFE_STEP_ERROR_MESSAGE && !rp.text.includes(PRICE_MARK) && !rp.text.includes(RAW_ERROR_MARK), "以岗位预览身份访问的 super_admin：失败那一步是固定提示，响应里没有价格与原始报错", rp.text.slice(0, 300));
+      const rs = await getBidPackage(uSuper, projP.id, taskPShow.id);
+      ok(rs.status === 200 && rs.text.includes(PRICE_MARK) && rs.text.includes(RAW_ERROR_MARK), "对照：不在预览中的 super_admin 看同一个任务拿到原文", rs.status);
+    }
+
     console.log("执行失败时的报错给谁看");
     {
       const r = await runStep(uProjAdmin, projC.id, taskCUnknown.id);
@@ -625,10 +805,10 @@ async function main() {
       ok(rs.status === 200 && rs.body.success === false && rs.body.error === `未知技能: ${unknownSkill}`, "super_admin 执行失败的一步：error 是原始报错", rs.body);
     }
 
-    ok(modelRequests.length === 0, "整个测试假模型服务一共收到 0 次请求", modelRequests);
+    ok(modelRequests.every((m) => m.startsWith("model-project")) && modelRequests.length === 4, "整个测试只有项目「模」的 4 次模型请求；被拒用例 0 次", modelRequests);
   } finally {
     // ───────────────────────── 清理 ─────────────────────────
-    const orgIds = [orgA.id, orgB.id];
+    const orgIds = [orgA.id, orgB.id, orgP.id];
     const userIds = allUsers.map((u) => u.id);
     const quiet = async (label: string, fn: () => Promise<unknown>) => {
       try {
@@ -645,6 +825,9 @@ async function main() {
     await quiet("projectDocument", () => db.projectDocument.deleteMany({ where: { projectId: { in: projectIds } } }));
     await quiet("projectMember", () => db.projectMember.deleteMany({ where: { projectId: { in: projectIds } } }));
     await quiet("project", () => db.project.deleteMany({ where: { id: { in: projectIds } } }));
+    await quiet("supplier", () => db.supplier.deleteMany({ where: { id: supplier.id } }));
+    await quiet("principalRoleBinding", () => db.principalRoleBinding.deleteMany({ where: { orgId: { in: orgIds } } }));
+    await quiet("roleProfile", () => db.roleProfile.deleteMany({ where: { orgId: { in: orgIds } } }));
     await quiet("organizationMember", () => db.organizationMember.deleteMany({ where: { orgId: { in: orgIds } } }));
     await quiet("organization", () => db.organization.deleteMany({ where: { id: { in: orgIds } } }));
     await quiet("user", () => db.user.deleteMany({ where: { id: { in: userIds } } }));

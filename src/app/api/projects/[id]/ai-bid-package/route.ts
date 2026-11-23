@@ -17,7 +17,7 @@ import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
 /**
  * 与 src/lib/agent-tasks/dto.ts 的 SAFE_STEP_ERROR_MESSAGE 一字不差。src/lib/agent-tasks 是 runtime-architecture
  * 冻结面，新文件不能导入它（scripts/test-runtime-architecture.sh 的 NEW_FROZEN_MODULE_IMPORTER_FORBIDDEN），
- * 所以在这里照抄；两处一致由 src/lib/projects/__tests__/intel-bidpackage-access-db.isolated.test.ts 断言。
+ * 所以在这里照抄；两处一字不差由 src/lib/projects/__tests__/project-routes-guard.test.ts 按源码文本比较（CI 子集里跑）。
  */
 const SAFE_STEP_ERROR_MESSAGE = "处理失败，请稍后重试或联系管理员";
 
@@ -70,8 +70,9 @@ export const GET = withAuth(async (request, ctx) => {
     resolvedTaskId = latest.id;
   }
 
+  // 只认本项目的一键投标方案任务：同项目里别的类型的 AgentTask（如 custom_flow）按「任务不存在」处理
   const task = await db.agentTask.findUnique({
-    where: { id: resolvedTaskId, projectId },
+    where: { id: resolvedTaskId, projectId, taskType: "ai_bid_package" },
     select: {
       id: true,
       status: true,

@@ -7,17 +7,23 @@
  * 不用改这里的任何名单；漏了检查或检查写得不牢就失败，并点名文件、方法与缺的是什么。
  *
  * 用 TypeScript 编译器按语法树判断（注释里的字不算数，守卫按导入它的模块与原始导出名认定）。规则见
- * openspec/changes/project-intel-bidpackage-access/design.md D9：
- *   1. 认不出处理函数正文的导出写法判失败（export { … } / export * from / export const GET = 变量 / withAuth(函数名)）；
- *   2. 处理函数里必须调用 GUARDS 名单里的一个守卫；
- *   3. 第一次调用守卫之前不得出现 db. / 文件存储 / 解析 / 模型 / 建任务 / 入队 / 发通知 / 写审计；
- *   4. 第一次调用守卫之前，await 只能是取路由参数与读请求体（含 .catch(…)）；
- *   5. 守卫的返回值赋给一个变量并被检查（instanceof NextResponse / isAccessError / 布尔守卫 if (!x)）；
+ * openspec/changes/project-intel-bidpackage-access/design.md D9（多维审查后收紧）：
+ *   1. 认不出处理函数正文的导出写法判失败（export { … } / export * from / export const { … } = … /
+ *      export const GET = 变量 / withAuth(函数名) / withAuth 以外的包装函数）；
+ *   2. 处理函数里必须调用 GUARDS 名单里的一个守卫；守卫、isAccessError、NextResponse 都按导入来源认，
+ *      处理函数里同名的局部声明（遮蔽）判失败；
+ *   3. 取路由参数、读请求体之后的第一步就是守卫：守卫之前只允许取路由参数、读请求体、取文件常量的别名，
+ *      任何表达式语句、提前 return、if、await 别的调用都不行（db 及其别名导入出现即点名「碰了数据库」）；
+ *   5. 守卫的返回值赋给一个变量并被检查（instanceof NextResponse / isAccessError / 布尔守卫 if (!x)），
+ *      拒绝分支只能返回守卫结果或 401 / 403 / 404 的常量响应；
  *   6. 第一次调用守卫的语句是处理函数正文的顶层语句 const x = await 守卫(…)；
  *   7. 紧接着的下一条语句就是第 5 条的检查；
- *   8. 守卫的项目参数（第二个参数）是解构路由参数里 id 这个键得到的变量；
+ *   8. 守卫的项目参数是 const 解构路由参数里 id 得到的变量（或 const p = await params 的 p.id），之后不改写、
+ *      守卫之后不再取路由参数；返回响应的守卫第一个参数是处理函数收到的请求；
  *   9. 例外名单里的接口按「已下线」检查；例外文件不存在也判失败；
- *  10. 防空跑：至少 170 个路由文件、240 个处理函数，FIX-21 的 4 个文件都在。
+ *  10. 防空跑：至少 170 个路由文件、240 个处理函数，FIX-21 的 4 个文件都在；
+ *  11. 守卫前预处理名单（3 个既有处理函数，只减不增）；
+ *  13. 一键投标方案两个路由照抄的固定提示与 src/lib/agent-tasks/dto.ts 一字不差（按源码文本比较）。
  * 它只证明「先调了守卫」；被拒时不改数据、不调模型、不发通知由 intel-bidpackage-access-db.isolated.test.ts 证明。
  * FIX-17 的 files-route-guard.test.ts 对 files/ 更严（守卫必须是取参数后的第一个 await），两份并存。
  */
@@ -71,6 +77,31 @@ export const EXEMPTIONS: readonly Exemption[] = [
   },
 ];
 
+/**
+ * 守卫前预处理名单：目录里既有的 3 个处理函数在守卫之前先做了不碰数据、不 await 的预处理（运行环境闸、
+ * 按请求体选守卫要的权限级别）。名单只减不增：这几个处理函数改成守卫第一步之后，这里的对应条目必须删掉
+ * （测试会提示）；新接口不进这个名单，一律「取路由参数、读请求体之后的第一步就是项目守卫」。
+ * 名单里的处理函数在守卫之前额外允许：不含 await、不碰数据的 const 声明，与 if (…) return …（同样不含 await、不碰数据）。
+ */
+type PrepEntry = { file: string; method: string; reason: string };
+export const PRE_GUARD_PREP: readonly PrepEntry[] = [
+  {
+    file: `${ROUTES_DIR}/route.ts`,
+    method: "PATCH",
+    reason: "鉴权前先过运行环境隔离闸 assertNonProdSideEffectsAllowed(\"write\")（非生产环境禁写时直接返回它的响应，与项目无关）",
+  },
+  {
+    file: `${ROUTES_DIR}/finance/expenses/[expenseId]/route.ts`,
+    method: "PATCH",
+    reason: "按请求体里的 action 选 requireCostAccess 要的权限（审核动作要 PROJECT_COST_REVIEW，其余 PROJECT_EXPENSE_SUBMIT），纯计算",
+  },
+  {
+    file: `${ROUTES_DIR}/quote-engine/[quoteId]/status/route.ts`,
+    method: "POST",
+    reason: "先校验请求体里的目标状态（无效回 400「无效状态」，与项目无关），再按目标状态选 requireQuoteAccess 的级别",
+  },
+];
+
 /** 第 9 条：例外名单里已经不存在的路由文件（不在了就要删掉那条例外） */
 export function missingExemptionFiles(list: readonly Exemption[], exists: (absPath: string) => boolean = existsSync): string[] {
   return list.filter((e) => !exists(join(process.cwd(), e.file))).map((e) => e.file);
@@ -89,9 +120,18 @@ const TOUCH_CALLS: ReadonlyArray<[RegExp, string]> = [
 /** 第 4 条：守卫之前允许 await 的读请求体方法 */
 const BODY_READERS = new Set(["json", "formData", "text"]);
 
-export type HandlerFinding = { method: string; problem: string | null; exempt?: boolean };
+export type HandlerFinding = { method: string; problem: string | null; exempt?: boolean; prep?: boolean };
 
 type HandlerFn = ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration;
+
+/** 守卫结果的判定函数：也按「来源模块 + 原始导出名」认，文件里自己定义的同名函数不算 */
+const RESULT_CHECKERS: ReadonlyArray<{ module: string; name: string; ref: string }> = [
+  { module: "@/lib/tender-auto-analysis/api-access", name: "isAccessError", ref: "src/lib/tender-auto-analysis/api-access.ts:12" },
+];
+/** 包装函数只认 withAuth（统一异常兜底与 x-request-id；src/lib/common/api-helpers.ts） */
+const WRAPPERS: ReadonlyArray<{ module: string; name: string }> = [{ module: "@/lib/common/api-helpers", name: "withAuth" }];
+/** 拒绝分支允许返回的状态码 */
+const REJECT_STATUSES = new Set(["401", "403", "404"]);
 
 function parse(source: string): ts.SourceFile {
   return ts.createSourceFile("route.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -115,17 +155,8 @@ function unwrap(e: ts.Expression): ts.Expression {
   }
 }
 
-/** export const GET = … 的右边：函数字面量，或包装函数调用里的函数字面量（withAuth(async (…) => {…})，可多层） */
-function handlerFromInitializer(init: ts.Expression): HandlerFn | null {
-  const e = unwrap(init);
-  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return e;
-  if (ts.isCallExpression(e)) {
-    for (const arg of e.arguments) {
-      const inner = handlerFromInitializer(arg);
-      if (inner) return inner;
-    }
-  }
-  return null;
+function short(n: ts.Node): string {
+  return n.getText().replace(/\s+/g, " ").slice(0, 80);
 }
 
 /** 被调用的函数名：foo(…) → foo；a.b.foo(…) → foo */
@@ -134,6 +165,70 @@ function calleeName(call: ts.CallExpression): string | null {
   if (ts.isIdentifier(c)) return c.text;
   if (ts.isPropertyAccessExpression(c)) return c.name.text;
   return null;
+}
+
+/** 本文件里每个本地名对应的导入（来源模块 + 原始导出名；type-only 导入不算） */
+type FileCtx = {
+  guards: Map<string, Guard>;
+  resultCheckers: Set<string>;
+  nextResponse: Set<string>;
+  dbNames: Set<string>;
+  wrappers: Set<string>;
+  /** 文件顶层的函数（拒绝分支里允许调用的「由常量构造拒绝页」的辅助函数只能是这些） */
+  localFns: Map<string, ts.FunctionLikeDeclaration>;
+  /** 文件顶层 const 声明的名字（常量表达式可以引用它们） */
+  topConsts: Set<string>;
+};
+
+function fileContext(sf: ts.SourceFile): FileCtx {
+  const ctx: FileCtx = {
+    guards: new Map(), resultCheckers: new Set(), nextResponse: new Set(), dbNames: new Set(["db"]),
+    wrappers: new Set(), localFns: new Map(), topConsts: new Set(),
+  };
+  for (const st of sf.statements) {
+    if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier) && !st.importClause?.isTypeOnly) {
+      const mod = st.moduleSpecifier.text;
+      const nb = st.importClause?.namedBindings;
+      if (!nb || !ts.isNamedImports(nb)) continue;
+      for (const el of nb.elements) {
+        if (el.isTypeOnly) continue;
+        const original = (el.propertyName ?? el.name).text;
+        const local = el.name.text;
+        const guard = GUARDS.find((g) => g.module === mod && g.name === original);
+        if (guard) ctx.guards.set(local, guard);
+        if (RESULT_CHECKERS.some((c) => c.module === mod && c.name === original)) ctx.resultCheckers.add(local);
+        if (WRAPPERS.some((w) => w.module === mod && w.name === original)) ctx.wrappers.add(local);
+        if (mod === "next/server" && original === "NextResponse") ctx.nextResponse.add(local);
+        if (mod === "@/lib/db" && original === "db") ctx.dbNames.add(local);
+      }
+    } else if (ts.isFunctionDeclaration(st) && st.name) {
+      ctx.localFns.set(st.name.text, st);
+    } else if (ts.isVariableStatement(st)) {
+      const isConst = (st.declarationList.flags & ts.NodeFlags.Const) !== 0;
+      for (const d of st.declarationList.declarations) {
+        if (!ts.isIdentifier(d.name)) continue;
+        if (isConst) ctx.topConsts.add(d.name.text);
+        const init = d.initializer ? unwrap(d.initializer) : null;
+        if (isConst && init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) ctx.localFns.set(d.name.text, init);
+      }
+    }
+  }
+  return ctx;
+}
+
+/** export const GET = … 的右边：函数字面量，或 withAuth(函数字面量) */
+function handlerFromInitializer(init: ts.Expression, ctx: FileCtx): { fn: HandlerFn } | { problem: string } {
+  const e = unwrap(init);
+  if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return { fn: e };
+  if (ts.isCallExpression(e)) {
+    const callee = unwrap(e.expression);
+    if (!ts.isIdentifier(callee) || !ctx.wrappers.has(callee.text)) {
+      return { problem: `包装函数只认从 @/lib/common/api-helpers 导入的 withAuth（这里是 ${short(callee)}），守卫测试认不出它的第一步` };
+    }
+    const arg = e.arguments[0] ? unwrap(e.arguments[0]) : null;
+    if (arg && (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg))) return { fn: arg };
+  }
+  return { problem: "处理函数正文不在导出语句里（export const 方法 = 变量 / withAuth(函数名)），守卫测试认不出它的第一步" };
 }
 
 function paramName(fn: HandlerFn, index: number): string | null {
@@ -152,7 +247,7 @@ function destructuredParamsName(fn: HandlerFn): string | null {
   return null;
 }
 
-/** 取路由参数：await ctx.params（ctx 是处理函数第二个参数）或 await params（第二个参数解构出的 params） */
+/** 取路由参数：ctx.params（ctx 是处理函数第二个参数）或 params（第二个参数解构出的 params） */
 function isRouteParamsExpr(e: ts.Expression, fn: HandlerFn): boolean {
   const x = unwrap(e);
   const ctxName = paramName(fn, 1);
@@ -164,44 +259,46 @@ function isRouteParamsExpr(e: ts.Expression, fn: HandlerFn): boolean {
   return destructured !== null && ts.isIdentifier(x) && x.text === destructured;
 }
 
-/** 读请求体：request.json() / formData() / text()（request 是处理函数第一个参数），可接 .catch(…) */
-function isBodyRead(e: ts.Expression, fn: HandlerFn): boolean {
+/** 常量表达式：字面量、文件顶层常量（或守卫前声明的常量别名）及其属性、由常量组成的对象 / 数组；没有调用、await、new、赋值 */
+function isConstantExpr(e: ts.Expression, ids: ReadonlySet<string>): boolean {
+  const x = unwrap(e);
+  if (ts.isStringLiteral(x) || ts.isNumericLiteral(x) || ts.isNoSubstitutionTemplateLiteral(x)) return true;
+  if (x.kind === ts.SyntaxKind.TrueKeyword || x.kind === ts.SyntaxKind.FalseKeyword || x.kind === ts.SyntaxKind.NullKeyword) return true;
+  if (ts.isIdentifier(x)) return x.text === "undefined" || ids.has(x.text);
+  if (ts.isPropertyAccessExpression(x)) return isConstantExpr(x.expression, ids);
+  if (ts.isPrefixUnaryExpression(x) && x.operator === ts.SyntaxKind.MinusToken) return isConstantExpr(x.operand, ids);
+  if (ts.isArrayLiteralExpression(x)) return x.elements.every((el) => !ts.isSpreadElement(el) && isConstantExpr(el, ids));
+  if (ts.isObjectLiteralExpression(x)) {
+    return x.properties.every((p) =>
+      (ts.isPropertyAssignment(p) && !ts.isComputedPropertyName(p.name) && isConstantExpr(p.initializer, ids)) ||
+      (ts.isShorthandPropertyAssignment(p) && ids.has(p.name.text)) ||
+      (ts.isSpreadAssignment(p) && isConstantExpr(p.expression, ids)));
+  }
+  return false;
+}
+
+/** 读请求体：request.json() / formData() / text()（request 是处理函数第一个参数），可接 .catch(() => 常量) */
+function isBodyRead(e: ts.Expression, fn: HandlerFn, ids: ReadonlySet<string>): boolean {
   let x = unwrap(e);
   if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression) && x.expression.name.text === "catch") {
+    const handler = x.arguments.length === 1 ? unwrap(x.arguments[0]) : null;
+    const returnsConstant = !!handler && ts.isArrowFunction(handler) && !ts.isBlock(handler.body) && isConstantExpr(handler.body, ids);
+    if (!returnsConstant) return false;
     x = unwrap(x.expression.expression);
   }
-  if (!ts.isCallExpression(x) || !ts.isPropertyAccessExpression(x.expression)) return false;
+  if (!ts.isCallExpression(x) || x.arguments.length !== 0 || !ts.isPropertyAccessExpression(x.expression)) return false;
   const reqName = paramName(fn, 0);
   const recv = unwrap(x.expression.expression);
   return reqName !== null && ts.isIdentifier(recv) && recv.text === reqName && BODY_READERS.has(x.expression.name.text);
 }
 
-/** 本文件里哪些本地名是名单里的守卫（按导入的模块与原始导出名认） */
-function importedGuards(sf: ts.SourceFile): Map<string, Guard> {
-  const out = new Map<string, Guard>();
-  for (const st of sf.statements) {
-    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
-    if (st.importClause?.isTypeOnly) continue;
-    const mod = st.moduleSpecifier.text;
-    const nb = st.importClause?.namedBindings;
-    if (!nb || !ts.isNamedImports(nb)) continue;
-    for (const el of nb.elements) {
-      if (el.isTypeOnly) continue;
-      const original = (el.propertyName ?? el.name).text;
-      const guard = GUARDS.find((g) => g.module === mod && g.name === original);
-      if (guard) out.set(el.name.text, guard);
-    }
-  }
-  return out;
-}
-
-/** 一段代码里第一次碰数据（db. / 名单里的调用）的位置说明；没有就是 null */
-function firstTouch(node: ts.Node): string | null {
+/** 一段代码里第一次碰数据（数据库 / 名单里的调用）的位置说明；没有就是 null */
+function firstTouch(node: ts.Node, ctx: FileCtx): string | null {
   let problem: string | null = null;
   walk(node, (n) => {
     if (problem) return;
-    if (ts.isIdentifier(n) && n.text === "db" && n.parent && (ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) && n.parent.expression === n) {
-      problem = "数据库（db.）";
+    if (ts.isIdentifier(n) && ctx.dbNames.has(n.text) && !(n.parent && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n)) {
+      problem = `数据库（${n.text}）`;
     } else if (ts.isCallExpression(n)) {
       const name = calleeName(n);
       const hit = name ? TOUCH_CALLS.find(([re]) => re.test(name)) : undefined;
@@ -211,38 +308,68 @@ function firstTouch(node: ts.Node): string | null {
   return problem;
 }
 
+/** 拒绝分支返回的东西：守卫结果本身、401 / 403 / 404 的 NextResponse.json(常量, …)、或文件里由常量构造拒绝页的辅助函数；三元两边各自满足 */
+function isRejectExpr(e: ts.Expression, varName: string | null, ctx: FileCtx, ids: ReadonlySet<string>, depth = 0): boolean {
+  const x = unwrap(e);
+  if (varName && ts.isIdentifier(x) && x.text === varName) return true;
+  if (ts.isConditionalExpression(x)) {
+    let impure = false;
+    walk(x.condition, (n) => { if (ts.isCallExpression(n) || ts.isAwaitExpression(n) || ts.isNewExpression(n) || (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken)) impure = true; });
+    return !impure && isRejectExpr(x.whenTrue, varName, ctx, ids, depth) && isRejectExpr(x.whenFalse, varName, ctx, ids, depth);
+  }
+  const statusOk = (opts: ts.Expression | undefined) => {
+    if (!opts) return false;
+    const o = unwrap(opts);
+    if (!ts.isObjectLiteralExpression(o) || !isConstantExpr(o, ids)) return false;
+    return o.properties.some((p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "status" && ts.isNumericLiteral(unwrap(p.initializer)) && REJECT_STATUSES.has((unwrap(p.initializer) as ts.NumericLiteral).text));
+  };
+  if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression) && x.expression.name.text === "json") {
+    const recv = unwrap(x.expression.expression);
+    return ts.isIdentifier(recv) && ctx.nextResponse.has(recv.text) && x.arguments.length === 2 && isConstantExpr(x.arguments[0], ids) && statusOk(x.arguments[1]);
+  }
+  if (ts.isCallExpression(x) && ts.isIdentifier(unwrap(x.expression)) && depth === 0) {
+    const helper = ctx.localFns.get((unwrap(x.expression) as ts.Identifier).text);
+    if (!helper || !x.arguments.every((a) => isConstantExpr(a, ids))) return false;
+    // 第一个参数就是 401 / 403 / 404（如 tender-rfq/attachment 的 messagePage(404, M.notFound)）
+    const first = x.arguments[0] ? unwrap(x.arguments[0]) : null;
+    if (first && ts.isNumericLiteral(first) && REJECT_STATUSES.has(first.text)) return true;
+    // 没有参数、正文直接返回一个拒绝响应（如 const notFound = () => NextResponse.json({…}, { status: 404 })）
+    if (x.arguments.length === 0 && helper.parameters.length === 0 && helper.body) {
+      const ret = ts.isBlock(helper.body)
+        ? (helper.body.statements.length === 1 && ts.isReturnStatement(helper.body.statements[0]) ? helper.body.statements[0].expression : undefined)
+        : helper.body;
+      return !!ret && isRejectExpr(ret, null, ctx, ctx.topConsts, depth + 1);
+    }
+  }
+  return false;
+}
+
 /**
- * 第 5 条：守卫结果被检查，不通过就直接返回拒绝响应，中间不做别的事。
+ * 第 5、7 条：守卫结果紧接着被检查，不通过就直接返回拒绝响应，中间不做别的事。
  *   - 返回响应的守卫：if (x instanceof NextResponse) return …; 或 if (isAccessError(x)) return …;
- *     返回的通常就是 x；也可以是把 x 换成另一个拒绝响应（如 tender-intel/sourcing 把 403 换成 404），
- *     但返回语句里不得 await、不得碰数据。
  *   - 返回布尔的守卫：if (!x) return …;
- * then 分支只能是这一条 return（可带花括号）。
+ * then 分支只能是这一条 return（可带花括号），没有 else；返回的要满足 isRejectExpr。
  */
-function isResultCheck(st: ts.Statement | undefined, varName: string, kind: GuardKind): boolean {
-  if (!st || !ts.isIfStatement(st)) return false;
+function isResultCheck(st: ts.Statement | undefined, varName: string, kind: GuardKind, ctx: FileCtx, ids: ReadonlySet<string>): boolean {
+  if (!st || !ts.isIfStatement(st) || st.elseStatement) return false;
   let then: ts.Statement = st.thenStatement;
   if (ts.isBlock(then)) {
     if (then.statements.length !== 1) return false;
     then = then.statements[0];
   }
   if (!ts.isReturnStatement(then) || !then.expression) return false;
-  let awaits = false;
-  walk(then.expression, (n) => { if (ts.isAwaitExpression(n)) awaits = true; });
-  if (awaits || firstTouch(then.expression)) return false;
   const cond = unwrap(st.expression);
   const isVar = (e: ts.Expression) => { const u = unwrap(e); return ts.isIdentifier(u) && u.text === varName; };
+  let condOk = false;
   if (kind === "boolean") {
-    return ts.isPrefixUnaryExpression(cond) && cond.operator === ts.SyntaxKind.ExclamationToken && isVar(cond.operand);
-  }
-  if (ts.isBinaryExpression(cond) && cond.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword) {
+    condOk = ts.isPrefixUnaryExpression(cond) && cond.operator === ts.SyntaxKind.ExclamationToken && isVar(cond.operand);
+  } else if (ts.isBinaryExpression(cond) && cond.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword) {
     const right = unwrap(cond.right);
-    return isVar(cond.left) && ts.isIdentifier(right) && right.text === "NextResponse";
+    condOk = isVar(cond.left) && ts.isIdentifier(right) && ctx.nextResponse.has(right.text);
+  } else if (ts.isCallExpression(cond) && ts.isIdentifier(unwrap(cond.expression)) && cond.arguments.length === 1) {
+    condOk = ctx.resultCheckers.has((unwrap(cond.expression) as ts.Identifier).text) && isVar(cond.arguments[0]);
   }
-  if (ts.isCallExpression(cond) && calleeName(cond) === "isAccessError" && cond.arguments.length === 1) {
-    return isVar(cond.arguments[0]);
-  }
-  return false;
+  return condOk && isRejectExpr(then.expression, kind === "response" ? varName : null, ctx, ids);
 }
 
 /** 第 9 条：已下线接口仍然只返回 410、不导入数据库、不做异步调用 */
@@ -272,17 +399,133 @@ function checkExempt(sf: ts.SourceFile, fn: HandlerFn): string | null {
   return null;
 }
 
+/** 处理函数里（含参数与内层函数）声明的全部名字：用来查有没有遮蔽导入的守卫 / 判定函数 / NextResponse */
+function declaredNames(fn: HandlerFn): Set<string> {
+  const out = new Set<string>();
+  const addBinding = (name: ts.BindingName) => {
+    if (ts.isIdentifier(name)) out.add(name.text);
+    else for (const el of name.elements) if (!ts.isOmittedExpression(el)) addBinding(el.name);
+  };
+  for (const p of fn.parameters) addBinding(p.name);
+  if (fn.body) {
+    walk(fn.body, (n) => {
+      if (ts.isVariableDeclaration(n) || ts.isParameter(n)) addBinding(n.name);
+      else if ((ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n) || ts.isFunctionExpression(n) || ts.isClassExpression(n)) && n.name) out.add(n.name.text);
+      else if (ts.isCatchClause(n) && n.variableDeclaration) addBinding(n.variableDeclaration.name);
+    });
+  }
+  return out;
+}
+
+/** 一个表达式（赋值左边）里出现的被赋值的名字 */
+function assignedNames(target: ts.Expression, out: Set<string>): void {
+  const x = unwrap(target);
+  if (ts.isIdentifier(x)) out.add(x.text);
+  else if (ts.isObjectLiteralExpression(x)) {
+    for (const p of x.properties) {
+      if (ts.isShorthandPropertyAssignment(p)) out.add(p.name.text);
+      else if (ts.isPropertyAssignment(p)) assignedNames(p.initializer, out);
+      else if (ts.isSpreadAssignment(p)) assignedNames(p.expression, out);
+    }
+  } else if (ts.isArrayLiteralExpression(x)) {
+    for (const el of x.elements) assignedNames(ts.isSpreadElement(el) ? el.expression : el, out);
+  } else if (ts.isBinaryExpression(x) && x.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    assignedNames(x.left, out);
+  }
+}
+
+function isAssignmentOperator(k: ts.SyntaxKind): boolean {
+  return k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment;
+}
+
+/**
+ * 守卫之前允许的一条顶层语句（第 3、4 条）：
+ *   - 取路由参数：const { id } = await ctx.params / const p = await params；
+ *   - 读请求体：const body = await request.json()（可接 .catch(() => 常量)）、body = await request.json()、
+ *     先 let body; 再 try { body = await request.json(); } catch { return 400 }（join-brief 的写法）；
+ *   - 常量别名：const M = 文件顶层常量（tender-rfq/attachment 的写法）。
+ * 其余（任何表达式语句、提前 return、if、不 await 的调用）一律不允许；返回 null 表示允许，否则返回说明。
+ */
+function preGuardProblem(st: ts.Statement, fn: HandlerFn, ctx: FileCtx, ids: Set<string>, lenient: boolean): string | null {
+  const touched = firstTouch(st, ctx);
+  if (lenient && !touched) {
+    // 守卫前预处理名单里的处理函数：不含 await、不碰数据的 const 声明与 if (…) return …
+    let awaits = false;
+    walk(st, (n) => { if (ts.isAwaitExpression(n)) awaits = true; });
+    if (!awaits) {
+      if (ts.isVariableStatement(st) && (st.declarationList.flags & ts.NodeFlags.Const) !== 0) return null;
+      if (ts.isIfStatement(st) && !st.elseStatement) {
+        const t = ts.isBlock(st.thenStatement) && st.thenStatement.statements.length === 1 ? st.thenStatement.statements[0] : st.thenStatement;
+        if (ts.isReturnStatement(t) && t.expression) return null;
+      }
+    }
+  }
+  const describe = () => {
+    if (touched) return `在项目权限守卫之前就碰了${touched}`;
+    let awaited: ts.AwaitExpression | null = null;
+    walk(st, (n) => { if (!awaited && ts.isAwaitExpression(n) && !isRouteParamsExpr(n.expression, fn) && !isBodyRead(n.expression, fn, ids)) awaited = n; });
+    if (awaited) return `在项目权限守卫之前 await 了取路由参数、读请求体以外的调用（${short(awaited)}）`;
+    let returned: ts.ReturnStatement | null = null;
+    walk(st, (n) => { if (!returned && ts.isReturnStatement(n)) returned = n; });
+    if (returned) return `在项目权限守卫之前就提前 return 了（${short(st)}）：取路由参数、读请求体之后的第一步必须是项目权限守卫`;
+    return `在项目权限守卫之前做了取路由参数、读请求体以外的事（${short(st)}）`;
+  };
+  const isBodyAssign = (s: ts.Statement) => {
+    if (!ts.isExpressionStatement(s)) return false;
+    const e = unwrap(s.expression);
+    if (!ts.isBinaryExpression(e) || e.operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isIdentifier(unwrap(e.left))) return false;
+    const r = unwrap(e.right);
+    return ts.isAwaitExpression(r) && isBodyRead(r.expression, fn, ids);
+  };
+  if (ts.isVariableStatement(st)) {
+    const flags = st.declarationList.flags;
+    const isConst = (flags & ts.NodeFlags.Const) !== 0;
+    const isLet = (flags & ts.NodeFlags.Let) !== 0;
+    const allowed = st.declarationList.declarations.every((d) => {
+      if (!d.initializer) return isLet;
+      const init = unwrap(d.initializer);
+      if (ts.isAwaitExpression(init) && (isRouteParamsExpr(init.expression, fn) || isBodyRead(init.expression, fn, ids))) return true;
+      return isConst && ts.isIdentifier(d.name) && isConstantExpr(init, ids);
+    });
+    if (allowed) {
+      for (const d of st.declarationList.declarations) {
+        if (isConst && ts.isIdentifier(d.name) && d.initializer && isConstantExpr(d.initializer, ids)) ids.add(d.name.text);
+      }
+      return null;
+    }
+    return describe();
+  }
+  if (isBodyAssign(st)) return null;
+  if (ts.isTryStatement(st) && !st.finallyBlock && st.catchClause) {
+    const tryOk = st.tryBlock.statements.length > 0 && st.tryBlock.statements.every(isBodyAssign);
+    const c = st.catchClause.block.statements;
+    const ret = c.length === 1 && ts.isReturnStatement(c[0]) ? c[0].expression : undefined;
+    const r = ret ? unwrap(ret) : null;
+    const catchOk = !!r && ts.isCallExpression(r) && ts.isPropertyAccessExpression(r.expression) && r.expression.name.text === "json" &&
+      ts.isIdentifier(unwrap(r.expression.expression)) && ctx.nextResponse.has((unwrap(r.expression.expression) as ts.Identifier).text) &&
+      r.arguments.length === 2 && isConstantExpr(r.arguments[0], ids) && /\bstatus\s*:\s*400\b/.test(r.arguments[1].getText()) && isConstantExpr(r.arguments[1], ids);
+    if (tryOk && catchOk) return null;
+  }
+  return describe();
+}
+
 /** 逐个处理函数按第 2–8 条检查 */
-function checkHandler(fn: HandlerFn, guards: Map<string, Guard>): string | null {
+function checkHandler(fn: HandlerFn, ctx: FileCtx, lenient = false): string | null {
   const body = fn.body;
   if (!body || !ts.isBlock(body)) return "处理函数正文不是语句块，认不出第一步是不是项目权限守卫";
+
+  // 遮蔽：处理函数里有与导入的守卫 / 判定函数 / NextResponse 同名的局部声明（函数声明会提升，能冒名顶替）
+  const declared = declaredNames(fn);
+  for (const name of [...ctx.guards.keys(), ...ctx.resultCheckers, ...ctx.nextResponse]) {
+    if (declared.has(name)) return `处理函数里有同名的局部声明 ${name}，遮蔽了导入的守卫 / 判定函数（守卫按导入来源认，不按名字认）`;
+  }
 
   // 第一次调用名单里的守卫（按源码先后，注释不在语法树里）
   let first: { call: ts.CallExpression; guard: Guard } | null = null;
   walk(body, (n) => {
     if (first || !ts.isCallExpression(n)) return;
     const c = unwrap(n.expression);
-    if (ts.isIdentifier(c) && guards.has(c.text)) first = { call: n, guard: guards.get(c.text)! };
+    if (ts.isIdentifier(c) && ctx.guards.has(c.text)) first = { call: n, guard: ctx.guards.get(c.text)! };
   });
   if (!first) return "没有调用名单里的项目权限守卫（守卫按导入它的模块与原始导出名认定）";
   const { call, guard } = first as { call: ts.CallExpression; guard: Guard };
@@ -296,62 +539,84 @@ function checkHandler(fn: HandlerFn, guards: Map<string, Guard>): string | null 
     const init = d.initializer ? unwrap(d.initializer) : null;
     if (ts.isIdentifier(d.name) && init && ts.isAwaitExpression(init) && unwrap(init.expression) === call) varName = d.name.text;
   }
+
+  // 第 3、4 条：守卫之前只取路由参数、读请求体（任何别的语句都不行，包括不 await 的调用与提前 return）
+  const ids = new Set(ctx.topConsts);
+  for (const pre of body.statements.slice(0, Math.max(idx, 0))) {
+    const problem = preGuardProblem(pre, fn, ctx, ids, lenient);
+    if (problem) return problem;
+  }
   if (!varName) {
     return `第一次调用守卫 ${guard.name} 不是处理函数正文里不带条件的一步（要写成顶层语句 const x = await ${guard.name}(…)，不能在 if / try / 循环 / 三元 / && / || / ?? / 内层函数里，也不能不赋值）`;
   }
 
-  // 第 3、4 条：守卫之前（前面的顶层语句与守卫调用的参数）只取路由参数、读请求体，不碰数据
-  const before: ts.Node[] = [...body.statements.slice(0, idx), ...call.arguments];
-  for (const node of before) {
-    const touched = firstTouch(node);
-    if (touched) return `在项目权限守卫之前就碰了${touched}`;
-  }
-  for (const node of before) {
-    let problem: string | null = null;
-    walk(node, (n) => {
-      if (problem || !ts.isAwaitExpression(n)) return;
-      if (!isRouteParamsExpr(n.expression, fn) && !isBodyRead(n.expression, fn)) {
-        problem = `在项目权限守卫之前 await 了取路由参数、读请求体以外的调用（${n.getText().replace(/\s+/g, " ").slice(0, 80)}）`;
-      }
-    });
-    if (problem) return problem;
-  }
-
   // 第 5、7 条：紧接着的下一条语句就是对守卫返回值的检查
-  if (!isResultCheck(body.statements[idx + 1], varName, guard.kind)) {
+  if (!isResultCheck(body.statements[idx + 1], varName, guard.kind, ctx, ids)) {
     return guard.kind === "boolean"
-      ? `调用了守卫 ${guard.name}，但下一条语句不是 if (!${varName}) return …（守卫结果要紧接着检查，中间不做别的事）`
-      : `调用了守卫 ${guard.name}，但下一条语句不是 if (${varName} instanceof NextResponse) return ${varName}（守卫结果要紧接着检查，不通过就直接返回拒绝响应，中间不做别的事）`;
+      ? `调用了守卫 ${guard.name}，但下一条语句不是 if (!${varName}) return 401 / 403 / 404（守卫结果要紧接着检查，中间不做别的事）`
+      : `调用了守卫 ${guard.name}，但下一条语句不是 if (${varName} instanceof NextResponse) return ${varName}（守卫结果要紧接着检查；拒绝分支只能返回守卫结果或 401 / 403 / 404，中间不做别的事）`;
   }
 
-  // 第 8 条：守卫的项目参数是解构路由参数里 id 这个键得到的变量
+  // 伪造第一个参数：返回响应的守卫第一个参数必须是处理函数收到的请求
+  const firstArg = call.arguments[0] ? unwrap(call.arguments[0]) : null;
+  const reqName = paramName(fn, 0);
+  if (guard.kind === "response" && !(firstArg && ts.isIdentifier(firstArg) && firstArg.text === reqName)) {
+    return `守卫 ${guard.name} 的第一个参数不是处理函数收到的请求 ${reqName ?? "(无名)"}（这里是 ${firstArg ? short(firstArg) : "空"}）`;
+  }
+
+  // 第 8 条：守卫的项目参数是 const 解构路由参数里 id 得到的变量（或 const p = await params 的 p.id），之后不得改写
   const projectArg = call.arguments[1] ? unwrap(call.arguments[1]) : null;
-  if (!projectArg || !ts.isIdentifier(projectArg)) {
-    return `守卫 ${guard.name} 的项目参数不是解构路由参数里 id 得到的变量（检查的不是地址里的项目）`;
+  const before = body.statements.slice(0, idx);
+  const constRouteDecl = (pred: (d: ts.VariableDeclaration) => boolean) =>
+    before.some((s) => ts.isVariableStatement(s) && (s.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+      s.declarationList.declarations.some((d) => {
+        const init = d.initializer ? unwrap(d.initializer) : null;
+        return !!init && ts.isAwaitExpression(init) && isRouteParamsExpr(init.expression, fn) && pred(d);
+      }));
+  let boundName: string | null = null;
+  if (projectArg && ts.isIdentifier(projectArg)) {
+    const name = projectArg.text;
+    const ok = constRouteDecl((d) => ts.isObjectBindingPattern(d.name) && d.name.elements.some((el) => {
+      const key = el.propertyName && ts.isIdentifier(el.propertyName) ? el.propertyName.text : ts.isIdentifier(el.name) ? el.name.text : null;
+      return key === "id" && ts.isIdentifier(el.name) && el.name.text === name && !el.dotDotDotToken && !el.initializer;
+    }));
+    if (ok) boundName = name;
+  } else if (projectArg && ts.isPropertyAccessExpression(projectArg) && projectArg.name.text === "id" && ts.isIdentifier(unwrap(projectArg.expression))) {
+    const name = (unwrap(projectArg.expression) as ts.Identifier).text;
+    if (constRouteDecl((d) => ts.isIdentifier(d.name) && d.name.text === name)) boundName = name;
   }
-  const fromRouteId = body.statements.slice(0, idx).some((s) => {
-    if (!ts.isVariableStatement(s)) return false;
-    return s.declarationList.declarations.some((d) => {
-      if (!ts.isObjectBindingPattern(d.name) || !d.initializer) return false;
-      const init = unwrap(d.initializer);
-      if (!ts.isAwaitExpression(init) || !isRouteParamsExpr(init.expression, fn)) return false;
-      return d.name.elements.some((el) => {
-        const key = el.propertyName && ts.isIdentifier(el.propertyName) ? el.propertyName.text : ts.isIdentifier(el.name) ? el.name.text : null;
-        return key === "id" && ts.isIdentifier(el.name) && el.name.text === projectArg.text && !el.dotDotDotToken;
-      });
-    });
+  if (!boundName) {
+    return `守卫 ${guard.name} 的项目参数${projectArg ? ` ${short(projectArg)}` : ""} 不是 const 解构路由参数里 id 得到的变量（检查的不是地址里的项目）`;
+  }
+  const reassigned = new Set<string>();
+  walk(body, (n) => {
+    if (ts.isBinaryExpression(n) && isAssignmentOperator(n.operatorToken.kind)) assignedNames(n.left, reassigned);
+    else if ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)) assignedNames(n.operand, reassigned);
   });
-  if (!fromRouteId) {
-    return `守卫 ${guard.name} 的项目参数 ${projectArg.text} 不是解构路由参数里 id 得到的变量（检查的不是地址里的项目）`;
+  if (reassigned.has(boundName)) return `守卫检查的项目参数 ${boundName} 在处理函数里被重新赋值（检查的可能不是地址里的项目）`;
+
+  // 守卫之后不再取一次路由参数（防止守卫查一个、后面用另一个）
+  let refetch: ts.Node | null = null;
+  for (const s of body.statements.slice(idx + 1)) {
+    walk(s, (n) => { if (!refetch && ts.isAwaitExpression(n) && isRouteParamsExpr(n.expression, fn)) refetch = n; });
   }
+  if (refetch) return `守卫之后又取了一次路由参数（${short(refetch)}）：项目 ID 只在守卫之前取一次`;
   return null;
 }
 
 /** 检查一个路由文件；exempt 是这个文件在例外名单里的方法 */
-export function checkRouteSource(source: string, exemptMethods: ReadonlySet<string> = new Set()): HandlerFinding[] {
+export function checkRouteSource(source: string, exemptMethods: ReadonlySet<string> = new Set(), prepMethods: ReadonlySet<string> = new Set()): HandlerFinding[] {
   const sf = parse(source);
-  const guards = importedGuards(sf);
+  const ctx = fileContext(sf);
   const findings: HandlerFinding[] = [];
+  const judge = (method: string, fn: HandlerFn): HandlerFinding => {
+    if (exemptMethods.has(method)) return { method, problem: checkExempt(sf, fn), exempt: true };
+    if (prepMethods.has(method)) {
+      if (checkHandler(fn, ctx) === null) return { method, problem: `守卫前预处理名单里的 ${method} 已经是守卫第一步了，删掉这一条（名单只减不增）`, prep: true };
+      return { method, problem: checkHandler(fn, ctx, true), prep: true };
+    }
+    return { method, problem: checkHandler(fn, ctx) };
+  };
   for (const st of sf.statements) {
     if (ts.isExportDeclaration(st)) {
       if (st.isTypeOnly) continue;
@@ -360,29 +625,31 @@ export function checkRouteSource(source: string, exemptMethods: ReadonlySet<stri
       continue;
     }
     if (ts.isFunctionDeclaration(st) && hasExportModifier(st) && st.name && HTTP_METHODS.has(st.name.text)) {
-      const method = st.name.text;
-      findings.push(exemptMethods.has(method)
-        ? { method, problem: checkExempt(sf, st), exempt: true }
-        : { method, problem: checkHandler(st, guards) });
+      findings.push(judge(st.name.text, st));
       continue;
     }
     if (ts.isVariableStatement(st) && hasExportModifier(st)) {
       for (const d of st.declarationList.declarations) {
-        if (!ts.isIdentifier(d.name) || !HTTP_METHODS.has(d.name.text)) continue;
-        const method = d.name.text;
-        const fn = d.initializer ? handlerFromInitializer(d.initializer) : null;
-        if (!fn) {
-          findings.push({ method, problem: "处理函数正文不在导出语句里（export const 方法 = 变量 / 包装函数(函数名)），守卫测试认不出它的第一步" });
+        if (!ts.isIdentifier(d.name)) {
+          findings.push({ method: "(export)", problem: `用了解构的导出写法（${short(d.name)}），守卫测试认不出其中的处理函数` });
           continue;
         }
-        findings.push(exemptMethods.has(method)
-          ? { method, problem: checkExempt(sf, fn), exempt: true }
-          : { method, problem: checkHandler(fn, guards) });
+        if (!HTTP_METHODS.has(d.name.text)) continue;
+        const method = d.name.text;
+        const found = d.initializer ? handlerFromInitializer(d.initializer, ctx) : { problem: "处理函数正文不在导出语句里，守卫测试认不出它的第一步" };
+        if ("problem" in found) {
+          findings.push({ method, problem: found.problem });
+          continue;
+        }
+        findings.push(judge(method, found.fn));
       }
     }
   }
   for (const m of exemptMethods) {
     if (!findings.some((f) => f.method === m)) findings.push({ method: m, problem: `例外名单里的 ${m} 在文件里找不到了，删掉这条例外`, exempt: true });
+  }
+  for (const m of prepMethods) {
+    if (!findings.some((f) => f.method === m)) findings.push({ method: m, problem: `守卫前预处理名单里的 ${m} 在文件里找不到了，删掉这一条`, prep: true });
   }
   return findings;
 }
@@ -599,7 +866,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   await db.project.update({ where: { id }, data: {} });
   return NextResponse.json({});
 }`);
-ok(flagged(bodyProject, "POST", /项目参数不是解构路由参数里 id 得到的变量/), "检查器：守卫查的是请求体里的另一个项目 ID 被指出", bodyProject);
+ok(flagged(bodyProject, "POST", /项目参数 body\.projectId 不是 const 解构路由参数里 id 得到的变量/), "检查器：守卫查的是请求体里的另一个项目 ID 被指出", bodyProject);
 
 const bodyProjectVar = only(`
 export async function POST(request: NextRequest, ctx: Ctx) {
@@ -609,7 +876,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if (access instanceof NextResponse) return access;
   return NextResponse.json({ id });
 }`);
-ok(flagged(bodyProjectVar, "POST", /项目参数 projectId 不是解构路由参数里 id 得到的变量/), "检查器：守卫查的是从请求体解构出的项目 ID 被指出", bodyProjectVar);
+ok(flagged(bodyProjectVar, "POST", /项目参数 projectId 不是 const 解构路由参数里 id 得到的变量/), "检查器：守卫查的是从请求体解构出的项目 ID 被指出", bodyProjectVar);
 
 const nestedParam = only(`
 export async function POST(request: NextRequest, ctx: Ctx) {
@@ -650,6 +917,190 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   return NextResponse.json({});
 }`);
 ok(flagged(beforeAudit, "POST", /之前就碰了写审计（logAudit）/), "检查器：守卫之前写审计被指出", beforeAudit);
+
+const earlyReturn = checkRouteSource(`
+import { NextResponse, type NextRequest } from "next/server";
+import { isFeatureEnabled } from "@/lib/some-feature/flags";
+import { requireProjectReadAccess } from "@/lib/projects/access";
+const notEnabled = () => NextResponse.json({ error: "未启用" }, { status: 404 });
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  if (!isFeatureEnabled()) return notEnabled();
+  const { id: projectId } = await params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({ ok: true });
+}`);
+ok(flagged(earlyReturn, "GET", /之前就提前 return 了/), "检查器：守卫之前提前 return（先判开关再调守卫）被指出", earlyReturn);
+
+const unawaitedWrite = only(`
+export async function POST(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  db.project.update({ where: { id }, data: { name: "x" } });
+  const access = await requireProjectWriteAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({ ok: true });
+}`);
+ok(flagged(unawaitedWrite, "POST", /之前就碰了数据库（db）/), "检查器：守卫之前不 await 的写库调用被指出", unawaitedWrite);
+
+const unawaitedImported = only(`
+import { markViewed } from "@/lib/projects/views";
+export async function GET(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  void markViewed(id);
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({ ok: true });
+}`);
+ok(flagged(unawaitedImported, "GET", /之前做了取路由参数、读请求体以外的事/), "检查器：守卫之前不 await 地调用一个导入的函数（名字看不出写库）也被指出", unawaitedImported);
+
+const catchWrites = only(`
+export async function POST(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const body = await request.json().catch(() => db.auditLog.create({ data: {} }));
+  const access = await requireProjectWriteAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({ body });
+}`);
+ok(flagged(catchWrites, "POST", /之前就碰了数据库/), "检查器：读请求体的 .catch(…) 里写库被指出（.catch 只能返回常量）", catchWrites);
+
+const letProjectId = only(`
+export async function POST(request: NextRequest, ctx: Ctx) {
+  let { id } = await ctx.params;
+  const access = await requireProjectWriteAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({ id });
+}`);
+ok(flagged(letProjectId, "POST", /项目参数 id 不是 const 解构路由参数里 id 得到的变量/), "检查器：守卫检查的项目 ID 用 let 绑定被指出", letProjectId);
+
+const reassignedId = only(`
+export async function POST(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectWriteAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  const body = await request.json();
+  id = body.projectId;
+  await db.project.update({ where: { id }, data: {} });
+  return NextResponse.json({ ok: true });
+}`);
+ok(flagged(reassignedId, "POST", /项目参数 id 在处理函数里被重新赋值/), "检查器：守卫检查的项目 ID 之后被重新赋值被指出", reassignedId);
+
+const refetchedId = only(`
+export async function POST(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectWriteAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  const { id: realId } = await ctx.params;
+  await db.project.update({ where: { id: realId }, data: {} });
+  return NextResponse.json({ ok: true });
+}`);
+ok(flagged(refetchedId, "POST", /守卫之后又取了一次路由参数/), "检查器：守卫之后又从 ctx.params 取一次 id 被指出", refetchedId);
+
+const destructuredExport = only(`
+const handlers = { GET: withAuth(async () => NextResponse.json({})), POST: withAuth(async () => NextResponse.json({})) };
+export const { GET, POST } = handlers;`);
+ok(destructuredExport.length === 1 && destructuredExport[0].method === "(export)" && /解构的导出写法/.test(destructuredExport[0].problem ?? ""), "检查器：export const { GET, POST } = handlers 判失败", destructuredExport);
+
+const localIsAccessError = checkRouteSource(`
+import { NextRequest, NextResponse } from "next/server";
+import { requireTenderAnalysisRead } from "@/lib/tender-auto-analysis/api-access";
+function isAccessError(_v: unknown): boolean { return false; }
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const access = await requireTenderAnalysisRead(request, id);
+  if (isAccessError(access)) return access;
+  return NextResponse.json({});
+}`);
+ok(flagged(localIsAccessError, "GET", /下一条语句不是/), "检查器：文件里自己定义的同名 isAccessError 不算检查", localIsAccessError);
+
+const foreignIsAccessError = checkRouteSource(`
+import { NextRequest, NextResponse } from "next/server";
+import { requireTenderAnalysisRead } from "@/lib/tender-auto-analysis/api-access";
+import { isAccessError } from "@/lib/somewhere-else/errors";
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const access = await requireTenderAnalysisRead(request, id);
+  if (isAccessError(access)) return access;
+  return NextResponse.json({});
+}`);
+ok(flagged(foreignIsAccessError, "GET", /下一条语句不是/), "检查器：从别处导入的同名 isAccessError 不算检查", foreignIsAccessError);
+
+const shadowedGuard = only(`
+export async function GET(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json(await db.project.findUnique({ where: { id } }));
+  async function requireProjectReadAccess(_r: NextRequest, _id: string) { return { ok: true }; }
+}`);
+ok(flagged(shadowedGuard, "GET", /同名的局部声明 requireProjectReadAccess/), "检查器：处理函数里同名局部函数遮蔽导入的守卫被指出", shadowedGuard);
+
+const reject200 = only(`
+export async function GET(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return NextResponse.json({ ok: true });
+  return NextResponse.json({});
+}
+export async function POST(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return NextResponse.json({ ok: true }, { status: 200 });
+  return NextResponse.json({});
+}`);
+ok(reject200.length === 2 && reject200.every((f) => /下一条语句不是/.test(f.problem ?? "")), "检查器：拒绝分支返回 200 被指出", reject200);
+
+const rejectViaCall = only(`
+import { logAndReturn } from "@/lib/common/log";
+export async function GET(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return logAndReturn(access);
+  return NextResponse.json({});
+}`);
+ok(flagged(rejectViaCall, "GET", /下一条语句不是/), "检查器：拒绝分支调用别的函数再返回被指出", rejectViaCall);
+
+const dbAlias = checkRouteSource(`
+import { NextRequest, NextResponse } from "next/server";
+import { db as prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { requireProjectReadAccess } from "@/lib/projects/access";
+export async function GET(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const rows = await prisma.projectDocument.findMany({ where: { projectId: id } });
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json(rows);
+}
+export async function POST(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const { projectDocument } = db;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json(await projectDocument.findMany({ where: { projectId: id } }));
+}`);
+ok(dbAlias.length === 2 && /之前就碰了数据库（prisma）/.test(dbAlias[0].problem ?? "") && /之前就碰了数据库（db）/.test(dbAlias[1].problem ?? ""), "检查器：db 的别名导入、const { projectDocument } = db 在守卫之前都当作碰数据库", dbAlias);
+
+const otherWrapper = checkRouteSource(`
+import { NextResponse } from "next/server";
+import { withRateLimit } from "@/lib/common/rate-limit";
+import { requireProjectReadAccess } from "@/lib/projects/access";
+export const GET = withRateLimit(async (request, ctx) => {
+  const { id } = await ctx.params;
+  const access = await requireProjectReadAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({});
+});`);
+ok(flagged(otherWrapper, "GET", /包装函数只认/), "检查器：withAuth 以外的包装函数判失败", otherWrapper);
+
+const forgedRequest = only(`
+export async function POST(request: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params;
+  const body = await request.json();
+  const access = await requireProjectWriteAccess(body.fakeRequest, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json({});
+}`);
+ok(flagged(forgedRequest, "POST", /第一个参数不是处理函数收到的请求/), "检查器：守卫的第一个参数不是处理函数收到的请求被指出", forgedRequest);
 
 console.log("检查器自测：例外名单");
 const EXEMPT_POST = new Set(["POST"]);
@@ -692,6 +1143,34 @@ import { NextResponse } from "next/server";
 export async function GET() { return NextResponse.json({}, { status: 410 }); }`, EXEMPT_POST);
 ok(goneMissingMethod.some((f) => f.method === "POST" && /找不到了，删掉这条例外/.test(f.problem ?? "")), "检查器：例外名单里的方法在文件里不存在被指出", goneMissingMethod);
 
+console.log("检查器自测：守卫前预处理名单");
+const PREP_SRC = `
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { requireProjectWriteAccess } from "@/lib/projects/access";
+import { assertNonProdSideEffectsAllowed } from "@/lib/env/runtime-isolation";
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const isolationBlock = assertNonProdSideEffectsAllowed("write");
+  if (isolationBlock) return isolationBlock;
+  const { id } = await params;
+  const access = await requireProjectWriteAccess(request, id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json(await db.project.update({ where: { id }, data: {} }));
+}`;
+const PATCH_ONLY = new Set(["PATCH"]);
+const prepStrict = checkRouteSource(PREP_SRC);
+ok(flagged(prepStrict, "PATCH", /之前就提前 return 了|之前做了取路由参数、读请求体以外的事/), "检查器：守卫前先判环境闸再 return 的写法，不在预处理名单里就判失败", prepStrict);
+const prepListed = checkRouteSource(PREP_SRC, new Set(), PATCH_ONLY);
+ok(prepListed.length === 1 && prepListed[0].problem === null && prepListed[0].prep === true, "检查器：同一写法列在守卫前预处理名单里按名单通过", prepListed);
+const prepAwait = checkRouteSource(PREP_SRC.replace('const isolationBlock = assertNonProdSideEffectsAllowed("write");', 'const isolationBlock = await assertNonProdSideEffectsAllowed("write");'), new Set(), PATCH_ONLY);
+ok(flagged(prepAwait, "PATCH", /await 了取路由参数、读请求体以外的调用/), "检查器：预处理名单里的处理函数在守卫之前 await 别的调用仍被指出", prepAwait);
+const prepDb = checkRouteSource(PREP_SRC.replace('if (isolationBlock) return isolationBlock;', 'if (isolationBlock) return NextResponse.json(db.project, { status: 503 });'), new Set(), PATCH_ONLY);
+ok(flagged(prepDb, "PATCH", /之前就碰了数据库/), "检查器：预处理名单里的处理函数在守卫之前碰数据库仍被指出", prepDb);
+const prepStale = checkRouteSource(PREP_SRC.replace('const isolationBlock = assertNonProdSideEffectsAllowed("write");\n  if (isolationBlock) return isolationBlock;\n', ''), new Set(), PATCH_ONLY);
+ok(flagged(prepStale, "PATCH", /已经是守卫第一步了，删掉这一条/), "检查器：预处理名单里的处理函数改成守卫第一步后，提示删掉这一条（名单只减不增）", prepStale);
+const prepMissing = checkRouteSource(PREP_SRC, new Set(), new Set(["POST"]));
+ok(prepMissing.some((f) => f.method === "POST" && /守卫前预处理名单里的 POST 在文件里找不到了/.test(f.problem ?? "")), "检查器：预处理名单里的方法在文件里不存在被指出", prepMissing);
+
 /* ═════════════ 检查器自测：正例都通过（合成源码，不在任何名单里，等于「新加的接口不用登记」） ═════════════ */
 console.log("检查器自测：正例（新加的接口写法合规就通过，不用登记）");
 const good = only(`
@@ -728,22 +1207,47 @@ export const DELETE = withAuth(async (request, { params }: Ctx, user) => {
 });`);
 ok(destructuredParams.length === 2 && destructuredParams.every((h) => h.problem === null), "检查器：第二个参数解构出 { params } 再 await params 的写法通过（src/app/api/projects/[id]/route.ts 的写法）", destructuredParams);
 
-const flagThenGuard = checkRouteSource(`
+const guardThenFlag = checkRouteSource(`
 import { NextResponse, type NextRequest } from "next/server";
-import { isFeatureEnabled } from "@/lib/some-feature/flags";
+import { isFeatureEnabledForOrg } from "@/lib/some-feature/flags";
 import { loadView } from "@/lib/some-feature/service";
 import { requireProjectReadAccess } from "@/lib/projects/access";
 const notEnabled = () => NextResponse.json({ error: "未启用" }, { status: 404 });
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  // 总闸关着：在任何鉴权与取数之前返回
-  if (!isFeatureEnabled()) return notEnabled();
   const { id: projectId } = await params;
   const access = await requireProjectReadAccess(request, projectId);
   if (access instanceof NextResponse) return access;
+  if (!access.project.orgId || !isFeatureEnabledForOrg(access.project.orgId)) return notEnabled();
   const view = await loadView({ projectId, userId: access.user.id });
   return NextResponse.json({ enabled: true, view });
 }`);
-ok(flagThenGuard.length === 1 && flagThenGuard[0].problem === null, "检查器：先判开关（不 await、不碰数据）再解构 params、再不带条件地调守卫并紧接着检查的新接口通过", flagThenGuard);
+ok(guardThenFlag.length === 1 && guardThenFlag[0].problem === null, "检查器：守卫第一步、之后才判开关的新接口通过（BIDPAGE bid-page-summary 现行写法，不用登记）", guardThenFlag);
+
+const paramsObject = only(`
+export async function GET(request: NextRequest, ctx: Ctx) {
+  const p = await ctx.params;
+  const access = await requireProjectReadAccess(request, p.id);
+  if (access instanceof NextResponse) return access;
+  return NextResponse.json(await db.project.findUnique({ where: { id: p.id } }));
+}`);
+ok(paramsObject.length === 1 && paramsObject[0].problem === null, "检查器：const p = await ctx.params 再传 p.id 给守卫的写法通过", paramsObject);
+
+const constPage = checkRouteSource(`
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { requireProjectReadAccess } from "@/lib/projects/access";
+export const MESSAGES = { notLoggedIn: "请先登录", notFound: "没有找到" } as const;
+function messagePage(status: number, message: string): NextResponse {
+  return new NextResponse(\`<p>\${message}</p>\`, { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const M = MESSAGES;
+  const { id: projectId } = await params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access.status === 401 ? messagePage(401, M.notLoggedIn) : messagePage(404, M.notFound);
+  return NextResponse.json(await db.project.findUnique({ where: { id: projectId } }));
+}`);
+ok(constPage.length === 1 && constPage[0].problem === null, "检查器：守卫前取文件常量的别名、拒绝时返回由常量构造的 401 / 404 页通过（tender-rfq/attachment 的写法）", constPage);
 
 const bodyFirst = only(`
 export async function PATCH(request: NextRequest, ctx: Ctx) {
@@ -843,28 +1347,55 @@ ok(routeFiles.length >= 170, `目录下至少找到 170 个路由文件（实际
 ok(FIX21_FILES.every((f) => routeFiles.includes(f)), "FIX-21 的 4 个路由文件都在枚举结果里", FIX21_FILES.filter((f) => !routeFiles.includes(f)));
 const missingExempt = missingExemptionFiles(EXEMPTIONS);
 ok(missingExempt.length === 0, `例外名单里的 ${EXEMPTIONS.length} 个路由文件都还在（不在了就删掉那条例外）`, missingExempt);
+const missingPrep = missingExemptionFiles(PRE_GUARD_PREP);
+ok(missingPrep.length === 0, `守卫前预处理名单里的 ${PRE_GUARD_PREP.length} 个路由文件都还在（不在了就删掉那一条）`, missingPrep);
 
 const offenders: Array<{ file: string; method: string; problem: string }> = [];
 let handlerCount = 0;
 let passedCount = 0;
 let exemptCount = 0;
+let prepCount = 0;
 for (const file of routeFiles) {
   const exempt = new Set(EXEMPTIONS.filter((e) => e.file === file).map((e) => e.method));
-  const findings = checkRouteSource(readFileSync(join(process.cwd(), file), "utf8"), exempt);
+  const prep = new Set(PRE_GUARD_PREP.filter((e) => e.file === file).map((e) => e.method));
+  const findings = checkRouteSource(readFileSync(join(process.cwd(), file), "utf8"), exempt, prep);
   if (findings.length === 0) offenders.push({ file, method: "(none)", problem: "没有导出任何 HTTP 处理函数" });
   for (const f of findings) {
     handlerCount++;
     if (f.problem) offenders.push({ file, method: f.method, problem: f.problem });
     else if (f.exempt) exemptCount++;
+    else if (f.prep) prepCount++;
     else passedCount++;
   }
 }
 ok(handlerCount >= 240, `目录下至少找到 240 个处理函数（实际 ${handlerCount} 个）`, handlerCount);
 ok(exemptCount === EXEMPTIONS.length, `例外名单里的 ${EXEMPTIONS.length} 个接口都按「已下线」通过`, { exemptCount });
-ok(offenders.length === 0, `每个处理函数都先过项目级权限检查（通过 ${passedCount} 个，例外 ${exemptCount} 个，不过 ${offenders.length} 个）`, offenders.length);
+ok(prepCount === PRE_GUARD_PREP.length, `守卫前预处理名单里的 ${PRE_GUARD_PREP.length} 个接口都按名单通过`, { prepCount });
+ok(offenders.length === 0, `每个处理函数都先过项目级权限检查（严格通过 ${passedCount} 个，守卫前预处理名单 ${prepCount} 个，例外 ${exemptCount} 个，不过 ${offenders.length} 个）`, offenders.length);
 if (offenders.length > 0) {
   console.error("\n漏了项目权限检查（或检查写得不牢）的处理函数：");
   for (const o of offenders) console.error(`  - ${o.file} ${o.method}：${o.problem}`);
+}
+
+/* ═════════════ 一键投标方案两个路由照抄的固定提示与 dto.ts 一字不差 ═════════════ */
+// src/lib/agent-tasks 是 runtime-architecture 冻结面，路由不能导入它，只能照抄 SAFE_STEP_ERROR_MESSAGE；
+// 这里按源码文本比较（读文件、解析语法树，不 import 冻结面），任何一处改了另一处没跟上就失败。
+console.log("照抄的固定提示与 src/lib/agent-tasks/dto.ts 一字不差");
+function constStringIn(file: string, name: string): string | null {
+  const sf = parse(readFileSync(join(process.cwd(), file), "utf8"));
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    for (const d of st.declarationList.declarations) {
+      if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer && ts.isStringLiteral(unwrap(d.initializer))) return (unwrap(d.initializer) as ts.StringLiteral).text;
+    }
+  }
+  return null;
+}
+const dtoMessage = constStringIn("src/lib/agent-tasks/dto.ts", "SAFE_STEP_ERROR_MESSAGE");
+ok(typeof dtoMessage === "string" && dtoMessage.length > 0, `src/lib/agent-tasks/dto.ts 里找到 SAFE_STEP_ERROR_MESSAGE（「${dtoMessage}」）`, dtoMessage);
+for (const file of [`${ROUTES_DIR}/ai-bid-package/route.ts`, `${ROUTES_DIR}/ai-bid-package/run-step/route.ts`]) {
+  const copied = constStringIn(file, "SAFE_STEP_ERROR_MESSAGE");
+  ok(copied !== null && copied === dtoMessage, `${file} 照抄的 SAFE_STEP_ERROR_MESSAGE 与 dto.ts 一字不差`, { copied, dtoMessage });
 }
 
 console.log(`\nFIX-21 project routes guard: ${pass} passed, ${fail} failed`);
