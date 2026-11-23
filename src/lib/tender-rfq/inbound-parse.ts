@@ -273,6 +273,9 @@ const CURRENCY_ALIASES: Record<string, RegExp> = {
 /** 币种只在原文明确出现（代码或无歧义别名）时才采信；裸 "$" 有歧义，不算 */
 export function currencySupported(text: string, code: string): boolean {
   const c = code.toUpperCase();
+  // FIX-24：只认三个拉丁字母。模型给的字符串不拼进正则（「(((」会抛错、「.*.」匹配一切），
+  // 也不带着换行、「；」写进条目币种与报价备注
+  if (!/^[A-Z]{3}$/.test(c)) return false;
   const alias = CURRENCY_ALIASES[c];
   if (alias) return alias.test(text.normalize("NFKC"));
   return new RegExp(`\\b${c}\\b`, "i").test(text);

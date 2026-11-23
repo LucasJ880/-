@@ -32,7 +32,7 @@
   - 附件说明按「文件名：」最长前缀对上；同名后一条覆盖前一条。
   - 保留 FIX-14 的提示句与整段 `toStorableText`。
   - verify：`notes-forgery.test.ts` 第 1、5 节通过；`notes-parse.test.ts`、`inbound-apply.test.ts` 通过数与开工前相同；`git diff origin/main -- src/lib/tender-rfq/inbound-apply.ts | grep -E '^[-+]export'` 无输出；`npm run typecheck` 退出码 0。
-- [ ] 2.2 `src/lib/tender-rfq/inbound-parse.ts`：币种核对先看转大写后是否是三个 A–Z 字母，不是就判「原文里没有」、不拼正则（design D3）。不改提示、证据文本与附件抽取。
+- [x] 2.2 `src/lib/tender-rfq/inbound-parse.ts`：币种核对先看转大写后是否是三个 A–Z 字母，不是就判「原文里没有」、不拼正则（design D3）。不改提示、证据文本与附件抽取。
   - verify：`notes-forgery.test.ts` 第 2 节通过（含「(((」不抛错、作废清单有币种）；`inbound-parse.test.ts` 通过数与开工前相同；`git diff origin/main -- src/lib/tender-rfq/inbound-parse.ts | grep -E '^[-+]export'` 无输出；`npm run typecheck` 退出码 0。
 - [ ] 2.3 `src/lib/tender-rfq/notes-parse.ts`：读取五条规则（design D4）。
   - R1：行内 `\r`、U+2028、U+2029 先换空格；行头严格为写入时刻格式且能原样还原，消息编号只含字母、数字、`-`、`_`。
