@@ -11,7 +11,7 @@
 | GATE | 七条由协调会话 2026-11-23 按推荐定（Lucas 2026-11-22 授权「都按照你的推荐来」），第 ④ 条措辞按多维审查的文案意见调整，见 §7 |
 | OpenSpec change | `openspec/changes/target-margin-finance-gate/`（`tender/pricing-helper`：新增 1 条、改 7 条；`tender/pricing-compare-cost-source`：改 1 条） |
 | 基线 | 四件套 main `2a0eb964`；实施与修订时依次合入 `c376be86`（#564 BIDPAGE-3）、`fc321a7d`（#538 CHAIN-2d）、`fbacf6bd`（#569 FIX-14）、`71a86a0a`（#574 FIX-26a）、`4b6c3dd4`（#581 BIDPAGE-4、#579 FIX-26a 归档）、`9ff1b29e`（#582 BIDPAGE-4 归档）、`58508ecc`（#575 TREE-2）；本分支最后合入的 main 提交是 `58508ecc` |
-| 分支 / PR | `claude/zen-turing-azudvx-fix25`；Draft PR #578 |
+| 分支 / PR | `claude/zen-turing-azudvx-fix25`；PR #578（2026-11-23 合并，合并提交 `c339cb40`）；归档 PR 见 TASKFLOW FIX-25 行（archive `2026-11-23-target-margin-finance-gate`） |
 | 开关 | 没有；合并即生效 |
 
 ## 1. 合并后谁会发现什么变了
