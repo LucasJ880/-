@@ -61,7 +61,7 @@ async function main() {
   await db.organizationMember.create({ data: { orgId: ORG, userId: VIEWER, role: "org_viewer", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: ADMIN, role: "org_admin", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG2, userId: OTHER, role: "org_admin", status: "active" } });
-  const PROJECT = id("proj"), PENDING = id("pend"), GENERAL = id("gen"), PROJECT_F1 = id("projf1"), OTHER_PROJECT = id("proj2");
+  const PROJECT = id("proj"), PENDING = id("pend"), GENERAL = id("gen"), PROJECT_F1 = id("projf1"), PROJECT_F1B = id("projf1b"), OTHER_PROJECT = id("proj2");
   await db.project.create({ data: { id: PROJECT, name: `Fixture AB Tender ${stamp}`, orgId: ORG, ownerId: ADMIN, workDomain: "tender", intakeStatus: "dispatched", clientOrganization: "Alberta Health Services" } });
   // 采购方候选不该带出的两种项目：待分派的（只有超级管理员看得到）、不是招标的
   await db.project.create({ data: { id: PENDING, name: `Fixture Pending ${stamp}`, orgId: ORG, ownerId: ADMIN, workDomain: "tender", intakeStatus: "pending_dispatch", clientOrganization: `Pending Dispatch Buyer ${stamp}` } });
@@ -195,6 +195,16 @@ async function main() {
 
     /* ---------- 6d. 链接主机只认 purchasing.alberta.ca（交叉验证 F3 / M5a）：别的 alberta.ca 主机与「以 alberta.ca 结尾」的都 400 ---------- */
     const hostTries = await Promise.all(["https://www.alberta.ca/posting/AB-2026-07664", "https://notalberta.ca/posting/AB-2026-07664", "https://evil.purchasing.alberta.ca/posting/AB-2026-07664"].map((u, i) => enter({ ...base, winnerName: `Host Probe ${i} Ltd.`, apcUrl: u })));
+    /* ---------- 6e. 没有招标编号的疑似重复，单独被项目结果回灌按日期金额挂上（复核 M1c）：仍是疑似重复 ---------- */
+    const noNum1 = await enter({ buyerName: "Town of Canmore", winnerName: "Bow Valley Linen Co", apcUrl: "https://purchasing.alberta.ca/posting/AB-2025-07101", awardDate: "2025-03-01", contractAmount: 7000 });
+    const noNum2 = await enter({ buyerName: "Town of Canmore", winnerName: "Bow Valley Linen Co", apcUrl: "https://purchasing.alberta.ca/posting/AB-2025-07102", awardDate: "2025-07-15", contractAmount: 8800 });
+    const noNumDupId = String(rec(noNum2.body.record).id);
+    const noNumDupBefore = await db.awardRecord.findUnique({ where: { id: noNumDupId } });
+    await db.project.create({ data: { id: PROJECT_F1B, name: `Fixture F1b Tender ${stamp}`, orgId: ORG, ownerId: ADMIN, workDomain: "tender", intakeStatus: "dispatched", awardDate: new Date("2025-07-15T00:00:00Z"), winningBidPrice: 8800 } });
+    const bfNoNum = await backfillOwnResultCanonical({ projectId: PROJECT_F1B, result: "lost", actorUserId: ADMIN, winnerName: "Bow Valley Linen Co" });
+    const noNumDupAfter = await db.awardRecord.findUnique({ where: { id: noNumDupId }, include: { sources: true } });
+    ok(noNum1.body.outcome === "CREATED" && noNum2.body.outcome === "NEEDS_REVIEW" && noNumDupBefore?.solicitationNumber === null && noNumDupBefore.possibleDuplicateOfId === String(rec(noNum1.body.record).id) && noNumDupBefore.verificationStatus === "NEEDS_REVIEW" && bfNoNum.award === "written" && bfNoNum.awardRecordId === noNumDupId && bfNoNum.awardReason === "needs_review" && noNumDupAfter?.status === "NEEDS_REVIEW" && noNumDupAfter.verificationStatus === "HUMAN_CONFIRMED" && noNumDupAfter.possibleDuplicateOfId === noNumDupBefore.possibleDuplicateOfId && noNumDupAfter.sources.length === 2, "没有编号的同中标方同采购方疑似重复，只被项目结果回灌按日期金额挂上：信任级升为人工确认、状态仍疑似重复、来源 2 条、回灌结果 needs_review", { noNum: [noNum1.body.outcome, noNum2.body.outcome], bfNoNum, after: [noNumDupAfter?.status, noNumDupAfter?.verificationStatus, noNumDupAfter?.sources.length] });
+
     ok(hostTries.every((t) => t.status === 400 && t.body.code === "BAD_URL" && t.body.field === "apcUrl") && (await db.awardRecord.count({ where: { orgId: ORG, winnerName: { startsWith: "Host Probe" } } })) === 0, "www.alberta.ca、notalberta.ca、evil.purchasing.alberta.ca：400 BAD_URL、不写库", hostTries.map((t) => [t.status, t.body.code]));
 
     /* ---------- 7. 撤回后重录：新建一条、撤回的那条保持撤回、重放仍不重复 ---------- */
@@ -242,6 +252,8 @@ async function main() {
     await createOrObserveAwardRecord({ orgId: ORG, actor: { actorType: "user", userId: ADMIN }, award: { winnerName: "Off Host Ltd.", buyerNameRaw: "Alberta Health Services" }, source: { sourceType: "USER_ENTRY", sourceKey: `manual:apc:${stamp}-offhost`, sourceUrl: "https://www.alberta.ca/posting/AB-2026-07664", capturedAt: new Date() }, confidence: "MEDIUM", verificationStatus: "NEEDS_REVIEW" });
     // 别的组织的招标项目（交叉验证 F3 / M11b）：采购方候选不带
     await db.project.create({ data: { id: OTHER_PROJECT, name: `Fixture Other Org Tender ${stamp}`, orgId: ORG2, ownerId: OTHER, workDomain: "tender", intakeStatus: "dispatched", clientOrganization: `Other Org Buyer ${stamp}` } });
+    // 别的组织的授标记录（复核 M8b）：它的采购方写法不进本组织的采购方候选
+    await createOrObserveAwardRecord({ orgId: ORG2, actor: { actorType: "user", userId: OTHER }, award: { winnerName: "Other Org Winner Ltd.", buyerNameRaw: `Other Org Award Buyer ${stamp}` }, source: { sourceType: "USER_ENTRY", sourceKey: `manual:${stamp}-org2-award`, capturedAt: new Date() }, confidence: "HIGH", verificationStatus: "HUMAN_CONFIRMED" });
     const lm = await list(MEMBER);
     const ls = await list(SUPER);
     const lv = await list(VIEWER);
@@ -257,6 +269,7 @@ async function main() {
     const sugS = (ls.buyerSuggestions as string[]) ?? [];
     ok(ls.canEnterManual === true && !sugS.includes(`Pending Dispatch Buyer ${stamp}`) && !sugS.includes(`Sales Client Corp ${stamp}`) && sugS.includes("Alberta Health Services"), "平台超级管理员的采购方候选也不带待分派与不是招标的项目", sugS);
     ok(!sug.includes(`Other Org Buyer ${stamp}`) && !sugS.includes(`Other Org Buyer ${stamp}`), "采购方候选只取本组织：别的组织的招标项目不带（成员与平台超级管理员都一样）", { sug, sugS });
+    ok(!sug.includes(`Other Org Award Buyer ${stamp}`) && !sugS.includes(`Other Org Award Buyer ${stamp}`), "采购方候选只取本组织：别的组织授标记录里的采购方不带（成员与平台超级管理员都一样）", { sug, sugS });
 
     /* ---------- 10. 开关关 ---------- */
     process.env.T4_AWARD_INTELLIGENCE_SCHEMA_READY = "0";
@@ -278,7 +291,7 @@ async function main() {
     await db.awardRecordSource.deleteMany({ where: { orgId: { in: [ORG, ORG2] } } });
     await db.awardRecord.deleteMany({ where: { orgId: { in: [ORG, ORG2] } } });
     await db.auditLog.deleteMany({ where: { OR: [{ orgId: { in: [ORG, ORG2] } }, { userId: { in: USERS } }] } });
-    await db.project.deleteMany({ where: { id: { in: [PROJECT, PENDING, GENERAL, PROJECT_F1, OTHER_PROJECT] } } });
+    await db.project.deleteMany({ where: { id: { in: [PROJECT, PENDING, GENERAL, PROJECT_F1, PROJECT_F1B, OTHER_PROJECT] } } });
     await db.organizationMember.deleteMany({ where: { orgId: { in: [ORG, ORG2] } } });
     await db.organization.deleteMany({ where: { id: { in: [ORG, ORG2] } } });
     await db.user.deleteMany({ where: { id: { in: USERS } } });

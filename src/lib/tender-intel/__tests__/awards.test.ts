@@ -364,6 +364,27 @@ console.log("tender-intel awards（T4 canonical service + read model）");
     );
   }
 
+  /* T4-01k（CHAIN-1b 复核 M1c）没有招标编号的「同中标方同买家」疑似重复，被人工确认的写入按日期金额挂上：
+     状态仍 NEEDS_REVIEW、来源多一条（不转正与有没有编号无关） */
+  {
+    const { client, sources } = makeFakeDb();
+    const noNumber = (date: string, amount: number, key: string) =>
+      ({ ...canadabuysInput("orgA", { solicitationNumber: null, awardDate: new Date(date), contractAmount: amount }), source: { ...canadabuysInput("orgA").source, sourceType: "WEB_SEARCH" as const, sourceKey: key }, confidence: "LOW" as const, verificationStatus: "AI_EXTRACTED" as const });
+    const orig = await createOrObserveAwardRecord(noNumber("2024-03-01", 50000, "web:k-orig"), { client });
+    const dup = await createOrObserveAwardRecord(noNumber("2024-09-01", 64000, "web:k-dup"), { client });
+    const h = await createOrObserveAwardRecord(
+      { ...noNumber("2024-09-01", 64000, "tender-result-winner:pk"), actor: USER, source: { ...canadabuysInput("orgA").source, sourceType: "USER_ENTRY", sourceKey: "tender-result-winner:pk" }, confidence: "MEDIUM", verificationStatus: "HUMAN_CONFIRMED" },
+      { client },
+    );
+    ok(
+      orig.outcome === "CREATED" && dup.outcome === "NEEDS_REVIEW" && dup.record.solicitationNumber === null && dup.record.possibleDuplicateOfId === orig.record.id &&
+        h.outcome === "ATTACHED_EXISTING" && h.record.id === dup.record.id && h.record.status === "NEEDS_REVIEW" && h.record.verificationStatus === "HUMAN_CONFIRMED" && h.record.possibleDuplicateOfId === orig.record.id &&
+        sources.filter((s) => s.awardRecordId === dup.record.id).length === 2,
+      "T4-01k 没有编号的疑似重复被人工确认写入按日期金额挂上：仍 NEEDS_REVIEW、仍指向原记录、来源 2 条",
+      { dup: [dup.outcome, dup.record.possibleDuplicateOfId], h: [h.outcome, h.record.status, h.record.verificationStatus] },
+    );
+  }
+
   /* T4-01g 招标编号规范化 */
   ok(
     normalizeSolicitationKey(" pw-2024/001 ") === "PW2024001" &&
