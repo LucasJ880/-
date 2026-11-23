@@ -5,9 +5,10 @@
 | 项 | 值 |
 |---|---|
 | change | `project-intel-bidpackage-access`（新能力 `projects/intel-bidpackage-access` 11 条要求、`projects/route-access-guard` 6 条要求） |
-| TASKFLOW | FIX-21（Phase F（续）— 情报串联表，FIX-17 之后），另登记 8 条「编号待定」后续任务 |
+| TASKFLOW | FIX-21（Phase F（续）— 情报串联表，FIX-17 之后），另登记 13 条后续任务（12 条「编号待定」+ FIX-23） |
 | 来源 | 2026-11-22 审查 FIX-17 时逐个核对 `src/app/api/projects/[id]/` 下全部路由发现；Evan 2026-11-22 批准开这个 change |
 | GATE | 「留给 GATE」三条，Lucas 2026-11-22 定：第 1 条 **C**（一键投标方案两个接口对非平台管理员只给安全视图）、第 2 条 **A**（`PATCH …/intelligence/review` 用读权限）、第 3 条 **A**（`POST …/intelligence/regenerate` 用读权限） |
+| PR | #554，2026-11-23 合并（合并提交 `212613ec`）；归档 `openspec/changes/archive/2026-11-23-project-intel-bidpackage-access/`；归档后 `openspec validate --specs --strict` 151 / 151 |
 | 分支 | `claude/zen-turing-azudvx-fix21`；开工时合入 main `07c02358`（含 FIX-17 #548） |
 | 性质 | 修既有的越权。零 schema、零新模型调用、没有新增出站、没有新队列。**没有开关——合并即在生产生效** |
 
