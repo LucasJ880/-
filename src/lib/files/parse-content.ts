@@ -7,6 +7,11 @@
 
 import { db } from "@/lib/db";
 import { readBlobBuffer } from "./blob-access";
+import {
+  decodeTextFile,
+  toStorableParseError,
+  toStorableText,
+} from "./extracted-text";
 
 const MAX_TEXT_LENGTH = 200_000; // DB 存储上限，约 20 万字符
 
@@ -55,7 +60,10 @@ async function parseExcel(buffer: Buffer): Promise<ParseResult> {
 }
 
 async function parsePlainText(buffer: Buffer): Promise<ParseResult> {
-  return { text: buffer.toString("utf-8").trim() };
+  // UTF-16（带字节序标记）按 UTF-16 读；满是 U+0000 的（编码不对 / 二进制）判为失败并写明原因
+  const decoded = decodeTextFile(buffer);
+  if ("error" in decoded) return decoded;
+  return { text: decoded.text.trim() };
 }
 
 // ── 格式路由 ────────────────────────────────────────────────────
@@ -93,14 +101,15 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
   if (!parser) {
     await db.projectDocument.update({
       where: { id: documentId },
-      data: { parseStatus: "done", contentText: null },
+      data: { parseStatus: "done", contentText: null, parseError: null },
     });
     return;
   }
 
   await db.projectDocument.update({
     where: { id: documentId },
-    data: { parseStatus: "parsing" },
+    // 重新解析开始时清掉上一次的失败原因（与页级解析一致）
+    data: { parseStatus: "parsing", parseError: null },
   });
 
   try {
@@ -114,12 +123,21 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
     if ("error" in result) {
       await db.projectDocument.update({
         where: { id: documentId },
-        data: { parseStatus: "failed", parseError: result.error },
+        // 失败原因不超过 500 字；报错文字本身也清理一遍（FIX-13）
+        data: {
+          parseStatus: "failed",
+          parseError: toStorableParseError(result.error),
+        },
       });
       return;
     }
 
-    const text = result.text.slice(0, MAX_TEXT_LENGTH);
+    // FIX-13：写库前清掉 PostgreSQL / Prisma 不收的字符（U+0000、落单代理字符）。
+    // 先清理再去首尾空白——整页都是 U+0000 的页面清理后只剩空格，不留在文字两端；
+    // 截断之后再清理一遍——截断可能把一对代理字符劈开，产生新的落单字符。
+    const text = toStorableText(
+      toStorableText(result.text).trim().slice(0, MAX_TEXT_LENGTH),
+    );
     await db.projectDocument.update({
       where: { id: documentId },
       data: { contentText: text || null, parseStatus: "done", parseError: null },
@@ -133,7 +151,7 @@ export async function parseAndStoreContent(documentId: string): Promise<void> {
       where: { id: documentId },
       data: {
         parseStatus: "failed",
-        parseError: errorMsg.slice(0, 500),
+        parseError: toStorableParseError(errorMsg),
       },
     });
   }

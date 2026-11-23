@@ -36,6 +36,8 @@ npx tsx src/lib/release/__tests__/drift.test.ts
 npx tsx src/lib/tender-understanding/__tests__/extract-prompt-locator.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/worker-budget-guards.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts
+npx tsx src/lib/files/__tests__/extracted-text.test.ts
+npx tsx src/lib/tender-auto-analysis/__tests__/page-parse.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/tender-identity.test.ts
 npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts
 npx tsx src/lib/projects/generate/__tests__/tender-doc-html.test.ts
@@ -90,6 +92,7 @@ npx tsx src/lib/tender-room/__tests__/summary-json.test.ts
 NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-merge-db.isolated.test.ts
 npx tsx src/lib/tender-room/__tests__/summary-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-writers-db.isolated.test.ts
+npx tsx src/lib/projects/__tests__/files-route-guard.test.ts
 npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts
 npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx
