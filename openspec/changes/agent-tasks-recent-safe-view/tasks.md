@@ -43,7 +43,7 @@
 
 ## 2. 实现
 
-- [ ] 2.1 `src/lib/agent-tasks/dto.ts`：在列表视图部分（紧挨 `sanitizeListStepError`）加一个列表步骤投影（design D3）。
+- [x] 2.1 `src/lib/agent-tasks/dto.ts`：在列表视图部分（紧挨 `sanitizeListStepError`）加一个列表步骤投影（design D3）。
   - 是平台管理员时原样返回；
   - 不是时把 `AGENT_STEP_INTERNAL_FIELDS` 里在该步骤上出现的键逐个置 `null`，其余键不动、不新增键；
   - 已有导出不改。

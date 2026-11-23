@@ -208,3 +208,28 @@ export function sanitizeListStepError<T extends { status: string; error?: string
   const hasError = step.status === "error" || step.status === "failed" || !!step.error;
   return { ...step, error: hasError ? SAFE_STEP_ERROR_MESSAGE : null };
 }
+
+type AgentStepInternalField = (typeof AGENT_STEP_INTERNAL_FIELDS)[number];
+
+/** 列表步骤投影的结果：内部字段（若在步骤上出现）可能为 null，其余键类型不变 */
+export type ListStepInternalsView<T> = {
+  [K in keyof T]: K extends AgentStepInternalField ? T[K] | null : T[K];
+};
+
+/**
+ * 列表视图的步骤内部字段（FIX-23，GET /api/agent/tasks/recent）——
+ * 平台管理员原样返回；其余人把 AGENT_STEP_INTERNAL_FIELDS 里在该步骤上出现的键逐个置 null：
+ * 键保留（与业务视图 checkReportJson: null 同口径），其余键不动，不新增键。
+ * 原始 error 不在内部字段清单里，本函数管不到：调用方的 select 不得选它（授权布线契约测试断言）。
+ */
+export function sanitizeListStepInternals<T extends object>(
+  step: T,
+  diagnostic: boolean,
+): ListStepInternalsView<T> {
+  if (diagnostic) return step as ListStepInternalsView<T>;
+  const out: Record<string, unknown> = { ...(step as Record<string, unknown>) };
+  for (const field of AGENT_STEP_INTERNAL_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(out, field)) out[field] = null;
+  }
+  return out as ListStepInternalsView<T>;
+}
