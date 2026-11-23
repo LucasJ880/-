@@ -7,6 +7,7 @@
 | 拍板 | Lucas 2026-11-20：「报价助手里的落地成本与节省成本，改成只对有财务查看权的人显示，口径与其它页面一致。」（「节省成本」按交接文档读作「已保存的我方成本」，代码里没有「节省」字段；若指毛利，毛利一栏同样只给有财务查看权的人——两种读法都覆盖） |
 | OpenSpec change | `openspec/changes/pricing-helper-finance-gate/`（修改 `tender/pricing-helper`：新增 5 条、改 2 条；修改 `tender/pricing-compare-cost-source` 5 条） |
 | 基线 | origin/main `91d928e4` |
+| PR | #532，2026-11-23 合并（合并提交 `d9de8490`）；归档 `openspec/changes/archive/2026-11-23-pricing-helper-finance-gate/` |
 | 开关 | 没有新开关；随合并生效（比价建议部分仍跟 `TENDER_PRICING_COMPARE_SOURCE_ENABLED`） |
 
 ## 1. 做了什么
@@ -69,6 +70,9 @@
 | 运行时架构 | `bash scripts/test-runtime-architecture.sh` | 9 通过 0 失败，guards PASS |
 | OpenSpec | `openspec validate pricing-helper-finance-gate --strict` | valid |
 | 受保护文件 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
+
+
+**2026-11-23 合并前交叉验证**（另起一个没参与实现与之前审查的子 agent，只看需求、四件套、diff，亲自跑；HEAD `de867d85`，隔离库 `qy_iso_e`）：可以合并，没有阻断项。13 种身份逐个调真实路由，并与成本核算接口的判定 `resolveFinancePrivilege(...).canReadAll` 对照，开关开 / 关都一致；有权的人 GET / POST 返回与 origin/main 逐字节相同（26 / 26）；带成本的保存各种写法一律 403 且不写库；12 个变异全部被测试抓住。它提的：比价矩阵与「报价与成本」卡在 CHAIN-2e 合并前仍显示落地价 / 估算成本（既有，GATE 第 4 条已定由 CHAIN-2e 统一）；卡片「找谁」那句漏了持 `project.finance.manage` 的人与平台超级管理员（文案不全，记为后续）；读屏播报区域随消息挂上（可不修）；隔离库没对组织 owner 断言（探针补测一致）。
 
 ## 5. 多维审查
 

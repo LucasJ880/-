@@ -487,6 +487,8 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/followup-auto-db.isolated.tes
 npx tsx src/lib/tender-rfq/__tests__/auto-draft-pure.test.ts
 npx tsx src/lib/tender-rfq/__tests__/attachment.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/attachment-db.isolated.test.ts
+npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts
+NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts
 npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts
