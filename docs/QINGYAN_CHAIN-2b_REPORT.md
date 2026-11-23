@@ -54,6 +54,22 @@
 | `openspec validate pricing-helper-finance-gate --strict` | valid |
 | `git diff origin/main -- prisma/ vercel.json` | 空 |
 
+### 2026-11-22 合入 main `8f65b77a` 后复跑
+
+合并提交 `02a89fb9`（含 #540 FIX-12、#546 FIX-13 及其归档 #545 / #547）：无冲突，三个两边都改过的文件（TASKFLOW、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`）都是两边各自追加的行，全部保留。本分支改的 8 个源文件与测试，main 在分叉（`91d928e4`）之后都没有动过；main 这次改的代码都在 `tender-auto-analysis` / `tender-understanding` / `files` / `ai/model-policy` 与两个分析面板、项目文件列表，本分支的代码不引用它们。
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 本 change 测试单跑（隔离库 `qy_iso_e`，迁移已是最新） | `npx tsx` 跑 `finance-view.test.ts`、`compare-cost-source.test.tsx`、`pricing-helper.test.ts`；`NODE_ENV=test npx tsx` 跑 `pricing-helper-finance-db` / `pricing-helper-save-db` / `pricing-helper-lock-db` / `compare-cost-source-db` 四个 `.isolated.test.ts` | 47 / 83 / 13；34 / 17 / 17 / 42，全部通过 |
+| 全量（新建库 `qy_full_chain2b`，`npx prisma migrate deploy` 应用全部 42 个迁移） | `npm test > /home/user/full-chain2b.log 2>&1` | `707/717 通过, 10 失败`；10 项与 main 基线逐条相同：来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB（75 / 76）；上表的 Mention Gateway M2-A 这次通过；本 change 两条测试 47 / 34 通过 |
+| CI 子集 | `env -u DATABASE_ENVIRONMENT DATABASE_URL=…/ci DIRECT_URL=…/ci JWT_SECRET=ci-only-… NODE_ENV=test npm run test:ci` | PASS（`finance-view` 47、`compare-cost-source` 83；隔离库测试按设计跳过） |
+| 类型 | `npm run typecheck` | 通过 |
+| lint | `npm run lint:baseline` | PASS（errors 38 / 基线 53，无新增指纹） |
+| 测试注册 | `bash scripts/check-test-registry.sh` | 已注册 684 个，历史欠账 66 条 |
+| 运行时架构 | `bash scripts/test-runtime-architecture.sh` | 9 通过 0 失败，guards PASS |
+| OpenSpec | `openspec validate pricing-helper-finance-gate --strict` | valid |
+| 受保护文件 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与代码）**——逐条核实后并入四件套（`408e587a`）：项目列表与调查室两个接口的房间 JSON 也带出成本，一并去掉；开关开着时无权的人带 `compareCostHidden`、不取数；判定出错只收组织范围的键；保存顺序 409 → 403 → 400；五条比价规格限定为有财务查看权的人；投标同事看不到成本列为 GATE 问题。
