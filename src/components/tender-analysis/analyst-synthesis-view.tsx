@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { snapshotExclusionText } from "@/lib/tender-auto-analysis/exclusion-text";
 import type {
   AnalystEvidenceRef,
   AnalystKeyItem,
@@ -197,12 +198,18 @@ export function AnalystSynthesisView({
   section,
   runStatus,
   onOpenTab,
+  currentParseErrors,
 }: {
   synthesis: TenderAnalystSynthesisV1;
   section: AnalystSection;
   runStatus: string;
   /** 切换到面板内其它 tab（如 关键要求 / 全部条款） */
   onOpenTab: (key: string) => void;
+  /**
+   * 「文件名 → 解析失败原文」，取自现算的覆盖清单（FIX-13）。
+   * 综合解读的快照不存原文；这里按文件名补上当前的记录。
+   */
+  currentParseErrors?: Readonly<Record<string, string | null>>;
 }) {
   const [evidence, setEvidence] = useState<{
     title: string;
@@ -331,8 +338,9 @@ export function AnalystSynthesisView({
           {showExcluded ? (
             <ul className="mt-1 list-disc space-y-0.5 pl-4">
               {synthesis.coverage.excluded.map((f) => (
-                <li key={f.filename}>
-                  {f.filename}（{f.fileType ?? "?"}）：{f.exclusionReason}
+                <li key={f.filename} className="break-words [overflow-wrap:anywhere]">
+                  {f.filename}（{f.fileType ?? "?"}）：
+                  {snapshotExclusionText(f.exclusionReason, f.filename, currentParseErrors)}
                 </li>
               ))}
             </ul>
