@@ -46,7 +46,7 @@
   - `src/app/api/projects/[id]/quote-engine/**`（`status`、`select-bid`、`revise`、`tender-bid`、`award` 照旧）；
   - `src/components/quote-engine/**`（含 `tender-our-bid.tsx`、`pricing-control-center.tsx`）；
   - `src/components/project-detail/tabs/bid-tab.tsx`、`workbench-tab.tsx`。
-- 不改 `src/lib/project-finance/access.ts`、`src/app/api/projects/[id]/bid-page-summary/route.ts`（CHAIN-2e 在改）。
+- 不改 `src/lib/project-finance/access.ts`、`src/app/api/projects/[id]/bid-page-summary/route.ts`、`src/lib/bid-page-v2/__tests__/next-step.test.ts`（CHAIN-2e 在改）；不改 `src/lib/bid-page-v2/next-step.ts`、`service.ts`（「下一步」与三句状态照旧）。
 - `src/lib/quote-engine/service.ts` 只抽出 `transitionQuote` 的两段，不改 `reviseQuote`（FIX-26 计划改它的审计）、`awardQuoteToBudget`、`updateEngineQuote`。
 - 不改 `src/lib/notifications/constants.ts`、`type-visibility.ts`、`delivery-gate.ts`、`collab/**`（不新增通知类型）。
 - 不改 `prisma/`。
@@ -68,18 +68,24 @@
    - 核对 `baseUpdatedAt`。
    - 按「从哪个状态出发」排出步骤：draft → [review, approved]；review → [approved]；approved → []。
    - 逐步过 `assertQuoteTransitionAllowed`。
-2. 事务内：
-   - `SELECT … FOR UPDATE` 锁报价行，重读整份报价，复核状态与 `updatedAt`。
+2. 事务内（超时 15 秒）：
+   - `SELECT … FOR UPDATE` 锁报价行，**紧接着**锁项目行（`lockProject`，FOR UPDATE），读出操作前的我方报价指针；三种出发状态都这样走。
+   - 重读整份报价，复核状态与 `updatedAt`。
    - 用重读的这份重算，复核门与「报价合计 = 确认框里的数」（差 > 0.005 → 409）。
    - 逐步 `applyQuoteTransitionTx`；有一步走到已批准时，调用 `syncTenderBidPointerTx`。
    - 看指针：
      - 不是这一份 → 先看现在的我方报价（已中标 → 409，整笔回滚，见 D4），否则用 `writeBidMirrorsTx` 改选这一份。
      - 是这一份、但不是本次同步自动选中的（跟随新版）→ 只补一条选定审计。
-3. 提交后按顺序写审计：每一步的迁移审计（与 `transitionQuote` 同 action、同键，加 `via: "bid_page"`）→ 同步结果审计（`auditSyncResult`）→ 选定审计（与手动选定同 action；自动选中时已经有一条，不再写）。
+3. 提交后按顺序写审计：
+   - 每一步的迁移审计：与 `transitionQuote` 同 action、同键，加 `via: "bid_page"`。
+   - 同步结果审计（`auditSyncResult`，trigger `bid_page_confirm`）：只在同步的结果就是这一份时写（自动选中、跟随新版）；改选时同步的中间结果（清空、跟随到别的报价、刷新旧的）随即被覆盖，不写。
+   - 选定审计：与手动选定同 action，「之前」写操作前的指针；自动选中时同步已经写过一条，不再写。
 
 **结果**：草稿一次定价后，审计里恰好各有一条提交、批准、选定（验收 7）。
 
-**锁的顺序**：先报价行、后项目行，与 `reviseQuote`（先谱系根报价行、后项目行）同向，不会互锁。
+**锁的顺序**：先报价行，马上项目行（FOR UPDATE）。
+- 台账写入会对项目行取共享锁（`appendProjectEvent` 的 FOR KEY SHARE），同步再取排他锁。两份报价同时一次定价时，若各自先拿共享锁再争排他锁就互锁（开工前审查指出；实测：去掉提前锁项目行，4 组并发里每次都有一组返回 500）。先拿排他锁，后一个在项目行上等，前一个提交后再走。
+- 新页面的四个接口之间不会互锁。与既有的修订（谱系根报价行 → 插入新版取项目共享锁 → 改原版 → 项目排他锁）、中标交错时，极少数情况下仍可能被数据库判为互锁：回滚一方、返回 500，再点一次即可。
 
 **同步与改选的失败**：同步失败与改选写镜像失败都当作 `TenderBidSyncError`，事务整笔回滚，写 `tender_bid_sync_failed` 审计，返回 500 `TENDER_BID_SYNC_FAILED`（中文说明）。
 
@@ -114,6 +120,8 @@
 3. 再解析请求体（zod，格式不对 400）。
 4. 再调服务；`QuoteEngineError` 经 `lineModeErrorResponse` 返回。
 
+只处理新页面能在页内打开的逐行与总价报价（`isLineModeQuote` / `isLumpSumQuote`）；专业模式做的报价（含没有做法字段的引擎报价）与 CUSTOM 报价 409，库里不变。理由：CUSTOM 报价不会被同步选中，却能被这里的改选写成指针；专业模式的报价在新页面里打不开，看不到确认框里的数从哪来。
+
 **否决**：一个接口按请求体里的动作选级别。守卫测试冻结了「守卫前预处理」名单；而且守卫级别不再等于动作本身。
 
 ### D4：改选
@@ -140,6 +148,7 @@
 
 - **提交**：只从草稿出发；锁行复核与 D1 相同；一步 draft → review；提交后写迁移审计，再发通知（D7）。返回通知结果。
 - **退回**：只从待批准出发；可带一句原因（去掉控制字符，最多 500 字）；一步 review → draft。审计与 `transitionQuote` 相同（action `quote_updated`，`note` 带原因）。
+- 退回要批准权限（专业模式的状态接口编辑权限就能退回）：任务书写的是负责人在同一位置看到「批准并定为我方报价 / 退回」；在新页面上只有批准的人能退回，避免提交的人自己退回、再提交、反复给负责人发通知。
 - 退回不发通知（任务书只要求提交时通知负责人）。
 - 待批准时内容照旧能改；负责人批准时按 D5 核对修改时间与报价合计。
 
@@ -158,9 +167,11 @@
   - 摘要：「{提交人姓名} 提交了「{报价名}」第 N 版，请到「标书与报价」② 批准并定为我方报价，或退回。」
   - 没有金额、成本、供应商。
 - `href.ts` 加 `bid_quote` → `/projects/{项目 id}?tab=bid#bid-quote-{报价 id}`。
+- 判结果：服务自己先判「你就是负责人」与「负责人是不是这个组织的在职成员、账号在职」（投递入口查收件人出错时也返回空，不能把出错说成不是在职成员）；投递后有新写或已有 → 已通知；被偏好门拦下（站内通知总开关或这类通知关了）→ 关掉了；其余 → 没发出去。
+- 邮件：这次操作不发邮件；`project_update` 不在未读升级邮件的类型里（`collab/escalation.ts`），但和其它通知一样计入负责人自己的每日未读汇总邮件（`collab/digest.ts`），属于硬纪律第 2 条的站内补位。
 - 页面上写明结果：
   - 已通知负责人 {姓名}；
-  - 负责人关掉了这类通知；
+  - 负责人关掉了站内通知或这类通知；
   - 负责人不是本组织在职成员（例如导入用的系统账号）：没有人收到，请直接联系有批准权限的人；
   - 你就是负责人；
   - 通知没写成。
@@ -172,7 +183,7 @@
 
 ### D8：我方报价一行
 
-- 数据随报价列表接口返回（已有金额门），`ourBid` 包含：
+- 数据随报价列表接口返回（已有金额门），金额取 `resolveTenderBid` 用报价引擎现算的税前报价（与「下一步」汇总同一个来源，不用列表行里的快照），`ourBid` 包含：
   - 状态；
   - 报价 id、名称、版本、报价状态；
   - 卖价与币种（列表里引擎算的 `sellingPrice`）；
@@ -184,7 +195,7 @@
   - 没有 → 用 `approvedById` / `approvedAt`。
   - 都没有 → 只写版本与金额。
   - 姓名取 `User.name`，时间按 `YYYY-MM-DD HH:mm`（多伦多时间）。
-- 分区标题右边那句状态（`next-step.ts`）：看得到金额时是「我方报价：第 N 版，X 加元，已定」，其余写法不变。
+- 分区标题右边那句状态（`next-step.ts`）不改：任务书写的是把卡片并入「分区标题下的一行」，版本与金额就在这一行里；改那句状态要动 CHAIN-2e 正在改的 `next-step.test.ts`。
 - 新页面不再挂 `TenderOurBidCard`。
 
 **否决：**
@@ -193,7 +204,9 @@
 
 ### D9：另起新版
 
-- 只对已批准的报价，原因必填（1–2000 字，与 `reviseQuote` 的上限相同）。
+- 只对已批准的报价，原因必填（1–2000 字，与 `reviseQuote` 的上限相同），要编辑权限（与专业模式的修订接口相同；专业模式里编辑权限本来就能修订，新页面另要财务查看权，不新增放行的人）。
+- 它会把已定的我方报价改成「已被新版替代」，我方报价变成「新版待定」、镜像价清空——与专业模式修订相同。要不要改成「原来那份是我方报价时要批准权限」列给 Lucas 确认。
+- 另起新版写的审计沿用 `reviseQuote`：`beforeData` 里有原版的估算成本与毛利率（`service.ts` 修订审计）。这是既有写法，FIX-26 的写入侧会去掉这两个键；本 change 不改 `reviseQuote`，规格里「审计不带成本」只对一次定价、提交、退回。
 - 调用既有 `reviseQuote`（同步、审计照旧）。
 - 返回新草稿的 id、版本、做法；做法与行身份随复制保留，新草稿在页内打开；做法是专业模式的打开专业模式。
 
@@ -207,12 +220,44 @@
 - `#bid-quote-{id}` 落在 ②；列表加载后，这一份能在页内打开就自动打开。
 - **否决**：改汇总接口直接返回我方报价一行。那个文件 CHAIN-2e 在改，而且一行里要的数已经在列表接口里。
 
+### D11：抽出两段后，两条源码断言怎么改（不弱于原来）
+
+`transitionQuote` 抽出两段以后，下面两条在它正文里找固定字符串的断言不可能原样通过，改成断言抽出后的结构：
+
+| 测试 | 原来断言 | 改成 |
+|---|---|---|
+| `quote-ops-contract.test.ts` B2-S4 | `transitionQuote` 正文里有 `db.$transaction(async (tx) => {`、`await tx.projectQuote.update({ where: { id: q.id }, data });`、`syncTenderBidPointerTx)(tx`、`TENDER_BID_SYNC_FAILED`、`auditSyncFailure(` | 正文里仍有 `db.$transaction(async (tx) => {`、`syncTenderBidPointerTx)(tx`、`TENDER_BID_SYNC_FAILED`、`auditSyncFailure(`；**另加**：正文里有 `await applyQuoteTransitionTx(tx, {`，位置在事务开始之后、指针同步之前；`applyQuoteTransitionTx` 正文里有那条 `update` 字面量、并且不出现 `db.`（只用调用方的 tx） |
+| `b3-ledger-producer.test.ts` | 「syncResult = await db.$transaction」之后第一个 `appendQuoteLedgerEventTx(tx` 在 `if (!needsSync)` 之前 | `applyQuoteTransitionTx` 正文里依次是读迁移前 `updatedAt` → `tx.projectQuote.update(` → `appendQuoteLedgerEventTx(tx`，并且不出现 `db.`；`transitionQuote` 事务里 `await applyQuoteTransitionTx(tx` 在 `if (!needsSync)` 之前 |
+
+SPU-3（`input.to === "review" || input.to === "approved"` 的门）照原样通过：抽出的检查函数参数仍叫 `input`。交叉验证要专门核这两条新断言不比旧的弱。
+
+### D12：审计键（对 FIX-26 将来的全仓审计守卫）
+
+- 本 change 写的审计一律写对象字面量，不传变量。
+- 像金额的键只有 `sellingPrice`（卖价，在 FIX-26 的「可见」名单里）。不写 `ourBidPrice`，不把 `expectedSellingPrice` 写进审计。
+- 其余键：`status`、`note`、`version`、`via`、`bidQuoteId`、`currency`、`roomMirrored`、`auto`、`reason`。
+
+## 与在途轨道
+
+开工前审查（2026-11-23）指出要碰其它轨道在改、还没合并的文件。逐个核过 `git diff --name-only origin/main...<分支>`：
+
+- **CHAIN-2e（#556）**：
+  - 本 change 原稿要改 `next-step.test.ts` 的两条断言（它改第 309 行），已撤掉：② 的状态句不改（D8）。
+  - `scripts/test-all.sh`、`scripts/test-ci-unit.sh`：只在末尾追加注册行，硬纪律第 8 条要求每份新测试都注册。与 BIDPAGE-1 / 3 / 4、FIX-26a 同样的做法：合 main 冲突时两边的行都保留（交接 §4「注册脚本的同位置追加」）。
+- **FIX-26（`claude/zen-turing-azudvx-fix26`）**：
+  - 分支上只有四件套，还没有实现代码；它计划改 `service.ts` 的 `reviseQuote` 审计（另起新版的 `logAudit`）。
+  - 本 change 只改 `transitionQuote` 与新加的三个函数，不碰 `reviseQuote`，两边改的是不同的函数，合并时不会文本冲突。
+  - 它的 GATE ⑥「与 BIDPAGE 交叠时本 change 先合」指的是两边改同一处时的先后；这里不改同一处，谁先合都行。
+  - 审计键按 D12 写，不会撞上它的守卫测试。
+  - 已把这两点发给协调会话（「青砚招投标线交接」）告知。
+- 其余未合并分支都不碰本 change 的文件（全部 `origin/claude/*` 逐一比对）。
+
 ## 八条硬纪律
 
 1. **零 schema**：不加表、不加字段、不写 migration；只写既有的 `ProjectQuote` 状态与时间戳、`Project` 指针与镜像、`ProjectEvent` 台账、`AuditLog`、`Notification`（第 1 条点名允许）。
-2. **出站先审批**：不涉及。站内通知只写 `Notification`，不发邮件、不发 Muse、不改价、不锁标。
+2. **出站先审批**：不涉及。站内通知只写 `Notification`，这次操作不发邮件、不发 Muse、不改价、不锁标；它会和其它通知一样计入负责人自己的每日未读汇总邮件（第 2 条写明的站内补位，发给本组织在职成员本人）。
 3. **禁止第三套队列**：不涉及。没有任务、定时器或 worker；通知在请求内同步写。
-4. **脱敏**：通知标题与摘要里没有金额、成本、毛利、供应商。四个接口都过金额门。新写的审计键只有状态、版本、说明、我方报价指针、卖价与币种（与既有手动选定相同），没有成本、毛利。不碰 Muse。
+4. **脱敏**：通知标题与摘要里没有金额、成本、毛利、供应商。四个接口都过金额门。一次定价、提交、退回写的审计键只有状态、版本、说明、我方报价指针、卖价与币种（与既有手动选定相同），没有成本、毛利（D12）；另起新版沿用既有修订审计（D9）。不碰 Muse。
 5. **不爬登录页**：不涉及。
 6. **邮箱分离**：不涉及。
 7. **确定性优先**：没有模型调用；「下一步」仍是查表，只改一句状态的写法。
@@ -223,10 +268,12 @@
 - [抽出 `transitionQuote` 两段时改了专业模式的批准] → 语句与顺序逐条保留。
   - 源码断言改成断言抽出后的结构：同一事务、先读修改时间、先改状态再写台账、同步失败回滚。
   - 真库测试把 `transitionQuote` 走一遍草稿 → 待批准 → 已批准 → 另起新版，台账键、审计 action、指针与改动前的期望逐项相同。
-  - 改动前后各在隔离库跑一次 `scripts/quote-ops-golden-e2e.ts`，输出相同。
-- [专业模式保存成本行在提交前只检查一次冻结（`assertEditable` 在事务外）] → 这是原有缺口：批准事务提交后，一笔已过检查的专业模式保存仍可能写进去。新服务锁行并核对报价合计，只能挡住「批准的不是看到的」，挡不住之后的写入；写进交接。
-- [两人同时点] → 锁报价行串行化，后一个看到状态已变 → 409「这份报价刚被别人处理过」。
-- [与 `reviseQuote` 互锁] → 锁的顺序同向（报价行 → 项目行）；万一数据库判互锁，回滚一方 → 500，再点一次。
+  - 改动前后各在隔离库跑一次 `scripts/quote-ops-golden-e2e.ts`：通过 / 失败条目与条数相同（除首行的时间戳、PDF 字节数外逐行相同）。
+- [专业模式保存成本行在提交前只检查一次冻结（`assertEditable` 在事务外），改成本行也不锁报价行] → 原有缺口：一笔已过检查的专业模式保存仍可能在重读之后、提交之前或之后写进去。新服务锁行并核对报价合计挡住大部分「批准的不是看到的」，挡不全；写进交接。
+- [两人在新页面同时点同一份] → 锁报价行串行化，后一个看到状态已变 → 409「这份报价刚被别人改过或处理过」。
+- [新页面与专业模式的状态接口同时批准同一份] → 专业模式的 `transitionQuote` 不锁行、更新不带状态条件：后一个等锁后照样写成功，多一条批准审计与一条批准台账（台账键不同）。原有缺口，不在本 change 改专业模式；写进交接。
+- [与修订、中标交错时被数据库判互锁] → 见 D1「锁的顺序」：回滚一方返回 500，再点一次。
+- [指针原来指向的那份报价现在算不出] → 同步刷新它时失败，整笔回滚、返回 500，这时没法在新页面改选；与专业模式批准时的行为相同，写进交接。
 - [负责人是系统账号或已离职] → 没人收到，页面写明。CHAIN-2e 的 `projectHasAssignedOwner` 不在 main 上，不依赖它。
 - [CHAIN-2e 合并后 `canApprove` 要先能看内部成本] → 新接口本来就要求财务查看权，合并后自动跟上。文本冲突只可能在 `next-step.test.ts`：本 change 改第 221 / 250 行附近，它改第 309 行。
 - [FIX-26 将来扫描全仓审计键] → 本 change 新写的审计不带成本、毛利类的键；卖价在它的可见名单里。
@@ -247,7 +294,7 @@
   - 按钮矩阵、确认框文字、通知文字无金额、结果说明、守卫级别、`transitionQuote` 结构。
 - 渲染：`npx tsx src/components/bid-page-v2/__tests__/quote-actions.test.tsx`
 - 隔离库：`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/bid-page-v2/__tests__/quote-confirm-db.isolated.test.ts`
-  - 0 / 1 / 另一份已批准 / 另一份已中标；审计各一条；台账两条；镜像；并发两次；修改时间不同；报价合计不同；同步失败回滚；通知；退回；另起新版；开关关 404 且不读请求体；没有财务查看权 403；没有批准权限 403。
+  - 0 / 1 / 另一份已批准 / 两份已批准没选 / 另一份已中标；审计各一条；台账两条；镜像；同一份并发两次；同一项目两份并发（4 组）；修改时间不同；报价合计不同；同步失败与写镜像失败回滚；通知的四种结果；退回；另起新版；专业模式的报价 409；开关关 404 且不读请求体；没有财务查看权 403；没有批准权限 403。
 - 回归：
   - `quote-engine-contract`、`quote-ops-contract`、`b3-ledger-producer`（含 isolated）；
   - `quote-line`、`quote-line-db`、`lump-sum`、`lump-sum-db`、`quote-step`、`lump-sum-editor`；
