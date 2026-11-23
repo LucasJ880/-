@@ -90,9 +90,9 @@ const DIRECT_PCT: LumpPercentSpec = {
   calculationBase: "DIRECT_COST",
   max: 100,
   maxInclusive: true,
-  baseZh: "按直接成本的比例（直接成本 = 填金额的各项合计，不含按比例算的关税、保函与预置）",
+  baseZh: "按直接成本的比例（直接成本 = 货品 + 填金额的各项，含专业模式里按金额加的行；不含按比例算的关税、保函和四条预置）",
 };
-const BOND_PCT: LumpPercentSpec = { calculationType: "PERCENT_OF_REVENUE", calculationBase: null, max: 100, maxInclusive: false, baseZh: "按税前报价的比例（会进定价的分母）" };
+const BOND_PCT: LumpPercentSpec = { calculationType: "PERCENT_OF_REVENUE", calculationBase: null, max: 100, maxInclusive: false, baseZh: "按税前报价的比例（税前报价会相应抬高：算报价时分母里再减去这个比例）" };
 
 /** 每项落到的既有类别与计算方式（design D3；不新增类别、不新增计算方式） */
 export const LUMP_ITEM_SPEC: Record<LumpItemKey, LumpItemSpec> = {
@@ -117,7 +117,8 @@ export const LUMP_ITEM_SPEC: Record<LumpItemKey, LumpItemSpec> = {
 };
 export const GOODS_TOTAL_SPEC = { labelZh: "货品", category: "PROCUREMENT", calculationType: "FIXED" } as const;
 
-export const LUMP_OTHER_LABEL_MAX = 60;
+/** 「其它」的名称就是成本行的说明：与成本行说明的上限相同（专业模式改长了也能原样保存） */
+export const LUMP_OTHER_LABEL_MAX = 300;
 export const LUMP_NOTES_MAX = 2000;
 export const LUMP_AMOUNT_MAX = LINE_SHARED_AMOUNT_MAX;
 
@@ -292,9 +293,10 @@ export function addableKeys(items: readonly Pick<LumpItem, "key">[]): LumpItemKe
 
 export const itemNameZh = (it: Pick<LumpItem, "key" | "label">) => (it.key === "other" ? `「${it.label?.trim() || "其它"}」` : LUMP_ITEM_SPEC[it.key].labelZh);
 
+/** 备注：统一换行、去掉控制字符与看不见的格式字符（保留换行与制表符；\u0000 进不了库），去首尾空白 */
 const cleanNotes = (s: string | null) => {
   if (s == null) return null;
-  const t = s.replace(/\r\n?/g, "\n").trim();
+  const t = s.replace(/\r\n?/g, "\n").replace(/[^\S\n\t]|[\p{Cc}\p{Cf}]/gu, (ch) => (ch === "\n" || ch === "\t" ? ch : /\s/.test(ch) ? " " : "")).trim();
   return t ? t : null;
 };
 
@@ -318,7 +320,7 @@ export function validateLumpState(state: LumpState): { ok: true; state: LumpStat
   const money = (v: number | null, label: string) => {
     if (v == null) return;
     if (v < 0) issues.push({ rowNo: null, messageZh: `${label}不能是负数` });
-    else if (v > LUMP_AMOUNT_MAX) issues.push({ rowNo: null, messageZh: `${label}太大（最多一百亿），请检查` });
+    else if (v > LUMP_AMOUNT_MAX) issues.push({ rowNo: null, messageZh: `${label}太大（最多 10,000,000,000），请检查` });
     else if (!fitsDecimals(v, 4)) issues.push({ rowNo: null, messageZh: `${label}最多 4 位小数` });
   };
   const pct = (v: number | null, label: string, max: number, inclusive: boolean) => {
@@ -368,8 +370,8 @@ export function validateLumpState(state: LumpState): { ok: true; state: LumpStat
   for (const [k, label] of [["hstPct", "销售税 HST"], ["gstPct", "销售税 GST"], ["pstPct", "销售税 PST"]] as const) {
     const v = state.tax[k];
     if (v == null) continue;
-    if (v < 0 || v > 100) issues.push({ rowNo: null, messageZh: `${label}要在 0 到 100 之间` });
-    else if (!fitsDecimals(v, 4)) issues.push({ rowNo: null, messageZh: `${label}最多 4 位小数` });
+    if (v < 0 || v > 100) issues.push({ rowNo: null, messageZh: `${label} 要在 0 到 100 之间` });
+    else if (!fitsDecimals(v, 4)) issues.push({ rowNo: null, messageZh: `${label} 最多 4 位小数` });
   }
 
   if (issues.length) return { ok: false, issues };
@@ -428,20 +430,23 @@ export type LumpView = {
 
 /* ------------------------------ 中文提示 ------------------------------ */
 
-export const LUMP_NOT_LUMP_ZH = "这份报价不是只报总价的报价，请从报价列表里按它的做法打开";
+export const LUMP_NOT_LUMP_ZH = "这份报价不是按「只报总价」做的，请回到报价列表，按列表上写的做法打开（长期供货协议只能在专业模式里做）";
 
 /** 引擎错误码 → 中文（总价表里看到的） */
 export function lumpEngineErrorZh(code: string, fallback: string): string {
   switch (code) {
-    case "FX_REQUIRED":
-      return "有外币的项还没填汇率：在汇率里填上（1 原币 = 多少加元）";
+    case "FX_REQUIRED": {
+      // 引擎原文形如「USD→CAD 需要汇率」：取出币种写成中文
+      const ccy = /^([A-Z]{3})→/.exec(fallback)?.[1];
+      return ccy ? `有${currencyLabelZh(ccy)}的项还没填汇率：在下面「汇率」一栏填上 1 ${currencyLabelZh(ccy)} = 多少加元` : "有外币的项还没填汇率：在下面「汇率」一栏填上（1 外币 = 多少加元）";
+    }
     case "MARGIN_TOO_HIGH":
     case "REVENUE_PCT_TOTAL_TOO_HIGH":
-      return "目标毛利率加上按报价算的各项比例（保函等），合计到了 100% 或以上，算不出报价：请调低目标毛利率或这些比例";
+      return "目标毛利率加上按税前报价算的各项比例（保函等），合计到了 100% 或以上，算不出报价：请调低目标毛利率或这些比例";
     case "PRICING_RATE_INVALID":
       return "目标毛利率要填 0 到 100 之间的数（不含 100）";
     case "REVENUE_PCT_TOO_HIGH":
-      return "保函的比例要小于 100%";
+      return "保函（或专业模式里加的按售价算的费用）的比例要小于 100%";
     case "DIVISION_BY_ZERO":
       return "有一项比例填到了 100% 或以上，算不出报价：请检查目标毛利率和各项比例";
     default:
@@ -453,7 +458,7 @@ export function lumpEngineErrorZh(code: string, fallback: string): string {
 export function lumpEngineWarningZh(code: string, fallback: string): string {
   switch (code) {
     case "LINE_UNPRICED":
-      return "货品还没填（或某项比例空着），暂按 0 算；填完才能提交、批准";
+      return "货品（或货品明细里有的行）还没填价，或某条预置的比例 / 月数空着，暂按 0 算；填完才能提交、批准";
     case "NO_CONTINGENCY":
       return "没有下错单 / 漏单预备金；需要的话从「添加一项」里加";
     case "NEGATIVE_MARGIN":
@@ -466,17 +471,22 @@ export function lumpEngineWarningZh(code: string, fallback: string): string {
 const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pctTxt = (n: number) => `${Number(n.toFixed(4))}%`;
 
-/** 定价一行下方的算式（design D5；用引擎结果的数，不另算）；null = 定价方式不是按售价毛利 */
+/**
+ * 定价一行下方的算式（design D5；用引擎结果的数，不另算）；null = 定价方式不是按售价毛利。
+ * 引擎：税前报价 = baseCost ÷（1 − 毛利率 − 按税前报价算的各项比例）；销售提成 =（税前报价 − baseCost）× 比例。
+ * baseCost 不含销售提成与按税前报价算的各项（保函等），两句都直接写出它的数，免得人拿「成本合计 − 提成」去算。
+ */
 export function lumpFormulaLinesZh(f: LumpFormula | null): string[] {
   if (!f) return [];
   const denom = [`1 − ${pctTxt(f.marginPct)}`, ...(f.revenuePct > 0 ? [pctTxt(f.revenuePct)] : [])].join(" − ");
-  const costWord = f.commission || f.revenuePct > 0 ? `${fmt(f.baseCost)}（成本合计里不含销售提成${f.revenuePct > 0 ? "、按报价算的各项" : ""}的部分）` : fmt(f.baseCost);
-  const lines = [`税前报价 ${fmt(f.sellingPrice)} = ${costWord} ÷（${denom}）${f.revenuePct > 0 ? "——分母里减去的是目标毛利率与按报价算的各项比例（保函等）" : ""}`];
-  if (f.commission) lines.push(`销售提成 ${fmt(f.commission.amount)} =（税前报价 − 不含提成的成本）× ${pctTxt(f.commission.ratePct)}，算进成本合计`);
+  const without = [...(f.commission ? ["销售提成"] : []), ...(f.revenuePct > 0 ? ["按税前报价算的各项（保函等）"] : [])];
+  const costWord = without.length ? `不含${without.join("和")}的成本 ${fmt(f.baseCost)}` : fmt(f.baseCost);
+  const lines = [`税前报价 ${fmt(f.sellingPrice)} = ${costWord} ÷（${denom}）`];
+  if (f.commission) lines.push(`销售提成 ${fmt(f.commission.amount)} =（税前报价 ${fmt(f.sellingPrice)} − ${fmt(f.baseCost)}）× ${pctTxt(f.commission.ratePct)}，算进成本合计`);
   lines.push(`含税总价 ${fmt(f.totalWithTax)} = ${fmt(f.sellingPrice)} + 销售税 ${fmt(f.salesTax)}`);
   return lines;
 }
 
-export const LUMP_MARKUP_NOTE_ZH = "定价方式在专业模式里改成了成本加成；这里只按目标毛利率（按售价）定价，请先填目标毛利率再保存（保存后会改回）";
+export const LUMP_MARKUP_NOTE_ZH = "定价方式在专业模式里改成了成本加成率（按成本），上面的数是按它算的；这里只能按目标毛利率（按售价）定价：填上目标毛利率再保存，定价方式会一起改回按售价";
 
 export { currencyLabelZh };

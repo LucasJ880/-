@@ -51,7 +51,7 @@ import { costLinesToState, defaultLineModeState, linePrefillMessageZh, seedRowsF
 import { isLumpSumQuote, readLumpMeta } from "../lump-sum/contract";
 
 /** 我方报价是总价报价时导出处的原因（spec tender/quote-line-mode「按招标方价格表导出」） */
-export const LUMP_EXPORT_UNAVAILABLE_ZH = "我方报价是只报总价的报价，没有逐行单价，不能按价格表导出";
+export const LUMP_EXPORT_UNAVAILABLE_ZH = "我方报价是只报总价的，没有逐行单价，不能按招标方价格表导出；招标方要价格表的话，请用逐行报价做一份并定为我方报价";
 
 export type LineCaps = { canEdit: boolean; canApprove: boolean };
 

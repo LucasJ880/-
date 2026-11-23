@@ -33,7 +33,8 @@ async function main() {
   const { getQuote, reviseQuote, transitionQuote, updateEngineQuote } = await import("@/lib/quote-engine/service");
   const { resolveTenderBid, selectQuoteAsTenderBid } = await import("@/lib/quote-engine/tender-bid");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
-  const { readLumpMeta } = await import("@/lib/bid-page-v2/lump-sum/contract");
+  const { lumpFormulaLinesZh, readLumpMeta } = await import("@/lib/bid-page-v2/lump-sum/contract");
+  const { createLumpQuote, convertQuote, saveLumpView } = await import("@/lib/bid-page-v2/lump-sum/service");
   const { readBidLineMeta } = await import("@/lib/bid-page-v2/quote-line/contract");
   const listRoute = await import("@/app/api/projects/[id]/bid-page/quotes/route");
   const lineRoute = await import("@/app/api/projects/[id]/bid-page/quotes/[quoteId]/line/route");
@@ -120,16 +121,20 @@ async function main() {
     const replied = await db.inquiryItem.create({ data: { inquiryId: round.id, supplierId: supplier.id, status: "quoted", sentAt: new Date(), repliedAt: new Date(), totalPrice: new Prisma.Decimal(50000), unitPrice: new Prisma.Decimal(25), currency: "CAD", createdById: OWNER } });
 
     // —— 1. 开关 ——
-    ok((await getLump(P, "q_fixture_nope", null)).status === 401, "没登录：401（第一步先做报价权限守卫）");
+    const anon = [await getLump(P, "q_fixture_nope", null), await putLump(P, "q_fixture_nope", { baseUpdatedAt: "x", state: {} }, null), await convert(P, "q_fixture_nope", { to: "LINE", baseUpdatedAt: "x" }, null)];
+    ok(anon.every((r) => r.status === 401), "没登录：读、存、转换都 401（第一步先做报价权限守卫）", anon.map((r) => r.status));
     const quotesBefore = await db.projectQuote.count({ where: { projectId: P } });
     const offs = [await create(P, { entryMode: "LUMP_SUM", businessType: "SUPPLY_ONLY" }), await getLump(P, "q_fixture_nope"), await putLump(P, "q_fixture_nope", { baseUpdatedAt: "x", state: {} }), await convert(P, "q_fixture_nope", { to: "LINE", baseUpdatedAt: "x" })];
     ok(offs.every((r) => r.status === 404 && r.body.error === "新版标书与报价页未启用") && (await db.projectQuote.count({ where: { projectId: P } })) === quotesBefore, "新页面开关没开：新建只报总价、读、存、转换都 404，库里不变", offs.map((r) => r.status));
     process.env.TENDER_BID_PAGE_V2_ENABLED = "1";
+    const three = async () => [await getLump(P, "q_fixture_nope"), await putLump(P, "q_fixture_nope", { baseUpdatedAt: "x", state: {} }), await convert(P, "q_fixture_nope", { to: "LINE", baseUpdatedAt: "x" })];
     process.env.TENDER_BID_PAGE_V2_ORG_ALLOWLIST = ORG_B;
-    ok((await getLump(P, "q_fixture_nope")).status === 404, "组织不在名单里：404");
+    const notListed = await three();
+    ok(notListed.every((r) => r.status === 404), "组织不在名单里：读、存、转换都 404", notListed.map((r) => r.status));
     process.env.TENDER_BID_PAGE_V2_ORG_ALLOWLIST = "";
     delete process.env.TENDER_QUOTE_ENGINE_ENABLED;
-    ok((await getLump(P, "q_fixture_nope")).status === 404, "报价引擎没开：404");
+    const engineOff = await three();
+    ok(engineOff.every((r) => r.status === 404), "报价引擎没开：读、存、转换都 404", engineOff.map((r) => r.status));
     process.env.TENDER_QUOTE_ENGINE_ENABLED = "1";
 
     // —— 2. 新建 ——
@@ -169,7 +174,7 @@ async function main() {
     const p3 = await putLump(P, Q, { baseUpdatedAt: v0.quote.updatedAt, state: s3 });
     const v3 = p3.body as unknown as LumpView;
     const t3 = v3.computed?.ok ? v3.computed.totals : null;
-    ok(p3.status === 200 && !!t3 && t3.estimatedCost === 900000 && t3.sellingPrice === 1200000 && t3.salesTax === 84000 && t3.totalWithTax === 1284000 && t3.grossProfit === 300000 && t3.grossMarginPct === 25, "验收 3：成本 900,000 / 税前 1,200,000 / 税 84,000 / 含税 1,284,000 / 利润 300,000 / 25%", t3 ?? p3.body);
+    ok(p3.status === 200 && !!t3 && t3.estimatedCost === 900000 && t3.sellingPrice === 1200000 && t3.salesTax === 84000 && t3.totalWithTax === 1284000 && t3.grossProfit === 300000 && t3.grossMarginPct === 25, "验收 3：成本 900,000 / 税前 1,200,000 / 税 84,000 / 含税 1,284,000 / 利润 300,000 / 25%", (t3 ?? p3.body));
     const q3db = await db.projectQuote.findUnique({ where: { id: Q }, include: { costLines: true } });
     const e3 = q3db!.engineJson as { entryMode?: string; tax?: { hstPct?: number } };
     ok(q3db!.costLines.length === 7 && e3.tax?.hstPct === 7 && e3.entryMode === "LUMP_SUM" && (q3db!.summaryJson as { sellingPrice?: number }).sellingPrice === 1200000, "销售税不是成本行：没多出成本行；配置里税 7%、做法仍是只报总价；存下的结果税前报价不含税");
@@ -199,6 +204,12 @@ async function main() {
     const t5 = v5.computed.ok ? v5.computed.totals : null;
     ok(!!t5 && t5.estimatedCost === 1037322.68 && t5.sellingPrice === 1257360.83 && t5.grossProfit === 220038.15 && t5.grossMarginPct === 17.5, "验收 4：开四条预置后 1,037,322.68 / 1,257,360.83 / 220,038.15 / 17.5%", t5);
     ok(pr.status === 200 && !!pc && !!t5 && pc.estimatedCost === t5.estimatedCost && pc.sellingPrice === t5.sellingPrice && pc.grossProfit === t5.grossProfit && pc.grossMarginPct === t5.grossMarginPct, "与专业模式读接口对同一份报价返回的结果逐项相同（没有第二套算法）", { pro: pc, lump: t5 });
+    // 算式里的数也取自同一套结果：提成金额等于专业模式读接口里提成那一行的金额
+    const proLines = (pr.body.computed as { calc?: { lines: Array<{ calculationType: string; amount: number }>; baseCost: number } } | undefined)?.calc;
+    const proCommission = proLines?.lines.find((l) => l.calculationType === "PCT_OF_GROSS_PROFIT")?.amount;
+    const f5 = v5.computed.ok ? v5.computed.formula : null;
+    const fLines = lumpFormulaLinesZh(f5);
+    ok(!!f5 && f5.commission?.amount === proCommission && f5.baseCost === proLines?.baseCost && f5.commission?.ratePct === 30 && fLines[0] === "税前报价 1,257,360.83 = 不含销售提成的成本 943,020.62 ÷（1 − 25%）" && fLines[1] === `销售提成 ${proCommission!.toLocaleString("en-US", { minimumFractionDigits: 2 })} =（税前报价 1,257,360.83 − 943,020.62）× 30%，算进成本合计`, "算式：税前报价 = 不含提成的成本 943,020.62 ÷（1 − 25%）；提成金额与专业模式里提成那一行相同", fLines);
 
     // —— 5. 货品明细与点选 ——
     const PD = await mkProject();
@@ -219,11 +230,18 @@ async function main() {
     const gt2 = (await db.quoteCostLine.findMany({ where: { quoteId: Q2 } })).find((l) => readLumpMeta(l.metadata)?.key === "goods_total");
     ok(okPick.status === 200 && Number(gt2?.unitCost) === 50000 && gt2?.supplierId === supplier.id && gt2?.supplierName === "合成供应商甲", "点选总价 50,000 加元的回复：货品是 50,000，供应商取自回复（提交里带的另一个供应商不用）", okPick.body.error);
     const beforeP = await snap(QP);
-    const mism = await putLump(PP, QP, { baseUpdatedAt: vp0.quote.updatedAt, state: { ...vp0.state, goods: { ...vp0.state.goods, amount: 49000, inquiryItemId: replied.id } } });
-    ok(mism.status === 400 && (await snap(QP)) === beforeP, "别的项目的回复（或改过价）：400，库里不变", mism.body.error);
+    // 金额与回复一致（50,000），只因为回复属于别的项目被拒
+    const mism = await putLump(PP, QP, { baseUpdatedAt: vp0.quote.updatedAt, state: { ...vp0.state, goods: { ...vp0.state.goods, amount: 50000, inquiryItemId: replied.id } } });
+    ok(mism.status === 400 && String(mism.body.error).includes("找不到") && (await snap(QP)) === beforeP && vp0.inquiryQuotes.length === 0, "点选别的项目的回复（金额与回复一致）：400，库里不变；本项目的视图里也看不到那条回复", mism.body.error);
     const v2now = (await getLump(P, Q2)).body as unknown as LumpView;
+    const before2 = await snap(Q2);
     const mism2 = await putLump(P, Q2, { baseUpdatedAt: v2now.quote.updatedAt, state: { ...v2now.state, goods: { ...v2now.state.goods, amount: 49000 } } });
-    ok(mism2.status === 400 && String(mism2.body.error).includes("对不上"), "点选后把总数改成 49,000：400，写明和回复对不上", mism2.body.error);
+    ok(mism2.status === 400 && String(mism2.body.error).includes("对不上") && (await snap(Q2)) === before2, "点选后把总数改成 49,000：400，写明和回复对不上，库里不变", mism2.body.error);
+    // 明细从询价回复点选单价：供应商取自回复
+    const v2d = (await getLump(P, Q2)).body as unknown as LumpView;
+    const pickDetail = await putLump(P, Q2, { baseUpdatedAt: v2d.quote.updatedAt, state: { ...v2d.state, goods: { ...v2d.state.goods, mode: "detail" }, details: [{ costLineId: null, description: "合成卷帘 A", quantity: 4, uom: "Each", packCount: null, basis: "PER_TENDER_UOM", unitPrice: 25, currency: "CAD", evidenceKind: null, inquiryItemId: replied.id, supplierId: "spoofed0", supplierName: "任意供应商", rowSource: "manual" }] } });
+    const d2 = (await db.quoteCostLine.findMany({ where: { quoteId: Q2 } })).find((l) => readBidLineMeta(l.metadata)?.role === "goods");
+    ok(pickDetail.status === 200 && d2?.supplierId === supplier.id && d2?.supplierName === "合成供应商甲" && Number(d2?.unitCost) === 25, "明细从询价回复点选单价 25：供应商取自回复（提交里带的另一个供应商不用）", pickDetail.body.error);
 
     // —— 6. 其它成本行、并发、专业模式改过以后 ——
     await proSave(Q, P, { engine: {} }, (l) => l, [{ sortOrder: 5000, category: "WAREHOUSING", description: "合成仓储费", calculationType: "FIXED", unitCost: 300, sourceCurrency: "CAD", included: true }]);
@@ -246,8 +264,8 @@ async function main() {
     // 专业模式把海运费改成按柜计
     await proSave(Q, P, { engine: {} }, (l) => (l._key === "ocean_freight" ? { ...l, calculationType: "PER_CONTAINER", duration: 2, unitCost: 30000 } : l));
     const g7 = (await getLump(P, Q)).body as unknown as LumpView;
-    const oc7 = g7.others.find((o) => o.reasonZh?.includes("在专业模式里改了算法"));
-    ok(!it(g7.state, "ocean_freight") && !!oc7 && g7.notices.some((n) => n.includes("「海运费」在专业模式里改了算法，这里不再管它（照样计入）")), "专业模式把海运费改成按柜计：列在其它成本行并写明", g7.notices);
+    const oc7 = g7.others.find((o) => o.reasonZh?.includes("在专业模式里改了类别或算法"));
+    ok(!it(g7.state, "ocean_freight") && !!oc7 && g7.notices.some((n) => n.includes("「海运费」在专业模式里改了类别或算法，这张表不再管它")), "专业模式把海运费改成按柜计：列在其它成本行并写明", g7.notices);
     const p7 = await putLump(P, Q, { baseUpdatedAt: g7.quote.updatedAt, state: g7.state });
     const oc7db = await db.quoteCostLine.findUnique({ where: { id: oc7!.id } });
     ok(p7.status === 200 && oc7db?.calculationType === "PER_CONTAINER", "保存后它的算法仍是按柜计（不改回）");
@@ -272,7 +290,13 @@ async function main() {
     const c10 = await convert(P, Q, { to: "LINE", baseUpdatedAt: v9.quote.updatedAt }, FINVIEW);
     ok(r10.status === 200 && w10.status === 403 && c10.status === 403 && (await snap(Q)) === before9, "有财务查看权的只读成员：能读，存与转换 403");
     const out = await getLump(P, Q, OUTSIDER);
-    ok(out.status >= 400 && out.status < 500 && !/800000|合成仓储费/.test(out.text), "别的组织的人：被拒，没有内容", out.status);
+    const outW = await putLump(P, Q, { baseUpdatedAt: v9.quote.updatedAt, state: v9.state }, OUTSIDER);
+    const outC = await convert(P, Q, { to: "LINE", baseUpdatedAt: v9.quote.updatedAt }, OUTSIDER);
+    ok([out, outW, outC].every((r) => r.status >= 400 && r.status < 500 && !/800000|合成仓储费/.test(r.text)) && (await snap(Q)) === before9, "别的组织的人：读、存、转换都被拒，没有内容，库里不变", [out.status, outW.status, outC.status]);
+    const qBefore = await db.projectQuote.count({ where: { projectId: P } });
+    const cOp = await create(P, { entryMode: "LUMP_SUM", businessType: "SUPPLY_ONLY" }, OPERATOR);
+    const cFv = await create(P, { entryMode: "LUMP_SUM", businessType: "SUPPLY_ONLY" }, FINVIEW);
+    ok(cOp.status === 403 && cFv.status === 403 && (await db.projectQuote.count({ where: { projectId: P } })) === qBefore, "有编辑权没有财务查看权的成员、只读成员新建只报总价：都 403，没建出报价", [cOp.status, cFv.status]);
     ok((await putLump(P, Q, { nope: 1 })).status === 400 && (await convert(P, Q, { to: "SIDEWAYS" })).status === 400, "请求体格式不对：存与转换都 400");
     // 跨项目
     const PB = await mkProject();
@@ -288,7 +312,7 @@ async function main() {
     const QL = String(cl.body.id);
     const nl = await getLump(PL, QL);
     const nlw = await putLump(PL, QL, { baseUpdatedAt: "x", state: v9.state });
-    ok(nl.status === 409 && String(nl.body.error).includes("不是只报总价的报价") && nlw.status === 409, "读、存一份逐行报价的总价视图：409，写着不是只报总价的报价", nl.body);
+    ok(nl.status === 409 && String(nl.body.error).includes("不是按「只报总价」做的") && nlw.status === 409, "读、存一份逐行报价的总价视图：409，写着不是只报总价的报价", nl.body);
     const nll = await getLine(P, Q);
     ok(nll.status === 409, "读一份总价报价的逐行视图：409");
 
@@ -329,7 +353,7 @@ async function main() {
     const vl2 = (await getLine(PL, QL)).body as unknown as LineView;
     const tL2 = vl2.computed?.ok ? vl2.computed.totals : null;
     ok(cv2.status === 200 && cv2.body.entryMode === "LINE" && vl2.state.rows.length === 2 && vl2.state.shared.customs.amount === 500 && vl2.state.shared.dutyPct === 8 && vl2.state.shared.oceanFreight.containers === null, "总价 → 逐行：逐行表 2 行、报关费 500、关税率 8%、海运柜数空着", cv2.body);
-    ok(vl2.notices.some((n) => n.includes("海运费按金额算在下面「从只报总价转来的项」里")) && vl2.others.filter((o) => o.fromLump && o.included).map((o) => o.description).sort().join(",") === "安装,海运费", "海运费与安装列在「从只报总价转来的项」里，写着海运费不要再填柜数", { notices: vl2.notices, others: vl2.others });
+    ok(vl2.notices.some((n) => n.includes("「海运费」按金额算在下面「从只报总价转来的项」里")) && vl2.others.filter((o) => o.fromLump && o.included).map((o) => o.description).sort().join(",") === "安装,海运费", "海运费与安装列在「从只报总价转来的项」里，写着海运费不要再填柜数", { notices: vl2.notices, others: vl2.others });
     ok(!!tS2 && !!tL2 && tS2.estimatedCost === tL2.estimatedCost && tS2.sellingPrice === tL2.sellingPrice && tS2.grossProfit === tL2.grossProfit, "总价 → 逐行前后成本合计、税前报价、利润相同", { tS2, tL2 });
     ok(vl2.state.rows[1].basis === "PER_PIECE" && vl2.state.rows[1].packCount === 10 && vl2.state.rows[1].unitPrice === 3, "按件报价的行：仍是按件、每盒 10 件、每件 3 元");
     const fromLumpBefore = JSON.stringify((await db.quoteCostLine.findMany({ where: { quoteId: QL }, orderBy: { id: "asc" } })).filter((l) => readLumpMeta(l.metadata)).map((l) => [l.id, String(l.unitCost), l.included, l.notes, l.calculationType]));
@@ -342,6 +366,13 @@ async function main() {
     const tS3 = vs3.computed?.ok ? vs3.computed.totals : null;
     ok(cv3.status === 200 && vs3.state.items.filter((i) => i.key === "ocean_freight").length === 1 && it(vs3.state, "ocean_freight")?.amount === 6000 && it(vs3.state, "installation")?.amount === 2000 && it(vs3.state, "installation")?.notes === "合成安装备注" && vs3.others.length === 0, "再转回总价：只有一项海运费（6,000）、一项安装，备注都还在，没有多出来的行", { items: vs3.state?.items, others: vs3.others });
     ok(!!tS3 && tS3.sellingPrice === tS2!.sellingPrice && tS3.estimatedCost === tS2!.estimatedCost, "往返每一步的成本合计、税前报价都相同");
+    // 脱敏（一份有明细品名、备注、能转成逐行的总价报价）：没有财务查看权的人读、存、转换都 403，响应里没有品名 / 备注 / 金额，库里不变
+    const vLeak = (await getLump(PL, QL)).body as unknown as LumpView;
+    const beforeLeak = await snap(QL);
+    const lr = await getLump(PL, QL, OPERATOR);
+    const lw = await putLump(PL, QL, { baseUpdatedAt: vLeak.quote.updatedAt, state: vLeak.state }, OPERATOR);
+    const lc = await convert(PL, QL, { to: "LINE", baseUpdatedAt: vLeak.quote.updatedAt }, OPERATOR);
+    ok(vLeak.convertToLine.available === true && [lr, lw, lc].every((r) => r.status === 403 && !/合成卷帘|合成配件|合成安装备注|6000|2000/.test(r.text)) && (await snap(QL)) === beforeLeak, "可转逐行的总价报价：没有财务查看权的成员读、存、转换都 403，响应里没有品名、备注、金额，库里不变", [lr.status, lw.status, lc.status]);
 
     // —— 10. 不该转的请求 ——
     const vs3n = (await getLump(PL, QL)).body as unknown as LumpView;
@@ -356,7 +387,7 @@ async function main() {
     const vQ = (await getLump(P, Q)).body as unknown as LumpView;
     const n5 = await convert(P, Q, { to: "LINE", baseUpdatedAt: vQ.quote.updatedAt });
     ok(n1.status === 409 && n2.status === 409 && n3.status === 409 && n4.status === 409 && n5.status === 409 && (await snap(QL)) === before12, "转到当前做法 / 旧修改时间 / 专业模式报价 / 供货加安装转逐行 / 货品是总数转逐行：都 409，库里不变", [n1.body.error, n2.body.error, n3.body.error, n4.body.error, n5.body.error]);
-    ok(String(n4.body.error).includes("逐行报价只配只供货") && String(n5.body.error).includes("先展开成明细"), "拒绝原因写明（只配只供货 / 先展开成明细）");
+    ok(String(n4.body.error).includes("逐行报价限于只供货") && String(n5.body.error).includes("先展开成明细"), "拒绝原因写明（限于只供货 / 先展开成明细）");
 
     // —— 11. 我方报价是总价报价、另起新版 ——
     await transitionQuote({ quoteId: Q, projectId: P, userId: OWNER, orgId: ORG, to: "review" }).catch(() => undefined);
@@ -365,7 +396,7 @@ async function main() {
     if (bid.status !== "AUTHORITATIVE" || bid.quote?.id !== Q) bid = await selectQuoteAsTenderBid({ projectId: P, quoteId: Q, orgId: ORG, userId: OWNER, reason: "fixture" });
     const lx = (await list(P)).body as unknown as ListView;
     const ex = await exp(P, Q);
-    ok(bid.quote?.id === Q && !lx.export.available && lx.export.reasonZh === "我方报价是只报总价的报价，没有逐行单价，不能按价格表导出" && ex.status === 409, "我方报价是总价报价：导出不可用、原因写明没有逐行单价；导出接口 409", lx.export);
+    ok(bid.quote?.id === Q && !lx.export.available && lx.export.reasonZh === "我方报价是只报总价的，没有逐行单价，不能按招标方价格表导出；招标方要价格表的话，请用逐行报价做一份并定为我方报价" && ex.status === 409, "我方报价是总价报价：导出不可用、原因写明没有逐行单价；导出接口 409", lx.export);
     const vf = (await getLump(P, Q)).body as unknown as LumpView;
     const fz = await putLump(P, Q, { baseUpdatedAt: vf.quote.updatedAt, state: vf.state });
     const fc = await convert(P, Q, { to: "LINE", baseUpdatedAt: vf.quote.updatedAt });
@@ -377,7 +408,71 @@ async function main() {
     // 币种改成美元
     await proSave(Q2, P, { currency: "USD" });
     const usd = await getLump(P, Q2);
-    ok(usd.status === 409 && String(usd.body.error).includes("美元（USD）") && String(usd.body.error).includes("只按加元"), "专业模式把币种改成美元：读总价视图 409，叫去专业模式", usd.body);
+    ok(usd.status === 409 && String(usd.body.error).includes("美元（USD）") && String(usd.body.error).includes("只能用加元"), "专业模式把币种改成美元：读总价视图 409，叫去专业模式", usd.body);
+
+    // —— 12. 审查补充：原样带回的数、拒绝转换的情况进库、行的先后、开关关时不读请求体 ——
+    const PX = await mkProject();
+    const cx = await create(PX, { entryMode: "LINE", businessType: "SUPPLY_ONLY" });
+    const QX = String(cx.body.id);
+    const vx0 = (await getLine(PX, QX)).body as unknown as LineView;
+    const rowX = { costLineId: null, description: "合成卷帘 X", quantity: 10, uom: "Each", packCount: null, basis: "PER_TENDER_UOM", unitPrice: 40, currency: "CAD", evidenceKind: "ESTIMATE", inquiryItemId: null, supplierId: null, supplierName: null, rowSource: "manual" };
+    const sx = await putLine(PX, QX, { baseUpdatedAt: vx0.quote.updatedAt, state: { ...vx0.state, rows: [rowX], shared: { ...vx0.state.shared, oceanFreight: { containers: 1.5, perContainer: 2345.67, currency: "CAD" } }, targetMarginPct: 20 } });
+    const vx1 = sx.body as unknown as LineView;
+    const cvx = await convert(PX, QX, { to: "LUMP_SUM", baseUpdatedAt: vx1.quote.updatedAt });
+    const vx2 = (await getLump(PX, QX)).body as unknown as LumpView;
+    ok(cvx.status === 200 && it(vx2.state, "ocean_freight")?.amount === 3518.505, "逐行 1.5 柜 × 2,345.67 转成总价：海运费 3,518.505（4 位小数内）", cvx.body);
+    const longNote = "合".repeat(1500);
+    const sx2 = await putLump(PX, QX, { baseUpdatedAt: vx2.quote.updatedAt, state: { ...vx2.state, items: vx2.state.items.map((i) => (i.key === "ocean_freight" ? { ...i, notes: longNote } : i.key === "duty" ? { ...i, kind: "percent", ratePct: 100 } : i)) } });
+    const vx3 = sx2.body as unknown as LumpView;
+    const sx3 = await putLump(PX, QX, { baseUpdatedAt: vx3.quote.updatedAt, state: vx3.state });
+    const vx4 = sx3.body as unknown as LumpView;
+    ok(sx2.status === 200 && sx3.status === 200 && it(vx4.state, "ocean_freight")?.amount === 3518.505 && it(vx4.state, "ocean_freight")?.notes === longNote && it(vx4.state, "duty")?.ratePct === 100, "原样带回的数（海运费 3,518.505、关税比例 100、1,500 字备注）读出后不改直接保存：200，数与备注不变", [sx2.body.error, sx3.body.error]);
+    // 共用参数的算法在专业模式里改过：转换 409，库里不变
+    const cy = await create(PX, { entryMode: "LINE", businessType: "SUPPLY_ONLY" });
+    const QY = String(cy.body.id);
+    const vy0 = (await getLine(PX, QY)).body as unknown as LineView;
+    await putLine(PX, QY, { baseUpdatedAt: vy0.quote.updatedAt, state: { ...vy0.state, rows: [rowX], shared: { ...vy0.state.shared, oceanFreight: { containers: 2, perContainer: 3000, currency: "CAD" } }, targetMarginPct: 20 } });
+    await proSave(QY, PX, { engine: {} }, (l) => (l.calculationType === "PER_CONTAINER" ? { ...l, calculationType: "FIXED" } : l));
+    const vy1 = await db.projectQuote.findUnique({ where: { id: QY } });
+    const beforeY = await snap(QY);
+    const cvy = await convert(PX, QY, { to: "LUMP_SUM", baseUpdatedAt: vy1!.updatedAt.toISOString() });
+    ok(cvy.status === 409 && String(cvy.body.error).includes("「海运费」的类别或算法在专业模式里改过") && (await snap(QY)) === beforeY, "逐行报价的海运费在专业模式里改成固定金额：转换 409、写明先在逐行表里保存一次，库里不变", cvy.body.error);
+    // 总数和明细在专业模式里都设成了计入：转逐行 409，库里不变
+    await proSave(QX, PX, { engine: {} }, (l) => (l._key === "goods_total" ? { ...l, included: true } : l));
+    const vx5 = await db.projectQuote.findUnique({ where: { id: QX } });
+    const beforeX = await snap(QX);
+    const cvx2 = await convert(PX, QX, { to: "LINE", baseUpdatedAt: vx5!.updatedAt.toISOString() });
+    ok(cvx2.status === 409 && String(cvx2.body.error).includes("货品总数和明细都计入了") && (await snap(QX)) === beforeX, "总数和明细都计入：转逐行 409，写明先在总价表里保存一次，库里不变", cvx2.body.error);
+    // 行的先后（审查反例）：经服务转换，要么不转，要么转换后按库里顺序重算与转换前完全相同
+    const zq = await createLumpQuote({ projectId: PX, orgId: ORG, userId: OWNER, businessType: "SUPPLY_ONLY" });
+    const z0 = (await getLump(PX, zq.id)).body as unknown as LumpView;
+    const zs = await saveLumpView({ projectId: PX, orgId: ORG, quoteId: zq.id, userId: OWNER, caps: { canEdit: true, canApprove: true }, request: { baseUpdatedAt: z0.quote.updatedAt, state: { ...z0.state, goods: { ...z0.state.goods, mode: "detail" }, details: [{ ...rowX, quantity: 1, unitPrice: 78260.73 }], items: [mkItem("ocean_freight", { amount: 8522.32 }), mkItem("duty"), mkItem("domestic_freight", { amount: 2390.06 }), mkItem("customs", { amount: 1802.39 }), mkItem("contingency", { ratePct: 3 })], tax: { hstPct: 13, gstPct: null, pstPct: null }, targetMarginPct: 20 } as never } });
+    const zBefore = zs.computed.ok ? zs.computed.totals : null;
+    let zStatus = 200;
+    try { await convertQuote({ projectId: PX, orgId: ORG, quoteId: zq.id, userId: OWNER, request: { to: "LINE", baseUpdatedAt: zs.quote.updatedAt } }); } catch (e) { zStatus = (e as { status?: number }).status ?? 500; }
+    const zAfterQ = await getQuote(zq.id, PX);
+    const { computeForQuote } = await import("@/lib/quote-engine/service");
+    const zAfter = computeForQuote(zAfterQ).calc;
+    ok(!!zBefore && zAfter.ok && (zStatus === 409 ? (zAfterQ.engineJson as { entryMode?: string }).entryMode === "LUMP_SUM" : zStatus === 200 && zAfter.estimatedCost === zBefore.estimatedCost && zAfter.sellingPrice === zBefore.sellingPrice), "审查反例（行的先后会让预备金差一分）：要么 409 不转、库里还是只报总价，要么转换后按库里顺序重算完全相同", { zStatus, zBefore, after: zAfter.ok ? [zAfter.estimatedCost, zAfter.sellingPrice] : zAfter });
+    // 开关关：拿真实报价、合法请求体调存与转换，守卫后立刻 404，没读请求体、库里不变
+    const vOff = (await getLump(PX, QX)).body as unknown as LumpView;
+    const beforeOff = await snap(QX);
+    process.env.TENDER_BID_PAGE_V2_ENABLED = "";
+    const spied = async (url: string, method: string, body: unknown) => {
+      const r = await req(url, OWNER, { method, body });
+      let reads = 0;
+      const orig = r.json.bind(r);
+      (r as unknown as { json: () => Promise<unknown> }).json = async () => { reads += 1; return orig(); };
+      return { r, reads: () => reads };
+    };
+    const sp1 = await spied(`/api/projects/${PX}/bid-page/quotes/${QX}/lump`, "PUT", { baseUpdatedAt: vOff.quote.updatedAt, state: vOff.state });
+    const o1 = await json(await lumpRoute.PUT(sp1.r, pq(PX, QX)));
+    const sp2 = await spied(`/api/projects/${PX}/bid-page/quotes/${QX}/convert`, "POST", { to: "LINE", baseUpdatedAt: vOff.quote.updatedAt });
+    const o2 = await json(await convertRoute.POST(sp2.r, pq(PX, QX)));
+    const sp3 = await spied(`/api/projects/${PX}/bid-page/quotes`, "POST", { entryMode: "LUMP_SUM", businessType: "SUPPLY_ONLY" });
+    const o3 = await json(await listRoute.POST(sp3.r, { params: Promise.resolve({ id: PX }) }));
+    ok([o1, o2, o3].every((r) => r.status === 404 && r.body.error === "新版标书与报价页未启用") && sp1.reads() + sp2.reads() + sp3.reads() === 0 && (await snap(QX)) === beforeOff, "开关关：真实报价上的存、转换、新建都 404，请求体一次都没读，库里不变", [o1.status, o2.status, o3.status, sp1.reads(), sp2.reads(), sp3.reads()]);
+    process.env.TENDER_BID_PAGE_V2_ENABLED = "1";
   } finally {
     for (const k of ENV_KEYS) delete process.env[k];
     await db.project.updateMany({ where: { id: { in: projectIds } }, data: { bidQuoteId: null } });

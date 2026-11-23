@@ -101,7 +101,7 @@ console.log("\n━━━ 1b. 只报总价（BIDPAGE-4） ━━━");
   ok(lumpRow.includes(QUOTE_STEP_TEXT.lumpMode) && lumpRow.includes(">打开<") && lumpRow.includes("/projects/p1/quote-engine/q3") && lumpRow.includes(QUOTE_STEP_TEXT.openLineInProMode), "列表里总价报价写「只报总价」、能在页内打开、另有「用专业模式打开」");
   ok(html.includes("逐行报价") && html.includes(QUOTE_STEP_TEXT.proMode) && html.includes("1,200,000.00 加元"), "三份都列出做法（逐行报价 / 只报总价 / 专业模式）与报价合计");
   const src = read("src/components/bid-page-v2/quote-step.tsx");
-  ok(src.includes("QUOTE_STEP_TEXT.lumpOption") && /checked=\{how === "LUMP_SUM"\}/.test(src) && /how === "LUMP_SUM" && business === "STANDING_OFFER"/.test(src) && QUOTE_STEP_TEXT.lumpStandingOffer.includes("在专业模式里做"), "新建两问：「这个标怎么交价？」有逐行报价与只报总价；只报总价 + 长期供货协议写明在专业模式里做");
+  ok(src.includes("QUOTE_STEP_TEXT.lumpOption") && /checked=\{how === "LUMP_SUM"\}/.test(src) && /how === "LUMP_SUM" && business === "STANDING_OFFER"/.test(src) && QUOTE_STEP_TEXT.lumpStandingOffer.includes("打开专业模式，在那里做"), "新建两问：「这个标怎么交价？」有逐行报价与只报总价；只报总价 + 长期供货协议写明在专业模式里做");
   ok(/\$\{entryMode === "LUMP_SUM" \? "lump" : "line"\}/.test(src), "打开总价报价调 …/lump，逐行报价调 …/line");
   const lv = render(<LineQuoteEditor projectId="p1" view={lineView({ others: [{ id: "o1", description: "加拿大境内运费", category: "FREIGHT", amount: 400, included: true }, { id: "o2", description: "海运费", category: "FREIGHT", amount: 6000, included: true, fromLump: true }, { id: "o3", description: "安装", category: "LABOUR", amount: 2000, included: true, fromLump: true }] })} onSaved={noop} onClose={noop} />);
   ok(lv.includes("另有 1 条其它成本行（在专业模式里加的）") && lv.includes(`${QUOTE_STEP_TEXT.fromLump}：海运费（6,000.00 加元）、安装（2,000.00 加元）`), "逐行表：从只报总价转来的项写明来历，不说成专业模式里加的", lv.slice(lv.indexOf("其它成本行") - 20, lv.indexOf("其它成本行") + 300));

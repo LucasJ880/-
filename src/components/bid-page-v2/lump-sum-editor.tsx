@@ -32,7 +32,6 @@ export const LUMP_TEXT = {
   addItem: "添加一项",
   notFilled: "没填，不计入",
   goods: "货品",
-  goodsTotal: "填一个总数",
   expand: "展开成明细",
   collapse: "改回填一个总数",
   detailHeaders: ["品名（型号）", "数量", "供应商报价（原币）", "金额（加元）"],
@@ -40,7 +39,10 @@ export const LUMP_TEXT = {
   salesTax: "销售税",
   taxNote: "销售税按税前报价 × 比例算（HST / GST / PST 按项目所在省填，空着按 0）；不算成本、不进定价，系统记的我方报价是税前报价",
   targetEmpty: "目标毛利率还没填，按 0% 算",
-  landedDefine: "这里的到手成本 = 货品 + 上面填金额与按成本比例算的各项（不含预置、按报价算的保函）",
+  landedDefine: "这里的到手成本 = 货品 + 上面各项（填金额的，以及按货值或直接成本的比例算的；不含四条预置和按税前报价算的保函）",
+  pricing: "定价",
+  othersHead: "这张表不管，按专业模式里的设置计算",
+  othersTail: "标了金额的已算进上面的成本合计和税前报价",
   submitInProMode: "提交、批准在专业模式里做",
   openInProMode: "用专业模式打开",
   toLine: "转成逐行报价",
@@ -62,6 +64,8 @@ const itemLabel = (it: Pick<LumpItem, "key">, i: number) => (it.key === "other" 
 export function LumpTotals({ view, dirty }: { view: LumpView; dirty: boolean }) {
   const c = view.computed;
   const commissionOn = view.state.presets.commission.included && (view.state.presets.commission.ratePct ?? 0) > 0;
+  // 定价方式在专业模式里改成了成本加成：只在这里说一次（不进顶部提示），不写算式
+  const markup = view.quote.pricingMethod !== "MARGIN_ON_REVENUE";
   return (
     <div className="space-y-2" data-testid="lump-totals">
       {dirty ? <Note tone="warn">{LUMP_TEXT.dirty}</Note> : null}
@@ -84,17 +88,13 @@ export function LumpTotals({ view, dirty }: { view: LumpView; dirty: boolean }) 
               </div>
             ))}
           </div>
-          {c.formula ? (
+          {c.formula && !markup ? (
             <div className="space-y-0.5 text-xs text-muted" data-testid="lump-formula">
               {lumpFormulaLinesZh(c.formula).map((l) => (
                 <div key={l}>{l}</div>
               ))}
             </div>
-          ) : (
-            <Note tone="warn" testId="lump-formula-markup">
-              {LUMP_MARKUP_NOTE_ZH}
-            </Note>
-          )}
+          ) : null}
           {commissionOn ? <div className="text-xs text-muted">{LUMP_TEXT.marginNote}</div> : null}
           {view.state.targetMarginPct == null && c.formula ? <div className="text-xs text-muted">{LUMP_TEXT.targetEmpty}</div> : null}
           {c.warnings.map((w) => (
@@ -109,6 +109,11 @@ export function LumpTotals({ view, dirty }: { view: LumpView; dirty: boolean }) 
           还算不出报价：{c.errorsZh.join("；")}
         </Note>
       )}
+      {markup ? (
+        <Note tone="warn" testId="lump-formula-markup">
+          {LUMP_MARKUP_NOTE_ZH}
+        </Note>
+      ) : null}
     </div>
   );
 }
@@ -232,7 +237,16 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
           </Note>
         ))}
 
-        <LumpTotals view={view} dirty={dirty} />
+        {/* 定价一行：目标毛利率 + 六个数与算式（BIDPAGE-5 的 AI 建议放在目标毛利率旁边） */}
+        <div className="space-y-2 rounded-lg border border-border/60 px-3 py-2" data-testid="lump-pricing">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-medium">{LUMP_TEXT.pricing}</span>
+            <span>目标毛利率（按售价）：</span>
+            <NumInput label="目标毛利率" value={state.targetMarginPct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, targetMarginPct: v }))} className="w-16" />
+            <span>%</span>
+          </div>
+          <LumpTotals view={view} dirty={dirty} />
+        </div>
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm" data-testid="lump-table">
@@ -290,7 +304,7 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
                   ) : (
                     <>
                       <div>
-                        明细合计 {view.computed.ok && !dirty ? money(view.computed.goodsAmount) : "（保存后更新）"}（{state.details.length} 行，见下方明细）
+                        {view.computed.ok && !dirty ? `明细合计 ${money(view.computed.goodsAmount)}` : "明细合计：保存后更新"}（{state.details.length} 行，见下方「货品明细」）
                       </div>
                       {editable ? (
                         <button
@@ -298,7 +312,7 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
                           className="text-xs text-accent underline"
                           data-testid="lump-goods-collapse"
                           onClick={() => {
-                            if (state.details.length > 0 && !window.confirm(`会删掉 ${state.details.length} 条明细，确定？`)) return;
+                            if (state.details.length > 0 && !window.confirm(`会删掉 ${state.details.length} 行明细，原来留着的总数回到框里并计入，确定？`)) return;
                             update((s) => ({ ...s, goods: { ...s.goods, mode: "total" }, details: [] }));
                           }}
                         >
@@ -516,17 +530,12 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
           <legend className="px-1 text-xs text-muted">预置（每个项目可改、可关）</legend>
           <div className="text-xs text-muted">{LUMP_TEXT.landedDefine}</div>
           <PresetRows presets={state.presets} editable={editable} onChange={(fn) => update((s) => ({ ...s, presets: fn(s.presets) }))} />
-          <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
-            <span>目标毛利率（按售价）：</span>
-            <NumInput label="目标毛利率" value={state.targetMarginPct} disabled={!editable} onChange={(v) => update((s) => ({ ...s, targetMarginPct: v }))} className="w-16" />
-            <span>%</span>
-          </div>
         </fieldset>
 
         {view.others.length > 0 ? (
           <Note testId="lump-others">
-            另有 {view.others.length} 条其它成本行（不归总价构成表管，照样计入）：
-            {view.others.map((o) => `${o.description}${o.included ? `（${money(o.amount)}）` : "（不计入）"}${o.reasonZh ? `——${o.reasonZh}` : o.fromLump ? "" : "——在专业模式里加的"}`).join("、")}。
+            另有 {view.others.length} 条其它成本行（{LUMP_TEXT.othersHead}）：
+            {view.others.map((o) => `${o.description}${o.included ? `（${money(o.amount)}）` : "（不计入）"}${o.reasonZh ? `：${o.reasonZh}` : o.fromLump ? "" : "：在专业模式里加的"}`).join("；")}。{LUMP_TEXT.othersTail}。
           </Note>
         ) : null}
 

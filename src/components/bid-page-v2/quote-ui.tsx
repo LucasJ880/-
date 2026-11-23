@@ -14,7 +14,7 @@ export const PRESET_EXPLAIN_ZH = {
   financing: "到手成本 × 年化比例 ÷ 12 × 月数，不足一月按一月",
   admin: "管理费按含自身算：比例 3% 时，成本 100 → 103.09（管理费是 3.09，不是 3）。这里的成本 = 到手成本 + 资金使用",
   cashAllowance: "到手成本 × 比例",
-  commission: "（报价 − 不含销售提成的成本）× 比例，算进成本",
+  commission: "（报价 − 不含销售提成和按报价算的各项的成本）× 比例，算进成本",
 } as const;
 
 export const money = (v: number | null | undefined, ccy = "CAD") => (v == null ? "—" : formatMoneyZh(v, ccy));

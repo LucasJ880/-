@@ -24,7 +24,7 @@ import {
   type LumpState,
 } from "../lump-sum/contract";
 import { ALGO_CHANGED_REASON_ZH, defaultLumpState, emptyLumpItem, indexLumpLines, lumpStateFromLines, lumpStateToWrites, type LumpWrite } from "../lump-sum/mapping";
-import { compareEngine, convertLineToLump, convertLumpToLine, inputsOf, simulateWrites } from "../lump-sum/convert";
+import { compareEngine, convertHintZh, convertLineToLump, convertLumpToLine, inputsOf, simulateWrites } from "../lump-sum/convert";
 import { PRESET_DESCRIPTION_ZH, costLinesToState, defaultLineModeState, stateToWrites, type DbCostLine } from "../quote-line/mapping";
 import { readBidLineMeta, type LineModeState, type LineRow } from "../quote-line/contract";
 
@@ -197,6 +197,8 @@ console.log("\n━━━ 3. 校验与范围 ━━━");
   // 原样带回的数：转换 / 专业模式写进来的 4 位小数金额、100% 的关税、1,500 字备注
   const back = { ...base, items: [item("ocean_freight", { amount: 3518.505, notes: "合".repeat(1500) }), item("duty", { kind: "percent" as const, ratePct: 100 })] };
   ok(issue(back) === null, "原样带回的数（3,518.505、关税比例 100、1,500 字备注）能原样保存");
+  const cn = validateLumpState({ ...base, items: [item("ocean_freight", { amount: 1, notes: "a\u0000b\u202Ec\r\n第二行\tx  " })] });
+  ok(cn.ok && cn.state.items[0].notes === "abc\n第二行\tx", "备注去掉控制字符与看不见的格式字符（\u0000 进不了库），保留换行与制表符", cn.ok ? cn.state.items[0].notes : cn);
   const v = validateLumpState({ ...base, items: [item("ocean_freight", { amount: 1000, currency: "USD" })], fx: {} });
   ok(v.ok && v.state.fx.USD?.rate === null, "用到外币没填汇率：汇率表里补一格空的（由引擎提示缺汇率）");
 }
@@ -257,7 +259,7 @@ console.log("\n━━━ 5. 往返与专业模式改过后的读法 ━━━");
   const changed = lines.map((l) => (readLumpMeta(l.metadata)?.key === "ocean_freight" ? { ...l, calculationType: "PER_CONTAINER", duration: new Prisma.Decimal(2), unitCost: new Prisma.Decimal(30000) } : l));
   const r1 = lumpStateFromLines(changed, quoteOf({ rate: 25 }));
   const ocean = changed.find((l) => readLumpMeta(l.metadata)?.key === "ocean_freight")!;
-  ok(!r1.state.items.some((i) => i.key === "ocean_freight") && r1.others.some((o) => o.line.id === ocean.id && o.reasonZh === ALGO_CHANGED_REASON_ZH) && r1.notices.some((n) => n.includes("「海运费」在专业模式里改了算法，这里不再管它（照样计入）")), "专业模式把海运费改成按柜计：归其它成本行并写明", r1.notices);
+  ok(!r1.state.items.some((i) => i.key === "ocean_freight") && r1.others.some((o) => o.line.id === ocean.id && o.reasonZh === ALGO_CHANGED_REASON_ZH) && r1.notices.some((n) => n.includes("「海运费」在专业模式里改了类别或算法，这张表不再管它（按专业模式里的设置计算")), "专业模式把海运费改成按柜计：归其它成本行并写明", r1.notices);
   const w1 = lumpStateToWrites(r1.state, changed);
   ok(!w1.updates.some((u) => u.id === ocean.id) && !w1.deleteIds.includes(ocean.id), "保存时不碰那一行（不改回、不删）");
   // 改了金额、设成不计入
@@ -270,7 +272,7 @@ console.log("\n━━━ 5. 往返与专业模式改过后的读法 ━━━");
   const r2 = lumpStateFromLines(c2, quoteOf({ rate: 25 }));
   const inst = r2.state.items.find((i) => i.key === "installation")!;
   ok(r2.state.items.find((i) => i.key === "duty")?.amount === 42000, "专业模式把关税改成 42,000：按改后的显示");
-  ok(inst.amount === null && r2.notices.some((n) => n.includes("「安装」设成了不计入（库里记着 2,000）")), "安装设成不计入：按没填显示并写明库里记着 2,000", r2.notices);
+  ok(inst.amount === null && r2.notices.some((n) => n.includes("「安装」在专业模式里设成了不计入（原来填的是 2,000.00 加元）")), "安装设成不计入：按没填显示并写明原来填的 2,000.00 加元", r2.notices);
   const after2 = apply(c2, lumpStateToWrites(r2.state, c2));
   const instLine = after2.find((l) => readLumpMeta(l.metadata)?.key === "installation")!;
   ok(!instLine.included && Number(instLine.unitCost) === 2000, "保存后安装那一行仍是 2,000、不计入");
@@ -293,7 +295,7 @@ console.log("\n━━━ 5. 往返与专业模式改过后的读法 ━━━");
   const proLine = toDb({ ...lumpStateToWrites(acceptance3(), []).creates[0], description: "合成仓储费", category: "WAREHOUSING", metadata: {}, sortOrder: 5000, unitCost: 300 });
   const withPro = [...lines, proLine];
   const rp = lumpStateFromLines(withPro, quoteOf({ pricingMethod: "MARKUP_ON_COST", rate: 10 }));
-  ok(rp.others.some((o) => o.line.id === proLine.id && o.reasonZh === null && !o.fromLump) && rp.state.targetMarginPct === null && rp.notices.some((n) => n.includes("成本加成")), "专业模式加的仓储费列在其它成本行；定价方式改成成本加成时目标毛利率空着并提示");
+  ok(rp.others.some((o) => o.line.id === proLine.id && o.reasonZh === null && !o.fromLump) && rp.state.targetMarginPct === null && !rp.notices.some((n) => n.includes("成本加成")), "专业模式加的仓储费列在其它成本行；定价方式改成成本加成时目标毛利率空着（说明只在定价一行显示一次，不进顶部提示）");
   ok(!lumpStateToWrites(rp.state, withPro).updates.some((u) => u.id === proLine.id), "保存不碰专业模式加的行");
 }
 
@@ -331,7 +333,7 @@ console.log("\n━━━ 6. 互转 ━━━");
     if (back) {
       const ls = costLinesToState(back, { pricingMethod: "MARGIN_ON_REVENUE", pricingRate: new Prisma.Decimal(22) });
       ok(ls.state.rows.length === 2 && ls.state.rows[1].basis === "PER_PIECE" && ls.state.rows[1].unitPrice === 3 && ls.state.shared.customs.amount === 500 && ls.state.shared.dutyPct === 8 && ls.state.shared.oceanFreight.containers === null, "转回逐行：2 行（按件那行仍是每件 3 元）、报关费 500、关税率 8%、海运柜数空着", ls.state.shared);
-      ok(ls.notices.some((n) => n.includes("海运费按金额算在下面「从只报总价转来的项」里（照样计入），不要再在这里填柜数")) && !ls.notices.some((n) => n.includes("删掉了")), "逐行表提示海运费按金额算在「从只报总价转来的项」里，不误报「删掉了」", ls.notices);
+      ok(ls.notices.some((n) => n.includes("「海运费」按金额算在下面「从只报总价转来的项」里（照样计入），不要再在这里填柜数，否则会算两遍")) && !ls.notices.some((n) => n.includes("删掉了")), "逐行表提示海运费按金额算在「从只报总价转来的项」里，不误报「删掉了」", ls.notices);
       const savedLine = apply(back, stateToWrites(ls.state, back));
       const again = check("总价 → 逐行 → 逐行保存 → 总价：前后相同", savedLine, 22, "LUMP_SUM");
       if (again) {
@@ -355,7 +357,7 @@ console.log("\n━━━ 6. 互转 ━━━");
   // 会差几分
   const tiny = lineDb({ ...lineState(), fx: {}, rows: [rowOf()], shared: { oceanFreight: { containers: 1.5, perContainer: 0.0033, currency: "CAD" }, customs: { amount: null, currency: "CAD" }, domesticFreight: { amount: null, currency: "CAD" }, dutyPct: null } });
   const tr = convertLineToLump(tiny);
-  const tcmp = tr.ok ? compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: 20 }, engine: {}, before: inputsOf(tiny), after: simulateWrites(tiny, tr.writes) }) : null;
+  const tcmp = tr.ok ? compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: 20 }, engine: {}, before: inputsOf(tiny), after: simulateWrites(tiny, tr.writes), hintZh: convertHintZh(tiny, "LUMP_SUM") }) : null;
   ok(!!tcmp && !tcmp.ok && tcmp.reasonZh.includes("会差") && tcmp.reasonZh.includes("两位小数"), "海运 1.5 柜 × 每柜 0.0033 换成金额会差一分：不转，写明差多少与怎么办", tcmp);
   // 同一项两边都有
   const dupLump = [...L1, toDb(lumpStateToWrites({ ...defaultLumpState(), items: [item("duty", { amount: 999 })] }, []).creates.find((c) => readLumpMeta(c.metadata)?.key === "duty")!)];
@@ -371,7 +373,101 @@ console.log("\n━━━ 6. 互转 ━━━");
   const n2 = convertLumpToLine(save({ ...acceptance3(), goods: { ...acceptance3().goods, mode: "detail" }, details: [rowOf()] }), "PROJECT_SUPPLY_INSTALL");
   const both = save({ ...acceptance3(), goods: { ...acceptance3().goods, mode: "detail" }, details: [rowOf()] }).map((l) => (readLumpMeta(l.metadata)?.key === "goods_total" ? { ...l, included: true } : l));
   const n3 = convertLumpToLine(both, "SUPPLY_ONLY");
-  ok(!n1.ok && n1.reasonZh === "货品是一个总数，先展开成明细再转成逐行报价" && !n2.ok && n2.reasonZh.includes("逐行报价只配只供货") && !n3.ok && n3.reasonZh.includes("先在总价表里保存一次"), "货品是总数 / 供货加安装 / 总数和明细都计入：都不转并写明", [n1, n2, n3]);
+  ok(!n1.ok && n1.reasonZh === "货品是一个总数，先展开成明细再转成逐行报价" && !n2.ok && n2.reasonZh.includes("逐行报价限于只供货的报价") && !n3.ok && n3.reasonZh.includes("先在总价表里保存一次"), "货品是总数 / 供货加安装 / 总数和明细都计入：都不转并写明", [n1, n2, n3]);
+}
+
+console.log("\n━━━ 6b. 互转的性质与边界（审查补充） ━━━");
+{
+  // 库里读出的顺序（sortOrder，同序按 id）——引擎按行的先后累加
+  const dbOrder = (ls: DbCostLine[]) => [...ls].sort((x, y) => x.sortOrder - y.sortOrder || x.id.localeCompare(y.id));
+  const run = (ls: DbCostLine[], margin: number, tax: EngineConfig["tax"]) => computeQuote({ quoteCurrency: "CAD", lines: inputsOf(dbOrder(ls)), pricing: { method: "MARGIN_ON_REVENUE", rate: margin }, engine: { tax } });
+  let seed = 20261123;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const money2 = (max: number) => Math.round(rnd() * max * 100) / 100;
+  let passed = 0, refused = 0;
+  const bad: unknown[] = [];
+  for (let n = 0; n < 300; n++) {
+    const margin = Math.round(rnd() * 30 * 10) / 10;
+    const tax = { hstPct: rnd() < 0.5 ? 13 : null, gstPct: null, pstPct: null };
+    const detailRows = [rowOf({ quantity: 1 + Math.floor(rnd() * 900), unitPrice: money2(300) }), ...(rnd() < 0.5 ? [rowOf({ description: "合成配件 B", quantity: 1 + Math.floor(rnd() * 50), unitPrice: money2(80) })] : [])];
+    const items = [
+      item("ocean_freight", { amount: rnd() < 0.8 ? money2(12000) : null }),
+      item("duty", rnd() < 0.5 ? { kind: "percent", ratePct: Math.round(rnd() * 15 * 10) / 10 } : { amount: rnd() < 0.5 ? money2(9000) : null }),
+      item("domestic_freight", { amount: rnd() < 0.7 ? money2(4000) : null }),
+      item("customs", { amount: rnd() < 0.7 ? money2(2500) : null }),
+      ...(rnd() < 0.6 ? [item("contingency", { ratePct: Math.round(rnd() * 5 * 10) / 10 })] : []),
+      ...(rnd() < 0.4 ? [item("installation", { amount: money2(20000) })] : []),
+    ];
+    const s0 = defaultLumpState();
+    const st: LumpState = { ...s0, goods: { ...s0.goods, mode: "detail" }, details: detailRows, items, tax, targetMarginPct: margin, presets: rnd() < 0.3 ? presetsOff(s0).presets : s0.presets };
+    const lump = save(st);
+    const res = convertLumpToLine(lump, "SUPPLY_ONLY");
+    if (!res.ok) { bad.push(["lump→line 拒绝", res.reasonZh]); continue; }
+    const before = run(lump, margin, tax);
+    const cmp = compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: margin }, engine: { tax }, before: inputsOf(dbOrder(lump)), after: simulateWrites(lump, res.writes) });
+    const after = run(apply(lump, res.writes), margin, tax);
+    if (!cmp.ok) { refused++; continue; }
+    passed++;
+    if (!(before.ok && after.ok && before.estimatedCost === after.estimatedCost && before.sellingPrice === after.sellingPrice && before.grossProfit === after.grossProfit && before.tax.total === after.tax.total)) bad.push(["核对放行但按库里顺序算不同", n]);
+    const back = convertLineToLump(apply(lump, res.writes));
+    if (!back.ok) continue;
+    const line = apply(lump, res.writes);
+    const cmp2 = compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: margin }, engine: { tax }, before: inputsOf(dbOrder(line)), after: simulateWrites(line, back.writes) });
+    const after2 = run(apply(line, back.writes), margin, tax);
+    if (cmp2.ok && !(after.ok && after2.ok && after.sellingPrice === after2.sellingPrice && after.estimatedCost === after2.estimatedCost)) bad.push(["逐行→总价 核对放行但按库里顺序算不同", n]);
+  }
+  // 审查找到的反例（行的先后会让预备金差一分）：核对必须拦下，或放行时按库里顺序算也相同
+  {
+    const s0 = defaultLumpState();
+    const fixed: LumpState = { ...s0, goods: { ...s0.goods, mode: "detail" }, details: [rowOf({ quantity: 1, unitPrice: 78260.73, currency: "CAD" })], items: [item("ocean_freight", { amount: 8522.32 }), item("duty"), item("domestic_freight", { amount: 2390.06 }), item("customs", { amount: 1802.39 }), item("contingency", { ratePct: 3 })], tax: { hstPct: 13, gstPct: null, pstPct: null }, targetMarginPct: 20 };
+    const fl = save(fixed);
+    const fr = convertLumpToLine(fl, "SUPPLY_ONLY");
+    const fb = run(fl, 20, fixed.tax);
+    const fa = fr.ok ? run(apply(fl, fr.writes), 20, fixed.tax) : null;
+    const fc = fr.ok ? compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: 20 }, engine: { tax: fixed.tax }, before: inputsOf(dbOrder(fl)), after: simulateWrites(fl, fr.writes) }) : null;
+    const differs = !!fa && fb.ok && fa.ok && (fb.estimatedCost !== fa.estimatedCost || fb.sellingPrice !== fa.sellingPrice);
+    ok(!!fc && (fc.ok ? !differs : true) && (!differs || !fc.ok), "审查反例（明细 78,260.73、海运 8,522.32、国内运费 2,390.06、报关费 1,802.39、预备金 3%）：按库里顺序算会差一分时核对拦下", { differs, fc });
+  }
+  ok(bad.length === 0 && passed > 200, `300 组随机数据两个方向转换：核对放行的（${passed} 组）按库里读出的顺序算，前后成本合计、税前报价、利润、含税总价都相同；核对拦下 ${refused} 组`, bad.slice(0, 5));
+
+  // 逐行表的海运费计入、每柜金额在专业模式里清空（未定价）：转成总价后仍是未定价，不变成「已定价 0」
+  const ls = defaultLineModeState([rowOf()]);
+  const lineDb2 = stateToWrites({ ...ls, shared: { ...ls.shared, oceanFreight: { containers: 2, perContainer: 3000, currency: "CAD" } }, targetMarginPct: 20 }, []).creates.map((c) => toDb(c));
+  const cleared = lineDb2.map((l) => (readBidLineMeta(l.metadata)?.role === "shared" && l.calculationType === "PER_CONTAINER" ? { ...l, unitCost: null } : l));
+  const cr = convertLineToLump(cleared);
+  const cAfter = cr.ok ? apply(cleared, cr.writes) : [];
+  const oc = cAfter.find((l) => readLumpMeta(l.metadata)?.key === "ocean_freight");
+  const wBefore = run(cleared, 20, {});
+  const wAfter = run(cAfter, 20, {});
+  ok(cr.ok && !!oc && oc.included && oc.unitCost === null && wBefore.ok && wAfter.ok && wAfter.warnings.some((w) => w.code === "LINE_UNPRICED") && wBefore.warnings.filter((w) => w.code === "LINE_UNPRICED").length === wAfter.warnings.filter((w) => w.code === "LINE_UNPRICED").length, "海运费计入但每柜金额被清空（未定价）：转成总价后仍是未定价、金额空着");
+  // 引擎核对也比未定价的行数
+  const fakeAfter = inputsOf(dbOrder(cAfter)).map((l) => (l.calculationType === "FIXED" && l.category === "FREIGHT" ? { ...l, unitCost: 0 } : l));
+  const fake = compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: 20 }, engine: {}, before: inputsOf(dbOrder(cleared)), after: fakeAfter });
+  ok(!fake.ok && fake.reasonZh.includes("还没填价的行会变"), "核对：转换后未定价的行数变了（未定价被当成已填 0）就不转", fake);
+
+  // 总价表那一项空着、另有一条计入的同名共用参数（逐行留下的）：转逐行时留下计入的那条，删掉空着的总价项
+  const sLump = save({ ...acceptance3(), goods: { ...acceptance3().goods, mode: "detail" }, details: [rowOf()], items: [item("ocean_freight", { amount: 60000 }), item("duty", { amount: 40000 }), item("customs")] });
+  const leftCustoms = toDb(stateToWrites({ ...defaultLineModeState([]), shared: { ...defaultLineModeState([]).shared, customs: { amount: 777, currency: "CAD" } } }, []).creates.find((c) => readBidLineMeta(c.metadata)?.role === "shared" && c.category === "CUSTOMS")!);
+  const withLeft = [...sLump, leftCustoms];
+  const lr = convertLumpToLine(withLeft, "SUPPLY_ONLY");
+  const emptyCustoms = sLump.find((l) => readLumpMeta(l.metadata)?.key === "customs")!;
+  ok(lr.ok && !lr.writes.deleteIds.includes(leftCustoms.id) && lr.writes.deleteIds.includes(emptyCustoms.id) && compareEngine({ quoteCurrency: "CAD", pricing: { method: "MARGIN_ON_REVENUE", rate: 25 }, engine: {}, before: inputsOf(dbOrder(withLeft)), after: simulateWrites(withLeft, lr.writes) }).ok, "总价表的报关费空着、另有计入的逐行报关费 777：转逐行留下 777 那条、删掉空着的总价项，前后相同", lr);
+  // 子类别照原样留着
+  const subLump = save({ ...acceptance3(), goods: { ...acceptance3().goods, mode: "detail" }, details: [rowOf()], items: [item("customs", { amount: 500 })] }).map((l) => (readLumpMeta(l.metadata)?.key === "customs" ? { ...l, subcategory: null } : l));
+  const sr = convertLumpToLine(subLump, "SUPPLY_ONLY");
+  const sc = sr.ok ? sr.writes.updates.find((u) => u.id === subLump.find((l) => readLumpMeta(l.metadata)?.key === "customs")!.id) : null;
+  ok(!!sc && sc.data.subcategory === null, "总价 → 逐行：子类别照原样留着（不换成模板的）");
+
+  // 专业模式把货品总数改成按件计：不误报「删掉了」，空着保存时新建的总数不计入（不算两遍、不凭空多一条未定价）
+  const g0 = save(acceptance3());
+  const gChanged = g0.map((l) => (readLumpMeta(l.metadata)?.key === "goods_total" ? { ...l, calculationType: "PER_UNIT", quantity: new Prisma.Decimal(1) } : l));
+  const gr = lumpStateFromLines(gChanged, quoteOf({ rate: 25 }));
+  ok(!gr.notices.some((n) => n.includes("删掉了")) && gr.notices.some((n) => n.includes("算两遍")) && gr.state.goods.costLineId === null, "货品总数在专业模式里改了算法：提示照样计入、再填会算两遍，不说「删掉了」", gr.notices);
+  const gw = lumpStateToWrites(gr.state, gChanged);
+  const newGt = gw.creates.find((c) => readLumpMeta(c.metadata)?.key === "goods_total");
+  const gCalc = run(apply(gChanged, gw), 25, {});
+  const gCalc0 = run(gChanged, 25, {});
+  ok(!!newGt && !newGt.included && gCalc.ok && gCalc0.ok && gCalc.estimatedCost === gCalc0.estimatedCost && !gCalc.warnings.some((w) => w.code === "LINE_UNPRICED"), "原样保存：新建的货品总数不计入，合计不变、没有凭空多一条未定价");
 }
 
 console.log("\n━━━ 7. 接口写法与不写的地方 ━━━");

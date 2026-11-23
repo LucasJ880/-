@@ -20,6 +20,7 @@ import {
   getQuote,
   nextQuoteNumber,
   snapshotQuote,
+  toLineInputs,
   type QuoteRecord,
 } from "@/lib/quote-engine/service";
 import { defaultEngineConfig } from "@/lib/quote-engine/templates";
@@ -39,8 +40,8 @@ import {
   type LumpView,
   type SaveLumpRequest,
 } from "./contract";
-import { compareEngine, convertLineToLump, convertLumpToLine, inputsOf, simulateWrites } from "./convert";
-import { defaultLumpState, lumpStateFromLines, lumpStateToWrites, type LumpWrite, type LumpWrites } from "./mapping";
+import { compareEngine, convertHintZh, convertLineToLump, convertLumpToLine, simulateWrites } from "./convert";
+import { defaultLumpState, indexLumpLines, lumpStateFromLines, lumpStateToWrites, type LumpWrite, type LumpWrites } from "./mapping";
 
 const lumpWriteData = (orgId: string | null, w: LumpWrite) => ({ ...writeData(orgId, w), ...(w.notes !== undefined ? { notes: w.notes } : {}) });
 
@@ -89,7 +90,7 @@ export async function createLumpQuote(input: { projectId: string; orgId: string;
 
 function assertLump(q: QuoteRecord) {
   if (!isLumpSumQuote(q)) throw new QuoteEngineError("NOT_LUMP_SUM", LUMP_NOT_LUMP_ZH, 409);
-  if (q.currency !== "CAD") throw new QuoteEngineError("NOT_LUMP_SUM", `这份报价的币种在专业模式里改成了${currencyLabelZh(q.currency)}，只报总价只按加元做，请在专业模式里打开`, 409);
+  if (q.currency !== "CAD") throw new QuoteEngineError("NOT_LUMP_SUM", `这份报价的币种在专业模式里改成了${currencyLabelZh(q.currency)}，「只报总价」只能用加元做，请在专业模式里打开`, 409);
 }
 
 /** 由一份报价算出总价视图里的六个数、算式与每行金额（读、保存后共用） */
@@ -113,7 +114,9 @@ export function buildLumpComputed(q: QuoteRecord, goodsIds: readonly string[]): 
           totalWithTax: calc.tax.total,
         }
       : null;
-  const goodsTotalLine = q.costLines.find((l) => readLumpMeta(l.metadata)?.key === "goods_total" && l.included);
+  // 与总价表认的同一条货品总数（不是专业模式改了算法或重复的那条）
+  const gtLine = indexLumpLines(q.costLines).goodsTotal;
+  const goodsTotalLine = gtLine && gtLine.included ? gtLine : null;
   const goodsAmount = round2([...goodsIds, ...(goodsTotalLine ? [goodsTotalLine.id] : [])].reduce((s, id) => s + (amountById[id] ?? 0), 0));
   return {
     ok: true,
@@ -126,7 +129,7 @@ export function buildLumpComputed(q: QuoteRecord, goodsIds: readonly string[]): 
 }
 
 function convertToLineAvailability(q: QuoteRecord, state: LumpState): LumpView["convertToLine"] {
-  if (q.quoteType !== "SUPPLY_ONLY") return { available: false, reasonZh: "逐行报价只配只供货，供货加安装的报价不能转成逐行" };
+  if (q.quoteType !== "SUPPLY_ONLY") return { available: false, reasonZh: "逐行报价限于只供货的报价，供货加安装的报价不能转成逐行报价" };
   if (state.details.length === 0) return { available: false, reasonZh: "货品是一个总数，先展开成明细再转成逐行报价" };
   return { available: true };
 }
@@ -167,7 +170,8 @@ export async function loadLumpView(input: { projectId: string; orgId: string; qu
 async function resolveGoodsTotal(projectId: string, state: LumpState, current: QuoteRecord["costLines"]): Promise<LumpState> {
   const g = state.goods;
   if (!g.inquiryItemId) {
-    const gt = current.find((l) => readLumpMeta(l.metadata)?.key === "goods_total");
+    // 与写入时同一条（indexLumpLines 认的那条货品总数），不随便取第一条
+    const gt = indexLumpLines(current).goodsTotal;
     const manual = gt && !readLumpMeta(gt.metadata)?.inquiryItemId ? gt : null;
     return { ...state, goods: { ...g, supplierId: manual?.supplierId ?? null, supplierName: manual?.supplierName ?? null } };
   }
@@ -198,16 +202,18 @@ async function resolveDetails(projectId: string, state: LumpState, current: Quot
   }
 }
 
-function assertWritable(q: QuoteRecord, baseUpdatedAt: string) {
+const CONVERT_CHANGED_ZH = "这份报价刚被别人改过（也可能是你在专业模式里改的），这次没转换：点「收起」再「打开」看最新内容后再转";
+
+function assertWritable(q: QuoteRecord, baseUpdatedAt: string, changedZh = QUOTE_CHANGED_ZH) {
   if ((FROZEN_STATUSES as readonly string[]).includes(q.status)) throw new QuoteEngineError("QUOTE_FROZEN", frozenZh(q.status), 409);
-  if (q.updatedAt.toISOString() !== baseUpdatedAt) throw new QuoteEngineError("QUOTE_CHANGED", QUOTE_CHANGED_ZH, 409);
+  if (q.updatedAt.toISOString() !== baseUpdatedAt) throw new QuoteEngineError("QUOTE_CHANGED", changedZh, 409);
 }
 
-async function writeLines(tx: Prisma.TransactionClient, q: QuoteRecord, writes: LumpWrites) {
+async function writeLines(tx: Prisma.TransactionClient, q: QuoteRecord, writes: LumpWrites, changedZh = QUOTE_CHANGED_ZH) {
   if (writes.deleteIds.length) await tx.quoteCostLine.deleteMany({ where: { quoteId: q.id, id: { in: writes.deleteIds } } });
   for (const u of writes.updates) {
     const res = await tx.quoteCostLine.updateMany({ where: { id: u.id, quoteId: q.id }, data: lumpWriteData(q.orgId, u.data) });
-    if (res.count !== 1) throw new QuoteEngineError("QUOTE_CHANGED", QUOTE_CHANGED_ZH, 409);
+    if (res.count !== 1) throw new QuoteEngineError("QUOTE_CHANGED", changedZh, 409);
   }
   for (const c of writes.creates) await tx.quoteCostLine.create({ data: { ...lumpWriteData(q.orgId, c), quoteId: q.id } });
 }
@@ -219,7 +225,7 @@ export async function saveLumpView(input: { projectId: string; orgId: string; qu
   const checked = validateLumpState(input.request.state as LumpState);
   if (!checked.ok) throw new QuoteEngineError("VALIDATION", checked.issues[0].messageZh, 400, { issues: checked.issues });
   if (q.pricingMethod !== "MARGIN_ON_REVENUE" && checked.state.targetMarginPct == null) {
-    const msg = "定价方式在专业模式里改过：只报总价只按目标毛利率（按售价）定价，请先填目标毛利率再保存";
+    const msg = "定价方式在专业模式里改过：「只报总价」只按目标毛利率（按售价）定价，请先填目标毛利率再保存";
     throw new QuoteEngineError("VALIDATION", msg, 400, { issues: [{ rowNo: null, messageZh: msg }] });
   }
   const state = await resolveDetails(input.projectId, await resolveGoodsTotal(input.projectId, checked.state, q.costLines), q.costLines);
@@ -263,7 +269,7 @@ export async function convertQuote(input: { projectId: string; orgId: string; qu
   if (!isLine && !isLump) refuse("这份报价是在专业模式里做的，不能在这里转换");
   if ((to === "LINE" && isLine) || (to === "LUMP_SUM" && isLump)) refuse(to === "LINE" ? "这份报价已经是逐行报价" : "这份报价已经是只报总价的报价");
   if (q.currency !== "CAD") refuse(`这份报价的币种在专业模式里改成了${currencyLabelZh(q.currency)}，只能在专业模式里做`);
-  assertWritable(q, input.request.baseUpdatedAt);
+  assertWritable(q, input.request.baseUpdatedAt, CONVERT_CHANGED_ZH);
   const result = to === "LUMP_SUM" ? convertLineToLump(q.costLines) : convertLumpToLine(q.costLines, q.quoteType);
   if (!result.ok) return refuse(result.reasonZh);
   const writes = result.writes;
@@ -271,7 +277,9 @@ export async function convertQuote(input: { projectId: string; orgId: string; qu
   // ① 引擎核对：按库里能存的位数模拟转换后的行，四个数不同就不转
   const engine = engineOf(q);
   const pricing = { method: q.pricingMethod, rate: q.pricingRate == null ? null : Number(q.pricingRate) };
-  const cmp = compareEngine({ quoteCurrency: q.currency, pricing, engine, before: inputsOf(q.costLines), after: simulateWrites(q.costLines, writes) });
+  const before = toLineInputs(q.costLines);
+  const hintZh = convertHintZh(q.costLines, to);
+  const cmp = compareEngine({ quoteCurrency: q.currency, pricing, engine, before, after: simulateWrites(q.costLines, writes), hintZh });
   if (!cmp.ok) refuse(cmp.reasonZh);
 
   // ② 目标做法的校验：转换后的内容读出来要能原样保存
@@ -279,19 +287,23 @@ export async function convertQuote(input: { projectId: string; orgId: string; qu
   if (to === "LUMP_SUM") {
     const read = lumpStateFromLines(simulated, q);
     const v = validateLumpState(read.state);
-    if (!v.ok) refuse(`转换后这一项存不进总价表：${v.issues[0].messageZh}；没有转换`);
+    if (!v.ok) refuse(`转换后有内容存不进总价表（${v.issues[0].messageZh}），没有转换`);
   } else {
     const read = costLinesToState(simulated, q);
     const v = validateLineModeState(read.state);
-    if (!v.ok) refuse(`转换后这一项存不进逐行表：${v.issues[0].messageZh}；没有转换`);
+    if (!v.ok) refuse(`转换后有内容存不进逐行表（${v.issues[0].messageZh}），没有转换`);
   }
 
   const parsed = engineConfigSchema.safeParse(q.engineJson ?? {});
   const nextEngine = engineConfigSchema.parse({ ...(parsed.success ? parsed.data : {}), entryMode: to });
   await db.$transaction(async (tx) => {
     const cas = await tx.projectQuote.updateMany({ where: { id: q.id, updatedAt: q.updatedAt, status: { notIn: [...FROZEN_STATUSES] } }, data: { engineJson: nextEngine as Prisma.InputJsonValue } });
-    if (cas.count !== 1) throw new QuoteEngineError("QUOTE_CHANGED", QUOTE_CHANGED_ZH, 409);
-    await writeLines(tx, q, writes);
+    if (cas.count !== 1) throw new QuoteEngineError("QUOTE_CHANGED", CONVERT_CHANGED_ZH, 409);
+    await writeLines(tx, q, writes, CONVERT_CHANGED_ZH);
+    // 写完按读报价时同样的顺序重读、再用引擎核对一次：有任何不同就整笔回滚（模拟之外的兜底）
+    const reread = await tx.quoteCostLine.findMany({ where: { quoteId: q.id }, orderBy: { sortOrder: "asc" } });
+    const again = compareEngine({ quoteCurrency: q.currency, pricing, engine, before, after: toLineInputs(reread), hintZh });
+    if (!again.ok) throw new QuoteEngineError("CONVERT_UNAVAILABLE", again.reasonZh, 409);
   });
   const after = await snapshotQuote(q.id, input.projectId);
   await logAudit({

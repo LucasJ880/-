@@ -129,9 +129,11 @@ function lumpFromShared(l: DbCostLine, key: SharedKey): LumpWrite {
   const base = { ...asWrite(l), sortOrder: lumpItemSort(k, null), category: LUMP_ITEM_SPEC[k].category, metadata: mergeLumpMeta(l.metadata, { v: 1, role: "lump", key: k }) };
   if (key === "ocean_freight") {
     // 按柜：数量（缺省 1）× 柜数 × 每柜 → 一个金额（原币、汇率不变）；按库里 4 位小数取，前后由引擎核对
+    // 每柜或柜数缺（专业模式里清掉的）= 引擎按未定价算：换过去仍是未定价（金额空着），不变成「已定价 0」
+    const unpriced = l.unitCost == null || l.duration == null;
     const qty = l.quantity == null ? new Prisma.Decimal(1) : new Prisma.Decimal(l.quantity);
-    const amount = qty.times(l.duration ?? 0).times(l.unitCost ?? 0);
-    return { ...base, description: lumpItemDescriptionZh(k, "amount", null), quantity: null, unit: null, unitCost: Number(amount.toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP)), calculationType: "FIXED", calculationBase: null, rate: null, duration: null };
+    const amount = unpriced ? null : Number(qty.times(l.duration!).times(l.unitCost!).toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP));
+    return { ...base, description: lumpItemDescriptionZh(k, "amount", null), quantity: null, unit: null, unitCost: amount, calculationType: "FIXED", calculationBase: null, rate: null, duration: null };
   }
   if (key === "duty") return { ...base, description: lumpItemDescriptionZh(k, "percent", null), unitCost: null, quantity: null, unit: null, duration: null };
   return { ...base, description: lumpItemDescriptionZh(k, "amount", null), quantity: null, unit: null, duration: null };
@@ -139,7 +141,7 @@ function lumpFromShared(l: DbCostLine, key: SharedKey): LumpWrite {
 
 /** 总价 → 逐行（只供货、货品是明细且总数不计入） */
 export function convertLumpToLine(lines: readonly DbCostLine[], quoteType: string): ConvertResult {
-  if (quoteType !== "SUPPLY_ONLY") return { ok: false, reasonZh: "逐行报价只配只供货，供货加安装的报价不能转成逐行" };
+  if (quoteType !== "SUPPLY_ONLY") return { ok: false, reasonZh: "逐行报价限于只供货的报价，供货加安装的报价不能转成逐行报价" };
   const idx = indexLumpLines(lines);
   if (idx.goods.length === 0) return { ok: false, reasonZh: "货品是一个总数，先展开成明细再转成逐行报价" };
   if (idx.goodsTotal?.included) return { ok: false, reasonZh: "货品总数和明细都计入了：先在总价表里保存一次（总数会改成不计入），再转" };
@@ -159,6 +161,11 @@ export function convertLumpToLine(lines: readonly DbCostLine[], quoteType: strin
     if (mappable || emptyItem) {
       if (left) {
         if (left.included && mappable) return { ok: false, reasonZh: `转换后会有两项${SHARED_SHORT_ZH[key]}：请先在专业模式里删掉另一条「${left.description}」` };
+        if (left.included) {
+          // 总价表这一项空着、另有一条计入的同名共用参数：留下计入的那条，删掉空着的总价项
+          out.deleteIds.push(l!.id);
+          continue;
+        }
         out.deleteIds.push(left.id);
       }
       out.updates.push({ id: l!.id, data: sharedFromLump(l!, key, mappable, empty) });
@@ -171,7 +178,8 @@ export function convertLumpToLine(lines: readonly DbCostLine[], quoteType: strin
 }
 
 function sharedFromLump(l: DbCostLine, key: SharedKey, mappable: boolean, empty: ReturnType<typeof defaultLineModeState>): LumpWrite {
-  if (!mappable) return { ...sharedWrite(empty, key, null), metadata: sharedWrite(empty, key, l).metadata, supplierId: l.supplierId, supplierName: l.supplierName, source: l.source };
+  // 子类别照原样留着（专业模式里按子类别算比例的行不受影响）
+  if (!mappable) return { ...sharedWrite(empty, key, null), subcategory: l.subcategory, metadata: sharedWrite(empty, key, l).metadata, supplierId: l.supplierId, supplierName: l.supplierName, source: l.source };
   const fx = l.sourceCurrency === "CAD" ? {} : { [l.sourceCurrency]: { rate: num(l.fxRate), source: l.fxRateSource } };
   const amount = num(l.unitCost);
   const state = {
@@ -184,10 +192,16 @@ function sharedFromLump(l: DbCostLine, key: SharedKey, mappable: boolean, empty:
       dutyPct: key === "duty" ? num(l.rate) : null,
     },
   };
-  return sharedWrite(state, key, l);
+  return { ...sharedWrite(state, key, l), subcategory: l.subcategory };
 }
 
 /* ------------------------------ 前后核对 ------------------------------ */
+
+/** 核对不过时写的原因：逐行 → 总价且有按柜计的海运费时，多半是换成一个金额时四舍五入不同 */
+export function convertHintZh(lines: readonly DbCostLine[], to: "LUMP_SUM" | "LINE"): string | undefined {
+  const ocean = to === "LUMP_SUM" && lines.some((l) => l.included && l.calculationType === "PER_CONTAINER" && readBidLineMeta(l.metadata)?.role === "shared");
+  return ocean ? "多半是海运费按柜换成一个金额时四舍五入不同：可以先把每柜金额改成两位小数再转，或在专业模式里改" : undefined;
+}
 
 /** 要写的行按库里的位数落到内存（数量 / 金额 / 时长 4 位、汇率 8 位、比例 4 位），返回转换后的成本行输入 */
 export function simulateWrites(current: readonly DbCostLine[], writes: LumpWrites): CostLineInput[] {
@@ -213,7 +227,8 @@ export function simulateWrites(current: readonly DbCostLine[], writes: LumpWrite
     notes: w.notes === undefined ? notes : w.notes,
   });
   const kept = current.filter((l) => !del.has(l.id)).map((l) => toInput(l.id, upd.get(l.id) ?? asWrite(l), l.notes));
-  return [...kept, ...writes.creates.map((c, i) => toInput(`new-${i}`, c, null))];
+  // 引擎按行的先后累加（第 ① 遍不取整的合计会被当基数用）：按库里读出的顺序（sortOrder，同序按 id）排，与 getQuote 一致
+  return [...kept, ...writes.creates.map((c, i) => toInput(`new-${i}`, c, null))].sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
 }
 
 export function inputsOf(current: readonly DbCostLine[]): CostLineInput[] {
@@ -223,7 +238,7 @@ export function inputsOf(current: readonly DbCostLine[]): CostLineInput[] {
 export type EngineCompare = { ok: true } | { ok: false; reasonZh: string };
 
 /** 用报价引擎算转换前后：成本合计、税前报价、利润、销售税任一项不同 → 不转（design D9 ①） */
-export function compareEngine(input: { quoteCurrency: string; pricing: { method: string; rate: number | null }; engine: EngineConfig; before: CostLineInput[]; after: CostLineInput[] }): EngineCompare {
+export function compareEngine(input: { quoteCurrency: string; pricing: { method: string; rate: number | null }; engine: EngineConfig; before: CostLineInput[]; after: CostLineInput[]; hintZh?: string }): EngineCompare {
   const run = (lines: CostLineInput[]) => computeQuote({ quoteCurrency: input.quoteCurrency, lines, pricing: input.pricing, engine: input.engine });
   const a = run(input.before);
   if (!a.ok) return { ok: false, reasonZh: "这份报价现在算不出（例如缺汇率），先在原来的表里填好再转" };
@@ -239,7 +254,10 @@ export function compareEngine(input: { quoteCurrency: string; pricing: { method:
   const diff = pairs.find(([, x, y]) => x !== y);
   if (diff) {
     const d = round2(Math.abs(diff[2] - diff[1]));
-    return { ok: false, reasonZh: `转换后${diff[0]}会差 ${d.toFixed(2)}（海运费按柜换成一个金额时四舍五入不同），没有转换；可以先把每柜金额改成两位小数再转，或在专业模式里改` };
+    return { ok: false, reasonZh: `转换后${diff[0]}会差 ${d.toFixed(2)} 加元，没有转换：${input.hintZh ?? "多半是四舍五入的先后不同（例如专业模式里加的按比例算的行），请在专业模式里检查这份报价"}` };
   }
+  // 未定价的行数也要一样：不能把「未定价」换成「已定价 0」，送审门靠它拦（fail-closed）
+  const unpriced = (r: typeof a) => (r.ok ? r.warnings.filter((w) => w.code === "LINE_UNPRICED").length : 0);
+  if (unpriced(a) !== unpriced(b)) return { ok: false, reasonZh: "转换后还没填价的行会变（有的会被当成已填 0），没有转换：请先把空着的价填好或在专业模式里检查" };
   return { ok: true };
 }

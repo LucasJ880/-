@@ -9,6 +9,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { engineConfigSchema } from "@/lib/quote-engine/contract";
+import { formatMoneyZh } from "../next-step";
 import { LINE_EVIDENCE_LABELS_ZH, readBidLineMeta, type FxEntry, type LineRow, type PresetKey } from "../quote-line/contract";
 import {
   createFxReader,
@@ -27,7 +28,6 @@ import {
   LUMP_INITIAL_KEYS,
   LUMP_ITEM_KEYS,
   LUMP_ITEM_SPEC,
-  LUMP_MARKUP_NOTE_ZH,
   lumpComboAllowed,
   lumpItemDescriptionZh,
   lumpKindOf,
@@ -53,9 +53,9 @@ const num = (v: Prisma.Decimal | null | undefined): number | null => (v == null 
 const keyIndex = (k: LumpItemKey) => LUMP_ITEM_KEYS.indexOf(k);
 const fmtAmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 4 });
 
-export const ALGO_CHANGED_REASON_ZH = "在专业模式里改了算法，这里不再管它（照样计入）";
-const DUP_REASON_ZH = "同一项有两条，这里只管第一条（这一条照样计入）";
-const SHARED_LEFT_REASON_ZH = "逐行报价留下的共用参数（照样计入，在这里不改）";
+export const ALGO_CHANGED_REASON_ZH = "在专业模式里改了类别或算法，这张表不再管它（按专业模式里的设置计算；要让这里重新管，在专业模式里改回，或删掉后在这里重新加）";
+const DUP_REASON_ZH = "同一项有两条，这张表只管第一条（这一条按专业模式里的设置计算）";
+const SHARED_LEFT_REASON_ZH = "逐行报价留下的共用参数（按它自己的设置计算，这里改不了）";
 
 /* --------------------------------- 分类 --------------------------------- */
 
@@ -65,6 +65,8 @@ export type LumpIndex = {
   items: Array<{ line: DbCostLine; meta: LumpMeta & { key: LumpItemKey } }>;
   preset: Partial<Record<PresetKey, DbCostLine>>;
   others: Array<{ line: DbCostLine; reasonZh: string | null; fromLump: boolean }>;
+  /** 其它成本行里有一条计入的、带货品总数身份的行（专业模式改了它的类别或算法，或多出来的一条） */
+  otherGoodsTotalIncluded: boolean;
   notices: string[];
 };
 
@@ -72,19 +74,23 @@ const nameOfMeta = (meta: LumpMeta, line: DbCostLine) => (meta.key === "goods_to
 
 /** 按行身份分：货品总数、明细、各项、预置、其它（只在类别与算法是这一项允许的组合的行里认，同一项只认第一条，design D2 / D8） */
 export function indexLumpLines(lines: readonly DbCostLine[]): LumpIndex {
-  const idx: LumpIndex = { goodsTotal: null, goods: [], items: [], preset: {}, others: [], notices: [] };
+  const idx: LumpIndex = { goodsTotal: null, goods: [], items: [], preset: {}, others: [], otherGoodsTotalIncluded: false, notices: [] };
   const seen = new Set<string>();
   for (const l of [...lines].sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))) {
     const lump = readLumpMeta(l.metadata);
     if (lump) {
       if (!lumpComboAllowed(lump.key, l)) {
+        if (lump.key === "goods_total" && l.included) idx.otherGoodsTotalIncluded = true;
         idx.others.push({ line: l, reasonZh: ALGO_CHANGED_REASON_ZH, fromLump: true });
         idx.notices.push(`「${nameOfMeta(lump, l)}」${ALGO_CHANGED_REASON_ZH}`);
         continue;
       }
       if (lump.key === "goods_total") {
         if (!idx.goodsTotal) idx.goodsTotal = l;
-        else idx.others.push({ line: l, reasonZh: DUP_REASON_ZH, fromLump: true });
+        else {
+          if (l.included) idx.otherGoodsTotalIncluded = true;
+          idx.others.push({ line: l, reasonZh: DUP_REASON_ZH, fromLump: true });
+        }
         continue;
       }
       if (lump.key !== "other" && seen.has(lump.key)) {
@@ -134,11 +140,13 @@ export function lumpStateFromLines(
 
   const gt = idx.goodsTotal;
   const gm = gt ? readLumpMeta(gt.metadata) : null;
-  if (gt) fxr.note(gt);
+  // 明细模式下不计入的总数不当这一币种的汇率来源
+  if (gt && (gt.included || rows.length === 0)) fxr.note(gt);
   const mode: LumpGoods["mode"] = rows.length > 0 ? "detail" : "total";
   if (mode === "detail" && gt?.included) notices.push("货品总数和明细都计入了（重复）；在这里保存时总数会改成不计入");
   if (mode === "total" && gt && !gt.included) notices.push("货品总数设成了不计入；在这里保存时会重新计入");
-  if (mode === "total" && !gt) notices.push("货品总数那一行在专业模式里删掉了，在这里保存时会重新建一条");
+  if (mode === "total" && !gt && idx.otherGoodsTotalIncluded) notices.push("货品总数那一行在专业模式里改了类别或算法，按专业模式里的设置照样计入（见下方其它成本行）；在这里再填货品会算两遍");
+  else if (mode === "total" && !gt) notices.push("货品总数那一行在专业模式里删掉了，在这里保存时会重新建一条");
   const goods: LumpGoods = {
     mode,
     costLineId: gt?.id ?? null,
@@ -157,7 +165,7 @@ export function lumpStateFromLines(
     const name = key === "other" ? `「${line.description}」` : `「${LUMP_ITEM_SPEC[key].labelZh}」`;
     if (line.included && kind === "amount") fxr.note(line);
     const stored = kind === "amount" ? num(line.unitCost) : num(line.rate);
-    if (!line.included && stored != null) notices.push(`${name}设成了不计入（库里记着 ${kind === "amount" ? fmtAmt(stored) : `${fmtAmt(stored)}%`}），这里按没填显示；要计入请重新填`);
+    if (!line.included && stored != null) notices.push(`${name}在专业模式里设成了不计入（原来填的是 ${kind === "amount" ? formatMoneyZh(stored, line.sourceCurrency) : `${fmtAmt(stored)}%`}），这里按没填显示；要计入请在这里重新填`);
     if (key !== "other") {
       const expected = lumpItemDescriptionZh(key, kind, null);
       if (line.description !== expected) notices.push(`「${LUMP_ITEM_SPEC[key].labelZh}」的说明在专业模式里改成了「${line.description}」，在这里保存时会改回「${expected}」`);
@@ -178,7 +186,7 @@ export function lumpStateFromLines(
   const presets = readPresets(idx.preset, notices);
   notices.push(...fxr.conflictNotices());
   notices.push(...othersFxNotices(idx.others.map((o) => o.line), fxr.fx));
-  if (quote.pricingMethod !== "MARGIN_ON_REVENUE") notices.push(LUMP_MARKUP_NOTE_ZH);
+  // 定价方式改过的说明只在定价一行显示一次（编辑器），不进顶部提示
   const engine = engineConfigSchema.safeParse(quote.engineJson ?? {});
   const tax = engine.success ? engine.data.tax : undefined;
 
@@ -206,7 +214,7 @@ function fxOf(fx: Record<string, FxEntry>, currency: string): { fxRate: number |
   return { fxRate: e?.rate ?? null, fxRateSource: e?.source ?? null };
 }
 
-function goodsTotalWrite(state: LumpState, existing: DbCostLine | null): LumpWrite {
+function goodsTotalWrite(state: LumpState, existing: DbCostLine | null, otherGoodsTotalIncluded = false): LumpWrite {
   const g = state.goods;
   const meta: LumpMeta = { v: 1, role: "lump", key: "goods_total", evidenceKind: g.inquiryItemId ? null : g.evidenceKind, inquiryItemId: g.inquiryItemId };
   return {
@@ -226,8 +234,9 @@ function goodsTotalWrite(state: LumpState, existing: DbCostLine | null): LumpWri
     supplierId: g.supplierId,
     supplierName: g.supplierName,
     source: g.inquiryItemId ? "询价回复" : g.evidenceKind ? LINE_EVIDENCE_LABELS_ZH[g.evidenceKind] : null,
-    // 明细模式：总数留着、不计入（D6）；填总数模式：计入（空着 = 未定价，由引擎提示）
-    included: g.mode === "total",
+    // 明细模式：总数留着、不计入（D6）；填总数模式：计入（空着 = 未定价，由引擎提示）。
+    // 其它成本行里已有一条计入的货品总数（专业模式改了它的算法）时，这里空着就不计入，免得货品算两遍或凭空多一条未定价
+    included: g.mode === "total" && !(g.amount == null && otherGoodsTotalIncluded),
     notes: g.notes,
     metadata: mergeLumpMeta(existing?.metadata ?? null, meta),
   };
@@ -282,7 +291,7 @@ export function lumpStateToWrites(state: LumpState, current: readonly DbCostLine
   const idx = indexLumpLines(current);
   const out: LumpWrites = { updates: [], creates: [], deleteIds: [] };
 
-  const gt = goodsTotalWrite(state, idx.goodsTotal);
+  const gt = goodsTotalWrite(state, idx.goodsTotal, idx.otherGoodsTotalIncluded);
   if (idx.goodsTotal) out.updates.push({ id: idx.goodsTotal.id, data: gt });
   else out.creates.push(gt);
 

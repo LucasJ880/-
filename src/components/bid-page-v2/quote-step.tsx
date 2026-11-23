@@ -52,9 +52,9 @@ export const QUOTE_STEP_TEXT = {
   askHow: "这个标怎么交价？",
   lineOption: "逐行报价（招标方有价格表，每行填单价）",
   lumpOption: "只报总价（招标方只要一个总价：货值、海运、关税、安装、税等拼成）",
-  lumpStandingOffer: "长期供货协议按分级单价报，只报总价管不了，在专业模式里做，建好后会打开专业模式",
+  lumpStandingOffer: "长期供货协议按分级单价报价，只报总价做不了；建好后会打开专业模式，在那里做",
   askBusiness: "业务类型",
-  proModeOnly: "供货加安装、长期供货协议在专业模式里做，建好后会打开专业模式",
+  proModeOnly: "供货加安装、长期供货协议在专业模式里做，建好后会打开专业模式（供货加安装也可以改选「只报总价」）",
   proMode: "专业模式",
   openInProMode: "在专业模式里打开",
   openLineInProMode: "用专业模式打开",
@@ -80,7 +80,7 @@ export const QUOTE_STEP_TEXT = {
   toLump: "转成只报总价",
   toLumpConfirm: "转成只报总价：货品各行留作货品明细；海运费（柜数 × 每柜）换成一个金额，报关费、国内运费、关税照搬成总价表的同名项；合计不变，以后能再转回逐行报价。确定？",
   convertDirty: "有修改还没保存：先保存或放弃修改，再转换",
-  fromLump: "从只报总价转来的项（照样计入，在这里不改）",
+  fromLump: "从只报总价转来的项（照样计入；这里改不了，要改请转回只报总价或在专业模式里改）",
 } as const;
 
 /** 锁定的报价：带上状态名（「已定」在这一页指「定为我方报价」，已批准但没选上的也锁着） */
@@ -630,10 +630,10 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted
           {proOthers.map((o) => `${o.description}${o.included ? `（${money(o.amount)}）` : "（不计入）"}`).join("、")}。标了金额的已算进上面的报价合计和成本合计。
         </Note>
       ) : null}
-      {lumpOthers.some((o) => o.included) ? (
+      {lumpOthers.length > 0 ? (
         <Note testId="line-from-lump">
           {QUOTE_STEP_TEXT.fromLump}：
-          {lumpOthers.filter((o) => o.included).map((o) => `${o.description}（${money(o.amount)}）`).join("、")}。已算进上面的报价合计和成本合计。
+          {lumpOthers.map((o) => `${o.description}${o.included ? `（${money(o.amount)}）` : "（不计入）"}`).join("、")}。标了金额的已算进上面的报价合计和成本合计。
         </Note>
       ) : null}
 

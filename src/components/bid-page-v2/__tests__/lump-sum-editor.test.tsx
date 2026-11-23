@@ -9,7 +9,8 @@ import { join } from "node:path";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
-import { LUMP_ITEM_SPEC, addableKeys, emptyLumpItem, type LumpState, type LumpView } from "@/lib/bid-page-v2/lump-sum/contract";
+import { LUMP_ITEM_SPEC, LUMP_MARKUP_NOTE_ZH, addableKeys, emptyLumpItem, type LumpState, type LumpView } from "@/lib/bid-page-v2/lump-sum/contract";
+import { ALGO_CHANGED_REASON_ZH } from "@/lib/bid-page-v2/lump-sum/mapping";
 import { LUMP_TEXT, LUMP_TOTAL_LABELS, LumpSumEditor } from "../lump-sum-editor";
 import { QUOTE_STEP_TEXT } from "../quote-step";
 
@@ -75,7 +76,7 @@ console.log("\n━━━ 2. 默认填法与基数说明 ━━━");
   const s = { ...freshState(), items: [...freshState().items, emptyLumpItem("contingency"), emptyLumpItem("bond"), emptyLumpItem("installation")] };
   ok(emptyLumpItem("contingency").kind === "percent" && emptyLumpItem("bond").kind === "percent" && emptyLumpItem("installation").kind === "amount", "预备金、保函默认是比例，安装是金额");
   const html = render(<LumpSumEditor projectId="p1" view={viewOf({}, s)} onSaved={noop} onClose={noop} />);
-  ok(html.includes("不含按比例算的关税") && html.includes("按税前报价的比例（会进定价的分母）") && html.includes('aria-label="安装金额"'), "比例一格旁写明基数含什么（预备金按直接成本、不含按比例算的关税；保函按税前报价）", null);
+  ok(html.includes("不含按比例算的关税") && html.includes("按税前报价的比例（税前报价会相应抬高") && html.includes('aria-label="安装金额"'), "比例一格旁写明基数含什么（预备金按直接成本、不含按比例算的关税；保函按税前报价）", null);
 }
 
 console.log("\n━━━ 3. 六个数与算式（验收 3） ━━━");
@@ -88,7 +89,9 @@ console.log("\n━━━ 3. 六个数与算式（验收 3） ━━━");
   ok(!html.includes("成本合计 ÷"), "不写「成本合计 ÷（1 − 毛利率）」");
   ok(html.includes("= 60,000.00 加元") && html.includes("= 40,000.00 加元"), "每项旁写引擎算出的金额");
   const markup = render(<LumpSumEditor projectId="p1" view={viewOf({ quote: { ...v.quote, pricingMethod: "MARKUP_ON_COST" }, computed: { ...(v.computed as Extract<LumpView["computed"], { ok: true }>), formula: null } }, s)} onSaved={noop} onClose={noop} />);
-  ok(!markup.includes('data-testid="lump-formula"') && markup.includes("请先填目标毛利率"), "定价方式改成成本加成：没有算式，写着要先填目标毛利率");
+  ok(!markup.includes('data-testid="lump-formula"') && count(markup, new RegExp(LUMP_MARKUP_NOTE_ZH.slice(0, 20), "g")) === 1 && LUMP_MARKUP_NOTE_ZH.includes("填上目标毛利率再保存"), "定价方式改成成本加成：没有算式，写着要先填目标毛利率（只说一次）");
+  const pricing = html.slice(html.indexOf('data-testid="lump-pricing"'), html.indexOf('data-testid="lump-table"'));
+  ok(pricing.includes('aria-label="目标毛利率"') && pricing.includes("税前报价 1,200,000.00 = 900,000.00") && !html.slice(html.indexOf('data-testid="lump-presets"')).includes('aria-label="目标毛利率"'), "定价一行：目标毛利率与六个数、算式在一处（不在预置框里）");
   const err = render(<LumpSumEditor projectId="p1" view={viewOf({ computed: { ok: false, errorsZh: ["有外币的项还没填汇率：在汇率里填上（1 原币 = 多少加元）"] } }, { ...s, items: [{ ...s.items[0], amount: 8000, currency: "USD" }], fx: { USD: { rate: null, source: null } } })} onSaved={noop} onClose={noop} />);
   ok(err.includes("还算不出报价") && err.includes("汇率") && !err.includes("1,200,000.00") && err.includes("美元（USD）"), "海运费 8,000 美元没填汇率：不显示结果，写着要填美元汇率、有美元汇率格");
   const empty = render(<LumpSumEditor projectId="p1" view={viewOf()} onSaved={noop} onClose={noop} />);
@@ -98,12 +101,12 @@ console.log("\n━━━ 3. 六个数与算式（验收 3） ━━━");
 console.log("\n━━━ 4. 货品明细、其它成本行、锁定 ━━━");
 {
   const s: LumpState = { ...freshState(), goods: { ...freshState().goods, mode: "detail", amount: 999 }, details: [{ costLineId: "d1", description: "合成卷帘 A", quantity: 5, uom: "Each", packCount: null, basis: "PER_TENDER_UOM", unitPrice: 100, currency: "CAD", evidenceKind: "ESTIMATE", inquiryItemId: null, supplierId: null, supplierName: null, rowSource: "manual" }, { costLineId: "d2", description: "合成配件 B", quantity: 20, uom: "Box", packCount: 10, basis: "PER_PIECE", unitPrice: 3, currency: "CAD", evidenceKind: "ESTIMATE", inquiryItemId: null, supplierId: null, supplierName: null, rowSource: "manual" }] };
-  const v = viewOf({ computed: { ok: true, totals: { estimatedCost: 1100, sellingPrice: 1375, salesTax: 0, totalWithTax: 1375, grossProfit: 275, grossMarginPct: 20 }, formula: null, amountById: { d1: 500, d2: 600 }, goodsAmount: 1100, warnings: [] }, others: [{ id: "o1", description: "合成仓储费", category: "WAREHOUSING", amount: 300, included: true, fromLump: false, reasonZh: null }, { id: "o2", description: "海运费", category: "FREIGHT", amount: 8000, included: true, fromLump: true, reasonZh: "在专业模式里改了算法，这里不再管它（照样计入）" }], convertToLine: { available: true } }, s);
+  const v = viewOf({ computed: { ok: true, totals: { estimatedCost: 1100, sellingPrice: 1375, salesTax: 0, totalWithTax: 1375, grossProfit: 275, grossMarginPct: 20 }, formula: null, amountById: { d1: 500, d2: 600 }, goodsAmount: 1100, warnings: [] }, others: [{ id: "o1", description: "合成仓储费", category: "WAREHOUSING", amount: 300, included: true, fromLump: false, reasonZh: null }, { id: "o2", description: "海运费", category: "FREIGHT", amount: 8000, included: true, fromLump: true, reasonZh: ALGO_CHANGED_REASON_ZH }], convertToLine: { available: true } }, s);
   const html = render(<LumpSumEditor projectId="p1" view={v} onSaved={noop} onClose={noop} />);
   ok(html.includes('data-testid="lump-details"') && count(html, /data-testid="lump-detail-row"/g) === 2 && html.includes("明细合计 1,100.00 加元") && html.includes(LUMP_TEXT.collapse) && html.includes("按件（× 10）"), "展开成明细：明细两行（按件那行带口径）、明细合计、「改回填一个总数」");
-  ok(html.includes("另有 2 条其它成本行") && html.includes("合成仓储费（300.00 加元）——在专业模式里加的") && html.includes("在专业模式里改了算法，这里不再管它（照样计入）"), "其它成本行：列出金额与来历（专业模式加的 / 改了算法的）");
+  ok(html.includes("另有 2 条其它成本行（这张表不管，按专业模式里的设置计算）") && html.includes("合成仓储费（300.00 加元）：在专业模式里加的；") && html.includes("海运费（8,000.00 加元）：在专业模式里改了类别或算法，这张表不再管它") && html.includes("标了金额的已算进上面的成本合计和税前报价"), "其它成本行：列出金额与来历（专业模式加的 / 改了类别或算法的），各项用「；」分开");
   const src = read("src/components/bid-page-v2/lump-sum-editor.tsx");
-  ok(/window\.confirm\(`会删掉 \$\{state\.details\.length\} 条明细，确定？`\)/.test(src) && /details: \[\] \}\)\)/.test(src), "改回填总数：先问「会删掉 N 条明细，确定？」，确定后明细清空（总数留着）");
+  ok(/window\.confirm\(`会删掉 \$\{state\.details\.length\} 行明细，原来留着的总数回到框里并计入，确定？`\)/.test(src) && /goods: \{ \.\.\.s\.goods, mode: "total" \}, details: \[\] \}\)\)/.test(src), "改回填总数：先问「会删掉 N 行明细，原来留着的总数回到框里并计入，确定？」，确定后明细清空、总数（留着的那个数）回到框里");
   const frozen = render(<LumpSumEditor projectId="p1" view={viewOf({ quote: { ...v.quote, status: "approved", frozen: true } }, s)} onSaved={noop} onClose={noop} />);
   ok(frozen.includes("这份报价「已批准」，内容锁定") && !frozen.includes('data-testid="lump-save"') && !frozen.includes('data-testid="lump-add"'), "已批准：写明锁定，没有保存与添加一项");
   const ro = render(<LumpSumEditor projectId="p1" view={viewOf({ capabilities: { canEdit: false, canApprove: false } })} onSaved={noop} onClose={noop} />);

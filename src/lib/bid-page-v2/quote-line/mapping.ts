@@ -495,7 +495,7 @@ export function costLinesToState(
     }
     if (lumpSame.has(key)) {
       const tail = key === "ocean_freight" ? "不要再在这里填柜数" : key === "duty" ? "不要再在这里填关税率" : "不要再在这里填一遍";
-      notices.push(`${SHARED_SHORT_ZH[key]}按金额算在下面「从只报总价转来的项」里（照样计入），${tail}`);
+      notices.push(`「${SHARED_SHORT_ZH[key]}」按金额算在下面「从只报总价转来的项」里（照样计入），${tail}，否则会算两遍`);
     }
   }
   // 海运按柜：引擎算的是 数量（缺省 1）× 柜数 × 每柜；专业模式里改了「数量」时，这里按两者相乘读成柜数，保存后金额不变
