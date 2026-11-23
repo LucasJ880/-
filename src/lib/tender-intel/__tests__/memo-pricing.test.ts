@@ -20,16 +20,14 @@ import {
   buildMemoPricingAnalysis,
   isNoCostMemo,
   legacyRfiWithheldNoteZh,
-  looksCostRelated,
   memoCompetitorPrice,
-  normalizeForCostCheck,
   placeholderToNull,
   redactLegacyMemo,
 } from "../memo-pricing";
 import { buildRfiItems, renderRfiHtml } from "../../projects/generate/rfi-export";
 import { BID_STRATEGY_MEMO_PROMPT, BID_STRATEGY_MEMO_VERSION, synthesizeBidStrategyMemo } from "../strategy";
 import type { LlmCallRequest, LlmInvoker } from "../../tender-understanding/llm";
-import { LEGACY_PROBES } from "./fixtures/legacy-memo-probes";
+import { LEGACY_PROBES, REVIEW_COST_PROBES } from "./fixtures/legacy-memo-probes";
 
 let passed = 0;
 let failed = 0;
@@ -188,28 +186,31 @@ async function main() {
     ok("v2：评分演算、报价策略置空，带标记", r.scoringAnalysisZh === "" && r.pricingStrategyZh === "" && r.legacyCostRedacted === true);
     ok("v2：摘要与每条风险门依据整段换成短句（不看字眼）", r.summaryZh === LEGACY_MEMO_REDACTED_ZH && r.riskGates.every((g) => g.basisZh === LEGACY_MEMO_REDACTED_ZH) && LEGACY_MEMO_REDACTED_ZH === "（内容涉及成本，已隐藏）");
     ok("v2：竞争格局、teaming、数据缺口与每条风险门名称也整段换掉（不看字眼）；风险门状态照旧；版本等结构化字段照旧", r.competitiveLandscapeZh === LEGACY_MEMO_REDACTED_ZH && r.teamingAdviceZh === LEGACY_MEMO_REDACTED_ZH && r.dataGapsZh === LEGACY_MEMO_REDACTED_ZH && r.riskGates.every((g) => g.gateZh === LEGACY_MEMO_REDACTED_ZH) && r.riskGates.map((g) => g.statusZh).join() === "需解决,高风险" && r.version === legacy.version && r.label === "AI_INFERRED", r);
-    ok("v2：碰到的 RFI 整条去掉（对象与字符串都算），记下去掉几条；留下的 RFI 理由去掉（null）", r.strategicRfis.length === 1 && (r.strategicRfis[0] as { questionZh: string }).questionZh === "请确认交货地点" && (r.strategicRfis[0] as { whyZh: unknown }).whyZh === null && !JSON.stringify(r).includes("影响运输") && r.legacyRfisRemoved === 2);
+    ok("v2：RFI 一律不列入（对象与字符串都算），记下原来有几条；理由与问题都不出", r.strategicRfis.length === 0 && r.legacyRfisRemoved === 3 && !JSON.stringify(r).includes("影响运输") && !JSON.stringify(r).includes("请确认交货地点"), r);
     const probes = ["底线是多少", "保本价", "盈亏平衡", "低于这个价会亏", "落地价偏高", "进价太高", "加价空间", "加成 10", "我们的报价偏高", "我司报的价", "利潤偏低", "底線", "盈虧", "落地價", "profit is thin", "Markup is low", "price FLOOR", "Landed cost", "不低于 CAD 114,881", "约 98000", "让价 7.5%", "让价 8％", "$95k 起"];
-    const missed = probes.filter((p) => !looksCostRelated(p));
-    ok("探针：成本类字眼（简繁、英文不分大小写）与像金额 / 百分比的数字都算", missed.length === 0, missed);
+
+
     const viaField = probes.filter((p) => (redactLegacyMemo({ ...legacy, competitiveLandscapeZh: p }) as typeof legacy).competitiveLandscapeZh !== LEGACY_MEMO_REDACTED_ZH);
     ok("探针放进竞争格局：每一句都整段换掉", viaField.length === 0, viaField);
     const viaRfi = probes.filter((p) => (redactLegacyMemo({ ...legacy, strategicRfis: [{ questionZh: p, whyZh: "x" }] }) as typeof legacy).strategicRfis.length !== 0);
     ok("探针放进 RFI：每一条都去掉", viaRfi.length === 0, viaRfi);
-    ok("不碰成本、没有金额的话不算", ["请确认交货地点", "现任是 Fixture Incumbent", "需提供 3 份推荐信", "请确认交货期是否为 30 天", "Please confirm the delivery address.", "是否接受 4K 显示器", "请千万确认截标时间", "评分是否按 70/30 计"].every((t) => !looksCostRelated(t)), ["请确认交货地点", "需提供 3 份推荐信", "请确认交货期是否为 30 天", "Please confirm the delivery address.", "是否接受 4K 显示器", "请千万确认截标时间", "评分是否按 70/30 计"].filter((t) => looksCostRelated(t)));
-    // 每条规则单独一句（句子里只碰这一条），去掉任一条规则这里就失败
-    const singleRule = ["亏损", "虧損", "进货", "進貨", "采购价", "採購價", "供应商报价", "供應商的報價", "盈利", "赚", "賺", "让利", "讓利", "让价", "讓價", "下限", "bottom line", "mark-up", "markup", "COGS", "the GP is thin", "我方报价", "我方的报价", "我们报价", "我們報價", "$95", "C$95", "共 87654", "6 万", "6 萬", "61 元", "95k", "1.2k", "5 dollars", "十一万", "捌万", "伍佰", "百分之十五", "8 个百分点", "十二个点", "几個點", "18%", "18 pts", "18 bps", "18 percent"];
-    ok("每条规则单独一句都算", singleRule.every((t) => looksCostRelated(t)), singleRule.filter((t) => !looksCostRelated(t)));
-    ok("GP 区分大小写、整词", looksCostRelated("GP") && !looksCostRelated("gp") && !looksCostRelated("GPS 定位"));
-    ok("判断前的归一：全角转半角，数字里的空格、千分位逗号与三位一组的点去掉，小数不动", normalizeForCostCheck("８７６５４") === "87654" && normalizeForCostCheck("约 87 654 加元") === "约 87654 加元" && normalizeForCostCheck("87,654") === "87654" && normalizeForCostCheck("87.654") === "87654" && normalizeForCostCheck("１８％") === "18%" && normalizeForCostCheck("9.6 万") === "9.6 万");
+
+
+
+
+
+
     const v3 = { ...legacy, version: "tender-bid-strategy-memo/v3" };
-    ok("v3：原样（同一个对象）", redactLegacyMemo(v3) === v3 && isNoCostMemo(v3) && !isNoCostMemo(legacy));
-    ok("没有版本号的按旧版处理；不是对象原样", (redactLegacyMemo({ summaryZh: "x" }) as Record<string, unknown>).legacyCostRedacted === true && redactLegacyMemo(null) === null && redactLegacyMemo("x") === "x");
+    ok("v3：原样（同一个对象），RFI 照旧留下", redactLegacyMemo(v3) === v3 && isNoCostMemo(v3) && !isNoCostMemo(legacy) && (redactLegacyMemo(v3) as typeof legacy).strategicRfis.length === 3);
+    // 版本判定逐字相等：前缀、子串、尾空格、大小写变体都按旧版处理（改成子串 / 前缀匹配时这条失败）
+    const lookalikes = ["tender-bid-strategy-memo/v3-draft", "tender-bid-strategy-memo/v30", "tender-bid-strategy-memo/v3 ", " tender-bid-strategy-memo/v3", "TENDER-BID-STRATEGY-MEMO/V3", "Tender-Bid-Strategy-Memo/v3", "x/tender-bid-strategy-memo/v3", "tender-bid-strategy-memo/v"];
+    ok("像 v3 的版本号都按旧版处理", lookalikes.every((v) => !isNoCostMemo({ version: v }) && (redactLegacyMemo({ ...legacy, version: v }) as { legacyCostRedacted?: boolean; strategicRfis: unknown[] }).legacyCostRedacted === true && (redactLegacyMemo({ ...legacy, version: v }) as { strategicRfis: unknown[] }).strategicRfis.length === 0), lookalikes.filter((v) => isNoCostMemo({ version: v })));
+    ok("没有版本号的按旧版处理；空值原样；不是对象的（数组、字符串、数字）不出（null）", (redactLegacyMemo({ summaryZh: "x" }) as Record<string, unknown>).legacyCostRedacted === true && redactLegacyMemo(null) === null && redactLegacyMemo(undefined) === undefined && redactLegacyMemo("成本 87654") === null && redactLegacyMemo(["成本 87654"]) === null && redactLegacyMemo(87654) === null);
     ok("交给模型的地方：短句换成 null", placeholderToNull(LEGACY_MEMO_REDACTED_ZH) === null && placeholderToNull("与本地分包商合作") === "与本地分包商合作" && placeholderToNull(undefined) === null);
     ok("固定文字", LEGACY_MEMO_CARD_NOTE_ZH === "旧版备忘可能写了我方成本或毛利，部分内容已隐藏。有编辑权限的成员可在本页上方「历史授标检索」点「立即检索外部情报」生成新版，完成后刷新页面。" && LEGACY_MEMO_PRICING_LINE_ZH === "报价策略：已隐藏（旧版）" && MEMO_COST_POINTER_ZH === "成本与毛利情景见工作台「报价表助手」（需要财务查看权）。" && LEGACY_MEMO_WORKBENCH_ZH === "旧版策略备忘可能写了我方成本或毛利，摘要已隐藏；到情报页点「立即检索外部情报」生成新版。" && legacyRfiWithheldNoteZh(2) === "旧版策略备忘里有 2 条问题可能涉及我方成本，未列入；重新检索外部情报后再导出可补齐。");
   }
 
-  console.log("旧版备忘：33 句探针 × 6 个位置（交叉验证 F1）");
+  console.log("旧版备忘：33 + 48 句探针 × 6 个位置（交叉验证 F1、独立复核 B1）");
   {
     const P = LEGACY_MEMO_REDACTED_ZH;
     const base = {
@@ -242,19 +243,23 @@ async function main() {
       const html = renderRfiHtml({ projectName: "Fixture", tenderNumber: null, buyer: null, questionDeadline: null, closing: null, submitChannel: null, generatedAt: "2026-11-20 10:00", items: buildRfiItems({ memoRfis: r.strategicRfis, synthesisClarifications: [] }), withheldMemoRfis: r.legacyRfisRemoved ?? 0 });
       return { r, out: `${JSON.stringify(r)}\n${html}` };
     };
+    const ALL_PROBES = [...LEGACY_PROBES, ...REVIEW_COST_PROBES];
     const leaked: string[] = [];
-    for (const probe of LEGACY_PROBES) for (const pos of POSITIONS) if (surfaces(place(pos, probe)).out.includes(probe)) leaked.push(`${pos}: ${probe}`);
-    ok(`${LEGACY_PROBES.length} 句探针放进 ${POSITIONS.length} 个位置：情报页签返回的备忘与澄清问题文件里一句都不出现`, LEGACY_PROBES.length === 33 && leaked.length === 0, leaked);
-    ok("33 句探针放进 RFI 问题：每一条都去掉、计数，干净的那条留下（理由为 null）", LEGACY_PROBES.every((probe) => { const r = surfaces(place("rfiQ", probe)).r; return r.legacyRfisRemoved === 1 && r.strategicRfis.length === 1 && JSON.stringify(r.strategicRfis[0]) === JSON.stringify({ questionZh: "请确认交货地点", whyZh: null }); }), LEGACY_PROBES.filter((probe) => surfaces(place("rfiQ", probe)).r.legacyRfisRemoved !== 1));
+    for (const probe of ALL_PROBES) for (const pos of POSITIONS) if (surfaces(place(pos, probe)).out.includes(probe)) leaked.push(`${pos}: ${probe}`);
+    ok(`${LEGACY_PROBES.length} + ${REVIEW_COST_PROBES.length} 句探针放进 ${POSITIONS.length} 个位置：情报页签返回的备忘与澄清问题文件里一句都不出现`, LEGACY_PROBES.length === 33 && REVIEW_COST_PROBES.length === 48 && leaked.length === 0, leaked);
+    ok("探针放进 RFI 问题：连同同一份里干净的那条一起不列入，条数计对（2）", ALL_PROBES.every((probe) => { const r = surfaces(place("rfiQ", probe)).r; return r.legacyRfisRemoved === 2 && r.strategicRfis.length === 0; }), ALL_PROBES.filter((probe) => surfaces(place("rfiQ", probe)).r.legacyRfisRemoved !== 2));
     // 整段替换不看内容：放干净的话也要换掉（去掉任一段的整段替换，这几条会失败）
     const clean = "与本地分包商合作，交付地点在 Ottawa";
     for (const pos of ["competitiveLandscapeZh", "teamingAdviceZh", "dataGapsZh"] as const) ok(`${pos}：干净的话也整段换掉`, (surfaces(place(pos, clean)).r as Record<string, unknown>)[pos] === P);
     ok("风险门名称：干净的名称也换掉，状态照旧", (() => { const g = surfaces(place("gateZh", clean)).r.riskGates[0]; return g.gateZh === P && g.basisZh === P && g.statusZh === "需解决"; })());
-    ok("RFI 理由：干净的理由也去掉（null），问题留下", (() => { const r = surfaces(place("rfiWhy", clean)).r; return r.strategicRfis.length === 1 && r.strategicRfis[0].whyZh === null && r.strategicRfis[0].questionZh === "请确认交货地点" && r.legacyRfisRemoved === 0; })());
+    ok("RFI：问题与理由都干净也不列入，条数计对（1）；澄清问题文件提交表外写明 1 条", (() => { const { r, out } = surfaces(place("rfiWhy", clean)); return r.strategicRfis.length === 0 && r.legacyRfisRemoved === 1 && !out.includes("请确认交货地点") && !out.includes(clean) && out.includes(legacyRfiWithheldNoteZh(1)) && out.includes("暂无可提交的问题。"); })());
     const keep = redactLegacyMemo({ ...base, strategicRfis: [{ questionZh: "请确认交货地点", whyZh: "影响运输" }, "请确认是否需要提供 3 份推荐信", { questionZh: "Please confirm the delivery address.", whyZh: "x" }] }) as Legacy;
-    ok("干净的 RFI 问题都留下（规则不会把正当问题全删）", keep.legacyRfisRemoved === 0 && JSON.stringify(keep.strategicRfis) === JSON.stringify([{ questionZh: "请确认交货地点", whyZh: null }, "请确认是否需要提供 3 份推荐信", { questionZh: "Please confirm the delivery address.", whyZh: null }]), keep.strategicRfis);
+    ok("旧版的 RFI 全部不列入、条数计对（正当问题也不列入，等重新检索后补齐）", keep.legacyRfisRemoved === 3 && keep.strategicRfis.length === 0, keep);
+    const v3m = { ...base, version: "tender-bid-strategy-memo/v3", strategicRfis: [{ questionZh: "请确认交货地点", whyZh: "影响运输" }, { questionZh: "请确认是否需要提供 3 份推荐信", whyZh: "资格要求" }] };
+    const v3html = renderRfiHtml({ projectName: "Fixture", tenderNumber: null, buyer: null, questionDeadline: null, closing: null, submitChannel: null, generatedAt: "2026-11-20 10:00", items: buildRfiItems({ memoRfis: (redactLegacyMemo(v3m) as Legacy).strategicRfis, synthesisClarifications: [] }), withheldMemoRfis: (redactLegacyMemo(v3m) as Legacy).legacyRfisRemoved ?? 0 });
+    ok("v3 的 RFI 原样留下：问题与理由都进澄清问题文件，不写内部说明", v3html.includes("请确认交货地点") && v3html.includes("影响运输") && v3html.includes("请确认是否需要提供 3 份推荐信") && v3html.includes("资格要求") && !v3html.includes("旧版策略备忘里有"));
     const odd = redactLegacyMemo({ ...base, legacyRfisRemoved: 99, extraNoteZh: "成本 87654", nullField: null, competitiveLandscapeZh: ["成本 87654"], riskGates: ["成本底线 87654", { gateZh: "价格", statusZh: "高风险：低于成本 87654", basisZh: "b" }, { gateZh: "保险", statusZh: "已满足", basisZh: "b" }], strategicRfis: [{ whyZh: "成本 87654" }, "   ", 42] }) as Record<string, unknown> & Legacy;
-    ok("形状不对的也不漏：字符串风险门丢掉、非取值的状态换掉、数组形式的段落换掉、别的字段换掉、空值照旧、标记重算、没有问题文字的 RFI 丢掉", !JSON.stringify(odd).includes("87654") && odd.riskGates.length === 2 && odd.riskGates[0].statusZh === P && odd.riskGates[1].statusZh === "已满足" && odd.competitiveLandscapeZh === P && odd.extraNoteZh === P && odd.nullField === null && odd.legacyRfisRemoved === 0 && odd.strategicRfis.length === 0 && odd.model === "fixture" && odd.generatedAt === base.generatedAt, odd);
+    ok("形状不对的也不漏：字符串风险门丢掉、非取值的状态换掉、数组形式的段落换掉、别的字段换掉、空值照旧、标记重算、RFI 不论形状都不列入并计数", !JSON.stringify(odd).includes("87654") && odd.riskGates.length === 2 && odd.riskGates[0].statusZh === P && odd.riskGates[1].statusZh === "已满足" && odd.competitiveLandscapeZh === P && odd.extraNoteZh === P && odd.nullField === null && odd.legacyRfisRemoved === 3 && odd.strategicRfis.length === 0 && odd.model === "fixture" && odd.generatedAt === base.generatedAt, odd);
     const noArrays = redactLegacyMemo({ version: "tender-bid-strategy-memo/v2", summaryZh: "x", riskGates: "成本 87654", strategicRfis: "成本 87654" }) as Legacy;
     ok("风险门与 RFI 不是数组时当作空数组", Array.isArray(noArrays.riskGates) && noArrays.riskGates.length === 0 && Array.isArray(noArrays.strategicRfis) && noArrays.strategicRfis.length === 0 && !JSON.stringify(noArrays).includes("87654"));
   }

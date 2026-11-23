@@ -48,7 +48,7 @@ async function main() {
   const workbench = await import("@/app/api/projects/[id]/workbench-summary/route");
   const { gatherBidDraftInputs } = await import("@/lib/tender-bid-draft/gather");
   const { LEGACY_MEMO_REDACTED_ZH, LEGACY_MEMO_WORKBENCH_ZH } = await import("@/lib/tender-intel/memo-pricing");
-  const { LEGACY_PROBES } = await import("./fixtures/legacy-memo-probes");
+  const { LEGACY_PROBES, REVIEW_COST_PROBES } = await import("./fixtures/legacy-memo-probes");
 
   console.log("CHAIN-2d legacy memo redaction — isolated DB");
   const stamp = Date.now().toString(36);
@@ -104,11 +104,11 @@ async function main() {
     const ahOld = await getJson(awardHistory, `/api/projects/${pOld}/external-intel/award-history`, pOld, VIEWER);
     const mOld = rec(ahOld.json.bidStrategyMemo);
     const oldRfis = (mOld.strategicRfis as Array<Rec>) ?? [];
-    ok(ahOld.status === 200 && mOld.legacyCostRedacted === true && mOld.scoringAnalysisZh === "" && mOld.pricingStrategyZh === "" && [mOld.summaryZh, mOld.competitiveLandscapeZh, mOld.teamingAdviceZh, mOld.dataGapsZh].every((v) => v === LEGACY_MEMO_REDACTED_ZH) && (mOld.riskGates as Array<Rec>).every((g) => g.gateZh === LEGACY_MEMO_REDACTED_ZH && g.basisZh === LEGACY_MEMO_REDACTED_ZH) && oldRfis.length === 1 && oldRfis[0].questionZh === "请确认交货地点" && oldRfis[0].whyZh === null && mOld.legacyRfisRemoved === 1, "情报页签：旧版备忘两段为空、带标记，其余自由文字整段换掉，RFI 理由为 null、碰到成本的问题去掉", mOld);
+    ok(ahOld.status === 200 && mOld.legacyCostRedacted === true && mOld.scoringAnalysisZh === "" && mOld.pricingStrategyZh === "" && [mOld.summaryZh, mOld.competitiveLandscapeZh, mOld.teamingAdviceZh, mOld.dataGapsZh].every((v) => v === LEGACY_MEMO_REDACTED_ZH) && (mOld.riskGates as Array<Rec>).every((g) => g.gateZh === LEGACY_MEMO_REDACTED_ZH && g.basisZh === LEGACY_MEMO_REDACTED_ZH) && oldRfis.length === 0 && mOld.legacyRfisRemoved === 2 && !ahOld.text.includes("请确认交货地点") && !ahOld.text.includes("影响运输"), "情报页签：旧版备忘两段为空、带标记，其余自由文字整段换掉，RFI 一律不列入（记 2 条）", mOld);
     ok(costHits(ahOld.text).length === 0, "情报页签：整个响应里搜不到成本、成本底价与毛利", costHits(ahOld.text));
     const ahNew = await getJson(awardHistory, `/api/projects/${pNew}/external-intel/award-history`, pNew, VIEWER);
     const mNew = rec(ahNew.json.bidStrategyMemo);
-    ok(ahNew.status === 200 && mNew.legacyCostRedacted === undefined && String(mNew.pricingStrategyZh).includes(FLOOR), "情报页签：v3 备忘原样给出", mNew);
+    ok(ahNew.status === 200 && mNew.legacyCostRedacted === undefined && String(mNew.pricingStrategyZh).includes(FLOOR) && JSON.stringify(((mNew.strategicRfis as Rec[]) ?? []).map((q) => [q.questionZh, q.whyZh])) === JSON.stringify(memo("tender-bid-strategy-memo/v3").strategicRfis.map((q) => [q.questionZh, q.whyZh])), "情报页签：v3 备忘原样给出（RFI 照旧留下）", mNew);
 
     // —— 工作台摘要 ——
     const wbOld = await getJson(workbench, `/api/projects/${pOld}/workbench-summary`, pOld, VIEWER);
@@ -122,19 +122,20 @@ async function main() {
     // —— 投标文件草稿的输入（交给起草模型的那一份）——
     const inputs = await gatherBidDraftInputs({ projectId: pOld, orgId: ORG, userId: OWNER });
     const inText = JSON.stringify(inputs?.memo ?? null);
-    ok(!!inputs?.memo && costHits(inText).length === 0 && !inText.includes(LEGACY_MEMO_REDACTED_ZH) && inputs.memo.summaryZh === null && inputs.memo.riskGates.length === 0 && inputs.memo.teamingAdviceZh === null && inputs.rfiCount === 1, "投标文件草稿的输入：旧版备忘裁剪后再交给起草模型——被隐藏的段落是 null、名称被隐藏的风险门不送、不送占位句，碰到成本的 RFI 不计", inputs?.memo);
+    ok(!!inputs?.memo && costHits(inText).length === 0 && !inText.includes(LEGACY_MEMO_REDACTED_ZH) && inputs.memo.summaryZh === null && inputs.memo.riskGates.length === 0 && inputs.memo.teamingAdviceZh === null && inputs.rfiCount === 0, "投标文件草稿的输入：旧版备忘裁剪后再交给起草模型——被隐藏的段落是 null、名称被隐藏的风险门不送、不送占位句，旧版 RFI 不计", inputs?.memo);
     const inputsNew = await gatherBidDraftInputs({ projectId: pNew, orgId: ORG, userId: OWNER });
     ok(inputsNew?.rfiCount === 2 && String(inputsNew?.memo?.summaryZh).includes(OUR_COST), "投标文件草稿的输入：v3 备忘原样");
 
-    // —— 交叉验证 F1：33 句探针分别放进 6 个位置，经三个真实读取处（情报页签、工作台摘要、草稿输入）都不出现 ——
-    const joined = LEGACY_PROBES.join("；");
+    // —— 交叉验证 F1 的 33 句 + 独立复核 B1 的 48 句探针分别放进 6 个位置，经三个真实读取处（情报页签、工作台摘要、草稿输入）都不出现 ——
+    const ALL_PROBES = [...LEGACY_PROBES, ...REVIEW_COST_PROBES];
+    const joined = ALL_PROBES.join("；");
     const placements: Array<[string, Rec]> = [
       ["竞争格局", { ...memo("tender-bid-strategy-memo/v2"), competitiveLandscapeZh: joined }],
       ["teaming", { ...memo("tender-bid-strategy-memo/v2"), teamingAdviceZh: joined }],
       ["数据缺口", { ...memo("tender-bid-strategy-memo/v2"), dataGapsZh: joined }],
-      ["风险门名称", { ...memo("tender-bid-strategy-memo/v2"), riskGates: LEGACY_PROBES.map((p) => ({ gateZh: p, statusZh: "需解决", basisZh: "b" })) }],
-      ["RFI 问题", { ...memo("tender-bid-strategy-memo/v2"), strategicRfis: [...LEGACY_PROBES.map((p) => ({ questionZh: p, whyZh: "x" })), { questionZh: "请确认交货地点", whyZh: "影响运输" }] }],
-      ["RFI 理由", { ...memo("tender-bid-strategy-memo/v2"), strategicRfis: LEGACY_PROBES.map((p, i) => ({ questionZh: `请确认第 ${i + 1} 批的交货地点`, whyZh: p })) }],
+      ["风险门名称", { ...memo("tender-bid-strategy-memo/v2"), riskGates: ALL_PROBES.map((p) => ({ gateZh: p, statusZh: "需解决", basisZh: "b" })) }],
+      ["RFI 问题", { ...memo("tender-bid-strategy-memo/v2"), strategicRfis: [...ALL_PROBES.map((p) => ({ questionZh: p, whyZh: "x" })), { questionZh: "请确认交货地点", whyZh: "影响运输" }] }],
+      ["RFI 理由", { ...memo("tender-bid-strategy-memo/v2"), strategicRfis: ALL_PROBES.map((p, i) => ({ questionZh: `请确认第 ${i + 1} 批的交货地点`, whyZh: p })) }],
     ];
     const probeLeaks: string[] = [];
     let rfiQKept: unknown = null;
@@ -145,14 +146,14 @@ async function main() {
       const wb = await getJson(workbench, `/api/projects/${pid}/workbench-summary`, pid, VIEWER);
       const dr = await gatherBidDraftInputs({ projectId: pid, orgId: ORG, userId: OWNER });
       for (const [reader, text] of [["情报页签", ah.text], ["工作台摘要", wb.text], ["草稿输入", JSON.stringify(dr ?? null)]] as const) {
-        for (const p of LEGACY_PROBES) if (text.includes(p)) probeLeaks.push(`${label} → ${reader}: ${p}`);
+        for (const p of ALL_PROBES) if (text.includes(p)) probeLeaks.push(`${label} → ${reader}: ${p}`);
       }
       if (label === "RFI 问题") rfiQKept = { rfis: rec(ah.json.bidStrategyMemo).strategicRfis, removed: rec(ah.json.bidStrategyMemo).legacyRfisRemoved, draftCount: dr?.rfiCount };
       if (label === "RFI 理由") rfiWhyCount = dr?.rfiCount ?? -1;
     }
-    ok(probeLeaks.length === 0, `33 句探针 × 6 个位置 × 3 个读取处：一句都不出现（${placements.length * 3} 份输出）`, probeLeaks.slice(0, 20));
-    ok(JSON.stringify(rfiQKept) === JSON.stringify({ rfis: [{ questionZh: "请确认交货地点", whyZh: null }], removed: 33, draftCount: 1 }), "RFI 问题里的 33 句都去掉并计数，干净的那条留下（理由为 null）", rfiQKept);
-    ok(rfiWhyCount === 33, "RFI 理由里的探针：问题干净的 33 条都留下（只去掉理由）", rfiWhyCount);
+    ok(ALL_PROBES.length === 81 && probeLeaks.length === 0, `33 + 48 句探针 × 6 个位置 × 3 个读取处：一句都不出现（${placements.length * 3} 份输出）`, probeLeaks.slice(0, 20));
+    ok(JSON.stringify(rfiQKept) === JSON.stringify({ rfis: [], removed: 82, draftCount: 0 }), "旧版 RFI 一律不列入：81 句探针连同干净的那条都不出，条数计对（82）", rfiQKept);
+    ok(rfiWhyCount === 0, "旧版 RFI 一律不列入：问题干净、理由是探针的 81 条也都不计", rfiWhyCount);
 
     ok(outbound === 0, "整个过程外部请求 0 次", outbound);
   } finally {
