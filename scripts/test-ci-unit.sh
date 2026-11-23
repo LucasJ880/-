@@ -484,6 +484,9 @@ npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
 # P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
 npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts
 
+# FIX-24：报价备注自动段防冒充——附件文件名 / 证据 / 币种不能变成回读字段（纯逻辑，无 DB / 无 AI）
+npx tsx src/lib/tender-rfq/__tests__/notes-forgery.test.ts
+
 # W-1：询价 Web 入口（纯逻辑，无 DB / 无 AI）
 npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts
 

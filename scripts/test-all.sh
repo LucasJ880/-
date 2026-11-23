@@ -675,6 +675,8 @@ run_test "招标询价 落地价归一化（币种/Incoterm/四项检查）" "np
 run_test "招标询价 比价矩阵+Muse 脱敏投影" "npx tsx src/lib/tender-rfq/__tests__/compare.test.ts"
 run_test "招标询价 比价解读数字校验（P1-6G）" "npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts"
 run_test "招标询价 [auto] 备注回读" "npx tsx src/lib/tender-rfq/__tests__/notes-parse.test.ts"
+run_test "招标询价 报价备注自动段防冒充（文件名 / 证据 / 币种，FIX-24）" "npx tsx src/lib/tender-rfq/__tests__/notes-forgery.test.ts"
+run_test "招标询价 FIX-24 只读核查 SQL 隔离库回归（种子逐条命中 / B 段与读取规则对照；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/prod-check-fix24-db.isolated.test.ts"
 run_test "招标询价 催单/追问决策与模板" "npx tsx src/lib/tender-rfq/__tests__/chase-pure.test.ts"
 run_test "招标询价 催单执行器（线程回复/bodyHash/mailboxEmail）" "npx tsx src/lib/tender-rfq/__tests__/chase-execute.test.ts"
 run_test "招标询价 Web 入口（入口状态/错误文案/状态行/耗时/预览白名单，W-1）" "npx tsx src/lib/tender-rfq/__tests__/web-entry-pure.test.ts"
