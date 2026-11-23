@@ -58,7 +58,7 @@ export const LUMP_TEXT = {
 
 export const LUMP_TOTAL_LABELS = ["成本合计", "税前报价", "销售税", "含税总价", "利润", "毛利率"] as const;
 
-const frozenZh = (status: string) => frozenNoteZh(status);
+const frozenZh = (status: string, canEdit = true) => frozenNoteZh(status, canEdit);
 const newDetail = (): LineRow => ({ costLineId: null, description: "", quantity: 1, uom: "Each", packCount: null, basis: "PER_TENDER_UOM", unitPrice: null, currency: "CNY", evidenceKind: null, inquiryItemId: null, supplierId: null, supplierName: null, rowSource: "manual" });
 const itemLabel = (it: Pick<LumpItem, "key">, i: number) => (it.key === "other" ? `其它（第 ${i + 1} 项）` : LUMP_ITEM_SPEC[it.key].labelZh);
 
@@ -229,6 +229,7 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
         </div>
 
         <QuoteActionBar
+          key={view.quote.id}
           projectId={projectId}
           quote={view.quote}
           capabilities={view.capabilities}
@@ -236,10 +237,10 @@ export function LumpSumEditor({ projectId, view, onSaved, onClose, onConverted =
           label="税前报价"
           sellingPrice={view.computed.ok ? view.computed.totals.sellingPrice : null}
           dirty={dirty}
-          unpricedCount={view.computed.ok ? view.computed.warnings.filter((w) => w.code === "LINE_UNPRICED").length : 0}
+          hasUnpriced={view.computed.ok && view.computed.warnings.some((w) => w.code === "LINE_UNPRICED")}
           onDone={onAction}
         />
-        {view.quote.frozen ? <Note>{frozenZh(view.quote.status)}</Note> : !view.capabilities.canEdit ? <Note>{LUMP_TEXT.readOnly}</Note> : null}
+        {view.quote.frozen ? <Note>{frozenZh(view.quote.status, view.capabilities.canEdit)}</Note> : !view.capabilities.canEdit ? <Note>{LUMP_TEXT.readOnly}</Note> : null}
         {view.notices.map((n) => (
           <Note key={n} tone="warn">
             {n}

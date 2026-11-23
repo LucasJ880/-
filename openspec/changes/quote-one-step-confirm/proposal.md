@@ -85,7 +85,7 @@ TASKFLOW：BIDPAGE-6（Phase F（续）— 标书与报价页改版；任务书 
 - `tender/quote-line-mode`：
   - 「专业模式入口」不再写「提交、批准在专业模式里做」；
   - 「按招标方价格表导出」不可用的原因改说在这一页定；
-  - 冻结提示改说「另起新版」。
+  - 锁定说明改说「另起新版」。
 - `tender/bid-page`：
   - 带金额的区块里「我方报价卡」换成「我方报价一行」；
   - `#bid-quote-<报价 id>` 落在 ②；
@@ -104,12 +104,12 @@ TASKFLOW：BIDPAGE-6（Phase F（续）— 标书与报价页改版；任务书 
   - `src/lib/quote-engine/service.ts`：抽出 `assertQuoteTransitionAllowed`、`applyQuoteTransitionTx`、`transitionAuditAction`，`transitionQuote` 调用它们。
   - 两份源码断言测试改成断言抽出后的结构：`quote-ops-contract.test.ts` B2-S4、`b3-ledger-producer.test.ts` 事务内位置。被断言的性质不变：同一事务、迁移前读修改时间、先改状态再写台账、同步失败回滚。
   - `src/lib/notifications/href.ts`：加一个对象类型 `bid_quote` → `/projects/{id}?tab=bid#bid-quote-{报价 id}`，只有新页面发的通知用它。
-  - `src/lib/bid-page-v2/quote-line/`：列表带我方报价一行、导出原因、冻结提示。
+  - `src/lib/bid-page-v2/quote-line/`：列表带我方报价一行、导出原因、锁定说明。
   - `src/components/bid-page-v2/`：
     - `bid-page-v2.tsx`：不挂我方报价卡、传刷新回调；
     - `bid-tab-entry.tsx`：给刷新回调；
     - `entry-mode.ts`：`#bid-quote-…` 落在 ②；
-    - `quote-step.tsx` / `lump-sum-editor.tsx`：主按钮代替专业模式链接、冻结提示、按地址打开报价。
+    - `quote-step.tsx` / `lump-sum-editor.tsx`：主按钮代替专业模式链接、锁定说明、按地址打开报价。
   - BIDPAGE-1 / 3 的测试按 tasks 列出的几条改：我方报价卡换成一行、入口多传一个刷新回调。
 - **开关关着时**：
   - 旧页面、旧接口、专业模式的行为不变；

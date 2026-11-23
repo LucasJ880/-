@@ -80,6 +80,12 @@ export function BidPageV2({ projectId, orgId, canManage, view, onRefresh }: BidP
     return () => window.removeEventListener("hashchange", expandForHash);
   }, []);
 
+  // ② 里定 / 提交 / 退回 / 另起新版之后刷新汇总：在 ② 里做过操作就算自己开合过，「下一步」换了指向也不把 ② 收起（BIDPAGE-6）
+  const onBidChanged = useCallback(() => {
+    userTouched.current = true;
+    onRefresh?.();
+  }, [onRefresh]);
+
   const toggle = useCallback((section: BidPageSection) => {
     userTouched.current = true;
     setOpen((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -113,7 +119,7 @@ export function BidPageV2({ projectId, orgId, canManage, view, onRefresh }: BidP
         {/* 改版前的我方报价卡并入 ② 最上面的「我方报价」一行（BIDPAGE-6，在 QuoteStep 里）；投标工作区面板与改版前的报价区不进新页面（BIDPAGE-3 design D10） */}
         {/* 项目页「下一步」卡滚动到投标价的位置 */}
         <div id="bid-quote-area" className="scroll-mt-4">
-          <QuoteStep projectId={projectId} onBidChanged={onRefresh} />
+          <QuoteStep projectId={projectId} onBidChanged={onBidChanged} />
         </div>
         <details className="rounded-xl border border-border/60 bg-card-bg/60" data-testid="bid-page-legacy-quote">
           <summary className="cursor-pointer px-4 py-2 text-xs text-muted">旧版报价单（外贸标准报价，点开查看）</summary>

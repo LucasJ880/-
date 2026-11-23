@@ -15,7 +15,9 @@ import { apiFetch } from "@/lib/api-fetch";
 import {
   actionBarOf,
   blockReasonZh,
+  confirmedNoteZh,
   confirmPromptZh,
+  notifyNeedsFollowUp,
   ourBidLineZh,
   QUOTE_ACTION_LABELS_ZH,
   QUOTE_ACTION_TEXT,
@@ -45,18 +47,20 @@ export type QuoteActionBarProps = {
   /** 编辑器上显示的引擎税前报价；算不出为 null */
   sellingPrice: number | null;
   dirty: boolean;
-  unpricedCount: number;
+  /** 视图里有「未定价」警告（按种类去过重，只知道有没有、不知道几行） */
+  hasUnpriced: boolean;
   onDone: (done: QuoteActionDone) => void;
 };
 
 /** 现在的我方报价是不是另一份（改选时写进确认框；已中标的不改选） */
-export function otherOurBidOf(ourBid: OurBidLine | null, quoteId: string): { version: number; amount: number | null; currency: string; awarded: boolean } | null {
+export function otherOurBidOf(ourBid: OurBidLine | null, quoteId: string): { name: string; version: number; amount: number | null; currency: string; awarded: boolean } | null {
   if (!ourBid || ourBid.status !== "AUTHORITATIVE" || ourBid.quoteId === quoteId) return null;
-  return { version: ourBid.version, amount: ourBid.sellingPrice, currency: ourBid.currency, awarded: ourBid.quoteStatus === "awarded" };
+  return { name: ourBid.name, version: ourBid.version, amount: ourBid.sellingPrice, currency: ourBid.currency, awarded: ourBid.quoteStatus === "awarded" };
 }
 
 const btnPrimary = "rounded bg-accent px-3 py-1 text-xs font-medium text-white disabled:opacity-50";
 const btnPlain = "rounded border border-border px-3 py-1 text-xs disabled:opacity-50";
+const toneCls = { muted: "text-xs text-muted", warn: "text-xs font-medium text-amber-700", error: "text-xs text-red-700" } as const;
 
 async function postJson(url: string, body: unknown): Promise<{ ok: boolean; data: Record<string, unknown> }> {
   const res = await apiFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -68,12 +72,13 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
   const { projectId, quote, capabilities, ourBid } = props;
   const isOurBid = ourBid?.status === "AUTHORITATIVE" && ourBid.quoteId === quote.id;
   const other = otherOurBidOf(ourBid, quote.id);
-  const bar = actionBarOf({ status: quote.status, isOurBid, canEdit: capabilities.canEdit, canApprove: capabilities.canApprove, otherOurBidAwarded: !!other?.awarded });
-  const block = blockReasonZh({ dirty: props.dirty, computedOk: props.sellingPrice != null, unpricedCount: props.unpricedCount });
+  const bar = actionBarOf({ status: quote.status, isOurBid, canEdit: capabilities.canEdit, canApprove: capabilities.canApprove, otherOurBidAwarded: !!other?.awarded, otherOurBidVersion: other?.version ?? null });
+  const valueButton = bar.buttons.find((b) => b === "confirm" || b === "approve" || b === "submit");
+  const block = blockReasonZh({ dirty: props.dirty, computedOk: props.sellingPrice != null, hasUnpriced: props.hasUnpriced, actionZh: valueButton ? QUOTE_ACTION_LABELS_ZH[valueButton] : "提交、批准" });
   const [mode, setMode] = useState<"idle" | "confirm" | "return" | "revise">("idle");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
-  const [message, setMessage] = useState<{ text: string; tone: "muted" | "error" } | null>(null);
+  const [message, setMessage] = useState<{ text: string; tone: keyof typeof toneCls } | null>(null);
   const base = `/api/projects/${encodeURIComponent(projectId)}/bid-page/quotes/${encodeURIComponent(quote.id)}`;
 
   const run = async (path: string, body: unknown, done: (data: Record<string, unknown>) => void) => {
@@ -95,15 +100,21 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
     }
   };
 
-  const confirm = () =>
-    run("confirm", { baseUpdatedAt: quote.updatedAt, expectedSellingPrice: props.sellingPrice }, (data) => {
-      setMessage({ text: QUOTE_ACTION_TEXT.confirmed, tone: "muted" });
-      props.onDone({ kind: "confirmed", quoteId: quote.id, result: data as unknown as ConfirmResult });
+  const confirm = () => {
+    // 改选时写原来那份还在（名称取点「确定」那一刻的我方报价）；没改选不再多一句
+    const previousName = other?.name ?? null;
+    return run("confirm", { baseUpdatedAt: quote.updatedAt, expectedSellingPrice: props.sellingPrice }, (data) => {
+      const r = data as unknown as ConfirmResult;
+      const note2 = confirmedNoteZh(r.reselectedFrom && previousName ? { name: previousName, version: r.reselectedFrom.version } : null);
+      setMessage(note2 ? { text: note2, tone: "muted" } : null);
+      props.onDone({ kind: "confirmed", quoteId: quote.id, result: r });
     });
+  };
   const submit = () =>
     run("submit", { baseUpdatedAt: quote.updatedAt }, (data) => {
       const r = data as unknown as SubmitResult;
-      setMessage({ text: r.messageZh, tone: "muted" });
+      // 负责人没收到：要提交的人自己去说，醒目显示
+      setMessage({ text: r.messageZh, tone: notifyNeedsFollowUp(r.notify) ? "warn" : "muted" });
       props.onDone({ kind: "submitted", quoteId: quote.id, result: r });
     });
   const sendReturn = () =>
@@ -122,7 +133,7 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
   const canRevise = quote.status === "approved" && capabilities.canEdit;
   const prompt =
     props.sellingPrice != null
-      ? confirmPromptZh({ label: props.label, amount: props.sellingPrice, currency: quote.currency, current: other && !other.awarded ? { version: other.version, amount: other.amount, currency: other.currency } : null })
+      ? confirmPromptZh({ label: props.label, amount: props.sellingPrice, currency: quote.currency, alreadyApproved: quote.status === "approved", current: other && !other.awarded ? { name: other.name, version: other.version, amount: other.amount, currency: other.currency } : null })
       : [];
 
   return (
@@ -141,14 +152,16 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
         {bar.statusZh ? <span className="text-xs text-muted" data-testid="quote-action-status">{bar.statusZh}</span> : null}
         {block && bar.buttons.some(needsValue) ? <span className="text-xs text-amber-700" data-testid="quote-action-block">{block}</span> : null}
       </div>
-      {quote.status === "review" && capabilities.canEdit ? <div className="text-xs text-muted">{QUOTE_ACTION_TEXT.reviewEditable}</div> : null}
+      {quote.status === "review" && capabilities.canEdit ? <div className="text-xs text-muted">{capabilities.canApprove ? QUOTE_ACTION_TEXT.reviewEditableApprover : QUOTE_ACTION_TEXT.reviewEditableEditor}</div> : null}
       {mode === "confirm" ? (
-        <div className="space-y-2 rounded-lg border border-accent/40 bg-accent-soft/40 px-3 py-2 text-sm" role="alertdialog" data-testid="quote-action-confirm">
+        <div className="space-y-2 rounded-lg border border-accent/40 bg-accent-soft/40 px-3 py-2 text-sm" role="alertdialog" data-testid="quote-action-confirm-panel">
           {prompt.map((l) => (
             <p key={l}>{l}</p>
           ))}
+          {/* 确认框打开以后又改了数（没保存）或算不出：「确定」也不可点，写明原因 */}
+          {block ? <p className="text-xs text-amber-700" data-testid="quote-action-confirm-block">{block}</p> : null}
           <div className="flex gap-2">
-            <button type="button" className={btnPrimary} disabled={busy} onClick={() => void confirm()} data-testid="quote-action-confirm-ok">
+            <button type="button" className={btnPrimary} disabled={busy || !!block} onClick={() => void confirm()} data-testid="quote-action-confirm-ok">
               {busy ? QUOTE_ACTION_TEXT.confirming : QUOTE_ACTION_TEXT.ok}
             </button>
             <button type="button" className={btnPlain} disabled={busy} onClick={() => setMode("idle")} data-testid="quote-action-confirm-cancel">
@@ -174,6 +187,7 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
         <ReviseForm
           projectId={projectId}
           quoteId={quote.id}
+          isOurBid={isOurBid}
           onCancel={() => setMode("idle")}
           onDone={(r) => {
             setMode("idle");
@@ -182,7 +196,7 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
         />
       ) : null}
       {message ? (
-        <div className={message.tone === "error" ? "text-xs text-red-700" : "text-xs text-muted"} data-testid="quote-action-message">
+        <div className={toneCls[message.tone]} data-testid="quote-action-message">
           {message.text}
         </div>
       ) : null}
@@ -191,7 +205,7 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
 }
 
 /** 另起新版：写一句原因，确认后复制成新一版草稿（已批准的报价才有） */
-export function ReviseForm({ projectId, quoteId, onDone, onCancel }: { projectId: string; quoteId: string; onDone: (r: ReviseResult) => void; onCancel: () => void }) {
+export function ReviseForm({ projectId, quoteId, isOurBid, onDone, onCancel }: { projectId: string; quoteId: string; isOurBid: boolean; onDone: (r: ReviseResult) => void; onCancel: () => void }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,7 +224,7 @@ export function ReviseForm({ projectId, quoteId, onDone, onCancel }: { projectId
   };
   return (
     <div className="space-y-2 rounded-lg border border-border/60 px-3 py-2 text-sm" data-testid="quote-revise-form">
-      <p>{REVISE_TEXT.prompt}</p>
+      <p>{isOurBid ? REVISE_TEXT.promptOurBid : REVISE_TEXT.promptOther}</p>
       <textarea className="w-full rounded border border-border px-2 py-1 text-sm" rows={2} maxLength={REVISE_REASON_MAX} placeholder={REVISE_TEXT.placeholder} value={reason} onChange={(e) => setReason(e.target.value)} />
       <div className="flex gap-2">
         <button type="button" className={btnPrimary} disabled={busy || !reason.trim()} onClick={() => void go()} data-testid="quote-revise-ok">
@@ -246,6 +260,7 @@ export function OurBidLineView({ projectId, line, canEdit, onRevised }: { projec
         <ReviseForm
           projectId={projectId}
           quoteId={line.quoteId}
+          isOurBid
           onCancel={() => setRevising(false)}
           onDone={(r) => {
             setRevising(false);

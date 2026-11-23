@@ -178,7 +178,7 @@ async function entryFlow() {
   ok(!/china-supplier-brief|ChinaSupplierBriefPanel/.test(pageSrc), "新页面不引入国内供应商简报面板");
   ok(["TenderSourcingEntry", "ProjectInquirySection", "ProjectSupplierLinks", "QuoteStep", "ProjectQuoteSection", "ProjectGenerateMenu", "VersionHistoryDrawer"].every((c) => new RegExp(`<${c}\\b`).test(pageSrc)), "三个分区挂的组件（② 是 BIDPAGE-3 的报价区），版本历史用同一个抽屉");
   // BIDPAGE-6：改版前的我方报价卡并入 ② 最上面的「我方报价」一行（在 QuoteStep 里）；改版前的页面与工作台照旧挂卡
-  ok(!/TenderOurBidCard/.test(pageSrc) && /<OurBidLineView\b/.test(stripComments(read("src/components/bid-page-v2/quote-step.tsx"))) && /<TenderOurBidCard\b/.test(read("src/components/project-detail/tabs/bid-tab.tsx")) && /<TenderOurBidCard\b/.test(read("src/components/project-detail/tabs/workbench-tab.tsx")), "新页面不挂改版前的我方报价卡，改成 ② 最上面的「我方报价」一行；改版前的页面与工作台照旧挂卡");
+  ok(!/TenderOurBidCard/.test(pageSrc) && /<OurBidLineView\b/.test(stripComments(read("src/components/bid-page-v2/quote-step.tsx"))) && /<TenderOurBidCard\b/.test(stripComments(read("src/components/project-detail/tabs/bid-tab.tsx"))) && /<TenderOurBidCard\b/.test(stripComments(read("src/components/project-detail/tabs/workbench-tab.tsx"))), "新页面不挂改版前的我方报价卡，改成 ② 最上面的「我方报价」一行；改版前的页面与工作台照旧挂卡");
   ok(!/BidWorkspacePanel|BidQuoteArea|bid-workspace-panel|bid-quote-area"/.test(pageSrc.replace(/id="bid-quote-area"/g, "")), "新页面不挂投标工作区面板与改版前的报价区（BIDPAGE-3 design D10；旧页面照挂）");
 
   const toReq = decideBidPageNextStep(facts({ analysisStatus: "REVIEW_REQUIRED", inquiry: { askedCount: 0, respondedCount: 0, quotedCount: 0, repliedNoQuoteCount: 0, waitingCount: 0, waitingSince: null } }));
@@ -216,7 +216,7 @@ async function entryFlow() {
   const qElse = pageSrc.indexOf(") : (", qStart);
   const qEnd = pageSrc.indexOf("documents:", qElse);
   const yes = pageSrc.slice(qStart, qElse), no = pageSrc.slice(qElse, qEnd);
-  ok(/<QuoteStep projectId=\{projectId\} onBidChanged=\{onRefresh\} \/>/.test(yes) && /<ProjectQuoteSection\b/.test(yes), "② 看得到金额的一支：报价区（含我方报价一行，定了以后刷新汇总）、旧版报价单");
+  ok(/<QuoteStep projectId=\{projectId\} onBidChanged=\{onBidChanged\} \/>/.test(yes) && /<ProjectQuoteSection\b/.test(yes), "② 看得到金额的一支：报价区（含我方报价一行，定了以后刷新汇总）、旧版报价单");
   ok(!/<TenderOurBidCard\b|<QuoteStep\b|<ProjectQuoteSection\b/.test(no) && /QUOTE_AMOUNTS_HIDDEN_ZH/.test(no) && /id="bid-quote-area"/.test(no), "② 看不到金额的一支：只有说明和位置，没有这些组件", no);
   ok((pageSrc.match(/<QuoteStep\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectQuoteSection\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectInquirySection\b/g) ?? []).length === 1, "这几个组件在新页面里各只出现一次（没有别处绕过金额门）");
   ok(QUOTE_AMOUNTS_HIDDEN_ZH.length < 80 && /找/.test(QUOTE_AMOUNTS_HIDDEN_ZH) && /找/.test(SOURCING_AMOUNTS_HIDDEN_ZH) && !/[A-Za-z]{3,}/.test(QUOTE_AMOUNTS_HIDDEN_ZH + SOURCING_AMOUNTS_HIDDEN_ZH), "说明是中文、写了找谁");
@@ -253,6 +253,7 @@ async function entryFlow() {
   const toSourcing = decideBidPageNextStep(facts({ supplierCount: 0, inquiry: { askedCount: 0, respondedCount: 0, quotedCount: 0, repliedNoQuoteCount: 0, waitingCount: 0, waitingSince: null } }));
   ok(toSourcing.expanded === "sourcing" && initialOpenSection("#bid-quote-area", toSourcing) === "quote", "#位置 优先：下一步指向 ①、地址带 #bid-quote-area → 展开 ②");
   ok(initialOpenSection("", toSourcing) === "sourcing" && initialOpenSection("#project-discussion", toSourcing) === "sourcing", "没有 #位置（或不认识）→ 展开下一步指向的那个");
+  ok(initialOpenSection("#bid-quote-q1", toSourcing) === "quote", "从「报价等你批准」通知点进来（#bid-quote-{报价 id}）：展开 ②（BIDPAGE-6）");
   ok(/useEffect\(\(\) => \{\s*if \(userTouched\.current \|\| sectionForAnchor\(window\.location\.hash\)\) return;/.test(pageSrc), "汇总刷新后跟着「下一步」展开：人自己开合过、或地址里有 #位置 时不动");
 }
 

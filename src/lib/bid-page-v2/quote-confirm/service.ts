@@ -106,13 +106,25 @@ function assertStepsAllowed(q: QuoteRecord, from: QuoteStatus, steps: QuoteStatu
       assertQuoteTransitionAllowed(q, { from: cur, to });
     } catch (e) {
       if (!(e instanceof QuoteEngineError)) throw e;
-      if (e.code === "QUOTE_UNPRICED_LINES") throw new QuoteEngineError(e.code, unpricedZh(Array.isArray(e.details) ? e.details.length : 1), 409, e.details);
+      if (e.code === "QUOTE_UNPRICED_LINES") throw new QuoteEngineError(e.code, unpricedZh(Array.isArray(e.details) ? e.details.length : 1, actionZh), 409, e.details);
       if (e.code === "QUOTE_INVALID") throw new QuoteEngineError(e.code, QUOTE_CONFIRM_ERRORS_ZH.invalid, 409, e.details);
       if (e.code === "INVALID_TRANSITION") throw new QuoteEngineError(e.code, cannotFromStatusZh(q.status, actionZh), 409);
       throw e;
     }
     cur = to;
   }
+}
+
+/**
+ * 数据库判定互锁（40P01）或事务冲突：一次定价与另起新版、中标在极少数交错下会撞上（design D1「锁的顺序」），
+ * 数据库回滚了这一方，整笔没写。不回原始的 500，告诉人再点一次。
+ */
+export function isLockConflict(e: unknown): boolean {
+  const err = e as { code?: unknown; meta?: { code?: unknown }; message?: unknown } | null;
+  if (!err || typeof err !== "object") return false;
+  if (err.code === "P2034") return true;
+  const msg = typeof err.message === "string" ? err.message : "";
+  return (err.code === "P2010" && String(err.meta?.code ?? "") === "40P01") || /40P01|deadlock detected/i.test(msg);
 }
 
 function sameInstant(a: Date, iso: string): boolean {
@@ -205,9 +217,11 @@ export async function confirmAsOurBid(input: { projectId: string; orgId: string;
     }, { timeout: TX_TIMEOUT_MS });
   } catch (e) {
     if (e instanceof TenderBidSyncError) {
+      if (isLockConflict(e.cause)) throw new QuoteEngineError("LOCK_CONFLICT", QUOTE_CONFIRM_ERRORS_ZH.lockConflict, 409);
       await auditSyncFailure({ projectId: input.projectId, orgId: input.orgId, userId: input.userId, trigger: SYNC_TRIGGER, quoteId: q.id, error: e });
       throw new QuoteEngineError("TENDER_BID_SYNC_FAILED", QUOTE_CONFIRM_ERRORS_ZH.syncFailed, 500);
     }
+    if (isLockConflict(e)) throw new QuoteEngineError("LOCK_CONFLICT", QUOTE_CONFIRM_ERRORS_ZH.lockConflict, 409);
     throw e;
   }
 
@@ -342,6 +356,7 @@ export async function buildOurBidLine(projectId: string, bid: TenderBidResolutio
     return {
       status: "AUTHORITATIVE",
       quoteId: q.id,
+      name: quoteDisplayName({ name: q.name, quoteNumber: q.quoteNumber, quoteType: q.quoteType }),
       version: q.version,
       quoteStatus: q.status,
       sellingPrice: q.sellingPrice,

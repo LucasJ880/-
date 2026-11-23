@@ -1,11 +1,11 @@
 # Tasks：定报价只点一次（BIDPAGE-6）
 
-- [ ] 1. 服务层：
+- [x] 1. 服务层：
   - `src/lib/quote-engine/service.ts` 抽出 `assertQuoteTransitionAllowed` / `applyQuoteTransitionTx` / `transitionAuditAction`，`transitionQuote` 改为调用它们，库写语句与顺序不变；
   - `quote-ops-contract.test.ts` B2-S4 与 `b3-ledger-producer.test.ts` 的事务内位置断言按 design D11 的对照表改成断言抽出后的结构，被断言的性质不变；
   - `src/lib/bid-page-v2/quote-confirm/`：契约与中文（按钮矩阵、不可点原因、确认框、通知文字、通知结果、我方报价一行、请求体 schema）与服务（一次定价、提交 + 通知、退回、另起新版、我方报价一行的数）；
   - 只收逐行与总价报价；锁的顺序报价行 → 项目行；改选时不写同步的中间结果审计；通知前自己判负责人在职；
-  - `quote-line/service.ts` 列表带 `ourBid`（金额用现算的税前报价）、导出原因与按状态写的冻结提示；
+  - `quote-line/service.ts` 列表带 `ourBid`（金额用现算的税前报价）、导出原因与按状态写的锁定说明；
   - `notifications/href.ts` 加 `bid_quote`；
   - 新测试 `quote-confirm.test.ts` 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；
   - 不改 `next-step.ts` 与 `next-step.test.ts`（design D8、「与在途轨道」）。
@@ -13,7 +13,7 @@
   verify：
   - `npx tsx src/lib/bid-page-v2/__tests__/quote-confirm.test.ts` 全过；
   - `npx tsx src/lib/quote-engine/__tests__/quote-ops-contract.test.ts`、`npx tsx src/lib/quote-engine/__tests__/b3-ledger-producer.test.ts`、`npx tsx src/lib/quote-engine/__tests__/quote-engine-contract.test.ts`、`npx tsx src/lib/bid-page-v2/__tests__/next-step.test.ts`（不改、照样全过）、`npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts`、`npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts`、`npx tsx src/lib/notifications/__tests__/notification-href.test.ts` 全过。
-- [ ] 2. 四个处理函数 `…/{quoteId}/confirm`、`submit`、`return`、`revise`：
+- [x] 2. 四个处理函数 `…/{quoteId}/confirm`、`submit`、`return`、`revise`：
   - 第一步报价权限守卫，级别固定，并紧接着检查；
   - 再开关与招投标项目、金额门、请求体校验；
   - 新测试 `quote-confirm-db.isolated.test.ts` 注册进两个脚本；
@@ -31,9 +31,9 @@
   - `npx tsx src/lib/projects/__tests__/project-routes-guard.test.ts` 全过；
   - `quote-line-db`、`lump-sum-db`、`bid-page-summary-db`、`b3-ledger-producer.isolated` 在隔离库全过；
   - `scripts/quote-ops-golden-e2e.ts` 在隔离库分别对 main 与本分支跑：通过 / 失败条目与条数相同（除首行时间戳与 PDF 字节数外逐行相同）。
-- [ ] 3. 界面：
+- [x] 3. 界面：
   - `src/components/bid-page-v2/quote-actions.tsx`：主按钮、不可点原因、确认、退回原因、提交结果、我方报价一行、另起新版；
-  - 逐行与总价编辑器用它代替「提交、批准在专业模式里做」，冻结提示改写；
+  - 逐行与总价编辑器用它代替「提交、批准在专业模式里做」，锁定说明改写；
   - `QuoteStep` 最上面放我方报价一行，按 `#bid-quote-{id}` 打开报价，操作后刷新列表、视图与汇总；
   - `bid-page-v2.tsx` 不挂 `TenderOurBidCard`、传刷新回调，`bid-tab-entry.tsx` 给回调，`entry-mode.ts` 认 `#bid-quote-…`；
   - 新测试 `quote-actions.test.tsx` 注册进两个脚本；

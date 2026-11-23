@@ -117,7 +117,7 @@ async function ourBidQuoteId(projectId: string, orgId: string): Promise<OurBid> 
 }
 
 /** 导出不可用的原因：没定 / 新版没定时说在这一页定（BIDPAGE-6，spec tender/quote-line-mode「按招标方价格表导出」） */
-export const EXPORT_NOT_DECIDED_ZH = "报价定为我方报价后才能导出：打开报价点「定为我方报价」（没有批准权限的点「提交给负责人」）";
+export const EXPORT_NOT_DECIDED_ZH = "报价定为我方报价后才能导出：打开一份逐行报价点「定为我方报价」（没有批准权限的点「提交给负责人」）";
 export const EXPORT_REVISION_PENDING_ZH = "我方报价有新版还没定：新版定为我方报价后才能导出";
 
 export async function exportAvailability(projectId: string, orgId: string, known?: OurBid): Promise<ExportAvailability> {

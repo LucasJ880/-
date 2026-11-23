@@ -87,7 +87,7 @@ export const QUOTE_STEP_TEXT = {
 } as const;
 
 /** 锁定的报价：带上状态名（「已定」在这一页指「定为我方报价」，已批准但没选上的也锁着）；已批准的写「另起新版」（BIDPAGE-6） */
-export const frozenNoteZh = (status: string) => frozenNoteText(status);
+export const frozenNoteZh = (status: string, canEdit = true) => frozenNoteText(status, canEdit);
 
 export const LINE_TABLE_HEADERS = ["品名", "数量", "供应商报价（原币）", "到手单位成本（加元）", "我方单价", "行合计", "毛利率"] as const;
 
@@ -394,6 +394,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted
       </div>
 
       <QuoteActionBar
+        key={view.quote.id}
         projectId={projectId}
         quote={view.quote}
         capabilities={view.capabilities}
@@ -401,10 +402,10 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose, onConverted
         label="报价合计"
         sellingPrice={view.computed.ok ? view.computed.totals.sellingPrice : null}
         dirty={dirty}
-        unpricedCount={view.computed.ok ? view.computed.warnings.filter((w) => w.code === "LINE_UNPRICED").length : 0}
+        hasUnpriced={view.computed.ok && view.computed.warnings.some((w) => w.code === "LINE_UNPRICED")}
         onDone={onAction}
       />
-      {view.quote.frozen ? <Note>{frozenNoteZh(view.quote.status)}</Note> : !view.capabilities.canEdit ? <Note>{QUOTE_STEP_TEXT.readOnly}</Note> : null}
+      {view.quote.frozen ? <Note>{frozenNoteZh(view.quote.status, view.capabilities.canEdit)}</Note> : !view.capabilities.canEdit ? <Note>{QUOTE_STEP_TEXT.readOnly}</Note> : null}
       {view.notices.map((n) => (
         <Note key={n} tone="warn">
           {n}

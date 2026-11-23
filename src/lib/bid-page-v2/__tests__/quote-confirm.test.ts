@@ -9,8 +9,11 @@ import {
   actionBarOf,
   bidQuoteHref,
   blockReasonZh,
+  cannotFromStatusZh,
   cleanNoteText,
+  confirmedNoteZh,
   confirmPromptZh,
+  notifyNeedsFollowUp,
   confirmRequestSchema,
   formatDecidedAtZh,
   frozenNoteZh,
@@ -60,31 +63,35 @@ console.log("BIDPAGE-6 定报价只点一次——纯逻辑与源码断言");
     ["已批准是我方报价 · 只有编辑权限", bar("approved", "editor", true), [], "已定为我方报价"],
     ["已批准是我方报价 · 都没有", bar("approved", "none", true), [], "已定为我方报价"],
     ["已批准不是我方报价 · 有批准权限", bar("approved", "approver"), ["confirm"], null],
-    ["已批准不是我方报价 · 只有编辑权限", bar("approved", "editor"), [], "已批准，还没定为我方报价"],
-    ["已批准不是我方报价 · 都没有", bar("approved", "none"), [], "已批准，还没定为我方报价"],
+    ["已批准不是我方报价 · 只有编辑权限", bar("approved", "editor"), [], "已批准，还没定为我方报价；要定请找负责人"],
+    ["已批准不是我方报价 · 都没有", bar("approved", "none"), [], "已批准，还没定为我方报价；要定请找负责人"],
     ["已中标 · 有批准权限", bar("awarded", "approver"), [], "已中标"],
     ["已被新版替代 · 只有编辑权限", bar("superseded", "editor"), [], "已被新版替代"],
     ["已作废 · 都没有", bar("cancelled", "none"), [], "已作废"],
   ];
   for (const [name, got, buttons, statusZh] of cases) ok(JSON.stringify(got.buttons) === JSON.stringify(buttons) && got.statusZh === statusZh, `按钮矩阵：${name}`, got);
-  const aw = bar("draft", "approver", false, true);
-  ok(aw.buttons.length === 0 && aw.statusZh === "现在的我方报价已中标，这里不改选；要改请在专业模式里做", "现在的我方报价是另一份并已中标：草稿不给「定为我方报价」，改写说明", aw);
+  const aw = actionBarOf({ status: "draft", isOurBid: false, canEdit: true, canApprove: true, otherOurBidAwarded: true, otherOurBidVersion: 3 });
+  ok(aw.buttons.length === 0 && aw.statusZh === "现在的我方报价第 3 版已中标，这里不能把我方报价换成别的报价；确实要换，请在专业模式里做", "现在的我方报价是另一份并已中标：草稿不给「定为我方报价」，改写说明（带版本）", aw);
   ok(JSON.stringify(bar("review", "approver", false, true).buttons) === '["return"]' && bar("approved", "approver", false, true).buttons.length === 0, "已中标时待批准的只能退回、已批准的不给改选");
 }
 
 // —— 2. 不可点的原因（spec「主按钮不可点的情况」） ——
 {
-  ok(blockReasonZh({ dirty: true, computedOk: true, unpricedCount: 0 }) === "有修改还没保存：先保存或放弃修改", "有没保存的修改");
-  ok(blockReasonZh({ dirty: false, computedOk: false, unpricedCount: 0 }) === "报价算不出，先按上面的提示改好", "引擎算不出");
-  ok(blockReasonZh({ dirty: false, computedOk: true, unpricedCount: 2 }) === "还有计入但没填数的行，填完才能提交、批准", "有计入但没填数的行");
-  ok(blockReasonZh({ dirty: false, computedOk: true, unpricedCount: 0 }) === null, "都没有 → 可点");
-  ok(blockReasonZh({ dirty: true, computedOk: false, unpricedCount: 3 }) === QUOTE_ACTION_TEXT.dirty, "几种同时有时先说没保存（保存后其余的才准）");
+  const b = (o: { dirty?: boolean; computedOk?: boolean; hasUnpriced?: boolean; actionZh?: string }) => blockReasonZh({ dirty: false, computedOk: true, hasUnpriced: false, actionZh: "定为我方报价", ...o });
+  ok(b({ dirty: true }) === "有修改还没保存：先保存或放弃修改", "有没保存的修改");
+  ok(b({ computedOk: false }) === "报价算不出：先按下面「还算不出报价」那条提示改好", "引擎算不出：指向按钮下面的那条提示");
+  ok(b({ hasUnpriced: true }) === "有的行还没填供应商报价（或某项比例空着），填完才能定为我方报价" && b({ hasUnpriced: true, actionZh: "提交给负责人" }).endsWith("填完才能提交给负责人"), "没填数：与 BIDPAGE-3 / 4 同一说法，按钮名跟着看的人的按钮走，不写行数");
+  ok(b({}) === null, "都没有 → 可点");
+  ok(b({ dirty: true, computedOk: false, hasUnpriced: true }) === QUOTE_ACTION_TEXT.dirty, "几种同时有时先说没保存（保存后其余的才准）");
 }
 
 // —— 3. 确认框（spec「定之前确认一次」） ——
 {
-  const l = confirmPromptZh({ label: "报价合计", amount: 1200000, currency: "CAD", current: { version: 1, amount: 1100000, currency: "CAD" } });
-  ok(l[0] === "报价合计 1,200,000.00 加元，定了以后内容锁定，要改需另起新版。" && l[1] === "现在的我方报价是第 1 版（1,100,000.00 加元），定了以后改成这一份。" && l.length === 2, "逐行报价、要改选：两句与规格逐字一致", l);
+  const l = confirmPromptZh({ label: "报价合计", amount: 1200000, currency: "CAD", current: { name: "合成逐行报价 A", version: 1, amount: 1100000, currency: "CAD" } });
+  ok(l[0] === "报价合计 1,200,000.00 加元，定了以后内容锁定，要改需另起新版。" && l[1] === "现在的我方报价是「合成逐行报价 A」第 1 版（1,100,000.00 加元），定了以后我方报价换成这一份。" && l.length === 2, "逐行报价、要改选：两句与规格逐字一致（写出现在那份的名称）", l);
+  const l3 = confirmPromptZh({ label: "报价合计", amount: 1, currency: "CAD", alreadyApproved: true, current: null });
+  ok(l3[0] === "报价合计 1.00 加元，这份已批准、内容已锁定；定为我方报价后，要改需另起新版。", "已批准没选上的：写本来就锁着", l3);
+  ok(confirmedNoteZh({ name: "合成逐行报价 A", version: 1 }) === "已定为我方报价；原来的「合成逐行报价 A」第 1 版仍是已批准，需要时可以再定回去" && confirmedNoteZh(null) === null, "定好以后：改选了写原来那份还在，没改选不再多一句");
   const l2 = confirmPromptZh({ label: "税前报价", amount: 1037322.68, currency: "CAD", current: null });
   ok(l2.length === 1 && l2[0] === "税前报价 1,037,322.68 加元，定了以后内容锁定，要改需另起新版。", "总价报价、没有别的我方报价：只一句、写「税前报价」", l2);
 }
@@ -101,9 +108,12 @@ console.log("BIDPAGE-6 定报价只点一次——纯逻辑与源码断言");
 // —— 5. 通知（spec「给负责人的站内通知」「通知与审计不带金额与成本」） ——
 {
   const n = reviewNotificationZh({ projectName: "合成学校窗帘标", submitterName: "李四", quoteName: "合成总价报价", version: 2 });
-  ok(n.title === "报价等你批准：合成学校窗帘标" && n.summary === "李四 提交了「合成总价报价」第 2 版，请到「标书与报价」② 批准并定为我方报价，或退回。", "标题与摘要的写法", n);
+  ok(n.title === "报价等你批准 · 合成学校窗帘标" && n.summary === "李四 提交了「合成总价报价」第 2 版，点开可批准并定为我方报价，或退回。", "标题与摘要的写法（与询价进展通知「… · 项目名」同一格式）", n);
+  const long = reviewNotificationZh({ projectName: "一二三四五六七八九十一二三四五六七八九十一二三四五六", submitterName: "李四", quoteName: "合成报价 1,234,567 加元", version: 1 });
+  ok(long.title === "报价等你批准 · 一二三四五六七八九十一二三四五六七八九十一二三四…" && !/1,?234,?567/.test(long.summary) && long.summary.includes("（含敏感信息，请在青砚查看）"), "项目名超过 24 字截断；人填的报价名里带金额时整段换成脱敏提示", long);
   ok(!/\d{3,}|加元|CAD|成本|毛利|供应商/.test(n.title + n.summary), "通知文字里没有金额、成本、毛利、供应商");
-  ok(notifyOutcomeZh({ kind: "notified", ownerName: "张三" }) === "已提交，已通知负责人 张三" && notifyOutcomeZh({ kind: "gated" }).includes("关掉了站内通知或这类通知") && notifyOutcomeZh({ kind: "no_recipient" }).includes("项目负责人不是本组织的在职成员，没有人收到通知，请直接联系有批准权限的同事") && notifyOutcomeZh({ kind: "self" }).includes("你就是项目负责人") && notifyOutcomeZh({ kind: "failed" }).includes("通知没发出去"), "五种通知结果的说法");
+  ok(notifyOutcomeZh({ kind: "notified", ownerName: "张三" }) === "已提交，已通知负责人 张三" && notifyOutcomeZh({ kind: "gated" }).includes("负责人在通知设置里关掉了这类通知") && notifyOutcomeZh({ kind: "no_recipient" }).includes("负责人的账号已停用或不在本组织里") && notifyOutcomeZh({ kind: "no_recipient" }).includes("请直接找有批准权限的同事") && notifyOutcomeZh({ kind: "self" }) === "已提交；你就是负责人，没有发通知" && notifyOutcomeZh({ kind: "failed" }).includes("通知没发出去"), "五种通知结果的说法（都写下一步怎么做，统一叫「负责人」）");
+  ok(notifyNeedsFollowUp({ kind: "gated" }) && notifyNeedsFollowUp({ kind: "no_recipient" }) && notifyNeedsFollowUp({ kind: "failed" }) && !notifyNeedsFollowUp({ kind: "notified", ownerName: "x" }) && !notifyNeedsFollowUp({ kind: "self" }), "要提交的人自己去通知负责人的三种结果醒目显示");
   const href = notificationHref({ entityType: "bid_quote", entityId: "q_1", projectId: "p_1" } as never);
   ok(href === "/projects/p_1?tab=bid#bid-quote-q_1" && href === bidQuoteHref("p_1", "q_1"), "通知点开：/projects/{项目}?tab=bid#bid-quote-{报价}", href);
   ok(notificationHref({ entityType: "bid_quote", entityId: "q_1", projectId: null } as never) === null, "没有项目 id 时不拼地址（照通知页的回落规则）");
@@ -117,7 +127,9 @@ console.log("BIDPAGE-6 定报价只点一次——纯逻辑与源码断言");
 
 // —— 6. 冻结提示与导出原因（spec tender/quote-line-mode） ——
 {
-  ok(frozenNoteZh("approved") === "这份报价「已批准」，内容锁定；要改请点「另起新版」" && frozenNoteZh("superseded") === "这份报价「已被新版替代」，内容锁定" && frozenNoteZh("awarded").includes("专业模式") && frozenZh("approved") === frozenNoteZh("approved"), "冻结提示：已批准写「另起新版」，已中标写去专业模式，其余只写状态");
+  ok(frozenNoteZh("approved") === "这份报价「已批准」，内容锁定；要改请点「另起新版」" && frozenNoteZh("approved", false) === "这份报价「已批准」，内容锁定；要改请找有编辑权限的同事另起新版" && frozenNoteZh("superseded") === "这份报价「已被新版替代」，内容锁定；请打开新版" && frozenNoteZh("awarded") === "这份报价「已中标」，内容锁定；要改或做中标后的事（建项目预算等），请在专业模式里做" && frozenNoteZh("cancelled") === "这份报价「已作废」，内容锁定" && frozenZh("approved") === frozenNoteZh("approved"), "锁定说明：按状态写（已批准写「另起新版」、没有编辑权限的写找人，已中标写去专业模式，被替代写打开新版）");
+  ok(!/专业模式里另起新版/.test(["approved", "awarded", "superseded", "cancelled"].map((x) => frozenNoteZh(x)).join("")), "锁定说明里没有「要改请在专业模式里另起新版」");
+  ok(cannotFromStatusZh("review", "提交") === "这份报价现在是「待批准」，不能提交；可能刚被别人处理过，点「收起」再「打开」看最新状态" && cannotFromStatusZh("superseded", "另起新版").endsWith("（新版已经有了，请在列表里打开新版）"), "状态不对：说明多半是别人刚处理过、怎么看最新状态");
   ok(EXPORT_NOT_DECIDED_ZH.startsWith("报价定为我方报价后才能导出") && EXPORT_NOT_DECIDED_ZH.includes("定为我方报价") && EXPORT_NOT_DECIDED_ZH.includes("提交给负责人") && !EXPORT_NOT_DECIDED_ZH.includes("专业模式") && EXPORT_REVISION_PENDING_ZH.includes("新版还没定") && !EXPORT_REVISION_PENDING_ZH.includes("专业模式"), "导出不可用的原因写在这一页定，不再说「在专业模式里做」");
   const comps = ["src/components/bid-page-v2/quote-step.tsx", "src/components/bid-page-v2/lump-sum-editor.tsx", "src/lib/bid-page-v2/quote-line/service.ts"].map(read).join("\n");
   ok(!comps.includes("提交、批准在专业模式里做") && !comps.includes("目前在专业模式里做") && !comps.includes("要改请在专业模式里另起新版"), "编辑器与导出处不再叫人去专业模式提交、批准、另起新版");
@@ -126,10 +138,11 @@ console.log("BIDPAGE-6 定报价只点一次——纯逻辑与源码断言");
 // —— 7. 我方报价一行（spec「我方报价一行」） ——
 {
   ok(formatDecidedAtZh("2026-11-23T15:05:00.000Z") === "2026-11-23 10:05" && formatDecidedAtZh("2026-07-01T14:00:00.000Z") === "2026-07-01 10:00", "多伦多时间（冬令时 / 夏令时）");
-  ok(ourBidLineZh({ status: "AUTHORITATIVE", quoteId: "q", version: 2, quoteStatus: "approved", sellingPrice: 1284000, currency: "CAD", decidedBy: "张三", decidedAt: "2026-11-23T15:05:00.000Z", entryMode: "LUMP_SUM" }) === "我方报价：第 2 版，1,284,000.00 加元，张三 2026-11-23 10:05 定的", "已定：第 N 版，金额，谁 何时 定的");
-  ok(ourBidLineZh({ status: "AUTHORITATIVE", quoteId: "q", version: 1, quoteStatus: "approved", sellingPrice: 1, currency: "CAD", decidedBy: null, decidedAt: null, entryMode: null }) === "我方报价：第 1 版，1.00 加元", "都没有记录：只写版本与金额");
-  ok(ourBidLineZh({ status: "QUOTE_REVISION_PENDING", quoteId: "q", version: 1, pending: { id: "q2", version: 2, status: "draft" } }) === "我方报价第 1 版已另起新版，新版第 2 版是草稿，定了以后才是我方报价", "新版待定");
-  ok(ourBidLineZh({ status: "NONE", approvedCount: 0 }) === "还没有我方报价" && ourBidLineZh({ status: "NONE", approvedCount: 2 }) === "还没有我方报价；已批准 2 份，还没定为我方报价", "还没有");
+  ok(ourBidLineZh({ status: "AUTHORITATIVE", quoteId: "q", name: "合成总价报价", version: 2, quoteStatus: "approved", sellingPrice: 1200000, currency: "CAD", decidedBy: "张三", decidedAt: "2026-11-23T15:05:00.000Z", entryMode: "LUMP_SUM" }) === "我方报价：「合成总价报价」第 2 版，1,200,000.00 加元，张三 2026-11-23 10:05 定的", "已定：名称、第 N 版，金额，谁 何时 定的");
+  ok(ourBidLineZh({ status: "AUTHORITATIVE", quoteId: "q", name: "A", version: 1, quoteStatus: "approved", sellingPrice: 1, currency: "CAD", decidedBy: null, decidedAt: null, entryMode: null }) === "我方报价：「A」第 1 版，1.00 加元", "都没有记录：只写名称、版本与金额");
+  ok(ourBidLineZh({ status: "AUTHORITATIVE", quoteId: "q", name: "A", version: 2, quoteStatus: "awarded", sellingPrice: 1, currency: "CAD", decidedBy: null, decidedAt: null, entryMode: "LINE" }) === "我方报价：「A」第 2 版（已中标），1.00 加元", "已中标的我方报价写出状态");
+  ok(ourBidLineZh({ status: "QUOTE_REVISION_PENDING", quoteId: "q", version: 1, pending: { id: "q2", version: 2, status: "review" } }) === "我方报价第 1 版已另起新版，新版第 2 版现在「待批准」，新版定为我方报价后才算数", "新版待定");
+  ok(ourBidLineZh({ status: "NONE", approvedCount: 0 }) === "还没有我方报价" && ourBidLineZh({ status: "NONE", approvedCount: 2 }) === "还没有我方报价：已批准 2 份，打开要用的那一份点「定为我方报价」", "还没有：写下一步怎么做");
 }
 
 // —— 8. 接口：守卫级别固定、第一步守卫、开关与金额门在读请求体之前（spec「四个接口的守卫与门」） ——
@@ -173,6 +186,13 @@ console.log("BIDPAGE-6 定报价只点一次——纯逻辑与源码断言");
   walk("src/components/bid-page-v2");
   const all = files.map((f) => stripComments(read(f))).join("\n");
   ok(!/\/award\b|awardQuote|建项目预算|AwardPanel/.test(all) && !/>\s*已中标\s*</.test(all), "新页面组件里没有中标接口调用、没有「已中标」「建项目预算」按钮", files.length);
+}
+
+// —— 10. 源码里没有不可见的方向 / 零宽字符（看不见的字会让审查看错代码） ——
+{
+  const files = ["src/lib/bid-page-v2/quote-confirm/contract.ts", "src/lib/bid-page-v2/quote-confirm/service.ts", "src/components/bid-page-v2/quote-actions.tsx", "src/lib/bid-page-v2/__tests__/quote-confirm-db.isolated.test.ts"];
+  const bad = files.filter((f) => /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/.test(read(f)));
+  ok(bad.length === 0, "BIDPAGE-6 的源码里没有不可见的方向 / 零宽字符", bad);
 }
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);

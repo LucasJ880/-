@@ -61,6 +61,8 @@ function viewOf(over: Partial<LumpView> = {}, state: LumpState = freshState()): 
 console.log("━━━ 1. 开始的 4 行与添加一项 ━━━");
 {
   const html = render(<LumpSumEditor projectId="p1" view={viewOf()} onSaved={noop} onClose={noop} />);
+  // BIDPAGE-6（spec tender/quote-line-mode「专业模式入口」场景「不再叫人去专业模式提交」）
+  ok(html.includes('data-testid="quote-action-bar"') && html.includes('data-testid="quote-action-confirm"') && !html.includes("提交、批准在专业模式里做") && html.includes(">更多<"), "总价报价草稿（有批准权限）：编辑器里是主按钮「定为我方报价」，没有「提交、批准在专业模式里做」，「更多」仍在");
   ok(html.includes('data-testid="lump-row-goods"') && count(html, /data-testid="lump-row"/g) === 2 && html.includes(">海运费<") && html.includes(">关税<") && html.includes('data-testid="lump-row-tax"'), "刚新建：构成表只有货品、海运费、关税、销售税 4 行");
   ok(!html.includes('data-testid="lump-details"') && count(html, /没填，不计入/g) === 2, "没有预置的空行；没填的两项写着「没填，不计入」");
   ok(LUMP_TEXT.tableHeaders.every((h) => html.includes(`>${h}<`)), "表头：项目 | 金额或比例 | 备注");
