@@ -690,6 +690,7 @@ run_test "寻源建议：开关 / 推荐型号 / 价格三栏 / 不合并（CHAI
 run_test "寻源建议 DB 端到端（自动建候选池 / 推荐 / 财务权限 / 并入收件人，隔离库执行，否则跳过，CHAIN-2）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts"
 run_test "进口线索：开关 / 解析与逐条校验 / 比对三档 / 汇总 / 接线（CHAIN-3）" "npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts"
 run_test "进口线索 DB 端到端（导入 / 裁决 / 汇总 / 加入供应商库 / 权限，隔离库执行，否则跳过，CHAIN-3）" "NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts"
+run_test "「是不是同一家」裁决与撤回 DB 对抗用例（两个组织同一对 / 并发 / 锁内重读 / 裁决人，隔离库执行，否则跳过，CHAIN-3c）" "NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/alias-decisions-db.isolated.test.ts"
 run_test "投标准备度「进口线索」阶段读取导入的进口记录 DB（隔离库执行，否则跳过，CHAIN-3b）" "NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/readiness-count-db.isolated.test.ts"
 run_test "招标询价 发出之后分析更新过的提示（FLOW-H3）" "npx tsx src/lib/tender-rfq/__tests__/analysis-update-note.test.tsx"
 run_test "招标询价 发出之后分析更新过的提示 DB（隔离库执行，否则跳过，FLOW-H3）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/analysis-update-note-db.isolated.test.ts"
@@ -748,6 +749,10 @@ run_test "FLOW-H4a 投标提交记录 DB（隔离库执行，否则跳过）" "N
 run_test "FLOW-H4b 交付前检查清单（纯逻辑）" "npx tsx src/lib/tender-submission-checklist/__tests__/checklist.test.ts"
 run_test "FLOW-H4b 交付前检查清单 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-submission-checklist/__tests__/checklist-db.isolated.test.ts"
 run_test "FLOW-H4b 交付前检查清单渲染" "npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx"
+# BIDPAGE-1（openspec change bid-page-v2-shell）：「标书与报价」页改版骨架——查表纯逻辑、新页面渲染与开关关零变化、汇总接口隔离库
+run_test "BIDPAGE-1 标书与报价页「下一步」查表与分区状态（纯逻辑）" "npx tsx src/lib/bid-page-v2/__tests__/next-step.test.ts"
+run_test "BIDPAGE-1 标书与报价页新页面渲染与开关关零变化" "npx tsx src/components/bid-page-v2/__tests__/bid-page-v2.test.tsx"
+run_test "BIDPAGE-1 标书与报价页汇总接口 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/bid-page-summary-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"

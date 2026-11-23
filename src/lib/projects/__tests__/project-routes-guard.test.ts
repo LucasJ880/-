@@ -61,8 +61,9 @@ export const GUARDS: readonly Guard[] = [
   { module: "@/lib/tender-auto-analysis/api-access", name: "requireTenderAnalysisWrite", kind: "response", ref: "src/lib/tender-auto-analysis/api-access.ts:27", note: "直接转调项目写权限" },
   { module: "@/lib/quote-engine/access", name: "requireQuoteAccess", kind: "response", ref: "src/lib/quote-engine/access.ts:34", note: "先判开关，再判项目读权限，再判报价能力" },
   { module: "@/lib/project-finance/access", name: "requireCostAccess", kind: "response", ref: "src/lib/project-finance/access.ts:117", note: "先判开关，再判项目读权限；读权限 403 时只给本组织、已分发、持财务键的人另开只读入口（:99-115）" },
-  { module: "@/lib/tender-import-leads/api-access", name: "requireImportLeadsRead", kind: "response", ref: "src/lib/tender-import-leads/api-access.ts:17", note: "先项目读权限，再判组织成员与开关" },
-  { module: "@/lib/tender-import-leads/api-access", name: "requireImportLeadsWrite", kind: "response", ref: "src/lib/tender-import-leads/api-access.ts:27", note: "在 requireImportLeadsRead 之上再判项目写权限" },
+  { module: "@/lib/tender-import-leads/api-access", name: "requireImportLeadsRead", kind: "response", ref: "src/lib/tender-import-leads/api-access.ts:24", note: "先项目读权限，再判组织成员与开关" },
+  { module: "@/lib/tender-import-leads/api-access", name: "requireImportLeadsWrite", kind: "response", ref: "src/lib/tender-import-leads/api-access.ts:34", note: "在 requireImportLeadsRead 之上再判项目写权限" },
+  { module: "@/lib/tender-import-leads/api-access", name: "requireImportLeadsAliasDecide", kind: "response", ref: "src/lib/tender-import-leads/api-access.ts:42", note: "CHAIN-3c：在 requireImportLeadsRead 之上再判是不是组织管理员（裁决与撤回）" },
   { module: "@/lib/project-discussion/access", name: "canViewProjectDiscussion", kind: "boolean", ref: "src/lib/project-discussion/access.ts:68", note: "返回布尔：项目存在、未分发只给 super_admin、负责人 / active 成员 / 组织管理员" },
   { module: "@/lib/project-discussion/access", name: "canPostProjectMessage", kind: "boolean", ref: "src/lib/project-discussion/access.ts:83", note: "返回布尔：在查看条件上再判项目是否只读" },
 ];
