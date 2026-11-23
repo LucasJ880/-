@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-fetch";
-import { IMPORT_LEADS_TEXT, importResultZh, slotSummaryZh, type ExporterSummary, type ImportLeadsView, type PendingSuggestionView } from "@/lib/tender-import-leads/aggregate-pure";
+import { IMPORT_LEAD_REVOKE_REASON_MAX, IMPORT_LEADS_TEXT, importResultZh, slotSummaryZh, rejectedPairsSummaryZh, decidedCountsZh, type DecidedPairView, type ExporterSummary, type ImportLeadsView, type PendingSuggestionView } from "@/lib/tender-import-leads/aggregate-pure";
 import { IMPORT_HEADER_NAMES_ZH } from "@/lib/tender-import-leads/parse";
 import type { ImportResult } from "@/lib/tender-import-leads/service";
 
@@ -32,10 +32,25 @@ export const IMPORT_LEADS_UI = {
   noImportWithoutWinners: "没有可比对的历史中标者，暂时不能导入。",
   noBuyerNext: "在项目信息里填上采购方名称后再来。",
   noneNext: "先在本项目的「历史授标检索」里人工确认这个采购方的中标记录（或请组织管理员在「历史中标」页确认），再来导入。",
-  readOnly: "你只有查看权限；导入、确认和加入供应商库需要能修改本项目。",
+  readOnly: "你只有查看权限；导入和加入供应商库需要能修改本项目。",
+  /** CHAIN-3c：不是组织管理员时，待确认的一对下面写这一句 */
+  notAdminNote: "只有组织管理员能确认或否决（对本组织所有项目生效）；在那之前，这些记录不进出口商汇总，也不能加入供应商库。请组织管理员打开本项目的进口线索处理。",
+  notAdminDecidedNote: "哪一对判断错了，请组织管理员在这里撤回。",
+  decidedTitle: "已裁决的（对本组织所有项目生效）",
+  decidedConfirmed: "已确认是同一家",
+  decidedRejected: "已标为不是同一家",
+  revokeButton: "撤回",
+  revoking: "正在撤回…",
+  revokeReasonLabel: `撤回原因（必填，最多 ${IMPORT_LEAD_REVOKE_REASON_MAX} 字，会记入审计日志；请不要写联系方式）`,
+  revokeReasonPlaceholder: "如：核对营业执照后发现两家不是同一家公司",
+  revokeSubmit: "确认撤回",
+  revokeCancel: "取消",
+  decidedBy: "裁决人：",
+  confirmRevokeConfirmed: (importer: string, winner: string) => `撤回「${importer}」和中标者「${winner}」是同一家的确认？撤回后这一对回到「要确认是不是同一家」，本组织所有项目里靠它对上的进口记录会移出出口商汇总，等重新确认；已加入供应商库的供应商和关联不变。`,
+  confirmRevokeRejected: (importer: string, winner: string) => `撤回「${importer}」和中标者「${winner}」不是同一家的否决？撤回后这一对回到「要确认是不是同一家」，本组织所有项目里否决前存着的记录会重新显示为待确认；否决期间导入时被跳过的记录不会自动回来，要重新导入。`,
   rejectedNote: "在「国内采购 / 找供应商」页的「供应商线索」里标为不采用的记录不会显示在这里。",
-  confirmSame: "确定是同一家吗？确认后本组织所有项目都会把这两个名称当成同一家，不能撤回。",
-  confirmReject: "确定不是同一家吗？否决后本组织所有项目都不再把这两个名称当成同一家，也不再提示，不能撤回。",
+  confirmSame: "确定是同一家吗？确认后本组织所有项目都会把这两个名称当成同一家；组织管理员可以撤回。",
+  confirmReject: "确定不是同一家吗？否决后本组织所有项目都不再把这两个名称当成同一家，也不再提示；之后各项目再导入这家进口商的记录会被跳过、不保存（撤回后也要重新导入）。组织管理员可以撤回。",
   addSupplier: "加入供应商库",
   adding: "正在加入…",
   linkNew: (n: number) => `关联新导入的 ${n} 条`,
@@ -90,6 +105,7 @@ export function ImportLeadsSlotSummary({ state, open, onToggle }: { state: Impor
   if (state.kind === "error") return <p>{IMPORT_LEADS_UI.unreadable}</p>;
   if (state.kind !== "ok") return null;
   const v = state.view;
+  const rejectedLine = rejectedPairsSummaryZh(v);
   return (
     <>
       <p className="text-foreground/70">{slotSummaryZh(v)}</p>
@@ -98,7 +114,8 @@ export function ImportLeadsSlotSummary({ state, open, onToggle }: { state: Impor
           {e.exporterName}：共 {e.shipments} 票，近 12 个月 {e.last12Months} 票
         </p>
       ))}
-      {v.suggestions.length ? <p>另有 {v.suggestions.length} 对要确认是不是同一家</p> : null}
+      {v.suggestions.length ? <p>另有 {v.suggestions.length} 对等组织管理员确认是不是同一家</p> : null}
+      {rejectedLine ? <p>{rejectedLine}</p> : null}
       <button
         type="button"
         onClick={onToggle}
@@ -146,13 +163,13 @@ function SupplierCell({ e, canEdit, busyKey, onAdd }: { e: ExporterSummary; canE
   );
 }
 
-function SuggestionRow({ s, canEdit, busy, onDecide }: { s: PendingSuggestionView; canEdit: boolean; busy: boolean; onDecide: (decision: "CONFIRMED" | "REJECTED") => void }) {
+function SuggestionRow({ s, canDecide, busy, onDecide }: { s: PendingSuggestionView; canDecide: boolean; busy: boolean; onDecide: (decision: "CONFIRMED" | "REJECTED") => void }) {
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span>
         「{s.importerName}」和中标者「{s.winnerName}」可能是同一家（{s.basisZh}），涉及 {s.recordCount} 条记录。
       </span>
-      {canEdit ? (
+      {canDecide ? (
         <span className="flex gap-1">
           <button
             type="button"
@@ -197,16 +214,23 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
   const [busy, setBusy] = useState<"import" | "decide" | string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // CHAIN-3c：正在填撤回原因的那一条裁决（按裁决标识记：同事撤回又重新裁决后，标识变了，表单自动收起）
+  const [revokingDecision, setRevokingDecision] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const refresh = async () => {
+  const refresh = async (): Promise<ImportLeadsView | null> => {
     const fresh = await apiFetch(base).then((r) => (r.ok ? (r.json() as Promise<ImportLeadsView>) : null)).catch(() => null);
     if (fresh) onView(fresh);
+    return fresh;
   };
+  // 撤回表单只在那条裁决还在视图里时算开着（否则别的「撤回」一直灰着）
+  const openRevoke = revokingDecision !== null && view.decidedPairs.some((x) => x.decisionId === revokingDecision) ? revokingDecision : null;
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
     setError(null);
@@ -239,6 +263,34 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
       }
       onView(out.json.view as ImportLeadsView);
       setNotice(decision === "CONFIRMED" ? IMPORT_LEADS_TEXT.aliasConfirmed : IMPORT_LEADS_TEXT.aliasRejected);
+    });
+  // CHAIN-3c：撤回（组织管理员）；裁决已被同事换掉时 409，刷新后照实说
+  const revoke = (d: DecidedPairView, reason: string) =>
+    run(`revoke:${d.pairKey}`, async () => {
+      const out = await postJson(`${base}/aliases/revoke`, { pairKey: d.pairKey, decisionId: d.decisionId, reason });
+      if (!out.ok) {
+        setError(out.error);
+        const fresh = await refresh();
+        if (fresh && !fresh.decidedPairs.some((x) => x.decisionId === d.decisionId)) {
+          // 409 / 404：这条裁决已不在（同事撤回或改过、记录没了）——收起表单、清掉原因，别的「撤回」恢复可点；错误写在上方状态区
+          setRevokingDecision(null);
+          setRevokeReason("");
+          setRevokeError(null);
+        } else {
+          // 这条裁决还在（如网络出错）：表单留着、原因不丢，表单里也写明（离状态区远）
+          setRevokeError(out.error);
+        }
+        return;
+      }
+      const next = out.json.view as ImportLeadsView;
+      onView(next);
+      setRevokingDecision(null);
+      setRevokeReason("");
+      setRevokeError(null);
+      const wasRejected = (out.json as { revokedDecision?: string }).revokedDecision === "REJECTED";
+      const base0 = wasRejected ? IMPORT_LEADS_TEXT.revokedRejected(d.importerName, d.winnerName) : IMPORT_LEADS_TEXT.revokedConfirmed(d.importerName, d.winnerName);
+      // 本项目里这家进口商已和别的中标者对上时，这一对不会显示为待确认：照实说
+      setNotice(next.suggestions.some((x) => x.pairKey === d.pairKey) ? base0 : `${base0}${IMPORT_LEADS_TEXT.revokedNotPendingHere}`);
     });
   const addSupplier = (exporterKey: string) =>
     run(`row:${exporterKey}`, async () => {
@@ -339,9 +391,86 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
           <p className="font-medium text-foreground">要确认是不是同一家</p>
           <ul className="mt-1 space-y-1">
             {view.suggestions.map((s) => (
-              <SuggestionRow key={s.pairKey} s={s} canEdit={view.canEdit} busy={busy !== null} onDecide={(d) => decide(s.pairKey, d)} />
+              <SuggestionRow key={s.pairKey} s={s} canDecide={view.canDecideAliases} busy={busy !== null} onDecide={(d) => decide(s.pairKey, d)} />
             ))}
           </ul>
+          {view.canDecideAliases ? null : <p className="mt-1 text-muted">{IMPORT_LEADS_UI.notAdminNote}</p>}
+        </div>
+      ) : null}
+
+      {view.decidedPairs.length ? (
+        <div className="mt-3">
+          <p className="font-medium text-foreground">
+            {IMPORT_LEADS_UI.decidedTitle}
+            <span className="ml-2 font-normal text-muted">{decidedCountsZh(view.decidedPairs)}</span>
+          </p>
+          <ul className="mt-1 divide-y divide-border/50">
+            {view.decidedPairs.map((d) => (
+              <li key={d.pairKey} className="flex flex-wrap items-center gap-2 py-1.5">
+                <span>
+                  「{d.importerName}」和中标者「{d.winnerName}」：{d.decision === "CONFIRMED" ? IMPORT_LEADS_UI.decidedConfirmed : IMPORT_LEADS_UI.decidedRejected}（{IMPORT_LEADS_UI.decidedBy}{d.deciderName}，{d.decidedOn}），涉及 {d.recordCount} 条记录。
+                </span>
+                {view.canDecideAliases && revokingDecision !== d.decisionId ? (
+                  <button
+                    type="button"
+                    id={`il-revoke-${d.decisionId}`}
+                    disabled={busy !== null || openRevoke !== null}
+                    onClick={() => {
+                      setRevokingDecision(d.decisionId);
+                      setRevokeReason("");
+                      setRevokeError(null);
+                    }}
+                    className={btn}
+                    aria-label={`撤回「${d.importerName}」和「${d.winnerName}」${d.decision === "CONFIRMED" ? "是同一家的确认" : "不是同一家的否决"}`}
+                  >
+                    {IMPORT_LEADS_UI.revokeButton}
+                  </button>
+                ) : null}
+                {view.canDecideAliases && revokingDecision === d.decisionId ? (
+                  <div className="w-full space-y-1 rounded-lg border border-border p-2" data-testid="il-revoke-form">
+                    <p>{d.decision === "CONFIRMED" ? IMPORT_LEADS_UI.confirmRevokeConfirmed(d.importerName, d.winnerName) : IMPORT_LEADS_UI.confirmRevokeRejected(d.importerName, d.winnerName)}</p>
+                    <label className="block">
+                      <span className="text-muted">{IMPORT_LEADS_UI.revokeReasonLabel}</span>
+                      <textarea
+                        autoFocus
+                        className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1"
+                        rows={2}
+                        maxLength={IMPORT_LEAD_REVOKE_REASON_MAX}
+                        placeholder={IMPORT_LEADS_UI.revokeReasonPlaceholder}
+                        value={revokeReason}
+                        onChange={(e) => {
+                          setRevokeReason(e.target.value);
+                          setRevokeError(null);
+                        }}
+                      />
+                    </label>
+                    <p className="text-muted">{revokeReason.length}/{IMPORT_LEAD_REVOKE_REASON_MAX}</p>
+                    {revokeError ? <p className="text-danger" role="alert">{revokeError}</p> : null}
+                    <div className="flex gap-2">
+                      <button type="button" disabled={busy !== null || !revokeReason.trim()} onClick={() => revoke(d, revokeReason)} className="rounded-md bg-danger px-2 py-1 text-white disabled:opacity-50">
+                        {busy === `revoke:${d.pairKey}` ? IMPORT_LEADS_UI.revoking : IMPORT_LEADS_UI.revokeSubmit}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => {
+                          const id = d.decisionId;
+                          setRevokingDecision(null);
+                          setRevokeError(null);
+                          // 收起后把焦点放回这一对的「撤回」
+                          setTimeout(() => document.getElementById(`il-revoke-${id}`)?.focus(), 0);
+                        }}
+                        className={btn}
+                      >
+                        {IMPORT_LEADS_UI.revokeCancel}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {view.canDecideAliases ? null : <p className="mt-1 text-muted">{IMPORT_LEADS_UI.notAdminDecidedNote}</p>}
         </div>
       ) : null}
 
@@ -367,7 +496,7 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
                   <span className="text-muted">和本标要求重合的词：</span>
                   {e.sharedKeywords.length ? e.sharedKeywords.join("、") : "—"}
                 </span>
-                <SupplierCell e={e} canEdit={view.canEdit} busyKey={busy === "import" || busy === "decide" ? "__busy__" : busy} onAdd={() => addSupplier(e.exporterKey)} />
+                <SupplierCell e={e} canEdit={view.canEdit} busyKey={busy === "import" || busy === "decide" || busy?.startsWith("revoke:") ? "__busy__" : busy} onAdd={() => addSupplier(e.exporterKey)} />
               </li>
             ))}
           </ul>
