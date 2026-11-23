@@ -19,7 +19,7 @@ PDF 今天印的全部内容（`export-pdf.ts`，2026-11-23 在 `325cbdc0` 上�
 
 传进来但不印的：`totals.internalCost`（内部成本）、`totals.lineCount`、每行 `costPrice`（成本价）、`remarks`（备注）、`isInternal`、`header.internalNotes`（内部备注）。所以要删的只有利润率这一行；内部成本、成本价、内部备注今天就不印，本 change 加测试看住，以后有人往 PDF 里加字段时测试会失败。
 
-`isInternal`：仓库里没有任何代码把它写成 `true`（`grep -rn "isInternal: true" src` 无结果），旧编辑器没有这个开关，PDF 照旧不按它过滤。
+`isInternal`：旧编辑器界面不会写 `true`，但接口会原样保存、修订复制会保留——旧报价单 PATCH 把请求里的 `isInternal` 原样存下（`src/app/api/projects/[id]/quotes/[quoteId]/route.ts:88`，只要项目读权限 `:30`），报价引擎修订 `src/lib/quote-engine/service.ts:331` 复制时保留。这类行照样印进 PDF 并算进 Subtotal（`src/lib/quote/calculate.ts:28-37`）。正确修法要同时动计算、编辑器与接口（客户可见的行与客户小计要一起算），归 FIX-26；本 change 不按它过滤。
 
 ## Goals / Non-Goals
 
@@ -49,7 +49,14 @@ PDF 今天印的全部内容（`export-pdf.ts`，2026-11-23 在 `325cbdc0` 上�
 - 利润率为 `null` 的报价单同样通过；
 - 源码断言：`export-pdf.ts` 里没有 `profitMargin`、`internalCost`、`costPrice`、`internalNotes`。
 
-只在抽出的页面文字里搜，不在整份 PDF 字节里搜，避免坐标数字碰巧相同。改动前的代码上跑，「没有 Margin / 65.38」两条失败、源码断言失败（tasks 1.1 记数字）。
+只在抽出的页面文字里搜具体数值，不在整份 PDF 字节里搜，避免坐标数字碰巧相同。改动前的代码上跑，失败的是有利润率那份的「合计只有两行」「没有利润率」与源码断言「不读 profitMargin」三条（21 通过、3 失败）。
+
+审查后加强（2026-11-23，审查员用 35 个变异体试出 `(…) Tj` 抽取器的盲区：中文与数字同句时 jsPDF 按 UTF-16BE 双字节写、数字前夹 `\0`；嵌入字体时写十六进制 `<…> Tj`；写进文档属性 Subject / Keywords；写进文件名；页脚拼取整的数、拆成几段不带 %）——加四条：
+- 抽出的文字先去掉 `\u0000` 再搜；
+- 整份 PDF 里没有 `<…> Tj` 与 `TJ` 数组；
+- 有利润率、利润率为空、内部字段（内部成本、成本价、内部备注、行备注、利润率）全换掉的三份报价单，去掉 `/CreationDate`、`/ID` 与页脚日期后整份 PDF 逐字节相同、文件名相同（规格「PDF 的内容 SHALL 相同」的直接断言；文档属性与文件名也在比对之内）；
+- 页面文字整页按白名单逐行比对（报价头八项含 Currency、Valid Until、MOQ，行项表头与一行内容，合计两行，页脚）。
+测试数据的行备注给非空值。加强后：改动前的代码 26 通过、6 失败；改动后 32 通过、0 失败；审查员的 35 个变异体抓到 31 个，漏掉的 4 个不是泄露（2 个往行项表多塞一格但表头只有 8 列、autoTable 不印，PDF 与原来逐字节相同；2 个是 `isInternal` 过滤，测试数据里没有内部行，归 FIX-26）。
 
 - 备选 A：只断言传给 PDF 的数据（不生成 PDF）。否决：证明不了 PDF 上真的没有；协调会话要求「改前生成的 PDF 文字里能找到利润率数字」。
 - 备选 B：用 Chromium 打开 PDF 读文字。否决：要浏览器，CI 子集里跑不了；jsPDF 默认不压缩内容流，文字操作可以直接读。
@@ -67,7 +74,7 @@ PDF 今天印的全部内容（`export-pdf.ts`，2026-11-23 在 `325cbdc0` 上�
 
 ## 验证方式
 
-- `npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts`：改动前失败（数字记进报告），改动后全过。
+- `npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts`：改动前 26 通过、6 失败（加强前 21 / 3），改动后 32 / 0。
 - 门禁：`npm test`（失败清单与 main 基线 10 项逐条相同）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`npx openspec validate quote-pdf-no-margin --strict`、`git diff origin/main -- prisma/ vercel.json package.json` 为空。
 
 ## Risks / Trade-offs

@@ -19,7 +19,7 @@ TASKFLOW：FIX-26a（从 FIX-26 拆出，协调会话 2026-11-23 定 GATE ④ / 
 - 带利润率的「内部版 PDF」：不出（GATE ④）；内部核算用 Excel（FIX-26 让有财务查看权的人导「内部成本表」）。
 - 报价引擎的客户报价 PDF（`src/lib/quote-engine/quotation-pdf.ts`，已有禁出键清单 `CUSTOMER_PDF_FORBIDDEN_KEYS`）。
 - PDF 的中文字体（报价头「Template」一行印中文模板名，helvetica 显示不出）、文件名、页脚文字。
-- 「是否内部行」（`isInternal`）的行照旧印：仓库里没有任何代码把它写成 `true`，旧编辑器也没有这个开关（报告列出）。
+- 「是否内部行」（`isInternal`）为真的行照旧印进 PDF 并算进 Subtotal（`src/lib/quote/calculate.ts:28-37`）：旧编辑器界面不会写 `true`，但旧报价单 PATCH 会把请求里的 `isInternal` 原样保存（`src/app/api/projects/[id]/quotes/[quoteId]/route.ts:88`，只要项目读权限 `:30`），报价引擎修订复制时也保留（`src/lib/quote-engine/service.ts:331`）；正确修法要同时动计算、编辑器与接口，归 FIX-26（报告列出生产只读查询）。
 - 导出菜单的文字（「导出 PDF」）不改。
 - 已经发出去的 PDF：PDF 在浏览器里生成、系统不留痕，查不到发给过谁；要不要通知客户由人定（报告写明）。
 

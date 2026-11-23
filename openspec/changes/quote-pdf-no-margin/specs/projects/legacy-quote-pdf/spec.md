@@ -2,7 +2,7 @@
 
 ## Purpose
 
-旧报价单编辑器导出的报价单 PDF（在浏览器里生成、由人发给客户）印什么、不印什么。
+旧报价单编辑器「导出 PDF」生成的报价单（在浏览器里生成、不经服务器、由人发给客户）上印哪些内容，以及哪些内部数字（利润率、内部成本、成本价、内部备注）不论谁导出都永远不印。
 
 ## ADDED Requirements
 
@@ -11,14 +11,18 @@
 
 #### Scenario: 有利润率的报价单
 - **WHEN** 一份报价单小计 100.00、利润率 65.38%、行项单价 50.00、数量 2，导出 PDF
-- **THEN** PDF 页面文字里有「QUOTATION」、报价标题、行项品名、「Subtotal:」「Total Amount:」与「CAD 100.00」，合计只有这两行（`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts`）
+- **THEN** PDF 页面文字整页逐行就是上面列的内容：「QUOTATION」、报价标题、项目与版本、报价头八项、行项表头与这一行、「Subtotal:」「CAD 100.00」「Total Amount:」「CAD 100.00」、页脚，不多不少（`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts`）
+
+#### Scenario: 有没有利润率内容都相同
+- **WHEN** 同一份报价单分别带利润率 65.38%、利润率为空、内部成本 / 成本价 / 内部备注 / 行备注 / 利润率全换成别的值，各导出一份
+- **THEN** 去掉创建时间、文件 ID 与页脚日期后三份 PDF 逐字节相同，文件名都是「报价标题_v版本.pdf」（`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts`）
 
 ### Requirement: 报价单 PDF 不印内部数字
 旧报价单的 PDF SHALL NOT 含利润率（「Profit Margin」或任何利润百分比）、内部成本、每行成本价与内部备注；系统 SHALL NOT 提供任何带利润率的旧报价单 PDF。生成 PDF 的代码 SHALL NOT 读取利润率、内部成本、成本价与内部备注这四项。
 
 #### Scenario: 页面文字里找不到内部数字
 - **WHEN** 报价单利润率 65.38%、内部成本 34.62、行项成本价 17.31、内部备注「SECRET-NOTE-7731」，导出 PDF；再导出一份利润率为空的
-- **THEN** 两份 PDF 的页面文字里都没有「Margin」「65.38」「34.62」「17.31」「SECRET-NOTE-7731」（`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts`）
+- **THEN** 两份 PDF 的页面文字（去掉双字节编码留下的空字符后）里都没有「Margin」「65.38」「34.62」「17.31」「SECRET-NOTE-7731」，整份 PDF 里没有十六进制文字操作，文档属性里没有 Subject 与 Keywords（`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts`）
 
 #### Scenario: 生成代码不读内部字段
 - **WHEN** 检查 PDF 生成代码的源码

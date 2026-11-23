@@ -4,7 +4,7 @@
 
 ## 1. 测试先行
 
-- [x] 1.1 新增 `src/lib/quote/__tests__/export-customer-pdf.test.ts`（design D2：Node 里生成真的 PDF、抽页面文字；有利润率与利润率为空两份；源码断言），注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；在改动前的 `export-pdf.ts` 上跑一次（verify：`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts` 退出码非 0，失败的只有「没有 Margin / 利润率数值」与源码断言几条，失败条数写进报告；`bash scripts/check-test-registry.sh` 通过）
+- [x] 1.1 新增 `src/lib/quote/__tests__/export-customer-pdf.test.ts`（design D2：Node 里生成真的 PDF、抽页面文字；有利润率与利润率为空两份；源码断言），注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；在改动前的 `export-pdf.ts` 上跑一次（verify：`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts` 退出码非 0，失败的只有有利润率那份的「合计只有两行」「没有利润率」与源码断言「不读 profitMargin」三条（21 / 3；审查后加强的四条断言加上后改动前为 26 / 6，多失败的三条是两次逐字节比对与整页白名单），失败条数写进报告；`bash scripts/check-test-registry.sh` 通过）
 
 ## 2. 删去利润率
 
