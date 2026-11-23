@@ -848,6 +848,7 @@ run_test "采购监控 新标匹配度（P2-2）" "npx tsx src/lib/procurement-r
 run_test "采购监控 新标匹配度 DB（隔离库执行，否则跳过，P2-2）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/fit-score-db.isolated.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间（P2-1b）" "npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间 DB（隔离库执行，否则跳过，P2-1b）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts"
+run_test "报价单 PDF 永远不印利润率：Node 里生成真 PDF 抽页面文字、源码断言（FIX-26a）" "npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"

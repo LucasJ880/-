@@ -584,6 +584,8 @@ NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/bid-page-summary-db.isolated
 npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts
 npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx
 NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts
+# FIX-26a（openspec change quote-pdf-no-margin）：报价单 PDF 永远不印利润率
+npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
