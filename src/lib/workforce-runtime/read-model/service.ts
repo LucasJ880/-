@@ -61,6 +61,8 @@ export type WorkforceReadModelReader = {
         title: true;
         status: true;
         errorCode: true;
+        attemptCount: true;
+        maxAttempts: true;
         inputJson: true;
         startedAt: true;
         completedAt: true;

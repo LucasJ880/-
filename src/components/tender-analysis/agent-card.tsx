@@ -40,6 +40,12 @@ type AgentStatusPayload = {
     finalSummary?: string;
     createdAt: string;
     completedAt?: string;
+    /** FIX-20：有步骤在重试时（整句由服务端拼好） */
+    retrying?: { stepIndex: number; stepTitle: string; attempt: number; maxRetries: number; reasonZh: string; sentenceZh: string };
+    /** FIX-20：进行中而有失败步骤时的停止原因整句 */
+    blockedReason?: string;
+    /** FIX-20：综合汇总未生成（整句由服务端拼好） */
+    synthesisNotGenerated?: { stepIndex: number; stepTitle: string; reasonZh: string; sentenceZh: string };
   } | null;
   latestAnalysisRun: {
     id: string;
@@ -201,6 +207,17 @@ export function TenderAnalysisAgentCard({ projectId, onAnalysisFinished }: Props
         <div className="min-w-0">
           <div className="text-sm font-medium">AI 数字员工 · 投标分析</div>
           <div className={`mt-1 text-sm ${toneClass}`}>{statusLine}</div>
+          {/* FIX-20：「AI 分析中」那一行后面写重试句与受阻原因（句子由接口给，组件不拼原因文字） */}
+          {job?.status === "WORKING" && job.retrying ? (
+            <div className="mt-1 text-xs text-muted-foreground" data-testid="tender-analysis-retrying">
+              {job.retrying.sentenceZh}
+            </div>
+          ) : null}
+          {job?.status === "WORKING" && job.blockedReason ? (
+            <div className="mt-1 text-xs text-amber-600" data-testid="tender-analysis-blocked-reason">
+              {job.blockedReason}
+            </div>
+          ) : null}
           {job?.status === "NEEDS_YOU" && job.needsYou?.detail && !run?.failureReason ? (
             <div className="mt-1 text-xs text-muted-foreground">
               {job.needsYou.detail}
@@ -251,6 +268,12 @@ export function TenderAnalysisAgentCard({ projectId, onAnalysisFinished }: Props
         ) : null}
         {run && run.status === "REVIEW_REQUIRED" ? (
           <span>分析结果已就绪，请在下方审阅确认</span>
+        ) : null}
+        {/* FIX-20：待审阅时，综合汇总没做出来就在这一行下方写明（只接「招标分析结果见下方。」） */}
+        {run && run.status === "REVIEW_REQUIRED" && job?.synthesisNotGenerated ? (
+          <span className="basis-full" data-testid="tender-analysis-synthesis-not-generated">
+            {job.synthesisNotGenerated.sentenceZh}
+          </span>
         ) : null}
         {run &&
         run.status === "AGENT_ANALYZING" &&

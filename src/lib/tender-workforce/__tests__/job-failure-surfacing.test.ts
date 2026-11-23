@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { tenderJobStopMessageZh, tenderJobStopReason, type TenderStopStep } from "../job-failure-surfacing";
 import { tenderFailureSummary } from "@/lib/tender-auto-analysis/alerts";
+import { projectAgentCardNotes } from "../trigger-service";
 
 let pass = 0;
 let fail = 0;
@@ -67,6 +68,8 @@ console.log("job-failure-surfacing");
   ok(text429.endsWith(`：${QUOTA_ZH}`), "笼统码 tool_failed、文本「HTTP 429 insufficient_quota」→ 余额不足（排在限流之前）", text429);
   const sdk = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "TOOL_FAILED: 429 You exceeded your current quota, please check your plan and billing details")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
   ok(sdk.endsWith(`：${QUOTA_ZH}`), "SDK 拼出的「429 You exceeded your current quota…」也认得（旧数据没有新码时）", sdk);
+  const noCredits = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "tool_failed", "TOOL_FAILED: 429 no credits remaining")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
+  ok(noCredits.endsWith(`：${QUOTA_ZH}`), "生产原话「429 no credits remaining」→ 余额不足（不是「模型调用被限流」）", noCredits);
   const specificFirst = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "stale_running_exhausted", "request timed out after 180000ms")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
   ok(specificFirst.endsWith("：长时间没有进展"), "具体原因码优先于已知标记（不写「单次调用超时」）", specificFirst);
   const budget = tenderJobStopMessageZh({ steps: [...base, s("Canonical V2 包级分析", "failed", "org_ai_budget_exhausted", "配额限制：月 AI 费用已达 hard limit")], jobStatus: "failed", jobErrorCode: null, jobErrorMessage: null });
@@ -115,6 +118,28 @@ console.log("job-failure-surfacing");
   ok(/重新分析/.test(card), "项目卡片：按钮仍是「重新分析」");
   const svc = read("src/lib/tender-workforce/trigger-service.ts");
   ok(/latestRun\.errorCode !== "cancelled"/.test(svc), "项目卡片接口：用户主动取消的不给原因");
+
+  // FIX-20：卡片的三句说明（句子由接口给，组件只渲染）
+  ok(/job\?\.status === "WORKING" && job\.retrying \?[\s\S]{0,200}\{job\.retrying\.sentenceZh\}/.test(card), "项目卡片：AI 分析中那一行后面写重试句");
+  ok(/job\?\.status === "WORKING" && job\.blockedReason \?[\s\S]{0,200}\{job\.blockedReason\}/.test(card), "项目卡片：AI 分析中那一行后面写受阻原因");
+  ok(/分析结果已就绪，请在下方审阅确认[\s\S]{0,300}run\.status === "REVIEW_REQUIRED" && job\?\.synthesisNotGenerated \?[\s\S]{0,300}\{job\.synthesisNotGenerated\.sentenceZh\}/.test(card), "项目卡片：待审阅那一行下方写「综合汇总未生成」");
+  ok(!/可照常审阅|不影响/.test(card) && !/reasonZh\}/.test(card), "项目卡片：不写「可照常审阅」「不影响」，也不自己拼原因文字");
+  ok(/\.\.\.projectAgentCardNotes\(v\)/.test(svc), "项目卡片接口：三项说明从已拿到的作业视图转出");
+}
+
+// ── FIX-20：卡片接口的三项说明（纯函数） ──
+{
+  const QUOTA_ZH = "AI 账户余额不足，请联系平台管理员充值";
+  const task = (title: string, retry?: { attempt: number; maxRetries: number; reasonZh: string }) => ({ stepKey: title, title, status: retry ? "ready" : "completed", ...(retry ? { retry } : {}) });
+  const tasks = ["校验输入", "解析投标文件", "Canonical V2 包级分析", "证据与合规覆盖", "风险分析", "澄清问题草稿", "Grounded 交付物物化"].map((t) => task(t));
+  const retrying = projectAgentCardNotes({ tasks: [...tasks, task("Workforce 执行汇总", { attempt: 1, maxRetries: 1, reasonZh: QUOTA_ZH }), task("Canonical V2 状态终态化")] });
+  ok(retrying.retrying?.stepIndex === 8 && retrying.retrying.sentenceZh === `第 8 步〈Workforce 执行汇总〉正在第 1 次重试（最多重试 1 次）。上一次没成功：${QUOTA_ZH}`, "重试：卡片在「AI 分析中」那一行写出第 8 步的重试句", retrying);
+  const blocked = projectAgentCardNotes({ tasks, stopReason: { stepIndex: 3, stepTitle: "Canonical V2 包级分析", reasonZh: QUOTA_ZH, sentenceZh: `卡在第 3 步〈Canonical V2 包级分析〉：${QUOTA_ZH}` } });
+  ok(blocked.blockedReason === `卡在第 3 步〈Canonical V2 包级分析〉：${QUOTA_ZH}` && blocked.retrying === undefined, "受阻：卡片接口带停止原因整句", blocked);
+  const sng = projectAgentCardNotes({ tasks, synthesisNotGenerated: { stepIndex: 8, stepTitle: "Workforce 执行汇总", reasonZh: QUOTA_ZH } });
+  ok(sng.synthesisNotGenerated?.sentenceZh === `本次 AI 数字员工的综合汇总未生成：${QUOTA_ZH}。招标分析结果见下方。`, "综合汇总未生成：卡片说明整句（只接「招标分析结果见下方。」）", sng);
+  ok(!/解读|可照常审阅|不影响/.test(sng.synthesisNotGenerated?.sentenceZh ?? ""), "说明不用「解读」，不对分析结果是否完整下判断");
+  ok(Object.keys(projectAgentCardNotes({ tasks })).length === 0, "都没有时三项都不出现");
 }
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`);

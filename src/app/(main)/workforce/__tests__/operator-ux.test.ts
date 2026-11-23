@@ -634,6 +634,37 @@ function main(): void {
   }
 
   /* ================================================================ */
+  section("FIX-20 作业页：受阻原因 / 正在第 N 次重试 / 综合汇总未生成");
+  {
+    const detailSrc = readFileSync(join(__dirname, "..", "[id]", "page.tsx"), "utf8");
+    const progress = detailSrc.slice(detailSrc.indexOf("function ProgressSection("), detailSrc.indexOf("function CurrentTasksSection("));
+    ok(
+      /\{job\.progress\.blockedTasks\} 项受阻[\s\S]{0,200}job\.stopReason \? `：\$\{job\.stopReason\.sentenceZh\}` : null/.test(progress),
+      "进度一节：「N 项受阻」旁写出停止原因整句（不只显示「N 项受阻」）",
+    );
+    ok(/retrySentences\(job\.tasks\)/.test(progress) && /workforce-progress-retrying/.test(progress), "进度一节：写出正在重试的步骤的重试句");
+    const allTasks = detailSrc.slice(detailSrc.indexOf("function AllTasksSection("), detailSrc.indexOf("const TIMELINE_TONE_DOT"));
+    ok(/task\.retry \?[\s\S]{0,300}retrySentenceZh\(\{ stepIndex: index \+ 1, stepTitle: task\.title, \.\.\.task\.retry \}\)/.test(allTasks), "全部任务：重试中的那一行下面写重试句");
+    const finalResult = detailSrc.slice(detailSrc.indexOf("function FinalResultSection("), detailSrc.indexOf("function BusinessRefsSection("));
+    ok(
+      /job\.synthesisNotGenerated \?[\s\S]{0,300}synthesisNotGeneratedSentenceZh\(job\.synthesisNotGenerated\.reasonZh\)\}。招标分析结果请到项目里审阅。/.test(finalResult),
+      "最终结果：写「AI 数字员工的综合汇总未生成：〈原因〉。招标分析结果请到项目里审阅。」",
+    );
+    ok(!/解读/.test(finalResult) && !/errorCode|errorMessage/.test(detailSrc), "作业页不用「解读」二字、不碰错误码 / 错误原文");
+
+    // 视图 → 页面用的句子（与页面同一个函数）
+    const retryingStep = makeStep("s8", "ready", { title: "Workforce 执行汇总", errorCode: "model_quota_exhausted", attemptCount: 1, maxAttempts: 2 });
+    const v = buildWorkforceJobViewModel({
+      run: makeRun({ status: "queued", planJson: makePlan(["s1", "s8"]) }),
+      steps: [makeStep("s1", "completed"), retryingStep],
+      events: [],
+      pendingActions: [],
+    });
+    ok(v.status === "WORKING" && v.tasks[1].retry?.attempt === 1 && v.tasks[1].retry.maxRetries === 1, "两轮之间等待重试：任务视图带第 1 次重试、最多 1 次", v.tasks[1]);
+    ok(!JSON.stringify(v).includes("model_quota_exhausted"), "视图不带错误码原文");
+  }
+
+  /* ================================================================ */
   section("任务书 §21 无 Runtime Mutation（静态审计：全只读）");
   {
     // API 面：src/app/api/workforce 下所有 route.ts 只允许 GET

@@ -21,6 +21,10 @@ import { WORKFORCE_JOB_RUN_TYPE } from "@/lib/workforce-runtime/constants";
 import { getWorkforceJobView } from "@/lib/workforce-runtime/read-model/service";
 import type { WorkforceJobViewModel } from "@/lib/workforce-runtime/read-model/types";
 import {
+  retrySentenceZh,
+  synthesisNotGeneratedSentenceZh,
+} from "@/lib/workforce-runtime/read-model/stop-reason";
+import {
   isTenderWorkforceAnalysisEnabled,
   isTenderDeterministicPlanEnabled,
 } from "./flags";
@@ -283,6 +287,30 @@ export type TenderAnalysisAgentStatus = {
     finalSummary?: string;
     createdAt: string;
     completedAt?: string;
+    /**
+     * FIX-20：有步骤在重试时（取计划顺序第一个）——步骤序号、步骤名、第几次、最多几次、
+     * 原因白话与整句。只由步骤状态 / 尝试次数 / 错误码查表得出，不含错误原文与错误码。
+     */
+    retrying?: {
+      stepIndex: number;
+      stepTitle: string;
+      attempt: number;
+      maxRetries: number;
+      reasonZh: string;
+      sentenceZh: string;
+    };
+    /** FIX-20：作业视图带停止原因时的整句（「卡在第 N 步〈…〉：…」）；卡片在「AI 分析中」时写出 */
+    blockedReason?: string;
+    /**
+     * FIX-20：招投标确定性计划里综合汇总已跳过（执行失败被降级）——卡片在分析待审阅时写出
+     * 「本次 AI 数字员工的综合汇总未生成：〈原因〉。招标分析结果见下方。」
+     */
+    synthesisNotGenerated?: {
+      stepIndex: number;
+      stepTitle: string;
+      reasonZh: string;
+      sentenceZh: string;
+    };
   } | null;
   latestAnalysisRun: {
     id: string;
@@ -293,6 +321,30 @@ export type TenderAnalysisAgentStatus = {
     failureReason?: string;
   } | null;
 };
+
+/**
+ * FIX-20：从已拿到的作业视图转出卡片的三句说明（句子都在服务端拼好，卡片组件只渲染，
+ * 不自己拼原因文字）。只用视图里的固定中文、步骤名与序号。
+ */
+export function projectAgentCardNotes(
+  v: Pick<WorkforceJobViewModel, "tasks" | "stopReason" | "synthesisNotGenerated">,
+): Pick<NonNullable<TenderAnalysisAgentStatus["job"]>, "retrying" | "blockedReason" | "synthesisNotGenerated"> {
+  const out: Pick<NonNullable<TenderAnalysisAgentStatus["job"]>, "retrying" | "blockedReason" | "synthesisNotGenerated"> = {};
+  const at = v.tasks.findIndex((t) => t.retry);
+  const retry = at >= 0 ? v.tasks[at].retry : undefined;
+  if (retry) {
+    const info = { stepIndex: at + 1, stepTitle: v.tasks[at].title, ...retry };
+    out.retrying = { ...info, sentenceZh: retrySentenceZh(info) };
+  }
+  if (v.stopReason) out.blockedReason = v.stopReason.sentenceZh;
+  if (v.synthesisNotGenerated) {
+    out.synthesisNotGenerated = {
+      ...v.synthesisNotGenerated,
+      sentenceZh: `本次 ${synthesisNotGeneratedSentenceZh(v.synthesisNotGenerated.reasonZh)}。招标分析结果见下方。`,
+    };
+  }
+  return out;
+}
 
 export async function getTenderWorkforceAnalysisStatus(input: {
   orgId: string;
@@ -326,6 +378,7 @@ export async function getTenderWorkforceAnalysisStatus(input: {
         finalSummary: v.finalSummary,
         createdAt: v.createdAt,
         completedAt: v.completedAt,
+        ...projectAgentCardNotes(v),
       };
     }
   }

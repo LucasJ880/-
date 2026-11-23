@@ -52,6 +52,10 @@ import {
   timelineItemText,
   timelineKindPresentation,
 } from "../presentation";
+import {
+  retrySentenceZh,
+  synthesisNotGeneratedSentenceZh,
+} from "@/lib/workforce-runtime/read-model/stop-reason";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -354,8 +358,18 @@ function StoppedCard({ job }: { job: WorkforceJobViewModel }) {
   );
 }
 
+/** FIX-20：正在重试的步骤（计划顺序）各一句「第 k 步〈…〉正在第 N 次重试（最多重试 M 次）。上一次没成功：…」 */
+function retrySentences(tasks: WorkforceTaskView[]): string[] {
+  return tasks.flatMap((task, index) =>
+    task.retry
+      ? [retrySentenceZh({ stepIndex: index + 1, stepTitle: task.title, ...task.retry })]
+      : [],
+  );
+}
+
 function ProgressSection({ job }: { job: WorkforceJobViewModel }) {
   const planned = hasPlannedTasks(job.progress);
+  const retries = retrySentences(job.tasks);
   return (
     <SectionCard title="进度" icon={CheckCircle2}>
       {planned ? (
@@ -374,9 +388,22 @@ function ProgressSection({ job }: { job: WorkforceJobViewModel }) {
               <span>{job.progress.activeTasks} 项进行中</span>
             ) : null}
             {job.progress.blockedTasks > 0 ? (
-              <span className="text-danger">{job.progress.blockedTasks} 项受阻</span>
+              <span className="text-danger">
+                {job.progress.blockedTasks} 项受阻
+                {/* FIX-20：失败 / 需要人工处理 / 进行中而有失败步骤时，在「N 项受阻」旁写明卡在哪一步、为什么 */}
+                {job.stopReason ? `：${job.stopReason.sentenceZh}` : null}
+              </span>
             ) : null}
           </div>
+          {retries.length > 0 ? (
+            <div className="mt-2 space-y-1" data-testid="workforce-progress-retrying">
+              {retries.map((sentence) => (
+                <p key={sentence} className="break-words text-xs text-warning">
+                  {sentence}
+                </p>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : (
         <p className="text-sm text-muted">
@@ -428,16 +455,24 @@ function AllTasksSection({ tasks }: { tasks: WorkforceTaskView[] }) {
             return (
               <li
                 key={task.stepKey}
-                className="flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/5"
+                className="rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/5"
               >
-                <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted/60">
-                  {index + 1}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
-                  {task.title}
-                </span>
-                <WorkerChip workerKey={task.workerKey} />
-                <StatusBadge status={task.status} label={meta.label} tone={meta.tone} />
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted/60">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                    {task.title}
+                  </span>
+                  <WorkerChip workerKey={task.workerKey} />
+                  <StatusBadge status={task.status} label={meta.label} tone={meta.tone} />
+                </div>
+                {/* FIX-20：这一步正在重试时，下面一行小字写重试句 */}
+                {task.retry ? (
+                  <p className="mt-0.5 break-words pl-[1.875rem] text-[11px] text-warning">
+                    {retrySentenceZh({ stepIndex: index + 1, stepTitle: task.title, ...task.retry })}
+                  </p>
+                ) : null}
               </li>
             );
           })}
@@ -494,11 +529,17 @@ function TimelineSection({ timeline }: { timeline: WorkforceTimelineItem[] }) {
 function FinalResultSection({ job }: { job: WorkforceJobViewModel }) {
   return (
     <SectionCard title="最终结果" icon={FileText}>
+      {/* FIX-20：招投标确定性计划里综合汇总没做出来时写明，不再只显示占位文字 */}
+      {job.synthesisNotGenerated ? (
+        <p className="break-words text-sm leading-relaxed text-foreground/90" data-testid="workforce-synthesis-not-generated">
+          {synthesisNotGeneratedSentenceZh(job.synthesisNotGenerated.reasonZh)}。招标分析结果请到项目里审阅。
+        </p>
+      ) : null}
       {job.finalSummary ? (
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
           {job.finalSummary}
         </p>
-      ) : (
+      ) : job.synthesisNotGenerated ? null : (
         <p className="text-sm text-muted">{finalResultPlaceholder(job.status)}</p>
       )}
     </SectionCard>
