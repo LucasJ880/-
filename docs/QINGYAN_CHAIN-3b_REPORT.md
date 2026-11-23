@@ -56,6 +56,22 @@
 
 全量 `npm test` 是在补派规格一致性审查之前跑的；之后的修改只加测试与改文档，补完后重跑了 `npm run test:ci`（PASS）、`npm run typecheck`、`npm run lint:baseline`（PASS），以及改到的单测与隔离库测试（见 §3 / §5 的条数）。
 
+### 2026-11-23 合入 main `003e0d6a` 后复跑（合并提交 `e3ecdfb2`）
+
+合入的 main 含 #540 FIX-12、#546 FIX-13、#548 FIX-17、#533 CHAIN-4c、#532 CHAIN-2b 及其归档。冲突只有 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 一处，两边新增的行都保留（CHAIN-3b 接在 CHAIN-3 之后，FIX-12 / FIX-13 / FIX-17 跟在后面）；`scripts/test-all.sh`、`scripts/test-ci-unit.sh` 自动合并，两边的注册行都在。本分支改的 4 个源码文件与 4 个测试文件、`readiness-count.ts` 的依赖（`@/lib/db`、`./flags`）、`store.ts` / `workspace-view.ts` / 面板的依赖闭包，main 在分叉后都没改过；三个调用方（投标工作区读写接口、成本核算接口、项目页「下一步」卡）本身也没改。main 改到的、被调用方或测试间接带进来的模块是 FIX-12 / FIX-13 的模型调用截止与解析文字（与「手头材料」推导无关，测试不发模型请求）；CHAIN-2b 在两个接口上去掉房间 JSON 里的 `pricingInputs.ourCostCad` / `ourCostSource` 与 `bidStrategyMemo`，不碰 `bidWorkspace` 键，投标工作区走自己的接口。没有实质冲突，也没有行为变化。
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 本 change 单跑（隔离库 `qy_iso_b`，迁移已是最新） | `NODE_ENV=test npx tsx <file>` | `readiness-count-db` 19、`workspace-view` 34、`import-leads` 109、`panel-helpers` 43、`stage-policy` 25、`bid-workspace-db` 49、`readiness-submission-db` 24、`import-leads-db` 34，全过 |
+| 全量（新库 `qy_full_chain3b`，`npx prisma migrate deploy`） | `npm test` | `710/720 通过, 10 失败`；10 项与 main 既有失败逐条相同：来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB；上面八个套件在全量里的条数与单跑相同 |
+| CI 子集（不带数据库） | `npm run test:ci`（CI 的环境变量） | PASS（`readiness-count-db` 照例跳过；注册校验：已注册 687 个，历史欠账 66 条） |
+| 类型 | `npm run typecheck` | 通过 |
+| lint | `npm run lint:baseline` | PASS（errors 38 / 基线 53，无新增指纹） |
+| 测试注册 | `bash scripts/check-test-registry.sh` | 通过（687 / 66） |
+| 运行时架构 | `bash scripts/test-runtime-architecture.sh` | PASS（59 / 61 / 19 / 134 / 26 / 18 / 9） |
+| OpenSpec | `openspec validate bid-readiness-import-leads --strict` | valid |
+| 受保护文件 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与代码）**——逐条核实后并入四件套（`09c87f09`）：不吞异常（要么不 catch、要么写进规格——选了不 catch，与同一 `Promise.all` 里的其它查询一致）；轻量模块只依赖 `@/lib/db` 与 `./flags`，口径与 CHAIN-3 的 `storedLeadCount` 一致；用 `findFirst` 判有没有、字段是布尔；信号表没有 `projectId` 索引写进 Risks；测试注册写进 1.1；What 每条一个动词；`loadWorkspaceContext` 的其它调用方写进 Impact。
