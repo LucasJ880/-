@@ -119,7 +119,6 @@ export const REVISE_REASON_MAX = 2000;
 /** 去掉控制字符（保留换行与制表符）、首尾空白，截到上限；空串为 null */
 export function cleanNoteText(s: string | null | undefined, max: number): string | null {
   if (s == null) return null;
-  // eslint-disable-next-line no-control-regex
   const t = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F​-‏‪-‮⁠-⁤﻿]/g, "").trim();
   return t ? t.slice(0, max) : null;
 }

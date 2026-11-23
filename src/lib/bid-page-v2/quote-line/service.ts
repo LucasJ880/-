@@ -31,7 +31,6 @@ import { exportOfficialPriceSchedule } from "@/lib/tender-price-schedule/officia
 import { allocateFromEngine, exportUnitPrices } from "./allocation";
 import {
   BUSINESS_TYPE_TO_QUOTE_TYPE,
-  QUOTE_STATUS_ZH,
   currencyLabelZh,
   engineErrorZh,
   isLineModeQuote,
