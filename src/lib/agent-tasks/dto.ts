@@ -233,3 +233,21 @@ export function sanitizeListStepInternals<T extends object>(
   }
   return out as ListStepInternalsView<T>;
 }
+
+/** 列表条数：最近任务（GET /api/agent/tasks/recent）缺省 10、封顶 20 */
+export const RECENT_TASKS_LIMIT = { fallback: 10, max: 20 } as const;
+/** 列表条数：项目任务列表（GET /api/agent/tasks?projectId=）缺省 20、封顶 100 */
+export const PROJECT_TASKS_LIMIT = { fallback: 20, max: 100 } as const;
+
+/**
+ * 列表的 limit 参数（FIX-23）：去首尾空白后是十进制正整数（/^[1-9]\d*$/）才用，否则按 fallback；再封顶 max。
+ * `0x10`、`1e1`、`5.0`、`+3`、负数、0、小数、空串、缺省都按 fallback——负数原样给 Prisma 的 take 会从排序末尾取、绕过上限。
+ */
+export function parseListLimit(
+  raw: string | null | undefined,
+  opts: { fallback: number; max: number },
+): number {
+  const text = (raw ?? "").trim();
+  const n = /^[1-9]\d*$/.test(text) ? Number(text) : opts.fallback;
+  return Math.min(n, opts.max);
+}

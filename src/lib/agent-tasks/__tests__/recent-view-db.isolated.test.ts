@@ -64,6 +64,7 @@ async function main() {
   const { signPreviewToken } = await import("@/lib/preview/token");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
   const recentRoute = await import("@/app/api/agent/tasks/recent/route");
+  const listRoute = await import("@/app/api/agent/tasks/route");
 
   const tag = `fix23_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const RAW_ERROR_MARK = `RAW_ERROR_MARK_${tag}`;
@@ -401,6 +402,16 @@ async function main() {
       const rm = await recent(uOrgAdmin, "?triggerType=manual");
       const p1Manual = fixtureTasks.find((t) => t.createdById === uOrgAdmin.id && t.projectId === P1.id && t.triggerType === "manual")!;
       ok(rm.status === 200 && ids(rm).includes(p1Manual.id) && rm.tasks.every((t) => t.triggerType === "manual") && newestFirst(rm), "组织管理员 ?triggerType=manual：只有 manual 任务（含 P1 上那条），按建任务时间从新到旧", { status: rm.status, got: rm.tasks.map((t) => [t.triggerType, t.createdAt]) });
+      // cron 筛选下的排序：用有 2 条以上 cron 任务的身份（组织管理员 P1、P2 各一条；条数用户 P1 上 11 条）
+      const ra = await recent(uOrgAdmin, "?triggerType=cron");
+      const adminCron = fixtureTasks
+        .filter((t) => t.createdById === uOrgAdmin.id && t.triggerType === "cron" && [P1.id, P2.id].includes(t.projectId))
+        .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime())
+        .map((t) => t.id);
+      ok(ra.status === 200 && adminCron.length === 2 && adminCron.every((id) => ids(ra).includes(id)) && ra.tasks.every((t) => t.triggerType === "cron") && newestFirst(ra), "组织管理员 ?triggerType=cron：P1、P2 上的 2 条 cron 任务都在，只有 cron，按建任务时间从新到旧", { status: ra.status, got: ra.tasks.map((t) => [t.triggerType, t.createdAt]) });
+      const rc = await recent(uCount, "?triggerType=cron");
+      const countCron = countP1.filter((t) => t.triggerType === "cron").sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime()).map((t) => t.id);
+      ok(rc.status === 200 && countCron.length === 11 && same(ids(rc), countCron.slice(0, 10)) && newestFirst(rc), "条数用户 ?triggerType=cron：P1 上 11 条 cron 里最新的 10 条，顺序从新到旧", { status: rc.status, n: rc.tasks.length });
       ok(same(Object.keys(r.body), ["tasks"]), "响应形状照旧是 { tasks }", Object.keys(r.body));
     }
 
@@ -471,13 +482,38 @@ async function main() {
       ok(rNone.status === 200 && same(ids(rNone), newestP1(10)), "不带 limit：P1 上最新的 10 条", show(rNone));
       const r50 = await recent(uCount, "?limit=50");
       ok(r50.status === 200 && same(ids(r50), newestP1(20)), "?limit=50：P1 上最新的 20 条", show(r50));
-      for (const q of ["-5", "abc", "0", "2.5", ""]) {
+      // 「%2B3」是参数值 +3（查询串里裸写的 + 会被解码成空格，?limit=+3 等于 ?limit= 3，按 3 条）
+      for (const q of ["-5", "abc", "0", "2.5", "", "0x10", "1e1", "5.0", "%2B3"]) {
         const r = await recent(uCount, `?limit=${q}`);
         ok(r.status === 200 && same(ids(r), newestP1(10)), `?limit=${q === "" ? "（空串）" : q}：200，P1 上最新的 10 条`, show(r));
       }
     }
 
     // ── 未登录返回 401 ──
+    // ── 项目任务列表的条数（GET /api/agent/tasks?projectId=）──
+    console.log("项目任务列表的条数（P1 上共 41 条任务，条数用户是 P1 的成员）");
+    {
+      const p1All = fixtureTasks.filter((t) => t.projectId === P1.id).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).map((t) => t.id);
+      const listCall = async (query: string) => {
+        const req = await mkRequest(uCount, `/api/agent/tasks?projectId=${P1.id}${query}`, null);
+        const res = await withPreviewToken(null, () => listRoute.GET(req, { params: Promise.resolve({}) }));
+        const body = (await res.json().catch(() => ({}))) as { tasks?: Array<{ id: string }> };
+        return { status: res.status, ids: (body.tasks ?? []).map((t) => t.id) };
+      };
+      const show = (r: { status: number; ids: string[] }) => ({ status: r.status, n: r.ids.length, oldest: r.ids.length ? p1All.indexOf(r.ids[0]) : null });
+      ok(p1All.length === 41, "P1 上共 41 条任务", p1All.length);
+      const none = await listCall("");
+      ok(none.status === 200 && same(none.ids, p1All.slice(0, 20)), "不带 limit：最新的 20 条", show(none));
+      const five = await listCall("&limit=5");
+      ok(five.status === 200 && same(five.ids, p1All.slice(0, 5)), "?limit=5：最新的 5 条", show(five));
+      for (const q of ["-5", "-1000", "abc", "0", "2.5", "0x10"]) {
+        const r = await listCall(`&limit=${q}`);
+        ok(r.status === 200 && same(r.ids, p1All.slice(0, 20)), `?limit=${q}：200，最新的 20 条（不是最早的那些）`, show(r));
+      }
+      const big = await listCall("&limit=150");
+      ok(big.status === 200 && same(big.ids, p1All), "?limit=150：按上限 100 取，41 条全在、从新到旧", show(big));
+    }
+
     console.log("未登录返回 401");
     {
       const r = await recent(null);

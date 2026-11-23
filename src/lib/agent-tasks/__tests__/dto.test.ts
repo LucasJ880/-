@@ -11,6 +11,9 @@ import {
   toDiagnosticAgentTaskDetail,
   toBusinessAgentTaskStep,
   sanitizeListStepInternals,
+  parseListLimit,
+  RECENT_TASKS_LIMIT,
+  PROJECT_TASKS_LIMIT,
   SAFE_STEP_ERROR_MESSAGE,
   AGENT_STEP_INTERNAL_FIELDS,
   APPROVAL_INTERNAL_FIELDS,
@@ -202,6 +205,15 @@ ok(okStep.error === null && okStep.hasError === false, "completed 步骤无 erro
 
   const diagList = sanitizeListStepInternals(full, true);
   ok(diagList === full && diagList.checkReportJson === SECRET_CHECK, "列表步骤投影：平台管理员原样返回");
+}
+
+// —— FIX-23 列表条数：只认十进制正整数，否则按缺省，再封顶 ——
+{
+  const r = (raw: string | null) => parseListLimit(raw, RECENT_TASKS_LIMIT);
+  const l = (raw: string | null) => parseListLimit(raw, PROJECT_TASKS_LIMIT);
+  ok(RECENT_TASKS_LIMIT.fallback === 10 && RECENT_TASKS_LIMIT.max === 20 && PROJECT_TASKS_LIMIT.fallback === 20 && PROJECT_TASKS_LIMIT.max === 100, "列表条数：最近任务缺省 10 封顶 20，项目任务列表缺省 20 封顶 100");
+  ok(r("5") === 5 && r(" 7 ") === 7 && r("20") === 20 && r("50") === 20 && l("50") === 50 && l("150") === 100, "列表条数：十进制正整数照用（去首尾空白），超过上限按上限");
+  ok([null, "", "0", "-5", "-1000", "2.5", "5.0", "abc", "0x10", "1e1", "+3", "05"].every((raw) => r(raw) === 10 && l(raw) === 20), "列表条数：缺省、空串、0、负数、小数、非数字、0x10、1e1、+3、前导零都按缺省");
 }
 
 console.log(`\n结果: ${pass} passed, ${fail} failed`);

@@ -1,20 +1,11 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
-import { sanitizeListStepInternals } from "@/lib/agent-tasks/dto";
+import { RECENT_TASKS_LIMIT, parseListLimit, sanitizeListStepInternals } from "@/lib/agent-tasks/dto";
 import { listEffectiveMemberships } from "@/lib/preview/server";
 import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
 import { isOrgSystemAdmin, isSuperAdmin } from "@/lib/rbac/roles";
 import { buildReadableProjectWhere, type SearchWhere } from "@/lib/search/where";
-
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 20;
-
-/** limit 只认大于 0 的整数，否则按 10；再封顶 20（负数会让 Prisma 从排序末尾取，绕过上限） */
-function parseLimit(raw: string | null): number {
-  const n = Number(raw);
-  return Math.min(Number.isInteger(n) && n > 0 ? n : DEFAULT_LIMIT, MAX_LIMIT);
-}
 
 /**
  * 调用者现在仍能打开的项目（与项目读权限守卫 requireProjectReadAccess 同口径）：
@@ -39,7 +30,8 @@ async function readableProjectScope(user: { id: string; role: string }): Promise
  */
 export const GET = withAuth(async (request, _ctx, user) => {
   const triggerType = request.nextUrl.searchParams.get("triggerType");
-  const limit = parseLimit(request.nextUrl.searchParams.get("limit"));
+  // limit 只认十进制正整数，否则按 10；再封顶 20
+  const limit = parseListLimit(request.nextUrl.searchParams.get("limit"), RECENT_TASKS_LIMIT);
   const projectScope = await readableProjectScope(user);
 
   const tasks = await db.agentTask.findMany({
