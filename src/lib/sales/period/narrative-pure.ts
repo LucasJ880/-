@@ -2,7 +2,7 @@
  * KPI-2 期间看板 AI 解读（OpenSpec change sales-period-narrative）— 纯函数核心（零 DB、零网络）。
  *
  * 数字只来自 KPI-1：模型输出里每个数字都要能在输入里找到，任何校验不过整段丢弃（narrative = null）。
- * config.yaml 第 7 条的唯一例外就是这里，见 change design D1。
+ * config.yaml 第 7 条的例外一就是这里（例外二是 TREE-0 情报调研树），见 change design D1。
  */
 
 import { INSIGHT_THRESHOLDS } from "./insights";

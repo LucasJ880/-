@@ -14,6 +14,13 @@ import { resolveRequestOrgIdForUser } from "@/lib/auth/resolve-request-org";
 import { listAwardsForOrg, toAmountNumber } from "@/lib/tender-intel/awards";
 import { deriveAwardIntelligence } from "@/lib/tender-intel/award-intelligence";
 import { isT4AwardSchemaReady } from "@/lib/tender-intel/award-flags";
+import { MANUAL_APC_SOURCE_PREFIX, listableApcUrl } from "@/lib/tender-intel/award-manual-entry";
+import { buildProjectVisibilityWhere } from "@/lib/projects/visibility";
+import { normalizeBuyerName } from "@/lib/corporate-memory/normalize";
+
+/** 采购方候选最多几个；每个来源最多读几行（不用 distinct：Prisma 没开 nativeDistinct 时会把全部行读进内存再去重） */
+const BUYER_SUGGESTION_CAP = 200;
+const BUYER_SUGGESTION_SCAN = 1000;
 
 export const GET = withAuth(async (request, _ctx, user) => {
   const { searchParams } = new URL(request.url);
@@ -61,11 +68,59 @@ export const GET = withAuth(async (request, _ctx, user) => {
   const membership = isSuperAdmin(user.role) ? null : await getOrgMembership(user.id, orgId);
   const canReview =
     isSuperAdmin(user.role) || (membership?.status === "active" && hasOrgRole(membership.role, "org_admin"));
+  // CHAIN-1b：Alberta 授标的人工录入——本组织 org_member 以上的有效成员（平台超级管理员按既有规则）
+  const canEnterManual =
+    isSuperAdmin(user.role) || (membership?.status === "active" && hasOrgRole(membership.role, "org_member"));
+  // 列表里只显示人工录入的 APC 链接（再校验一次主机）；别的来源的链接与原文片段不返回
+  const apcSources = records.length
+    ? await db.awardRecordSource.findMany({
+        where: { orgId, awardRecordId: { in: records.map((r) => r.id) }, sourceType: "USER_ENTRY", sourceKey: { startsWith: MANUAL_APC_SOURCE_PREFIX } },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: { awardRecordId: true, sourceType: true, sourceKey: true, sourceUrl: true },
+      })
+    : [];
+  const apcByRecord = new Map<string, string>();
+  for (const src of apcSources) {
+    if (apcByRecord.has(src.awardRecordId)) continue;
+    const url = listableApcUrl(src);
+    if (url) apcByRecord.set(src.awardRecordId, url);
+  }
+  // 采购方候选：调用人看得到的、已分派的本组织招标项目的采购方写法（项目写法优先；平台超级管理员的可见性条件为空，所以另排除待分派的）+ 已有授标（未撤回）的采购方写法；
+  // 按规整名去重（「The City of Calgary」与「City of Calgary」只留一个），最近的在前，最多 200 个；只给能录入的人
+  const buyerSuggestions: string[] = [];
+  if (canEnterManual) {
+    const visibility = await buildProjectVisibilityWhere(user);
+    const [projectBuyers, awardBuyers] = await Promise.all([
+      db.project.findMany({
+        where: { AND: [...(visibility ? [visibility] : []), { orgId, workDomain: "tender", intakeStatus: { not: "pending_dispatch" }, clientOrganization: { not: null } }] },
+        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+        select: { clientOrganization: true },
+        take: BUYER_SUGGESTION_SCAN,
+      }),
+      db.awardRecord.findMany({
+        where: { orgId, buyerNameRaw: { not: null }, status: { not: "RETRACTED" } },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        select: { buyerNameRaw: true },
+        take: BUYER_SUGGESTION_SCAN,
+      }),
+    ]);
+    const seen = new Set<string>();
+    for (const raw of [...projectBuyers.map((p) => p.clientOrganization), ...awardBuyers.map((a) => a.buyerNameRaw)]) {
+      const name = (raw ?? "").trim();
+      const key = name ? normalizeBuyerName(name) : "";
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      buyerSuggestions.push(name);
+      if (buyerSuggestions.length >= BUYER_SUGGESTION_CAP) break;
+    }
+  }
 
   return NextResponse.json({
     orgId,
     available: true,
     canReview,
+    canEnterManual,
+    buyerSuggestions,
     records: records.map((r) => ({
       id: r.id,
       buyerName: r.buyerNameRaw,
@@ -80,6 +135,7 @@ export const GET = withAuth(async (request, _ctx, user) => {
       projectId: r.projectId,
       possibleDuplicateOfId: r.possibleDuplicateOfId,
       confirmedAt: r.confirmedAt ? r.confirmedAt.toISOString() : null,
+      manualApcUrl: apcByRecord.get(r.id) ?? null,
     })),
     intelligence,
   });
