@@ -150,6 +150,8 @@ async function loadRequirementTexts(orgId: string, projectId: string): Promise<s
 type Classified = {
   matched: Array<LeadSignal & { winners: string[] }>;
   suggestions: PendingSuggestionView[];
+  /** 还在待确认的记录条数（一条记录涉及几对待确认也只算一次；不含不采用的） */
+  pendingRecordCount: number;
 };
 
 /** 按当前中标者与最新裁决给每条线索归类（在供应链页被驳回的不算）；同一个进口商只比一次 */
@@ -157,11 +159,13 @@ function classify(signals: readonly LeadSignal[], winners: readonly string[], de
   const matched: Classified["matched"] = [];
   const pending = new Map<string, PendingSuggestionView>();
   const match = createImporterMatcher(winners, decisions);
+  let pendingRecordCount = 0;
   for (const s of signals) {
     if (s.status === "REJECTED") continue;
     const m = match(s.meta.importerRaw);
     if (m.status === "MATCHED") matched.push({ ...s, winners: m.winners });
     else if (m.status === "SUGGESTED") {
+      pendingRecordCount += 1;
       for (const sg of m.suggestions) {
         const cur = pending.get(sg.pairKey) ?? { pairKey: sg.pairKey, importerName: s.meta.importerRaw, winnerName: sg.winnerName, basisZh: sg.basisZh, recordCount: 0 };
         cur.recordCount += 1;
@@ -169,7 +173,7 @@ function classify(signals: readonly LeadSignal[], winners: readonly string[], de
       }
     }
   }
-  return { matched, suggestions: [...pending.values()] };
+  return { matched, suggestions: [...pending.values()], pendingRecordCount };
 }
 
 type ProjectState = {
@@ -205,7 +209,7 @@ async function loadProjectState(orgId: string, projectId: string, now: Date): Pr
   ]);
   const winnerNames = winners.status === "ok" ? winners.names : [];
   const decisions = await loadDecisions(db, orgId, candidatePairKeys(signals.map((s) => s.meta.importerRaw), winnerNames));
-  const classified = winners.status === "ok" ? classify(signals, winnerNames, decisions) : { matched: [], suggestions: [] };
+  const classified = winners.status === "ok" ? classify(signals, winnerNames, decisions) : { matched: [], suggestions: [], pendingRecordCount: 0 };
   // CHAIN-3c：本项目现有记录涉及的对（不含不采用的）与其中有有效裁决的那些
   const finder = createCandidatePairFinder(winnerNames);
   const activePairKeys = new Set<string>();
@@ -253,6 +257,7 @@ function toView(state: ProjectState, canEdit: boolean, canDecideAliases: boolean
     exporters: state.exporters,
     leadCount: state.classified.matched.length,
     storedLeadCount: state.signals.filter((s) => s.status !== "REJECTED").length,
+    pendingLeadCount: state.classified.pendingRecordCount,
     canEdit,
     canDecideAliases,
     decidedPairs: state.decidedPairs,
@@ -436,7 +441,7 @@ export async function decideImportLeadAlias(input: {
 
 /**
  * 撤回本项目现有记录涉及的一对的当前裁决（调用方已确认是组织管理员）。
- * 判定：不是本项目现有记录涉及的对 → 404；现在没有有效裁决、或有效裁决不是请求带的那一条 → 409；锁内再查一次 → 409。
+ * 判定：没有可比对的历史中标者（与导入同一判定）→ 422（最先判）；不是本项目现有记录涉及的对 → 404；现在没有有效裁决、或有效裁决不是请求带的那一条 → 409；锁内再查一次 → 409。
  * 写一条撤回审计行（beforeData = 原裁决，afterData.revokedAuditId 指向原裁决的审计行），不改旧行、不碰信号与供应商。
  */
 export async function revokeImportLeadAlias(input: {
@@ -455,7 +460,7 @@ export async function revokeImportLeadAlias(input: {
   const reason = normalizeRevokeReason(input.reason);
   if (!reason.ok) return { ok: false, status: 400, code: reason.code, messageZh: reason.messageZh };
   const state = await loadProjectState(input.orgId, input.projectId, now);
-  // 中标者名单读不出来时照实说，不当成「这一对不在本项目里」
+  // 没有可比对的历史中标者（授标记录没接通、项目没有采购方、采购方没有他人中标的记录、读不出来；与导入同一判定）时照实说，不当成「这一对不在本项目里」
   if (state.winners.status !== "ok") return { ok: false, status: 422, code: "NO_WINNERS", messageZh: state.winners.messageZh };
   if (!state.activePairKeys.has(input.pairKey)) return { ok: false, status: 404, code: "PAIR_NOT_IN_PROJECT", messageZh: IMPORT_LEADS_TEXT.pairNotInProject };
   const current = state.decisions.find((d) => d.pairKey === input.pairKey);

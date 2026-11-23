@@ -160,6 +160,8 @@ export const IMPORT_LEADS_TEXT = {
   leadCap: (n: number, cap: number) => `这个项目已有 ${n} 条进口记录（含在供应链页标为不采用的），最多 ${cap} 条，这一批放不下了。`,
   storedButHidden: (n: number) => `已导入 ${n} 条进口记录；历史中标者现在读不出来，先不显示。`,
   storedPending: (n: number) => `已导入 ${n} 条进口记录，都在等组织管理员确认是不是同一家（打开进口线索查看）。`,
+  /** 只有一部分记录在等确认（其余对不上或已标为不是同一家）：K 只数还在待确认的 */
+  storedPartlyPending: (n: number, k: number) => `已导入 ${n} 条进口记录，其中 ${k} 条在等组织管理员确认是不是同一家（打开进口线索查看）。`,
   storedUnmatched: (n: number) => `已导入 ${n} 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。`,
   cannotImport: (reason: string) => `暂时不能导入：${reason}`,
   supplierCreated: "已加入供应商库。进口记录通常没有邮箱，请先补上联系邮箱才能发询价；补上后在项目里点「问供应商要价」就能勾选它。",
@@ -214,6 +216,8 @@ export type ImportLeadsView = {
   leadCount: number;
   /** 本项目存着的线索条数（不含在供应链页标为不采用的） */
   storedLeadCount: number;
+  /** 其中还在等确认是不是同一家的条数（一条记录涉及几对待确认也只算一次） */
+  pendingLeadCount: number;
   canEdit: boolean;
   /** CHAIN-3c：调用人能不能确认、否决、撤回「是不是同一家」（组织管理员） */
   canDecideAliases: boolean;
@@ -224,14 +228,16 @@ export type ImportLeadsView = {
 };
 
 /**
- * 槽里那一行摘要：有挂上的线索时「{N} 家出口商（{M} 条线索）」；存着线索但中标者读不出来 / 都在等确认时照实说；
+ * 槽里那一行摘要：有挂上的线索时「{N} 家出口商（{M} 条线索）」；存着线索但中标者读不出来 / 在等确认时照实说
+ * （按还在待确认的条数说：全部在等写「都在等」，只有一部分写「其中 K 条在等」，不和下面「已标为不是同一家」那行矛盾）；
  * 一条都没有时「还没有导入进口记录。」
  */
-export function slotSummaryZh(view: Pick<ImportLeadsView, "exporters" | "leadCount" | "storedLeadCount" | "winners" | "suggestions">): string {
+export function slotSummaryZh(view: Pick<ImportLeadsView, "exporters" | "leadCount" | "storedLeadCount" | "pendingLeadCount" | "winners">): string {
   if (view.exporters.length) return `${view.exporters.length} 家出口商（${view.leadCount} 条线索）`;
   if (view.storedLeadCount > 0) {
     if (view.winners.status !== "ok") return IMPORT_LEADS_TEXT.storedButHidden(view.storedLeadCount);
-    return view.suggestions.length ? IMPORT_LEADS_TEXT.storedPending(view.storedLeadCount) : IMPORT_LEADS_TEXT.storedUnmatched(view.storedLeadCount);
+    if (view.pendingLeadCount <= 0) return IMPORT_LEADS_TEXT.storedUnmatched(view.storedLeadCount);
+    return view.pendingLeadCount >= view.storedLeadCount ? IMPORT_LEADS_TEXT.storedPending(view.storedLeadCount) : IMPORT_LEADS_TEXT.storedPartlyPending(view.storedLeadCount, view.pendingLeadCount);
   }
   if (view.winners.status !== "ok") return IMPORT_LEADS_TEXT.cannotImport(view.winners.messageZh);
   return IMPORT_LEADS_TEXT.empty;

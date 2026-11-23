@@ -224,10 +224,13 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const refresh = async () => {
+  const refresh = async (): Promise<ImportLeadsView | null> => {
     const fresh = await apiFetch(base).then((r) => (r.ok ? (r.json() as Promise<ImportLeadsView>) : null)).catch(() => null);
     if (fresh) onView(fresh);
+    return fresh;
   };
+  // 撤回表单只在那条裁决还在视图里时算开着（否则别的「撤回」一直灰着）
+  const openRevoke = revokingDecision !== null && view.decidedPairs.some((x) => x.decisionId === revokingDecision) ? revokingDecision : null;
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
     setError(null);
@@ -267,9 +270,16 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
       const out = await postJson(`${base}/aliases/revoke`, { pairKey: d.pairKey, decisionId: d.decisionId, reason });
       if (!out.ok) {
         setError(out.error);
-        // 出错时表单里也写明（离状态区远）；裁决被同事换掉时裁决标识变了，表单会自己收起
-        setRevokeError(out.error);
-        await refresh();
+        const fresh = await refresh();
+        if (fresh && !fresh.decidedPairs.some((x) => x.decisionId === d.decisionId)) {
+          // 409 / 404：这条裁决已不在（同事撤回或改过、记录没了）——收起表单、清掉原因，别的「撤回」恢复可点；错误写在上方状态区
+          setRevokingDecision(null);
+          setRevokeReason("");
+          setRevokeError(null);
+        } else {
+          // 这条裁决还在（如网络出错）：表单留着、原因不丢，表单里也写明（离状态区远）
+          setRevokeError(out.error);
+        }
         return;
       }
       const next = out.json.view as ImportLeadsView;
@@ -404,7 +414,7 @@ export function ImportLeadsPanel({ projectId, view, onView, onClose }: { project
                   <button
                     type="button"
                     id={`il-revoke-${d.decisionId}`}
-                    disabled={busy !== null || revokingDecision !== null}
+                    disabled={busy !== null || openRevoke !== null}
                     onClick={() => {
                       setRevokingDecision(d.decisionId);
                       setRevokeReason("");

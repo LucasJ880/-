@@ -19,3 +19,11 @@
 - [x] 4.2 既有期望只改槽里与导入结果里那两句文字（verify：`import-leads.test.ts`、`import-leads-db.isolated.test.ts` 的其余既有断言原样通过；`sourcing-suggestions.test.ts`、`readiness` 相关不受影响）
 - [x] 4.3 全量门禁（verify：`npm test` 只有 main 上同样的既有失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`openspec validate import-leads-alias-admin-revoke --strict`；`git diff origin/main -- prisma/ vercel.json` 为空）
 - [x] 4.4 写 `docs/QINGYAN_CHAIN-3c_REPORT.md` + 更新 TASKFLOW 状态列（verify：报告含多维审查与门禁结果、GATE 的三个问题与 Lucas 2026-11-20 的回答（平台超级管理员也能、撤回要填原因、否决单独计数，三项都已做）；TASKFLOW 新增 CHAIN-3c 一行为 `[~]`）
+
+## 5. 交叉验证后修订（2026-11-23）
+
+- [x] 5.1 F1 槽里那一句按实际待确认的条数说：`service.ts` 的 `classify` 数还在待确认的记录（每条记录只加一次），视图带 `pendingLeadCount`；`slotSummaryZh` 全部在等写「都在等」、只有一部分写 `其中 K 条在等组织管理员确认是不是同一家`；规格「情报页签的供应链槽」与 design D5 同步（verify：`import-leads.test.ts` 那个组合；`alias-decisions-db.isolated.test.ts` 的「待确认条数按记录数」「其中 1 条在等」）
+- [x] 5.2 F2 对抗用例并进正式测试：新文件 `alias-decisions-db.isolated.test.ts`（注册进 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`）——两个组织同一对、并发撤回 / 并发裁决、锁内重读与锁内 / 锁外比对标识（测试先拿住同一把锁）、裁决人已不是本组织现有成员、没有采购方时 422；纯函数对抗用例并进 `import-leads.test.ts`（verify：读裁决去掉组织过滤、锁内不重读（撤回 / 裁决）、锁内或锁外不比对标识、裁决人不按组织或不按在职，逐个改坏后都失败，改回后通过）
+- [x] 5.3 F3 撤回失败（409 / 404）后：面板刷新，这条裁决已不在视图里就收起表单、清掉原因，别的「撤回」只在表单对应的裁决还在时才灰（verify：`import-leads.test.ts` 源码断言）
+- [x] 5.4 F5 撤回 422 的范围写进规格（没有可比对的历史中标者，与导入同一判定）；F6 design D3 的提示与 D5 一致、`match-pure.ts` 注释挪回 `candidatePairKeys`；F4 / F7 写进报告「已知限制」（verify：`openspec validate import-leads-alias-admin-revoke --strict`）
+- [x] 5.5 门禁重跑（verify：本 change 与 CHAIN-3b 单跑、全量只有既有 10 项失败、CI 子集、typecheck、lint:baseline、注册、架构守卫、strict validate）

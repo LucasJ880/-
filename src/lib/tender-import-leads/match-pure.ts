@@ -100,7 +100,7 @@ export function matchImporter(importer: string, winners: readonly string[], deci
   return createImporterMatcher(winners, decisions)(importer);
 }
 
-/** 本项目所有记录可能用到的「进口商 ⇄ 中标者」候选对（用来按对查裁决）；进口商按规整后名称只比一次 */
+/** 一个进口商与某个中标者之间「疑似同一家」的一对：规整后的对键与中标者原文 */
 export type CandidatePair = { pairKey: string; winnerName: string };
 
 /**
@@ -122,6 +122,7 @@ export function createCandidatePairFinder(winners: readonly string[]): (importer
   };
 }
 
+/** 本项目所有记录可能用到的「进口商 ⇄ 中标者」候选对（用来按对查裁决）；进口商按规整后名称只比一次 */
 export function candidatePairKeys(importers: readonly string[], winners: readonly string[]): string[] {
   const prepared = winners.map(prepareName);
   const seenImporters = new Set<string>();
