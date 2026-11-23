@@ -6,6 +6,8 @@
 -- 怎么用：有生产只读权限的人整段执行（只读事务，最后 ROLLBACK，不改任何数据）。
 --   第 1 段为 0：可以合并。
 --   不为 0：按第 2 段的名单，由组织管理员在各项目「项目成员」里把做报价的同事设为主负责人，再合并。
+--   第 3 段 all_bound 为 false 的组织：企业负责人合并当天看不到别人负责的项目的落地价——知会，或由平台管理员给他绑
+--   「老板」岗位（组织范围财务键），再合并。
 -- 不含任何金额；只列组织名、项目名、编号与计数。
 
 BEGIN READ ONLY;
@@ -47,5 +49,56 @@ WHERE p."intakeStatus" = 'dispatched'
   AND (u.id IS NULL OR lower(trim(u.email)) = 'system@qingyan.internal')
 GROUP BY o.name, p.id, p.name, p."solicitationNumber"
 ORDER BY last_quote_at DESC NULLS LAST, p.name;
+
+-- 3. 企业负责人（organizationMember.role = org_owner）有没有组织范围的财务查看权
+--    系统岗位 org_owner 本身不带 project.finance.*（src/lib/authorization/role-defaults.ts）；组织范围的财务查看权要另绑
+--    「老板」（owner，带 project.finance.manage）或「会计」（accounting，带 project.finance.read）这类岗位。没绑的企业负责人
+--    合并当天在别人负责的项目上也看不到比价 / 追踪页的落地价。
+--    只出组织名与是否已绑（每个组织的企业负责人人数、其中已绑的人数），不出个人信息。
+--    「已绑」= 有一条有效（active、未过期）的岗位绑定，岗位 active，岗位里有 ORG 范围 ALLOW 的 project.finance.read 或
+--    project.finance.manage，且这个人没有任何岗位对同一个键 DENY；平台超级管理员（User.role = super_admin）按已绑算。
+WITH tender_orgs AS (
+  SELECT DISTINCT p."orgId" AS org_id
+  FROM "Project" p
+  WHERE p."intakeStatus" = 'dispatched' AND p."workDomain" = 'tender' AND p."orgId" IS NOT NULL
+),
+owners AS (
+  SELECT m."orgId" AS org_id, m."userId" AS user_id, u.role AS platform_role
+  FROM "OrganizationMember" m
+  JOIN tender_orgs t ON t.org_id = m."orgId"
+  JOIN "User" u ON u.id = m."userId"
+  WHERE m.role = 'org_owner' AND m.status = 'active'
+),
+key_bindings AS (
+  SELECT b."orgId" AS org_id, b."principalId" AS user_id, rp."permissionKey" AS permission_key, rp."dataScope" AS data_scope, rp.effect
+  FROM "PrincipalRoleBinding" b
+  JOIN "RoleProfile" r ON r.id = b."roleProfileId" AND r.status = 'active'
+  JOIN "RolePermissionBinding" rp ON rp."roleProfileId" = r.id
+  WHERE b."principalType" = 'HUMAN' AND b.status = 'active'
+    AND (b."expiresAt" IS NULL OR b."expiresAt" > now())
+    AND rp."permissionKey" IN ('project.finance.read', 'project.finance.manage')
+),
+owner_view AS (
+  SELECT o.org_id, o.user_id,
+    (o.platform_role = 'super_admin') OR EXISTS (
+      SELECT 1 FROM key_bindings k
+      WHERE k.org_id = o.org_id AND k.user_id = o.user_id AND k.effect = 'ALLOW' AND k.data_scope = 'ORG'
+        AND NOT EXISTS (
+          SELECT 1 FROM key_bindings d
+          WHERE d.org_id = k.org_id AND d.user_id = k.user_id AND d.permission_key = k.permission_key AND d.effect = 'DENY'
+        )
+    ) AS has_org_finance_view
+  FROM owners o
+)
+SELECT
+  org.name                                             AS org_name,
+  count(ov.user_id)                                    AS org_owner_members,
+  count(ov.user_id) FILTER (WHERE ov.has_org_finance_view) AS with_org_finance_view,
+  (count(ov.user_id) > 0 AND bool_and(ov.has_org_finance_view)) AS all_bound
+FROM tender_orgs t
+JOIN "Organization" org ON org.id = t.org_id
+LEFT JOIN owner_view ov ON ov.org_id = t.org_id
+GROUP BY org.name
+ORDER BY all_bound, org.name;
 
 ROLLBACK;

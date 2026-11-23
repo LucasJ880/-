@@ -28,7 +28,7 @@ export type QuoteAccessContext = ProjectAccessContext & {
   hintReason?: QuoteHintReason;
 };
 
-/** 给 capabilities 用：默认那句时不带键（有权限的人与改动前形状相同） */
+/** 给 capabilities 用：默认那句时不带键；能编辑的人不带（与改动前形状相同）。能看不能编辑的人（会计岗 + 只读角色）在没有真人负责人时也会带 no_owner */
 export function capabilityHint(access: Pick<QuoteAccessContext, "hintReason">): { hintReason?: QuoteHintReason } {
   return access.hintReason ? { hintReason: access.hintReason } : {};
 }

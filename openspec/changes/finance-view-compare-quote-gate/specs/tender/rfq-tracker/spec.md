@@ -14,7 +14,7 @@
 ## ADDED Requirements
 
 ### Requirement: 追踪页落地价按项目的财务查看权
-落地价 SHALL 按每行所在项目判定（与比价矩阵同一口径）。没有财务查看权的那一格 SHALL 写「落地价只给有财务查看权的人看」，SHALL NOT 给「去比价」链接；这一轮超过上限没取矩阵时也写这一句，不写「请到比价面板查看」；换算不出时照常写原因并给链接；「最便宜」照常。响应 SHALL NOT 含那几家的落地价。有行被隐藏时整页 SHALL 带 `landedHidden: true`，页面顶部 SHALL 显示一次比价面板那一句（被隐藏的项目都没有真人负责人、部分没有、授权查询出错时按 `projects/finance-access`「没有真人负责人与暂时无法确认时的提示」换句）。汇总卡不取矩阵，SHALL 不受影响。
+落地价 SHALL 按每行所在项目判定（与比价矩阵同一口径）。没有财务查看权的那一格 SHALL 写「落地价只给有财务查看权的人看」，SHALL NOT 给「去比价」链接；这一轮超过上限没取矩阵时也写这一句，不写「请到比价面板查看」；换算不出时照常写原因并给链接；「最便宜」照常。授权查询出错、按兜底收紧时那一格 SHALL 写「暂时无法确认查看权限，请稍后刷新」。响应 SHALL NOT 含那几家的落地价。返回的行里有格子因权限被隐藏时（不算「落地价未换算」与被行数上限截掉的行）整页 SHALL 带 `landedHidden: true`，页面顶部 SHALL 显示一次比价面板那一句（按 `projects/finance-access`「没有真人负责人与暂时无法确认时的提示」换句）。汇总卡 SHALL 不受影响。
 
 #### Scenario: 没有财务查看权
 - **WHEN** 组织管理员（没有财务键）打开追踪页，页里有本人负责的项目和别人负责的项目
@@ -23,6 +23,14 @@
 #### Scenario: 负责人是系统账号
 - **WHEN** 只读成员看的被隐藏的项目里，有的负责人是导入用的系统账号
 - **THEN** 都是系统账号时 `hintReason` 为 `no_owner`，一部分是时为 `mixed`；有真人负责人时不带（`tracker-db.isolated.test.ts`；`NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-view-compare-quote-db.isolated.test.ts`）
+
+#### Scenario: 只算真正因权限被隐藏的格子
+- **WHEN** 只读成员看的项目里只有「落地价未换算」的报价，或被隐藏的行都被行数上限截掉
+- **THEN** 不带 `landedHidden`（`tracker-db.isolated.test.ts`）
+
+#### Scenario: 暂时无法确认
+- **WHEN** 授权查询出错
+- **THEN** 那一格写「暂时无法确认查看权限，请稍后刷新」，整页原因为 `unconfirmed`；换算不出的照旧写原因（`tracker-pure.test.tsx`，含接线源码断言）
 
 #### Scenario: 页面顶部提示
 - **WHEN** 追踪接口带 `landedHidden`

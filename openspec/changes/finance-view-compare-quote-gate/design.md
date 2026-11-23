@@ -69,7 +69,7 @@
 
 ### D5. 追踪页按行所在项目判定
 
-`loadTracker` 取一次 D1（`ownerId = null`）的组织级结果，每个项目再并上「负责人是本人」。`matrixRowByItem` 在组装行之前按项目裁掉（没有权限的项目，那几家的 `landedCad` 置空），响应里不出现那几家的落地价。`quoteCellView` 的选项加 `canViewCost`：为 false 时，矩阵标了「换算不出」照旧写原因并给去比价链接；其余（换算出了，或这一轮超过上限没取矩阵）写「落地价只给有财务查看权的人看」、`needsCompareLink = false`；`cheapest` 照旧取矩阵标记。`summaryOnly`（/bids 汇总卡）不取矩阵，不查财务键，不受影响。
+`loadTracker` 取一次 D1（`ownerId = null`）的组织级结果，每个项目再并上「负责人是本人」。`matrixRowByItem` 在组装行之前按项目裁掉（没有权限的项目，那几家的 `landedCad` 置空），响应里不出现那几家的落地价。`quoteCellView` 的选项加 `canViewCost`：为 false 时，矩阵标了「换算不出」照旧写原因并给去比价链接；其余（换算出了，或这一轮超过上限没取矩阵）写「落地价只给有财务查看权的人看」、`needsCompareLink = false`；`cheapest` 照旧取矩阵标记。`summaryOnly`（/bids 汇总卡）不取矩阵，不查财务键，不受影响。（交叉验证后：授权查询出错时那一格写短版「暂时无法确认查看权限，请稍后刷新」；整页 `landedHidden` 只按截断后留下的、真正因权限被隐藏的格子算，换算不出的与被行数上限截掉的不算，原因由纯函数 `trackerLandedHiddenReason` 决定。）
 
 - 否决：对所有人去掉追踪页的落地价——有财务查看权的人今天靠它跨项目看价，去掉是倒退。
 - 否决：不管追踪页——比价面板藏了、追踪页还在，统一就是空的。
@@ -98,7 +98,7 @@
 
 ### D9. 没有真人负责人、暂时无法确认时换句（审查后加）
 
-负责人是导入建项目用的系统账号（`system@qingyan.internal`，`src/app/api/v1/projects/route.ts` 按它找或建；派发不指定负责人就一直是它）或负责人账号不存在时，「需要的话请找项目负责人」没人可找——换成「这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人。」。授权查询出错时 D1 的兜底同样看不到，但那不是「没有权限」——`resolveFinanceViewSafe` 给结果标 `unconfirmed`、记 `console.error`（固定标签 `FINANCE_VIEW_FALLBACK_LOG`），界面写「暂时无法确认你的查看权限，请稍后刷新。」。判断与四种说法放纯模块：`src/lib/projects/system-owner.ts`（系统账号）、`src/lib/project-finance/view-hint.ts`（`financeHiddenHintZh`、`financeHintReason`）；接口用 `hintReason`（`no_owner` / `unconfirmed`；追踪页另有 `mixed`）告诉界面，默认那句不带（有权限的人返回形状不变）。查负责人账号只在看的人缺权限时多一次查询。单个报价页保存遇到 403 时不重新读取（否则整页切成客户视图、丢掉没保存的成本行），写明没有保存、填的内容还在。
+负责人是导入建项目用的系统账号（`system@qingyan.internal`，`src/app/api/v1/projects/route.ts` 按它找或建；派发不指定负责人就一直是它）或负责人账号不存在时，「需要的话请找项目负责人」没人可找——换成「这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人。」。授权查询出错时 D1 的兜底同样看不到，但那不是「没有权限」——`resolveFinanceViewSafe` 给结果标 `unconfirmed`、记 `console.error`（固定标签 `FINANCE_VIEW_FALLBACK_LOG`），界面写「暂时无法确认你的查看权限，请稍后刷新。」。判断与四种说法放纯模块：`src/lib/projects/system-owner.ts`（系统账号）、`src/lib/project-finance/view-hint.ts`（`financeHiddenHintZh`、`financeHintReason`）；接口用 `hintReason`（`no_owner` / `unconfirmed`；追踪页另有 `mixed`）告诉界面，默认那句不带；能编辑的人不带（返回形状与改动前相同），能看内部数字但不能编辑的人（如会计岗位 + 只读项目角色）在负责人是系统账号时 capabilities 会多带 `hintReason: "no_owner"`（给「不能新建」那句用）。查负责人账号只在看的人缺权限时多一次查询。单个报价页保存遇到 403 时不重新读取（否则整页切成客户视图、丢掉没保存的成本行），写明没有保存、填的内容还在。
 
 - 否决：按负责人名字「System (API)」认——名字可改，邮箱是导入接口找账号的键。
 - 否决：兜底时照旧写「没有权限」——授权服务抖一下就让会计以为自己被收了权限（审查正确性 2）。

@@ -39,7 +39,7 @@ export function financeHintReason(input: { unconfirmed: boolean; ownerAssigned: 
   return input.ownerAssigned ? "no_access" : "no_owner";
 }
 
-/** 接口里带的原因：默认（no_access）不带，与改动前的返回形状相同 */
+/** 接口里带的原因：默认（no_access）不带。只在看的人缺权限（看不到或不能编辑）时才算原因，所以完整权限的人返回形状与改动前相同 */
 export type FinanceHintReasonField = { hintReason?: Exclude<FinanceHintReason, "no_access"> };
 export function hintReasonField(reason: FinanceHintReason): FinanceHintReasonField {
   return reason === "no_access" ? {} : { hintReason: reason };
