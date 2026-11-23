@@ -18,10 +18,10 @@
 - **THEN** 负责人与平台超级管理员仍能看、能编辑，其余人都不能；出错时带 `hintReason: "unconfirmed"`，没有组织时不调用授权查询（`npx tsx src/lib/quote/__tests__/legacy-quote-finance-view.test.ts`）
 
 ### Requirement: 报价单列表不带利润率
-`GET /api/projects/{项目}/quotes` SHALL 只列所属组织为空的旧报价单，SHALL NOT 列出报价引擎、逐行报价建的报价（与旧接口对它们 409 同一口径）。响应 SHALL 对所有人多带 `capabilities`（`canViewInternal`、`canEdit`）。没有财务查看权的人：每份报价的 `profitMargin` SHALL 为 `null`，响应 SHALL 带 `costHidden: true`；`totalAmount`、标题、状态、版本、行数等其它字段 SHALL 照旧。有财务查看权的人每份旧报价单的字段 SHALL 与改动前相同。
+`GET /api/projects/{项目}/quotes` SHALL 只列所属组织为空的旧报价单，SHALL NOT 列出报价引擎、逐行报价、只报总价建的报价（与旧接口对它们 409 同一口径）。响应 SHALL 对所有人多带 `capabilities`（`canViewInternal`、`canEdit`）。没有财务查看权的人：每份报价的 `profitMargin` SHALL 为 `null`，响应 SHALL 带 `costHidden: true`；`totalAmount`、标题、状态、版本、行数等其它字段 SHALL 照旧。有财务查看权的人每份旧报价单的字段 SHALL 与改动前相同。
 
 #### Scenario: 只读成员与负责人读列表
-- **WHEN** 项目里有一份旧报价单（利润率 23.45）、一份报价引擎的报价和一份逐行报价，只读成员与项目负责人分别读列表
+- **WHEN** 项目里有一份旧报价单（利润率 23.45）、一份报价引擎的报价、一份逐行报价和一份只报总价，只读成员与项目负责人分别读列表
 - **THEN** 两人都只拿到那份旧报价单；只读成员的 `profitMargin` 是 `null`、带 `costHidden: true`、`totalAmount` 与负责人看到的相同；负责人的 `profitMargin` 是 23.45，没有 `costHidden`（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
 
 ### Requirement: 报价单详情只返回旧报价单字段
@@ -32,11 +32,11 @@
 - **THEN** 报价头、行项的品名、数量、单价、合计与负责人看到的相同；内部成本、利润率、内部备注、AI 草稿与审查原文、每行成本价都是 `null`，带 `costHidden: true`（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`；`npx tsx src/lib/quote/__tests__/legacy-quote-finance-view.test.ts`）
 
 ### Requirement: 旧报价单接口不处理报价引擎的报价
-所属组织不为空的报价（报价引擎、逐行报价建的）经旧报价单的读详情、修改、删除与 AI 审查接口时，系统 SHALL 返回 409「这份报价是在报价页里做的，旧报价单不能打开或修改它；请到报价页查看和修改。」并带报价页地址 `href`，SHALL NOT 写库、SHALL NOT 调模型。判定顺序 SHALL 是项目读权限、报价不存在 404、报价引擎的报价 409，再判编辑权或财务查看权。
+所属组织不为空的报价（报价引擎、逐行报价、只报总价建的）经旧报价单的读详情、修改、删除与 AI 审查接口时，系统 SHALL 返回 409「这份报价是在报价页里做的，旧报价单不能打开或修改它；请到报价页查看和修改。」并带报价页地址 `href`，SHALL NOT 写库、SHALL NOT 调模型。判定顺序 SHALL 是项目读权限、报价不存在 404、报价引擎的报价 409，再判编辑权或财务查看权。
 
 #### Scenario: 负责人用旧接口改引擎报价
-- **WHEN** 项目负责人对一份报价引擎的报价分别调旧接口的详情、`PATCH`（带行项与 `status: "approved"`）、`DELETE` 与 AI 审查
-- **THEN** 四次都是 409 与那句话、带 `href`；这份报价的行项、状态与成本列与请求前相同；本机假模型服务没有收到请求（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
+- **WHEN** 项目负责人对一份报价引擎的报价、一份逐行报价、一份只报总价（目标毛利已存进定价比例）分别调旧接口的详情、`PATCH`（带行项与 `status: "approved"`）、`DELETE` 与 AI 审查
+- **THEN** 三份报价的四次请求都是 409 与那句话、带 `href`，详情的响应里没有定价比例与目标毛利；这三份报价的行项、状态、成本列与定价比例与请求前相同；本机假模型服务没有收到请求（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
 
 ### Requirement: 新建、修改、删除旧报价单要能编辑
 新建（`POST …/quotes`）、修改与确认（`PATCH …/quotes/{报价}`）、删除（`DELETE …/quotes/{报价}`）、保存 AI 草稿（`POST …/quotes/save-ai-draft`）对不能编辑的人 SHALL 返回 403「没有改动：你不是本项目负责人，不能新建、修改、确认或删除报价单。要做报价，请项目负责人或组织管理员在项目成员里把你设为主负责人。」，SHALL NOT 写库。项目没有真人负责人时后一句 SHALL 换成「这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人。」；授权查询出错时整句 SHALL 换成「没有改动：暂时无法确认你的查看权限，请稍后刷新。」。能编辑的人 SHALL 与改动前相同（删除仍只限草稿）。

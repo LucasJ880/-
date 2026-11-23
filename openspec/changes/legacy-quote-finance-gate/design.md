@@ -8,7 +8,7 @@
 
 旧报价单在生产上天天在用、没有开关：投标页签 `src/components/project-detail/tabs/bid-tab.tsx:51-53` → `BidQuoteArea`，报价引擎开关没开时只渲染旧报价单区块（`src/components/quote-engine/bid-quote-area.tsx:16`）。BIDPAGE 新页面把它挂在金额门里（`src/components/bid-page-v2/bid-page-v2.tsx:111-122`），但交接文档 §3 写明金额门「只决定挂不挂，不是数据保护」。
 
-同一张表：报价引擎与逐行报价（BIDPAGE-3）建的报价也存在 `ProjectQuote`，`orgId` 不为空（`src/lib/quote-engine/service.ts:150-153`、`src/lib/bid-page-v2/quote-line/service.ts:170-173`）；引擎快照把估算成本、售价、毛利率写进 `internalCost` / `totalAmount` / `profitMargin` 三列，把估算成本、毛利、毛利率、加成、成本分解、情景写进 `summaryJson`（`service.ts:231-241`）。旧路由建报价从不写 `orgId`（`src/app/api/projects/[id]/quotes/route.ts:44-53`、`save-ai-draft/route.ts:30-44`），所以 `orgId` 是否为空就是「旧报价单 / 报价引擎的报价」的分界。
+同一张表：报价引擎、逐行报价（BIDPAGE-3）与只报总价（BIDPAGE-4，#581 已合并）建的报价也存在 `ProjectQuote`，`orgId` 不为空（`src/lib/quote-engine/service.ts:150-153`、`src/lib/bid-page-v2/quote-line/service.ts:175-178`、`src/lib/bid-page-v2/lump-sum/service.ts:55-58`）；逐行报价与只报总价把目标毛利写进 `pricingRate`（只报总价在 `lump-sum/service.ts:240`），它们自己的接口按金额门（`bid-page/quotes/[quoteId]/{line,lump}/route.ts` 都过 `lineModeGate`），但旧报价单详情原样给整行；引擎快照把估算成本、售价、毛利率写进 `internalCost` / `totalAmount` / `profitMargin` 三列，把估算成本、毛利、毛利率、加成、成本分解、情景写进 `summaryJson`（`service.ts:231-241`）。旧路由建报价从不写 `orgId`（`src/app/api/projects/[id]/quotes/route.ts:44-53`、`save-ai-draft/route.ts:30-44`），所以 `orgId` 是否为空就是「旧报价单 / 报价引擎的报价」的分界。
 
 ### 出口清单（2026-11-23 在 `c376be86` 上逐条核对）
 
@@ -42,7 +42,7 @@
 | 17 | 组织项目智能的供应商平均单价（`src/lib/projects/supplier-performance.ts:21-41`） | 本组织 active 成员 | 跨项目、跨品类的平均单价 | FIX-26b |
 | 18 | Muse `compare` / `price_scenario` | 有 Muse 身份的组织成员（只按组织取，`router.ts:480-481`） | 所选供应商落地价（决定 A）、矩阵 | CHAIN-2e 登记的「编号待定」 |
 | 19 | 报价引擎 14 个路由文件、「报价与成本」卡、单个报价页 | 改动前：项目角色带 `project:cost:read`（含 viewer） | 估算成本、毛利率 | CHAIN-2e |
-| 20 | 逐行报价 `bid-page/quotes/**` | 金额门（`src/lib/bid-page-v2/quote-line/api-gate.ts:20-27`） | 成本行、毛利 | BIDPAGE-3，已收；它的报价经 #1–#3 的旧接口仍可读写——本 change 用 D3 堵上 |
+| 20 | 逐行报价与只报总价 `bid-page/quotes/**`（`…/line`、`…/lump`） | 金额门（`src/lib/bid-page-v2/quote-line/api-gate.ts:20-27`，两种做法共用） | 成本行、目标毛利（`pricingRate`）、毛利 | BIDPAGE-3 / BIDPAGE-4，已收；它们的报价 `orgId` 不为空，经 #1–#3 的旧接口仍可读写、详情原样给出 `pricingRate`（FIX-25 design 出口表 #6 核对）——本 change 用 D3 堵上：列表不列、详情 / 修改 / 删除 / AI 审查一律 409 |
 | 21 | 报价表助手的目标毛利、房间 JSON 的 `pricingInputs` / `bidDraft` | 项目读者；项目列表是组织成员 | 目标毛利、成本、镜像的我方报价 | CHAIN-2b / FIX-25 |
 
 核对后不是出口的：项目 AI 上下文只带报价标题、状态、总额（`src/lib/projects/project-ai-context.ts:84-88`，卖价）；问青砚 `project_get_project_inquiries` 只给轮次与条数（`enterprise-readonly.ts:478-514`）；AI 记忆只记供应商名与状态（`src/lib/ai/memory.ts:117-127`）；旧报价单路由不写审计、不发通知；项目动态只拼固定字段（`src/lib/activity/formatter.ts:232-247`）；审计列表不返回 `afterData`（`src/lib/audit/query.ts:23-27`；审计详情见 #11）；模板推荐 `quotes/ai/recommend-template` 只给项目资料。
