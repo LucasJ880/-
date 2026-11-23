@@ -130,13 +130,11 @@ export async function exportQuotePdf(opts: ExportPdfOptions) {
 
   doc.setFontSize(9);
 
+  // FIX-26a：这份 PDF 是给客户的报价单——对任何人都只印小计与总额，不印利润率、内部成本、成本价与内部备注
   const totalsLines: [string, string][] = [
     ["Subtotal", `${header.currency} ${fmt(totals.subtotal)}`],
     ["Total Amount", `${header.currency} ${fmt(totals.totalAmount)}`],
   ];
-  if (totals.profitMargin != null) {
-    totalsLines.push(["Profit Margin", `${totals.profitMargin}%`]);
-  }
 
   for (const [label, value] of totalsLines) {
     doc.setFont("helvetica", "bold");
