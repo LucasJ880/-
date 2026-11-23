@@ -18,8 +18,8 @@
 - **THEN** 三次都返回 200，各自建的这些任务都在 `tasks` 里
 
 #### Scenario: 与项目读权限逐人一致（隔离库测试）
-- **WHEN** 用隔离库运行 `NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/agent-tasks/__tests__/recent-view-db.isolated.test.ts`，测试对每个夹具用户比较接口返回的任务集合与「对该用户建过任务的每个项目逐一检查项目读权限」的结果
-- **THEN** 每个用户两边完全相同，全部用例通过，退出码为 0
+- **WHEN** 用隔离库运行 `NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/agent-tasks/__tests__/recent-view-db.isolated.test.ts`，测试对每个夹具用户，比较 `?limit=20` 返回的任务序列与「对该用户建过任务的每个项目逐一检查项目读权限，放行的任务按建立时间倒序取前 20 条」
+- **THEN** 每个用户两边完全相同（含顺序），全部用例通过，退出码为 0
 
 ### Requirement: 打不开项目的人看不到自己在那里建过的任务
 下面这些调用者 SHALL NOT 在 `GET /api/agent/tasks/recent` 的结果里看到自己在对应项目上建过的任务：
@@ -53,11 +53,25 @@
 - **THEN** `tasks` 里只有 cron 任务，按建任务时间从新到旧
 
 ### Requirement: 条数上限按可见任务计
-`limit` SHALL 照旧默认 10、最多 20。上限 SHALL 作用在筛掉打不开的项目之后：结果是调用者能打开的任务里最近的 N 条，打不开的项目上的任务 SHALL NOT 占用名额。
+`limit` 参数 SHALL 只在是大于 0 的整数时使用；缺省、空串、0、负数、小数或不是数字时 SHALL 按 10；大于 20 时 SHALL 按 20。任何情况下 `tasks` SHALL NOT 多于 20 条。
+
+上限 SHALL 作用在筛掉打不开的项目之后：结果是调用者能打开的任务里最近的 N 条，打不开的项目上的任务 SHALL NOT 占用名额。
 
 #### Scenario: 新近的不可见任务不挤掉可见任务
-- **WHEN** 只读成员在他能打开的项目上有 1 条较早的任务，另在打不开的项目上有 25 条更新的任务，调用 `GET /api/agent/tasks/recent?limit=5`
-- **THEN** 返回 200，`tasks` 里恰好是那 1 条任务
+- **WHEN** 一个项目成员在他能打开的项目上有 22 条较早的任务，另在打不开的项目上有 25 条更新的任务，调用 `GET /api/agent/tasks/recent?limit=5`
+- **THEN** 返回 200，`tasks` 是他能打开的项目上最新的 5 条任务，打不开的项目上的任务一条都不出现
+
+#### Scenario: 不带 limit 与超过上限
+- **WHEN** 同一个成员分别不带 `limit`、带 `?limit=50` 调用
+- **THEN** 两次都返回 200；不带时 `tasks` 是能打开的项目上最新的 10 条，带 50 时是最新的 20 条
+
+#### Scenario: 负数的 limit
+- **WHEN** 同一个成员调用 `GET /api/agent/tasks/recent?limit=-5`
+- **THEN** 返回 200，`tasks` 是能打开的项目上最新的 10 条，不是最早的那些
+
+#### Scenario: 不是数字的 limit
+- **WHEN** 同一个成员分别调用 `GET /api/agent/tasks/recent?limit=abc`、`?limit=0`、`?limit=2.5`
+- **THEN** 三次都返回 200，`tasks` 都是能打开的项目上最新的 10 条
 
 ### Requirement: 不是平台管理员的人看到的检查报告为空
 对不是平台管理员的调用者（包括以岗位预览身份访问的 super_admin），`GET /api/agent/tasks/recent` 返回的每一步 SHALL 带 `checkReportJson`，值 SHALL 为 `null`。其余字段 SHALL 照旧：
@@ -89,7 +103,7 @@
 - **THEN** 响应正文里不出现原始报错标记串、价格标记串与「利润率」字样，也不出现那个打不开的项目的名字
 
 ### Requirement: 平台管理员照旧看到全部原文
-平台管理员（平台 super_admin，不在岗位预览中）调用 `GET /api/agent/tasks/recent`，任务范围（自己建的全部任务）与每一步的内容（含检查报告原文）SHALL 与改动前一致。这个接口 SHALL NOT 修改任何任务或步骤；库里保存的检查报告 SHALL 不因调用者身份而改变。
+平台管理员（平台 super_admin，不在岗位预览中）调用 `GET /api/agent/tasks/recent`，任务范围（自己建的全部任务）与每一步的内容（含检查报告原文）SHALL 与改动前一致；条数按「条数上限按可见任务计」一条。这个接口 SHALL NOT 修改任何任务或步骤；库里保存的检查报告 SHALL 不因调用者身份而改变。
 
 #### Scenario: 平台管理员查看
 - **WHEN** 平台 super_admin（不属于任务所在的组织）调用 `GET /api/agent/tasks/recent?limit=20`，他在已分发与未分发的项目上都建过任务，其中一步的检查报告带原始报错
@@ -107,12 +121,16 @@
 - **THEN** 两次都返回 401，正文没有 `tasks` 字段
 
 ### Requirement: AgentTask 接口目录的每个路由都登记在授权布线契约里
-授权布线契约测试 `src/app/api/agent/tasks/__tests__/authz-contract.test.ts` SHALL 覆盖 `src/app/api/agent/tasks/` 下的每一个 `route.ts`（含子目录）。目录里出现没有登记的路由文件时，测试 SHALL 失败（退出码非 0），并在输出里点名该文件。最近任务接口的登记 SHALL 要求它同时带项目可读范围的筛选与按平台管理员区分的步骤投影。
+仓库 SHALL 有一个不依赖数据库的授权布线契约测试，覆盖 `src/app/api/agent/tasks/` 目录下（含子目录）的每一个路由文件。目录里出现没有登记的路由文件时，该测试 SHALL 失败（退出码非 0），并在输出里点名该文件。最近任务接口的登记 SHALL 要求它同时带项目可读范围的筛选与按平台管理员区分的步骤投影；它选出的步骤字段 SHALL NOT 包含原始报错、输入与输出，选了任何一项该测试即失败。
 
 #### Scenario: 当前目录全部登记
 - **WHEN** 运行 `npx tsx src/app/api/agent/tasks/__tests__/authz-contract.test.ts`
-- **THEN** 退出码为 0，输出列出该目录下 7 个路由文件都已登记
+- **THEN** 退出码为 0，输出列出该目录下 7 个路由文件都已登记，最近任务接口的登记通过
 
 #### Scenario: 新加的路由没登记
 - **WHEN** 在 `src/app/api/agent/tasks/` 下新加一个 `route.ts`、但没有加进登记表，再运行同一测试
 - **THEN** 退出码非 0，输出点名这个新文件
+
+#### Scenario: 最近任务接口选了原始报错
+- **WHEN** 最近任务接口的步骤字段里加上原始报错，再运行同一测试
+- **THEN** 退出码非 0，输出点名 `recent/route.ts`

@@ -7,7 +7,10 @@
 **接口现在做什么**（`src/app/api/agent/tasks/recent/route.ts`，整个文件 46 行）：
 
 - 只包了 `withAuth`（`:10`）：有会话、账号 active 即可。
-- 查询条件只有 `createdById: user.id`（`:16`）与可选的 `triggerType`（`:17`）；`limit` 默认 10、上限 20（`:12`），按建任务时间倒序取前 N 条（`:41-42`）。
+- 查询条件只有 `createdById: user.id`（`:16`）与可选的 `triggerType`（`:17`）；按建任务时间倒序取前 N 条（`:41-42`）。
+- `limit` 是 `Math.min(Number(参数 || "10"), 20)`（`:12`），只封了上限，不看下限与是否整数：
+  - 负数原样传给 `take`。项目用的 Prisma 是 6.19.2（`package.json` 的 `@prisma/client` / `prisma`），负 `take` 表示从排序的末尾取，所以 `?limit=-100000` 返回最早的 10 万条，不受 20 的限制；
+  - 不是数字时得到 `NaN`，Prisma 怎么处理没有核实；`0` 与小数也原样传入。
 - 每个任务返回项目的 ID 与名字（`:29`）；每一步返回 `id / title / status / outputSummary / checkReportJson`（`:30-39`），`checkReportJson` 原样给出（`:36`）。
 - 不查项目权限，不分平台管理员与业务用户。
 
@@ -15,7 +18,7 @@
 
 - 技能执行失败时，检查报告是「步骤执行失败：<原始报错>」，issues 与 blockers 各一条（`src/lib/agent/checker.ts:22-40`）。写入点：
   - 旧编排 `src/lib/agent-core/skills/flow-runner.ts:367-371`（cron 巡检、项目页手动建的任务都走这里）；
-  - 一键投标方案 `src/app/api/projects/[id]/ai-bid-package/run-step/route.ts:127-131`（FIX-21 合并后是 `:148-152`）。
+  - 一键投标方案 `src/app/api/projects/[id]/ai-bid-package/run-step/route.ts:127-131`（FIX-21 合并后是 `:149-153`）。
 - 原始报错可能夹带模型原文：报价草稿模型返回格式不对时，原始输出的前 500 字作为报错存下（`src/lib/agent/skills/quote.ts:144`），报价草稿以供应商单价为输入。用到报价草稿的模板：一键投标方案（`src/lib/agent/templates/ai-bid-package.ts:31-36`）、投标准备（`bid-preparation.ts:30-35`）。
 - 技能自带的检查报告也会带业务数字：cron 巡检第 4 步「报价状态检查」（`src/lib/agent/templates/project-inspection.ts:35-42`）把规则检查的问题原样写进报告（`quote.ts:274-288`），其中有「利润率 X%，低于 Y% 安全线」「利润率 X%，偏低」（`src/lib/quote/rules.ts:74`、`:83`）。
 - 旧编排里技能失败的步骤状态是「等待审批」，不是「失败」：检查不通过就转人工（`flow-runner.ts:373-379`）。所以不能按步骤状态认出「这份报告里有原始报错」。
@@ -49,7 +52,7 @@
   - super_admin 全放行（含未分发，`:130-137`）；
   - 其余人：未分发 404（`:139-141`）；放行负责人（`:152`）、项目所在组织 active 的 owner / admin（`:156`）、项目 active 成员（`:160`）；否则 403。
   - 组织角色经 `getOrgMembership` 读取，岗位预览中只认预览企业、角色降为 `org_member`（`src/lib/auth/index.ts:70-80`）；平台角色在预览中降为 `user`（`:48-57`）。
-- 现成的批量写法：`buildReadableProjectWhere(userId, adminOrgIds)`（`src/lib/search/where.ts:46-58`，注释写明「与详情页读判定同口径」）。`/api/search` 的用法（`src/app/api/search/route.ts:21-29`）：
+- 现成的批量写法：`buildReadableProjectWhere(userId, adminOrgIds)`（`src/lib/search/where.ts:46-59`，注释写明「与详情页读判定同口径」）。`/api/search` 的用法（`src/app/api/search/route.ts:21-29`）：
   - super_admin 不加范围；
   - 其余人用 `listEffectiveMemberships`（`src/lib/preview/server.ts:226-230`：active 组织成员身份，预览中只有预览企业、角色 `org_member`）取组织，再用 `isOrgSystemAdmin`（`src/lib/rbac/roles.ts:121-123`）挑出 owner / admin。
   - 这与守卫的 `hasOrgRole(role, "org_admin")` 等价（`roles.ts:39-44`、`:125-130`：只有 owner 40、admin 30 两级不低于 30）。
@@ -78,7 +81,8 @@
 
 - 不是 super_admin 的调用者只看到自己建的、而且现在仍能打开项目的任务；判断与 `/api/agent/tasks/:taskId` 用的守卫一致，在一次查询里完成。
 - 不是平台管理员的调用者拿不到检查报告；平台管理员照旧。
-- 响应形状、参数、排序不变；平台管理员看到的一字不变。
+- 响应形状、合法参数的取法、排序不变；`limit` 不是大于 0 的整数时按 10，任何情况下最多 20 条。
+- 平台管理员在合法参数下看到的一字不变。
 - `/api/agent/tasks/` 目录以后新加的路由没登记进授权布线契约，CI 里就失败。
 
 **Non-Goals:**
@@ -93,7 +97,7 @@
 
 ## Decisions
 
-### D1 范围：与项目读权限守卫同口径，写进一次查询（「留给 GATE」第 2 条，推荐 A）
+### D1 范围：与项目读权限守卫同口径，写进一次查询（「留给 GATE」第 2 条，已定 A）
 
 - 做法：
   - 调用者是 super_admin（按 `withAuth` 给的用户判断，预览中已降为 `user`）时，不加项目条件。
@@ -112,20 +116,23 @@
   - 同组织的普通成员（不是项目成员）会继续看到自己在别人项目上建的任务，点进详情却是 403；
   - 已离开组织、仍是负责人的人反而看不到自己的 cron 巡检任务，与详情接口相反。
 - 被否决：只加「项目的组织 ∈ 调用者的 active 组织」。挡住了别的企业，挡不住被移出项目的人。
-- 被否决：在 `src/lib/projects/visibility.ts` 另写一个同口径的条件函数。与 `search/where.ts:46-58` 重复，多一处会漂移的地方；把那个函数挪过去要改搜索模块和它的读源码测试（`src/lib/search/__tests__/search-where.test.ts:94`），超出本次范围。
+- 被否决：在 `src/lib/projects/visibility.ts` 另写一个同口径的条件函数。与 `search/where.ts:46-59` 重复，多一处会漂移的地方；把那个函数挪过去要改搜索模块和它的读源码测试（`src/lib/search/__tests__/search-where.test.ts:94`），超出本次范围。
 
 ### D2 先筛后取
 
 - 项目条件和其它条件一起放在 `where` 里，`take: limit` 取的是「最近 N 条可见任务」。
 - 被否决：先取 N 条再在内存里筛。返回会少于 N 条，更早但可见的任务会被新近不可见的任务挤掉（夹具用例见 D6 第 4 条）。
 
-### D3 不是平台管理员时 `checkReportJson` 为 `null`：在冻结面内部直接复用 dto（「留给 GATE」第 1 条，推荐 A）
+### D3 不是平台管理员时 `checkReportJson` 为 `null`：在冻结面内部直接复用 dto（「留给 GATE」第 1 条，已定 A）
 
 - 做法：
   - `dto.ts` 的列表视图部分（紧挨 `sanitizeListStepError`）加一个函数：传入步骤与「是不是平台管理员」。
     - 是平台管理员：原样返回；
     - 不是：把 `AGENT_STEP_INTERNAL_FIELDS` 里在这个步骤上出现的键逐个置 `null`，其余键不动，不新增键。
-  - 路由按 `isPlatformAdmin(user)` 调它。`recent/route.ts` 只选了 `checkReportJson` 这一个内部字段，所以效果就是 `checkReportJson: null`。以后有人往这里的 `select` 加 `outputJson`，也会自动置空。
+  - 路由按 `isPlatformAdmin(user)` 调它。`recent/route.ts` 只选了 `checkReportJson` 这一个内部字段，所以效果就是 `checkReportJson: null`。
+  - 步骤的 `select` 照旧不选 `error` / `inputJson` / `outputJson`，由契约测试断言（D6）。
+    - 原始报错 `error` 不在内部字段清单里，投影管不到它，以后有人把它加进 `select` 就会原样漏出，只能靠这条断言拦住；
+    - `inputJson` / `outputJson` 投影虽然会置空，但选出来只是白读大字段，一并禁止。
 - 为什么能导入：`recent/route.ts` 在冻结区内部，导入 `dto.ts` 不进消费者普查（Context「冻结面」），同目录两个路由已经这样用；`dto.ts` 加函数不加文件，`FROZEN_AREA_NEW_FILE` 不触发。改动类别是 `security_fix`。`npm run test:runtime-architecture` 应当不改 baseline 就通过（验证方式）。
 - 与 FIX-21 的区别：FIX-21 的两个路由在 `src/app/api/projects/` 下，导入会成为冻结面的新消费者，所以只能照抄固定提示、再用测试比对。这里不需要照抄。
 - 键保留、值为 `null`：与业务视图 `dto.ts:119` 一致，现有调用方按「没有问题」处理。
@@ -159,8 +166,8 @@
 - 新增隔离库 + HTTP 测试 `src/lib/agent-tasks/__tests__/recent-view-db.isolated.test.ts`：
   - 直接调路由导出的 `GET`，带 `createSession` 签的会话 cookie，照 FIX-17 / FIX-21 的隔离库测试写法；岗位预览用例照 `src/lib/preview/__tests__/preview-db.isolated.test.ts`，在 `withPreviewToken` 里调用。只用虚构企业名。
   - 夹具：
-    - 组织甲、乙；甲的项目 P1、P2（已分发）、P3（未分发）；一个没有组织的已分发项目 P4。
-    - 人：
+    - 组织甲、乙；甲的项目 P1、P2（已分发）、P3（未分发）；一个没有组织的已分发项目 P4（验证组织管理员不会因为同企业就看到没有组织的项目）。
+    - 对照组（每人参加断言第 1、2 条）：
       - P1 与 P3 的负责人：已离开组织甲、不是这两个项目的成员；
       - P1 的 active 只读成员；
       - P1 成员身份为 inactive 的原成员；
@@ -168,35 +175,54 @@
       - 甲的 inactive 原管理员；
       - 甲的普通成员（不是项目成员）；
       - 乙的管理员；
-      - super_admin（不属于甲）；
-      - 已停用账号。
-    - 每人在 P1–P4 上各建 cron 与 manual 任务若干（直接写库，模拟 FIX-21 之前谁都能建任务的情况）；其中甲的管理员在 P4 上也建一条，验证组织管理员不会因为同企业就看到没有组织的项目。
-    - 岗位预览用例另建一个岗位模式的组织丙，super_admin 是丙的 active 管理员。他在丙的两个已分发项目上各建一条任务：P5（不是项目成员）、P6（active 项目成员）。
+      - super_admin（不属于甲）。
+    - 对照组每人在 P1–P4 上各建一条 cron、一条 manual 任务（直接写库，模拟 FIX-21 之前谁都能建任务的情况），每人 8 条。所以每人可见的任务不超过 8 条，低于 20 的上限，对照断言比的就是全部。
+    - 条数用户（单独一轮，只参加断言第 4 条）：P1 的 active 成员。他在 P1 上有 22 条较早的任务，在 P2（打不开）上有 25 条更新的任务。
+    - 岗位预览：另建一个岗位模式的组织丙，super_admin 是丙的 active 管理员。他在丙的两个已分发项目上各建一条任务：P5（不是项目成员）、P6（active 项目成员）。
+    - 已停用账号：只用于 401。
+    - 每条任务显式写不同的 `createdAt`（按夹具顺序逐条递增），排序断言不依赖写库的先后。
     - 步骤的检查报告里放三种标记串：原始报错、价格、「利润率 X%」。
   - 断言：
-    1. 对照断言：对每个夹具用户，`?limit=20` 返回的任务 ID 集合 = 这个人建的任务里、对其项目直接调 `requireProjectReadAccess`（同一 cookie）放行的那些。不一致即失败，并打印差异。
+    1. 对照断言：对对照组每个人，`?limit=20` 返回的任务 ID 序列 = 这个人建的任务里，对其项目直接调 `requireProjectReadAccess`（同一 cookie）放行的那些，按 `createdAt` 倒序取前 20 条；顺序也要一致。不一致即失败，并打印差异。
     2. 不是平台管理员的人：每一步 `checkReportJson` 为 `null`；键集合与改动前相同（任务 10 个键：`id / taskType / triggerType / intent / status / currentStepIndex / totalSteps / createdAt / completedAt / project`；步骤 5 个键：`id / title / status / outputSummary / checkReportJson`）；响应正文里不出现三种标记串，也不出现打不开的项目的名字。
-    3. super_admin：拿到 P1–P6 上自己建的全部任务（含未分发的 P3）；检查报告与库里一字不差。以岗位预览身份（预览企业丙）调用时按普通用户处理：
+    3. super_admin：拿到 P1–P6 上自己建的全部 10 条任务（含未分发的 P3）；检查报告与库里一字不差。以岗位预览身份（预览企业丙）调用时按普通用户处理：
        - 只返回 P6 上的任务，而且它的 `checkReportJson` 为 `null`；
        - P1–P5 上的都不返回：不是项目成员，预览中在丙的组织角色是 `org_member`、过不了管理员那一档，别的企业视同非成员。
-    4. 先筛后取：只读成员有 1 条 P1 上较早的任务，另有 25 条更新的、挂在打不开项目上的任务；`?limit=5` 只返回那 1 条。
+    4. 条数（条数用户）：
+       - `?limit=5`：P1 上最新的 5 条，P2 上的 25 条一条都不出现（先筛后取）；
+       - 不带 `limit`：P1 上最新的 10 条；
+       - `?limit=50`：P1 上最新的 20 条；
+       - `?limit=-5`、`?limit=abc`、`?limit=0`、`?limit=2.5`：都是 P1 上最新的 10 条。
     5. `?triggerType=cron` 只返回 cron 任务。
     6. 未登录、已停用账号：401。
     7. 请求前后 `AgentTask` / `AgentTaskStep` 逐字段不变。
 - `authz-contract.test.ts`：
-  - 登记 `recent/route.ts`，必须出现：`isPlatformAdmin`、D3 的 dto 投影函数名、`buildReadableProjectWhere`、`listEffectiveMemberships`。
+  - 登记 `recent/route.ts`，必须出现：`isPlatformAdmin`、D3 的 dto 投影函数名、`buildReadableProjectWhere`、`listEffectiveMemberships`；步骤的 `select` 里不得出现 `error`、`inputJson`、`outputJson`（D3）。
   - 新增目录完整性检查：递归列出 `src/app/api/agent/tasks/` 下所有 `route.ts`，每个都要在登记表里，漏了就失败并点名。
-  - 这个测试与 `dto.test.ts` 都不用库，同时进 `scripts/test-ci-unit.sh`。
+  - 这个测试与 `dto.test.ts` 都不用库，同时进 `scripts/test-ci-unit.sh`，放在 `src/lib/tenancy/__tests__/tenant-context.test.ts` 那一行之后（main 上 `:137`），不贴着 FIX-21 在 `files-route-guard.test.ts` 之后加的那一行。
 - `dto.test.ts`：新函数的用例。
   - 不是平台管理员时三种内部字段都置 `null`、其余键不动、不新增键；
   - 只有 `checkReportJson` 时只置它；
   - 平台管理员原样；
   - 新函数置空的键与 `AGENT_STEP_INTERNAL_FIELDS` 逐项相同。
 - 测试先行：三个测试都先在改动前的代码上跑一次，记下失败项；再改代码重跑。两份输出贴进报告。
-  - 隔离库测试在改动前应当失败的：对照断言里被移出、跨企业、同企业非成员、未分发、inactive 原管理员这几类人；置空与标记串；先筛后取；岗位预览。
+  - 隔离库测试在改动前应当失败的：
+    - 对照断言里所有不是 super_admin 的对照组用户：每人都在未分发的 P3 上有任务，改动前都会返回它；
+    - 置空与标记串；
+    - 条数用户的全部用例：改动前 `?limit=5` 与不带 `limit` 返回的是 P2 上的任务，`-5` 返回最早的 5 条，`0` 返回空，`abc` 与 `2.5` 的行为没有核实、至少不会恰好是 P1 上最新的 10 条；
+    - 岗位预览。
   - 契约测试在改动前应当失败的：`recent/route.ts` 那一条。
 - 被否决：只写读源码的测试。看不出查询条件写对没有，也看不出与守卫等价。
 - 被否决：用假的 `db` 跑路由。关系条件（`members.some`、`orgId in`）的语义只有真库能验证。
+
+### D7 `limit` 只认大于 0 的整数
+
+- 做法：参数转成数字后，是大于 0 的整数才用，否则按 10；再封顶 20。参数缺省、空串、`0`、负数、小数、非数字都按 10。
+- 理由：现在负数会绕过 20 的上限，一次读出调用者建过的全部任务（Context）。本 change 收紧的是「谁能读到哪些任务」，上限被绕开，等于把每页 20 条的约束整个拿掉。
+- 改口径影响谁：只有传了非法 `limit` 的请求；唯一的界面调用方固定传 `5`，不受影响。
+- 被否决：非法值返回 400。改变了响应，调用方要多处理一种错误；这个接口其它参数也不报错。
+- 被否决：负数取绝对值、或 `Math.max(1, …)`。都是给非法输入猜一个意思，不如回到默认值好说清。
+- 被否决：不改、另开任务。审查确认负数能绕过上限，与本 change 的目的直接相关。
 
 ## 与八条硬纪律的关系
 
@@ -212,7 +238,7 @@
 7. 确定性优先：遵守。不新增模型调用；范围判断是查成员关系。
 8. 测试注册：遵守。
    - 新的隔离库测试注册进 `scripts/test-all.sh`，放在 `dto.test.ts` 那一条之后；
-   - `authz-contract.test.ts` 与 `dto.test.ts` 加进 `scripts/test-ci-unit.sh`；
+   - `authz-contract.test.ts` 与 `dto.test.ts` 加进 `scripts/test-ci-unit.sh`（位置见 D6）；
    - `bash scripts/check-test-registry.sh` 通过，`ci/test-registry-baseline.txt` 不加行。
 
 ## 验证方式
@@ -236,7 +262,7 @@
 - [未分发项目上的巡检任务从负责人列表里消失] 与详情接口一致；有多少条看 tasks 3.2 的只读查询 A 段。
 - [卡片以后重新挂上] 不是平台管理员的人看不到「N 项发现」与问题列表，只看到任务、步骤与摘要。要恢复，得另做安全的问题摘要（「留给 GATE」第 1 条选项 C），登记为后续第 2 条。
 - [守卫与批量条件以后漂移] 守卫在 `access.ts`，批量条件在 `search/where.ts`，是两处代码。隔离库测试的对照断言（D6 第 1 条）逐人比对，任何一边改了都会失败；夹具里特意放了「已离开组织的负责人」，FIX-21 后续第 4 条要改的正是这一档。
-- [每个请求多一次查询] 一次 `organizationMember` 查询（岗位预览中另有一次预览读取，有 30 秒缓存）；任务查询多一个项目关系条件，仍走 `createdById` 索引（`prisma/schema.prisma` 中 `AgentTask` 的 `@@index([createdById, status])`）。与任务条数无关。
+- [每个请求多一次查询] 不是 super_admin、不在岗位预览中时多一次成员表查询；super_admin 不查；岗位预览中 `listEffectiveMemberships` 直接返回预览企业、不查成员表（它读的预览身份有 30 秒缓存）。任务查询多一个项目关系条件，仍走 `createdById` 索引（`prisma/schema.prisma` 中 `AgentTask` 的 `@@index([createdById, status])`）。与任务条数无关。
 
 ## Migration Plan
 
@@ -246,6 +272,8 @@
 
 ### 1. 不是平台管理员的人拿到的检查报告（`checkReportJson`）
 
+**已定（按推荐，Lucas 2026-11-22 授权）：A**。本 change 按 A 实现（D3）。
+
 先摆事实：
 
 - 检查报告里可能有原始报错（含模型原文与单价），也可能有报价审查的利润率（Context）。
@@ -253,7 +281,7 @@
 - 唯一的界面调用方是一张没挂载的卡片。
 - 旧编排里技能失败的步骤是「等待审批」，按状态认不出哪份报告带原始报错。
 
-- **A. 置 `null`，与详情接口的业务视图同口径（推荐）。**
+- **A. 置 `null`，与详情接口的业务视图同口径（推荐，已定）。**
   - 后果：
     - 同一张表的三个读接口口径一致；原始报错、模型原文、利润率都不出。
     - 界面上没有人受影响。
@@ -284,7 +312,9 @@
 
 ### 2. 任务范围按哪个口径筛
 
-- **A. 与项目读权限守卫同口径（推荐）。** 就是 `/api/agent/tasks/:taskId` 用的判断：
+**已定（按推荐，Lucas 2026-11-22 授权）：A**。本 change 按 A 实现（D1）。
+
+- **A. 与项目读权限守卫同口径（推荐，已定）。** 就是 `/api/agent/tasks/:taskId` 用的判断：
   - 已分发，且调用者是负责人、项目所在组织 active 的 owner / admin、或项目 active 成员；
   - super_admin 不受限。
   - 后果：
