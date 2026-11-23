@@ -64,6 +64,33 @@ export async function resolveFinancePrivilege(
   });
 }
 
+/**
+ * CHAIN-2e：对本项目的财务能力，带兜底（报价引擎、比价矩阵 / AI 报价分析、询价追踪页共用；与成本核算同一判定）。
+ * 项目没有组织、或授权查询抛错时按「不持组织键」算：只剩平台超级管理员与项目负责人（他们的判定不依赖授权查询）；
+ * 抛错时记一条只含原因的警告日志。第四个参数只给测试注入会抛错的判定。
+ */
+export async function resolveFinanceViewSafe(
+  user: AuthUser,
+  orgId: string | null,
+  projectOwnerId: string | null,
+  resolve: typeof resolveFinancePrivilege = resolveFinancePrivilege,
+): Promise<FinancePrivilege> {
+  const withoutOrgKeys = () =>
+    decideFinancePrivilege({
+      isPlatformSuperAdmin: isPlatformSuperAdmin(user.role),
+      isProjectOwner: !!projectOwnerId && projectOwnerId === user.id,
+      holdsManage: false,
+      holdsRead: false,
+    });
+  if (!orgId) return withoutOrgKeys();
+  try {
+    return await resolve(user, orgId, projectOwnerId);
+  } catch (err) {
+    console.warn("[finance-view] finance privilege", err instanceof Error ? err.message : String(err));
+    return withoutOrgKeys();
+  }
+}
+
 /** 纯决策：请求的细粒度权限是否放行 */
 export function allowCostPermission(input: {
   finance: FinancePrivilege;

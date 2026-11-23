@@ -3,12 +3,13 @@
 /**
  * 工作台「报价与成本」卡（任务书 §17 最小入口，不改 Tab IA）：
  * 当前报价 / 已批准或已 award 报价 / 版本 / Bid / 估算成本 / 毛利率 / 状态 → 一键进 Pricing Control Center。
- * flag OFF → API 404 → 自渲染 null。内部 KPI 仅 internal_cost 权限可见。
+ * flag OFF → API 404 → 自渲染 null。内部 KPI 仅 internal_cost 权限（财务查看权）可见；没有时写一句谁能看、找谁（CHAIN-2e）。
  */
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calculator } from "lucide-react";
 import { apiJson } from "@/lib/api-fetch";
+import { QUOTE_COST_HIDDEN_HINT_ZH } from "@/lib/quote-engine/finance-hint";
 import { money, type QuoteEngineListPayload, type QuoteEngineRow } from "./quote-engine-section";
 
 export function QuoteBudgetCard({ projectId, onOpenBid }: { projectId: string; onOpenBid?: () => void }) {
@@ -38,6 +39,7 @@ export function QuoteBudgetCard({ projectId, onOpenBid }: { projectId: string; o
         {onOpenBid ? <button type="button" onClick={onOpenBid} className="rounded border border-border px-2 py-1 text-[11px] text-foreground/80 hover:bg-accent/5">{live.length === 0 ? "去创建报价" : "打开报价区"}</button> : null}
       </div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2">{row("当前报价", current)}{row("已批准 / Awarded", approved)}</div>
+      {!data.capabilities.canViewInternal ? <p className="mt-2 text-[11px] text-muted" data-testid="quote-cost-hidden-hint">{QUOTE_COST_HIDDEN_HINT_ZH}</p> : null}
       {live.length === 0 ? <p className="mt-2 text-[11px] text-muted">尚无招投标报价——在「投标」tab 新建 Supply + Install 或 Standing Offer。</p> : null}
     </div>
   );

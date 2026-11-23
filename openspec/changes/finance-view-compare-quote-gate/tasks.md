@@ -4,8 +4,8 @@
 
 ## 1. 判定与报价引擎
 
-- [ ] 1.1 `src/lib/project-finance/access.ts` 加 `resolveFinanceViewSafe`（D1）；`src/lib/quote-engine/access.ts` 的 `resolveQuoteCapabilities` 改收 `finance`、`requireQuoteAccess` 改调它（D2）；提示常量放新的纯模块 `src/lib/quote-engine/finance-hint.ts`（D6、D8）；`finance-access.test.ts`（PERM-4c1 报价引擎特权与源码断言）与 `quote-engine-contract.test.ts` 的 QE-02 / QE-07b 改用真实项目角色名并加财务查看权组合、兜底与「编辑要求先能看」；verify：`npx tsx src/lib/project-finance/__tests__/finance-access.test.ts` 与 `npx tsx src/lib/quote-engine/__tests__/quote-engine-contract.test.ts` 通过，`quote-ops-contract.test.ts` 不改期望通过
-- [ ] 1.2 `quote-budget-card.tsx`、`quote-engine-section.tsx`、`tender-our-bid.tsx` 无权时加提示（D6），`quote-engine-section.tsx` 不能新建时加说明（D8）；`pricing-control-center.tsx` 接住 `customerView` 与读取失败（D7）；`quote-engine-contract.test.ts` 加源码断言（四处提示、单个报价页认 `customerView`、读取失败写原因）；verify：该测试通过，`npm run typecheck` 与 `npm run lint:baseline` 通过
+- [x] 1.1 `src/lib/project-finance/access.ts` 加 `resolveFinanceViewSafe`（D1）；`src/lib/quote-engine/access.ts` 的 `resolveQuoteCapabilities` 改收 `finance`、`requireQuoteAccess` 改调它（D2）；提示常量放新的纯模块 `src/lib/quote-engine/finance-hint.ts`（D6、D8）；`finance-access.test.ts`（PERM-4c1 报价引擎特权与源码断言）与 `quote-engine-contract.test.ts` 的 QE-02 / QE-07b 改用真实项目角色名并加财务查看权组合、兜底与「编辑要求先能看」；verify：`npx tsx src/lib/project-finance/__tests__/finance-access.test.ts` 与 `npx tsx src/lib/quote-engine/__tests__/quote-engine-contract.test.ts` 通过，`quote-ops-contract.test.ts` 不改期望通过
+- [x] 1.2 `quote-budget-card.tsx`、`quote-engine-section.tsx`、`tender-our-bid.tsx` 无权时加提示（D6），`quote-engine-section.tsx` 不能新建时加说明（D8）；`pricing-control-center.tsx` 接住 `customerView` 与读取失败（D7）；`quote-engine-contract.test.ts` 加源码断言（四处提示、单个报价页认 `customerView`、读取失败写原因）；verify：该测试通过，`npm run typecheck` 与 `npm run lint:baseline` 通过
 
 ## 2. 比价矩阵与 AI 报价分析
 

@@ -12,6 +12,7 @@ import { Target } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import type { TenderBidResolution } from "@/lib/quote-engine/tender-bid";
+import { QUOTE_COST_HIDDEN_HINT_ZH } from "@/lib/quote-engine/finance-hint";
 
 type Payload = { bid: TenderBidResolution; capabilities: { canViewInternal: boolean; canApprove: boolean } };
 const money = (n: number | null | undefined, ccy: string) => (n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-CA", { style: "currency", currency: ccy, maximumFractionDigits: 0 }));
@@ -49,7 +50,7 @@ export function TenderOurBidCard({ projectId }: { projectId: string }) {
               <div><div className="text-muted">Gross Margin</div><div className="font-mono">{pct(q.grossMarginPct)}</div></div>
               <div><div className="text-muted">Pricing Method</div><div>{METHOD_ZH[q.pricingMethod] ?? q.pricingMethod}{q.pricingRate != null ? ` ${q.pricingRate}%` : ""}</div></div>
             </div>
-          ) : null}
+          ) : <p className="mt-2 text-[11px] text-muted" data-testid="quote-cost-hidden-hint">{QUOTE_COST_HIDDEN_HINT_ZH}</p>}
         </button>
       ) : (
         <p className="mt-2 text-[11px] text-muted">{bid.reason}{bid.candidates.length > 0 ? `（可选：${bid.candidates.map((c) => `V${c.version} ${money(c.sellingPrice, c.currency)}`).join(" / ")}）` : ""}</p>

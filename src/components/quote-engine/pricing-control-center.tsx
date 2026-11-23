@@ -4,6 +4,7 @@
  * Pricing Control Center（Quote & Cost Engine Phase 1）
  * Header → KPI Cards → Cost Builder（按类别展开）→ Pricing（口径显式）→ Scenario → Standing Offer Panel → Customer Preview
  * 不是 Excel clone：计算在服务端引擎，页面只做输入与展示；AI 分析仅 advisory。
+ * CHAIN-2e：没有财务查看权时接口只给客户视图 → 整页只显示一句谁能看、找谁 + 客户视图表格；读取失败时写出原因，不停在加载中。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,6 +15,7 @@ import { computeQuote, unpricedReason, type QuoteCalcResult, type QuoteCalcFailu
 import type { TierResult, UnitEconomics } from "@/lib/quote-engine/standing-offer";
 import type { CustomerQuoteView } from "@/lib/quote-engine/customer-view";
 import type { QuoteAnalysis } from "@/lib/quote-engine/analyze";
+import { QUOTE_COST_HIDDEN_HINT_ZH, QUOTE_LOAD_FAILED_PREFIX_ZH } from "@/lib/quote-engine/finance-hint";
 import { CostImportPanel } from "./cost-import-panel";
 import { CustomerQuoteBuilder } from "./customer-quote-builder";
 import { TenderBidPanel } from "./tender-our-bid";
@@ -24,14 +26,27 @@ type Tier = TierPayload & { id: string };
 type Quote = { id: string; quoteNumber: string | null; name: string | null; quoteType: string; status: string; version: number; sourceQuoteId: string | null; revisionReason: string | null; currency: string; pricingMethod: string; pricingRate: number | null; internalNotes: string | null; engine: Record<string, unknown> | null; costLines: Line[]; tiers: Tier[] };
 type Computed = { calc: QuoteCalcResult | QuoteCalcFailure; standingOffer: { unit: UnitEconomics | null; tiers: TierResult[]; errors: Array<{ code: string; message: string }> } | null; drift: boolean };
 type Payload = { quote: Quote; computed: Computed; capabilities: { canViewInternal: boolean; canEdit: boolean; canApprove: boolean } };
+/** 没有财务查看权时 GET 的返回：只有客户视图（没有 quote / 成本行） */
+type CustomerOnlyPayload = { customerView: CustomerQuoteView; capabilities: { canViewInternal: false; canEdit: false; canApprove: false } };
 
 const money = (n: number | null | undefined, ccy = "CAD") => (n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-CA", { style: "currency", currency: ccy, maximumFractionDigits: 2 }));
 const pct = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(1)}%`);
 const CAT_ORDER = ["MATERIAL", "PROCUREMENT", "LOGISTICS", "FREIGHT", "CUSTOMS", "DUTY", "WAREHOUSING", "LABOUR", "EQUIPMENT", "SITE_GENERAL", "ENGINEERING", "PERMIT", "COMPLIANCE", "PROJECT_MANAGEMENT", "INSURANCE", "BOND", "FINANCING", "ADMIN", "COMMISSION", "CONTINGENCY", "PROFIT", "OTHER"];
 const CAT_ZH: Record<string, string> = { MATERIAL: "材料", PROCUREMENT: "采购", LOGISTICS: "物流", FREIGHT: "运费", CUSTOMS: "清关", DUTY: "关税", WAREHOUSING: "仓储", LABOUR: "人工", EQUIPMENT: "设备", SITE_GENERAL: "现场", ENGINEERING: "工程", PERMIT: "许可", COMPLIANCE: "合规", PROJECT_MANAGEMENT: "项目管理", INSURANCE: "保险", BOND: "保函", FINANCING: "融资", ADMIN: "管理费", COMMISSION: "佣金", CONTINGENCY: "不可预见费", PROFIT: "利润", OTHER: "其它" };
 
+/** 客户视图表格（只含公开字段）：内部视图的「客户报价预览」与没有财务查看权时的整页共用 */
+function CustomerPreviewTable({ customer }: { customer: CustomerQuoteView }) {
+  return (
+    <table className="mt-2 w-full text-[12px]"><thead className="text-muted"><tr><th className="text-left py-1">Item</th><th className="text-left">Description</th><th className="text-right">Qty</th><th className="text-left pl-2">Unit</th><th className="text-right">Unit Price</th><th className="text-right">Amount</th></tr></thead>
+      <tbody>{customer.lines.map((l, i) => (<tr key={i} className="border-t border-border/40"><td className="py-1">{l.item}{l.optional ? "（Optional）" : ""}{l.allowance ? "（Allowance）" : ""}</td><td>{l.description ?? ""}</td><td className="text-right">{l.quantity ?? ""}</td><td className="pl-2">{l.unit ?? ""}</td><td className="text-right">{money(l.unitPrice, customer.currency)}</td><td className="text-right">{money(l.amount, customer.currency)}</td></tr>))}</tbody>
+      <tfoot className="border-t border-border"><tr><td colSpan={5} className="text-right py-1">Subtotal</td><td className="text-right">{money(customer.subtotal, customer.currency)}</td></tr>{customer.tax.hst ? <tr><td colSpan={5} className="text-right">HST</td><td className="text-right">{money(customer.tax.hst, customer.currency)}</td></tr> : null}{customer.tax.gst ? <tr><td colSpan={5} className="text-right">GST</td><td className="text-right">{money(customer.tax.gst, customer.currency)}</td></tr> : null}{customer.tax.pst ? <tr><td colSpan={5} className="text-right">PST</td><td className="text-right">{money(customer.tax.pst, customer.currency)}</td></tr> : null}<tr className="font-semibold"><td colSpan={5} className="text-right">Total</td><td className="text-right">{money(customer.total, customer.currency)}</td></tr></tfoot></table>
+  );
+}
+
 export function PricingControlCenter({ projectId, quoteId }: { projectId: string; quoteId: string }) {
   const [data, setData] = useState<Payload | null>(null);
+  const [customerOnly, setCustomerOnly] = useState<CustomerQuoteView | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [tiers, setTiers] = useState<Tier[]>([]);
   const [header, setHeader] = useState<{ name: string; pricingMethod: string; pricingRate: string; currency: string }>({ name: "", pricingMethod: "MARKUP_ON_COST", pricingRate: "", currency: "CAD" });
@@ -47,15 +62,23 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
 
   const load = useCallback(async () => {
     try {
-      const res = await apiJson<Payload>(`/api/projects/${projectId}/quote-engine/${quoteId}`);
+      const res = await apiJson<Payload | CustomerOnlyPayload>(`/api/projects/${projectId}/quote-engine/${quoteId}`);
+      setLoadError(null);
+      if ("customerView" in res) {
+        setData(null);
+        setCustomerOnly(res.customerView);
+        return;
+      }
+      setCustomerOnly(null);
       setData(res);
       setLines(res.quote.costLines);
       setTiers(res.quote.tiers);
       setHeader({ name: res.quote.name ?? "", pricingMethod: res.quote.pricingMethod, pricingRate: res.quote.pricingRate?.toString() ?? "", currency: res.quote.currency });
       const s = (res.quote.engine?.standingOffer ?? {}) as Record<string, unknown>;
       setSo(Object.fromEntries(Object.entries(s).map(([k, v]) => [k, v == null ? "" : String(v)])));
-    } catch {
+    } catch (e) {
       setData(null);
+      setLoadError(e instanceof Error && e.message ? e.message : "读取失败");
     }
   }, [projectId, quoteId]);
   useEffect(() => { void load(); }, [load]);
@@ -140,7 +163,24 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
   const unpricedCount = useMemo(() => lines.filter((l) => unpricedReason(asInput(l)) != null).length, [lines, asInput]);
   const subcatInUse = useMemo(() => lines.some((l) => (l.calculationBase ?? "").startsWith("SUBCAT:")), [lines]);
 
-  if (!data) return <div className="p-6 text-sm text-muted">加载报价引擎…（未启用或无权限时不可见）</div>;
+  if (!data) {
+    if (customerOnly) {
+      return (
+        <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6" data-testid="customer-only-view">
+          <div className="rounded-xl border border-border bg-card-bg px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-foreground">{customerOnly.title}</span><span className="rounded-full border border-border px-2 text-[10px] text-muted">{customerOnly.status}</span><span className="text-[10px] text-muted">v{customerOnly.version} · {customerOnly.quoteNumber ?? "—"} · {customerOnly.currency}</span></div>
+            <p className="mt-1 text-[11px] text-muted" data-testid="quote-cost-hidden-hint">{QUOTE_COST_HIDDEN_HINT_ZH}</p>
+          </div>
+          <div className="rounded-xl border border-border bg-card-bg p-4" data-testid="customer-preview">
+            <h3 className="text-sm font-semibold">Customer Quote Preview（仅公开字段；无成本/佣金/利润）</h3>
+            <CustomerPreviewTable customer={customerOnly} />
+          </div>
+        </div>
+      );
+    }
+    if (loadError) return <div className="p-6 text-sm text-muted" data-testid="quote-load-failed">{QUOTE_LOAD_FAILED_PREFIX_ZH}{loadError}</div>;
+    return <div className="p-6 text-sm text-muted">加载报价引擎…</div>;
+  }
   const q = data.quote;
   const calc = liveCalc ?? data.computed.calc;
   const editable = data.capabilities.canEdit && (q.status === "draft" || q.status === "review");
@@ -178,11 +218,7 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
       {view === "customer" ? (
         <div className="rounded-xl border border-border bg-card-bg p-4" data-testid="customer-preview">
           <h3 className="text-sm font-semibold">Customer Quote Preview（仅公开字段；无成本/佣金/利润）</h3>
-          {customer ? (
-            <table className="mt-2 w-full text-[12px]"><thead className="text-muted"><tr><th className="text-left py-1">Item</th><th className="text-left">Description</th><th className="text-right">Qty</th><th className="text-left pl-2">Unit</th><th className="text-right">Unit Price</th><th className="text-right">Amount</th></tr></thead>
-              <tbody>{customer.lines.map((l, i) => (<tr key={i} className="border-t border-border/40"><td className="py-1">{l.item}{l.optional ? "（Optional）" : ""}{l.allowance ? "（Allowance）" : ""}</td><td>{l.description ?? ""}</td><td className="text-right">{l.quantity ?? ""}</td><td className="pl-2">{l.unit ?? ""}</td><td className="text-right">{money(l.unitPrice, customer.currency)}</td><td className="text-right">{money(l.amount, customer.currency)}</td></tr>))}</tbody>
-              <tfoot className="border-t border-border"><tr><td colSpan={5} className="text-right py-1">Subtotal</td><td className="text-right">{money(customer.subtotal, customer.currency)}</td></tr>{customer.tax.hst ? <tr><td colSpan={5} className="text-right">HST</td><td className="text-right">{money(customer.tax.hst, customer.currency)}</td></tr> : null}{customer.tax.gst ? <tr><td colSpan={5} className="text-right">GST</td><td className="text-right">{money(customer.tax.gst, customer.currency)}</td></tr> : null}{customer.tax.pst ? <tr><td colSpan={5} className="text-right">PST</td><td className="text-right">{money(customer.tax.pst, customer.currency)}</td></tr> : null}<tr className="font-semibold"><td colSpan={5} className="text-right">Total</td><td className="text-right">{money(customer.total, customer.currency)}</td></tr></tfoot></table>
-          ) : <p className="mt-2 text-[11px] text-muted">加载中…</p>}
+          {customer ? <CustomerPreviewTable customer={customer} /> : <p className="mt-2 text-[11px] text-muted">加载中…</p>}
         </div>
       ) : (
         <>
