@@ -84,7 +84,7 @@ function Note({ children, tone = "muted", testId }: { children: ReactNode; tone?
 
 /* ---------------------------------- 列表 ---------------------------------- */
 
-export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }: { view: QuoteListView; onOpen: (q: QuoteListItem) => void; onCreate: (businessType: BusinessType, name: string) => void; creating: boolean; createError: string | null }) {
+export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }: { view: QuoteListView; onOpen: (q: QuoteListItem) => void; onCreate: (businessType: BusinessType, name: string) => Promise<boolean> | void; creating: boolean; createError: string | null }) {
   const [showForm, setShowForm] = useState(false);
   const [business, setBusiness] = useState<BusinessType>("SUPPLY_ONLY");
   const [name, setName] = useState("");
@@ -103,11 +103,11 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
               {q.isOurBid ? <span className="rounded bg-emerald-100 px-1.5 text-xs text-emerald-800">我方报价</span> : null}
               <span className="ml-auto flex gap-3">
                 {q.entryMode === "LINE" ? (
-                  <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => onOpen(q)}>
+                  <button type="button" className="text-accent underline-offset-2 hover:underline" onClick={() => onOpen(q)}>
                     打开
                   </button>
                 ) : null}
-                <a className="text-primary underline-offset-2 hover:underline" href={q.proModeHref} data-testid="quote-step-pro-link">
+                <a className="text-accent underline-offset-2 hover:underline" href={q.proModeHref} data-testid="quote-step-pro-link">
                   {q.entryMode === "LINE" ? QUOTE_STEP_TEXT.proMode : QUOTE_STEP_TEXT.openInProMode}
                 </a>
               </span>
@@ -142,7 +142,12 @@ export function QuoteListPanel({ view, onOpen, onCreate, creating, createError }
             </label>
             {createError ? <Note tone="error">{createError}</Note> : null}
             <div className="flex gap-3">
-              <button type="button" disabled={creating} className="rounded bg-primary px-3 py-1 text-white disabled:opacity-60" onClick={() => onCreate(business, name)}>
+              <button type="button" disabled={creating} className="rounded bg-accent px-3 py-1 text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-60" onClick={async () => {
+                  if (await onCreate(business, name)) {
+                    setShowForm(false);
+                    setName("");
+                  }
+                }}>
                 {creating ? "正在建…" : "建好"}
               </button>
               <button type="button" className="text-muted" onClick={() => setShowForm(false)}>
@@ -164,7 +169,7 @@ export function ExportBar({ projectId, availability }: { projectId: string; avai
   return (
     <div id="bid-page-export" className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 px-4 py-3 text-sm" data-testid="quote-step-export">
       {availability.available ? (
-        <a className="rounded bg-primary px-3 py-1 text-white" href={`/api/projects/${encodeURIComponent(projectId)}/bid-page/quotes/${encodeURIComponent(availability.quoteId)}/export`} download>
+        <a className="rounded bg-accent px-3 py-1 text-[color:var(--on-accent)] hover:bg-accent-hover" href={`/api/projects/${encodeURIComponent(projectId)}/bid-page/quotes/${encodeURIComponent(availability.quoteId)}/export`} download>
           {QUOTE_STEP_TEXT.exportButton}
         </a>
       ) : (
@@ -297,7 +302,9 @@ function InquiryPicker({ options, row, onPick, disabled }: { options: InquiryQuo
           {!(CURRENCIES as readonly string[]).includes(o.currency)
             ? `币种「${o.currency}」不在报价币种里，请手填`
             : o.unitPrice == null
-              ? `只报了总价 ${money(o.totalPrice, o.currency)}，请手填单价`
+              ? o.totalPrice == null
+                ? "回复里没有金额，请手填单价"
+                : `只报了总价 ${money(o.totalPrice, o.currency)}，请手填单价`
               : money(o.unitPrice, o.currency)}
         </option>
       ))}
@@ -385,7 +392,16 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
   }, [projectId, view.quote.id, view.quote.updatedAt, state, onSaved]);
 
   const alloc = view.computed.ok && !dirty ? view.computed.allocation.lines : null;
-  const usedCurrencies = Object.keys(state.fx).filter((c) => c !== "CAD");
+  // 汇率格按实际用到的外币列（各行与共用参数），不只看已登记的：粘贴 / 加行带进来的人民币行也要有汇率格
+  const usedCurrencies = [
+    ...new Set([
+      ...Object.keys(state.fx),
+      ...state.rows.map((r) => r.currency),
+      state.shared.oceanFreight.currency,
+      state.shared.customs.currency,
+      state.shared.domesticFreight.currency,
+    ]),
+  ].filter((c) => c !== "CAD");
 
   return (
     <InvalidContext.Provider value={reportInvalid}>
@@ -394,7 +410,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
         <div className="font-medium">
           逐行报价 · {view.quote.name ?? view.quote.quoteNumber ?? "未命名报价"} · 第 {view.quote.version} 版 · {QUOTE_STATUS_ZH[view.quote.status] ?? view.quote.status}
         </div>
-        <a className="text-xs text-primary underline-offset-2 hover:underline" href={view.proModeHref}>
+        <a className="text-xs text-accent underline-offset-2 hover:underline" href={view.proModeHref}>
           {QUOTE_STEP_TEXT.submitInProMode}
         </a>
         <div className="relative ml-auto">
@@ -402,8 +418,8 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
             更多
           </button>
           {moreOpen ? (
-            <div className="absolute right-0 z-10 mt-1 w-32 rounded border border-border bg-white py-1 text-sm shadow" role="menu">
-              <a role="menuitem" className="block px-3 py-1 hover:bg-gray-50" href={view.proModeHref} data-testid="line-editor-pro-mode">
+            <div className="absolute right-0 z-10 mt-1 w-32 rounded border border-border bg-card-bg py-1 text-sm shadow" role="menu">
+              <a role="menuitem" className="block px-3 py-1 hover:bg-accent-soft" href={view.proModeHref} data-testid="line-editor-pro-mode">
                 {QUOTE_STEP_TEXT.proMode}
               </a>
             </div>
@@ -429,7 +445,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
           <span className="ml-3 inline-flex gap-3">
             <button
               type="button"
-              className="text-primary underline"
+              className="text-accent underline"
               onClick={() => {
                 const r = importCostDraft(state, draft);
                 setState(r.state);
@@ -553,7 +569,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
               <div className="mt-2 space-y-1">
                 <div className="text-xs text-muted">{view.seed.prefill.messageZh}</div>
                 {view.seed.prefill.text ? (
-                  <button type="button" className="text-xs text-primary underline" onClick={() => setPaste(view.seed!.prefill.text)}>
+                  <button type="button" className="text-xs text-accent underline" onClick={() => setPaste(view.seed!.prefill.text)}>
                     从招标分析带入到粘贴框
                   </button>
                 ) : null}
@@ -675,7 +691,7 @@ export function LineQuoteEditor({ projectId, view, onSaved, onClose }: { project
       ) : null}
       {editable ? (
         <div className="flex gap-3">
-          <button type="button" disabled={saving || !dirty || invalid.size > 0} className="rounded bg-primary px-4 py-1.5 text-sm text-white disabled:opacity-60" onClick={save} data-testid="line-save">
+          <button type="button" disabled={saving || !dirty || invalid.size > 0} className="rounded bg-accent px-4 py-1.5 text-sm text-[color:var(--on-accent)] hover:bg-accent-hover disabled:opacity-60" onClick={save} data-testid="line-save">
             {saving ? "正在保存…" : "保存"}
           </button>
           {dirty ? (
@@ -761,19 +777,24 @@ export function QuoteStep({ projectId }: { projectId: string }) {
   );
 
   const create = useCallback(
-    async (businessType: BusinessType, name: string) => {
+    async (businessType: BusinessType, name: string): Promise<boolean> => {
       setCreating(true);
       setCreateError(null);
       try {
         const res = await apiFetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryMode: "LINE", businessType, name: name.trim() || null }) });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) return setCreateError(String(data?.error ?? "没建成，请稍后再试"));
+        if (!res.ok) {
+          setCreateError(String(data?.error ?? "没建成，请稍后再试"));
+          return false;
+        }
         if (data.entryMode === "LINE") {
           await loadList();
           await openQuote(String(data.id));
         } else router.push(String(data.proModeHref));
+        return true;
       } catch {
         setCreateError("没建成（网络问题），请稍后再试");
+        return false;
       } finally {
         setCreating(false);
       }
@@ -786,7 +807,7 @@ export function QuoteStep({ projectId }: { projectId: string }) {
   if (list.kind === "error") return <Note tone="error">{list.messageZh ?? QUOTE_STEP_TEXT.loadFailed}</Note>;
   return (
     <div className="space-y-4" data-testid="quote-step">
-      <QuoteListPanel view={list.view} onOpen={(q) => void openQuote(q.id)} onCreate={(b, n) => void create(b, n)} creating={creating} createError={createError} />
+      <QuoteListPanel view={list.view} onOpen={(q) => void openQuote(q.id)} onCreate={create} creating={creating} createError={createError} />
       {openError ? <Note tone="error">{openError}</Note> : null}
       {open ? (
         <LineQuoteEditor
