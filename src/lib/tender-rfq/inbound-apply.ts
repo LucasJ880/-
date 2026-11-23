@@ -73,7 +73,7 @@ function q(evidence: string | null | undefined): string {
  * FIX-14：附件里有 U+0000 被换成空格（勾选框之类的字形抽不出字）且仍记为已解析时，在「已解析」后注明。
  * 这句话里没有「；」，比价回读（notes-parse.ts）按「；」切开后附件段落不进任何回读字段。
  */
-export function unreadableSymbolsNote(nulCount: number): string {
+function unreadableSymbolsNote(nulCount: number): string {
   return `（有 ${nulCount} 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）`;
 }
 

@@ -29,11 +29,11 @@
 
 ## 6. 验收
 
-- [ ] 6.1 全部门禁；verify：`npm test` 与既有失败清单（`docs/QINGYAN_CHAIN-3_REPORT.md` §4）对照无新增失败；CI 环境变量下 `bash scripts/test-ci-unit.sh` 末行 `CI unit subset PASS`；`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出码 0；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`openspec validate extracted-text-nul-other-paths --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空
+- [x] 6.1 全部门禁；verify：`npm test` 与既有失败清单（`docs/QINGYAN_CHAIN-3_REPORT.md` §4）对照无新增失败；CI 环境变量下 `bash scripts/test-ci-unit.sh` 末行 `CI unit subset PASS`；`NODE_OPTIONS=--max-old-space-size=8192 npm run typecheck` 退出码 0；`npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` PASS；`openspec validate extracted-text-nul-other-paths --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空
 
 ## 7. 报告、开关前提与 TASKFLOW
 
-- [ ] 7.1 写 `docs/QINGYAN_FIX-14_REPORT.md`、改三处询价开关前提、更新 TASKFLOW。
+- [x] 7.1 写 `docs/QINGYAN_FIX-14_REPORT.md`、改三处询价开关前提、更新 TASKFLOW。
   - 报告内容：
     - 五个入口各自的写库点与改动前 / 改动后；改动前失败的测试输出；
     - 「留给 GATE」六条的结论（Lucas 2026-11-22：G1 A、G2 A、G3 A、G4 A、G5 B、G6 A）；

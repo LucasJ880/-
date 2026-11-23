@@ -5,7 +5,7 @@
 
 ## 填写顺序
 
-先 1–6，验证通过后再等 CHAIN-4b（`rfq-supplier-identity-guard`）合并，才动第 7 项。改完任何一项都要重新部署生产才生效。
+先 1–6，验证通过后再等 CHAIN-4b（`rfq-supplier-identity-guard`）合并且 FIX-14 部署之后，才动第 7 项（FIX-14 `extracted-text-nul-other-paths`：询价回信等入口写库前清理 U+0000 / 落单代理字符，见 `docs/QINGYAN_FIX-14_REPORT.md`；第 7 项的日期必须晚于 FIX-14 的部署日期）。改完任何一项都要重新部署生产才生效。
 
 | # | 环境变量 | 代码里怎么读（已核对） | 建议值 | 原值 | 新值 | 日期 |
 |---|---|---|---|---|---|---|
@@ -16,7 +16,7 @@
 | 4 | `T4_AWARD_INTELLIGENCE_SCHEMA_READY` | 认 `1 / true / on / yes`（不分大小写）（`tender-intel/award-flags.ts:26-40`）。前提：生产库已应用迁移 `20260814150000_add_tender_t4_award_record_foundation`（`award-flags.ts:10`、`docs/QINGYAN_TENDER_T4_INTELLIGENCE_P1_REPORT.md`） | 迁移核对后设 `1` | | | |
 | 5 | `TAVILY_API_KEY` | 与第 3 项同为外部检索的两道门；缺任一项，供应商发现只走内部来源（`supplier-intel/discovery-service.ts:237-243`） | 确认存在（只记「存在 / 不存在」，不抄值） | | — | |
 | 6 | `SUPPLIER_INTEL_ENABLED` + `SUPPLIER_INTEL_ORG_ALLOWLIST` | 主开关认 `1 / true / on / yes`；白名单逗号分隔组织 id，**为空 = 对所有组织生效**（`supplier-intel/flags.ts:19-38`） | 主开关 `1`；白名单填 Sunny 的组织 id（不能留空，否则全组织生效） | | | |
-| 7 | `TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED`、`TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`（各自 `*_ORG_ALLOWLIST`） | 均认 `1 / true / on / yes`；白名单为空 = 所有组织（`tender-rfq/auto-draft-flags.ts`、`supplier-groups-flags.ts`、`followup-flags.ts`） | **CHAIN-4b 合并之后**再开 | | | |
+| 7 | `TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED`、`TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`（各自 `*_ORG_ALLOWLIST`） | 均认 `1 / true / on / yes`；白名单为空 = 所有组织（`tender-rfq/auto-draft-flags.ts`、`supplier-groups-flags.ts`、`followup-flags.ts`） | **CHAIN-4b 合并且 FIX-14 部署之后**再开 | | | |
 
 ## 验证（每项写下证据：项目 / 时间 / 看到的值）
 
