@@ -15,7 +15,7 @@
 | 当前 main | `c376be86`（#564 BIDPAGE-3 合并后；2026-11-23 09:31 核对） |
 | 工作分支 | `claude/laughing-curie-2b9s1v`（每个 PR 合并后从最新 main 重开同名分支做下一个） |
 | BIDPAGE-1 | **已合并**（#557，`d1b0d3e2`，2026-11-23）；开关默认关，合并后页面无变化；生产部署：**已部署**——2026-11-23 04:41 UTC `release-drift`（workflow_dispatch，run 45113342662）读到线上 `deployedCommit = f9c73ba`，即 main 当时的最新提交，`d1b0d3e` 是它的祖先（中间只多了 FIX-21 的归档 #560）。合并后约 1.5 分钟那次查时线上还是 `212613e`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-bid-page-v2-shell`（主规格 `tender/bid-page` 13 条），归档 PR 见下表 |
-| BIDPAGE-3 | **已合并**（#564，`c376be86`，2026-11-23 09:31）；开关默认关；生产部署：DEPLOY_STATUS；归档 `2026-11-23-quote-line-mode-persist`（主规格 `tender/quote-line-mode` 15 条、`tender/bid-page` 改 3 条），归档 PR 见下表 |
+| BIDPAGE-3 | **已合并**（#564，`c376be86`，2026-11-23 09:31）；开关默认关；生产部署：**已部署**——2026-11-23 09:47 UTC `release-drift`（workflow_dispatch，run 45150109772）读到线上 `deployedCommit = c376be8`，与 main 一致；合并后约 1 分钟那次（run 45147965079）线上还是 `2a0eb96`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-line-mode-persist`（主规格 `tender/quote-line-mode` 15 条、`tender/bid-page` 改 3 条），归档 PR 见下表 |
 | 正在做 | BIDPAGE-3 归档小 PR；之后 BIDPAGE-4 `quote-lump-sum-mode`（代码地图在会话草稿 `bp4-codemap.md`，会话结束后不在；要点见 §4「BIDPAGE-4 开工前」） |
 | 下一步 | 归档 PR 合并 → BIDPAGE-4 四件套 → 开工前审查 → 实现 → 门禁 → 六维审查 + 交叉验证 → PR → 合并 |
 
