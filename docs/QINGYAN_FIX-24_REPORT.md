@@ -13,7 +13,7 @@
 | TASKFLOW | FIX-24（「Phase F（续）— 情报串联」表：改写 FIX-14 已登记的那一行，状态 `[~]`），另登记 8 条「编号待定」后续任务（第 8 条已在交叉验证修订里并入本 change） |
 | 来源 | FIX-14（`extracted-text-nul-other-paths`，PR #569）安全审查 S5，协调会话在审查员快照里复现。四件套经独立审查修订一轮（`9678a05e`）；实施后经五个维度的多维审查，按修订清单改一轮；再经挑错交叉验证（在 `0f02c2c3` 上跑 48 条旧段语料、写入探针与性能探针），按交叉验证结论改一轮（§2.4） |
 | GATE | 协调会话 2026-11-23 定（Lucas 2026-11-22 授权按推荐）：<br>1 = **A**（写入侧换字符，含文件名的 `"）`）；<br>2 = **B + 整段 R3、R4、R5**，多维审查后 R3 **按多维审查收窄**（同一授权），交叉验证后**再收准**（协调会话 2026-11-23 定，写法见 §2.4 与 §4 第 8 条）；<br>3 = **A**（只读核查，挂进开关前提 ⑤） |
-| 分支 | `claude/zen-turing-azudvx-fix24`。开工时合入 main `fbacf6bd`（含 FIX-14 #569 的合并提交 `07759375`），多维审查修订前又合入 main `1c590b1f`，交叉验证修订前又合入 main `58508ecc` |
+| 分支 | `claude/zen-turing-azudvx-fix24`。开工时合入 main `fbacf6bd`（含 FIX-14 #569 的合并提交 `07759375`），多维审查修订前又合入 main `1c590b1f`，交叉验证修订前又合入 main `58508ecc`，提交后再合入 main `c339cb40`（FIX-25 已合并），门禁在合入后的代码上重跑 |
 | PR | #580（由协调会话开） |
 
 ## 1. 开工前复核
@@ -412,18 +412,18 @@ L06 的 `zzz`、只有日期、全角「［auto」三条由格式与「能原样
 
 都不改断言。交叉验证修订后逐个重跑，通过数与上面相同。
 
-### 5.3 门禁（交叉验证修订后，合入 main `58508ecc`，本次提交）
+### 5.3 门禁（交叉验证修订后，再合入 main `c339cb40`，在 `7640352f` 上跑）
 
 | 门禁 | 结果 |
 |---|---|
-| `npm test`（`qy_full_fix24` 删库重建、`prisma migrate deploy` 后跑，`< /dev/null`，输出 `/home/user/full-fix24.log`） | **748 / 758 通过、10 失败**，失败清单与 main 基线逐条相同（见下）。全量里 `notes-forgery` 188 / 0、只读核查回归 112 / 0、询价追踪页 DB 46 / 0、比价成本来源 DB 42 / 0 |
-| `npm run test:ci`（CI 子集，输出 `/home/user/ci-fix24.log`） | 合入 main `c339cb40` 后重跑，见下一提交 |
+| `npm test`（`qy_full_fix24` 删库重建、`prisma migrate deploy` 后跑，`< /dev/null`，输出 `/home/user/full-fix24.log`） | **750 / 760 通过、10 失败**，失败清单与 main 基线逐条相同（见下）。合入 `c339cb40` 之前在 `14a37fc4` 上跑过一次：748 / 758，同样这 10 项。全量里 `notes-forgery` 188 / 0、只读核查回归 112 / 0、询价追踪页 DB 46 / 0、比价成本来源 DB 42 / 0 |
+| `npm run test:ci`（CI 子集，库 `qy_iso_a`，输出 `/home/user/ci-fix24.log`） | **CI unit subset PASS**，其中 `notes-forgery` 188 / 0。本机原来的 `ci` 库已经不在了，改用 `qy_iso_a`。子集里 `auto-draft-db.isolated.test.ts` 有一条断言失败：「关闭之前已批准的那一轮：间隔到了照常自动发第 2 次催单」，`autoSent` 为 0。这条在 main `58508ecc` 的代码上同库实测也失败，就是全量基线里的 RFQ-AUTO-2，与本 change 无关。子集脚本是 `set -e`，所以在 scratchpad 的脚本副本里只把这一行改成失败后继续（仓库脚本没动），其余全部通过 |
 | `npm run typecheck` | 退出码 0 |
 | `npm run lint:baseline` | PASS（current errors 38 / baseline 53，无新增 error fingerprint） |
-| `bash scripts/check-test-registry.sh` | OK（已注册 722 个，基线 66 条） |
+| `bash scripts/check-test-registry.sh` | OK（已注册 724 个，基线 66 条） |
 | `bash scripts/test-runtime-architecture.sh` | PASS（9 通过、0 失败） |
 | `OPENSPEC_TELEMETRY=0 openspec validate inbound-notes-filename-forgery --strict` | valid |
-| 归档演练（临时副本里 `openspec archive inbound-notes-filename-forgery --yes`） | 主规格 161 → 162（`tender/rfq-inbound-notes` 9 条要求、48 个场景），`openspec validate --specs --strict` 162 / 162 |
+| 归档演练（临时副本里 `openspec archive inbound-notes-filename-forgery --yes`） | 主规格 162 → 163（`tender/rfq-inbound-notes` 9 条要求、48 个场景），`openspec validate --specs --strict` 163 / 163 |
 | `git diff --exit-code origin/main -- prisma vercel.json package.json package-lock.json openspec/config.yaml openspec/specs .claude/launch.json` | 无差异 |
 
 全量的 10 项失败与基线逐条相同，没有新增：
@@ -578,7 +578,7 @@ psql -X -v ON_ERROR_STOP=1 -f docs/acceptance/fix-24/prod-check.sql "<生产只�
 5. **不爬登录页**：不涉及。
 6. **邮箱分离**：不涉及。
 7. **确定性优先**：遵守。中和、币种核对、五条读取规则都是固定的字符与正则规则；不新增模型调用；入站解析的模型提示不变。
-8. **测试注册**：遵守。`notes-forgery` 进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`，隔离库回归进 `scripts/test-all.sh`；`bash scripts/check-test-registry.sh` OK（已注册 722 个，基线 66 条不变）。
+8. **测试注册**：遵守。`notes-forgery` 进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`，隔离库回归进 `scripts/test-all.sh`；`bash scripts/check-test-registry.sh` OK（已注册 724 个，基线 66 条不变）。
 
 ## 11. 提交
 
@@ -596,7 +596,9 @@ psql -X -v ON_ERROR_STOP=1 -f docs/acceptance/fix-24/prod-check.sql "<生产只�
 | `9c859bc3` | 多维审查修订：只读核查 SQL 与回归测试、四件套、TASKFLOW、核查表、本报告 |
 | `0f35019f`、`0f02c2c3` | 门禁数字补进报告 §5.3 |
 | `570a905f` | 合入 main `58508ecc` |
-| （本次） | 交叉验证修订：R3 再收准并改成一次扫描、证据遮挡一次扫描、强制项编号的「，」「、」；prod-check B 段同口径、回车行的原因、A 段输出只留安全字符；`notes-forgery` 188 项、只读核查回归 112 项；四件套、TASKFLOW、本报告 |
+| `14a37fc4` | 交叉验证修订：R3 再收准并改成一次扫描、证据遮挡一次扫描、强制项编号的「，」「、」；prod-check B 段同口径、回车行的原因、A 段输出只留安全字符；`notes-forgery` 188 项、只读核查回归 112 项；四件套、TASKFLOW、本报告 |
+| `7640352f` | 合入 main `c339cb40`（FIX-25 已合并） |
+| （本次） | 合入后重跑的门禁数字补进 §5.3 |
 
 ## 12. 多维审查
 
