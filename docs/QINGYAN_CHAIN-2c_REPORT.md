@@ -69,6 +69,16 @@
 | `openspec validate project-owner-change-guard --strict` | valid（9 条要求，都不超过 500 字） |
 | `git diff origin/main -- prisma/ vercel.json` | 空 |
 
+**2026-11-23 合入 main `b717427f` 后复跑**（合并提交 `0847e688`；main 含 FIX-12、FIX-13、FIX-17、FIX-21（#554，目录守卫）、CHAIN-4c、CHAIN-2b（#532）、CHAIN-3b、CHAIN-3c、#544、#553、BIDPAGE-1 及各自归档）：
+
+- 冲突只有 TASKFLOW 一处，两边都保留：CHAIN-2 之后依次是 CHAIN-2b（main）、CHAIN-2c（本分支）；CHAIN-3 一行取 main 的新版。`scripts/test-all.sh`、`scripts/test-ci-unit.sh`、`src/app/(main)/projects/[id]/page.tsx` 自动合并（page.tsx 里 main 改的是投标页签换成 `BidTabEntry`，本分支加的是 `ownerChange`，互不相干）。
+- 本分支改的源文件里，main 在分叉后只改过 `page.tsx`（同上）；四个入口的路由文件、`workbench-tab.tsx`、`owner-change*.ts` main 都没改。CHAIN-2b 改的 `src/app/api/projects/route.ts`（房间 JSON 去掉成本）本分支没碰；main 没有新增改 `ownerId` 的入口，`src/lib/projects/access.ts`、`src/lib/project-finance/access.ts`、`src/lib/rbac/**` 也没改。CHAIN-2b 让负责人有报价表助手的成本、BIDPAGE-1 汇总接口的金额门也认负责人——本 change 收紧的正是谁能成为负责人，两者叠加后口径一致。
+- FIX-21 目录守卫 `project-routes-guard.test.ts`：98 通过。`src/app/api/projects/[id]/route.ts` 的 `PATCH` 守卫前仍只有运行环境闸（本分支的改动都在 `requireProjectWriteAccess` 之后），按预处理名单通过、测试没有提示删条目，名单不变；`guardOwnerChange` 是项目写守卫之后的判定，不是项目级守卫，不进守卫名单。
+- 与 CHAIN-2e（#556，未合并）「这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人」兼容：组织管理员是管理者，可以把负责人换成别人。另用临时脚本（未提交，隔离库 `qy_iso_e`，跑完清掉数据）核对负责人是导入系统账号、组织管理员不是项目成员时：成员接口标记 `canChange` true / `canSelfAssign` false；`PATCH …/members/{成员}` 设为主负责人 200，`POST …/members` 加成员并设为主负责人 201，负责人都换成了那位同事。
+- 单跑（隔离库 `qy_iso_e`，迁移已是最新）：`owner-change.test.ts` 21 通过；`owner-change-db.isolated.test.ts` 25 通过。
+- `npm test`（新库 `qy_full_chain2c`，`prisma migrate deploy`）：`720/730 通过, 10 失败`，10 项与 main 既有失败逐条相同（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB）；全量里 `owner-change` 21、`owner-change-db` 25、FIX-21 目录守卫 98 全过，Supplier Intel S1 审计脊柱 DB 也过。
+- `npm run test:ci`（`env -u DATABASE_ENVIRONMENT`、CI 的库地址与 JWT）：PASS（已注册 696 个，历史欠账 66 条）；`npm run typecheck` 通过；`npm run lint:baseline` PASS（无新增指纹）；`bash scripts/check-test-registry.sh` 通过；`bash scripts/test-runtime-architecture.sh` PASS（9/9）；`openspec validate project-owner-change-guard --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空。
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与代码）**——逐条核实后并入四件套：
