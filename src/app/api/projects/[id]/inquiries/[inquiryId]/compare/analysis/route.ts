@@ -8,6 +8,9 @@
  *
  * P1-6G：返回前用代码复核解读里的数字（interpretation-guard）——必须能在交给 LLM 的输入里找到，
  * 找不到的就地标注「［矩阵中无此数］」，并在 numberCheck 里列出；界面据此提示以矩阵为准。
+ *
+ * CHAIN-2e：没有财务查看权的人（与成本核算同一判定）——矩阵先裁剪（落地价、换算说明、带金额的结论去掉），
+ * 模型只拿裁剪后的矩阵（仍是这一次调用，提示词写明不提供落地价），数字校验用同一份输入；响应（含 502）只带裁剪后的矩阵与 costHidden。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,7 +19,8 @@ import { toPrismaHttpError } from "@/lib/inquiry/service";
 import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 import { loadCompareMatrix } from "@/lib/tender-rfq/compare-service";
-import { buildInterpretationPayload, buildMatrixInterpretationPrompt } from "@/lib/tender-rfq/compare";
+import { buildInterpretationPayload, buildMatrixInterpretationPrompt, compareMatrixFinanceView } from "@/lib/tender-rfq/compare";
+import { resolveFinanceViewSafe } from "@/lib/project-finance/access";
 import { checkInterpretationNumbers, collectAllowedNumbers } from "@/lib/tender-rfq/interpretation-guard";
 
 type Params = { params: Promise<{ id: string; inquiryId: string }> };
@@ -53,14 +57,16 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "询价轮次不存在" }, { status: 404 });
     }
 
-    const { matrix } = r;
+    const finance = await resolveFinanceViewSafe(access.user, access.project.orgId, access.project.ownerId);
+    const matrix = compareMatrixFinanceView(r.matrix, { canView: finance.canReadAll, firstTierQty: r.firstTierQty });
+    const hidden = matrix.costHidden ? { costHidden: true as const } : {};
     const ctx = { projectName: r.projectName, roundNumber: r.roundNumber, closeDate: r.closeDate };
     const prompt = buildMatrixInterpretationPrompt(matrix, ctx);
     const raw = await createCompletion({ ...prompt, mode: "normal", temperature: 0.2, workflow: "tender_rfq_compare_interpret" });
     const interpretation = readInterpretation(raw);
     if (!interpretation) {
       // 解读失败不影响矩阵：数字与推荐都来自代码
-      return NextResponse.json({ error: "AI 解读返回格式异常", matrix, raw }, { status: 502 });
+      return NextResponse.json({ error: "AI 解读返回格式异常", matrix, raw, ...hidden }, { status: 502 });
     }
 
     // 解读里的每个数字都要在矩阵（即交给 LLM 的输入）里找得到；找不到的标注出来，不静默放行
@@ -78,6 +84,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       matrix,
       quotesCount: matrix.rows.length,
       generatedAt: matrix.generatedAt,
+      ...hidden,
     });
   } catch (err) {
     const { msg, status } = toPrismaHttpError(err);

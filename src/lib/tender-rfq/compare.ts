@@ -6,6 +6,8 @@
  *   projectScenariosForMuse：buildScenarios 的结果投影成 Muse 可见字段——价格分、总分差、打平价、供应商落地价（决定 A），
  *                            丢掉 marginPct / noteZh / assumptionsZh
  *   buildMatrixInterpretationPrompt：/compare/analysis 的 LLM 只拿矩阵写解读，不碰原始行、不算数
+ *   compareMatrixFinanceView：CHAIN-2e 没有财务查看权的人看到的矩阵——落地价、换算说明（逐项金额与汇率）、
+ *                             带金额的结论都去掉，排序 / 标记 / 推荐 / 检查 / 换算不出的原因照常
  */
 
 import {
@@ -15,6 +17,7 @@ import {
   type TenderTimeline,
 } from "./landed-cost";
 import { otherPoints, priceScore, type PricingResult, type ScoringModel } from "@/lib/tender-pricing/calc";
+import { COST_ACCESS_HINT_ZH } from "@/lib/tender-pricing/finance-view";
 
 /* ---------------------------------- 类型 ---------------------------------- */
 
@@ -72,6 +75,8 @@ export type CompareMatrix = {
   recommendedItemId: string | null;
   summaryZh: string;
   generatedAt: string;
+  /** CHAIN-2e：看的人没有财务查看权，落地价与带金额的结论已去掉（compareMatrixFinanceView） */
+  costHidden?: true;
 };
 
 export type CompareTender = TenderTimeline & { now?: Date };
@@ -169,28 +174,44 @@ export function rowProblemsZh(r: CompareRow, firstTierQty: number | null): strin
   return out;
 }
 
-export function summarizeMatrixZh(m: {
-  rows: CompareRow[];
-  cheapestItemId: string | null;
-  recommendedItemId: string | null;
-  firstTierQty: number | null;
-}): string {
+export function summarizeMatrixZh(
+  m: {
+    rows: CompareRow[];
+    cheapestItemId: string | null;
+    recommendedItemId: string | null;
+    firstTierQty: number | null;
+  },
+  /** CHAIN-2e：hideAmounts = 给没有财务查看权的人——只写几家、推荐谁、最低价为什么没推荐、谁换算不出，不写金额与百分比 */
+  opts: { hideAmounts?: boolean } = {},
+): string {
   if (m.rows.length === 0) return "还没有报价入表。";
+  const hide = opts.hideAmounts === true;
   const byId = new Map(m.rows.map((r) => [r.itemId, r]));
   const cheapest = m.cheapestItemId ? byId.get(m.cheapestItemId)! : null;
   const rec = m.recommendedItemId ? byId.get(m.recommendedItemId)! : null;
-  const parts: string[] = [`共 ${m.rows.length} 家报价（落地价，CAD，到目的地，含关税，不含 GST/HST；DDP 以供应商报价为准）。`];
+  const parts: string[] = [
+    hide
+      ? `共 ${m.rows.length} 家报价（按落地价从低到高排序，金额不显示）。`
+      : `共 ${m.rows.length} 家报价（落地价，CAD，到目的地，含关税，不含 GST/HST；DDP 以供应商报价为准）。`,
+  ];
 
   if (rec) {
-    parts.push(`推荐 ${short(rec.supplierName)}：落地价 ${money(rec.landedCad.total!)}，交期、有效期、强制项、起订量检查均通过${rec.checks.moqOk === "unknown" ? "（起订量未注明）" : ""}。`);
+    const moqNote = rec.checks.moqOk === "unknown" ? "（起订量未注明）" : "";
+    parts.push(hide
+      ? `推荐 ${short(rec.supplierName)}：交期、有效期、强制项、起订量检查均通过${moqNote}。`
+      : `推荐 ${short(rec.supplierName)}：落地价 ${money(rec.landedCad.total!)}，交期、有效期、强制项、起订量检查均通过${moqNote}。`);
     if (cheapest && cheapest.itemId !== rec.itemId) {
-      const pct = ((rec.landedCad.total! - cheapest.landedCad.total!) / cheapest.landedCad.total!) * 100;
-      const why = rowProblemsZh(cheapest, m.firstTierQty);
-      parts.push(`最低价 ${short(cheapest.supplierName)}（${money(cheapest.landedCad.total!)}）未推荐：${why.join("，") || "检查未全部通过"}；${short(rec.supplierName)} 贵 ${pct.toFixed(1)}%。`);
+      const why = rowProblemsZh(cheapest, m.firstTierQty).join("，") || "检查未全部通过";
+      if (hide) {
+        parts.push(`最低价 ${short(cheapest.supplierName)} 未推荐：${why}。`);
+      } else {
+        const pct = ((rec.landedCad.total! - cheapest.landedCad.total!) / cheapest.landedCad.total!) * 100;
+        parts.push(`最低价 ${short(cheapest.supplierName)}（${money(cheapest.landedCad.total!)}）未推荐：${why}；${short(rec.supplierName)} 贵 ${pct.toFixed(1)}%。`);
+      }
     }
   } else {
     parts.push("没有交期、有效期、强制项、起订量检查均通过的报价，暂不推荐。");
-    const listed = m.rows.slice(0, 3).map((r) => `${short(r.supplierName)}${r.landedCad.total != null ? `（${money(r.landedCad.total)}）` : ""}：${rowProblemsZh(r, m.firstTierQty).join("，") || "检查未全部通过"}`);
+    const listed = m.rows.slice(0, 3).map((r) => `${short(r.supplierName)}${!hide && r.landedCad.total != null ? `（${money(r.landedCad.total)}）` : ""}：${rowProblemsZh(r, m.firstTierQty).join("，") || "检查未全部通过"}`);
     parts.push(`${listed.join("；")}。`);
   }
 
@@ -204,6 +225,29 @@ export function summarizeMatrixZh(m: {
 
   const s = parts.join("");
   return s.length > SUMMARY_MAX ? `${s.slice(0, SUMMARY_MAX - 1)}…` : s;
+}
+
+/* ---------------------------------- CHAIN-2e 财务查看权 ---------------------------------- */
+
+/** 比价面板（AI 报价分析）在 costHidden 时显示：谁能看、找谁（与报价表助手同一句） */
+export const COMPARE_LANDED_HIDDEN_HINT_ZH = `落地价${COST_ACCESS_HINT_ZH}`;
+
+/**
+ * 没有财务查看权的人看到的矩阵：每行落地单价 / 总价置 null、换算说明（运费 / 保险 / 关税 / 清关逐项金额与汇率）置空，
+ * 结论换成无金额版本（用裁剪前的行生成：「换算不出」要看原来的落地价），带 costHidden。
+ * 供应商报价原价、排序、标记、推荐、检查、缺字段、warnings（汇率过期天数）、blockers（缺什么参数）照常。
+ * 有权限时原样返回（同一对象）。不改入参。
+ */
+export function compareMatrixFinanceView(matrix: CompareMatrix, opts: { canView: boolean; firstTierQty: number | null }): CompareMatrix {
+  if (opts.canView) return matrix;
+  return {
+    rows: matrix.rows.map((r) => ({ ...r, landedCad: { unit: null, total: null }, assumptions: [] })),
+    cheapestItemId: matrix.cheapestItemId,
+    recommendedItemId: matrix.recommendedItemId,
+    summaryZh: summarizeMatrixZh({ rows: matrix.rows, cheapestItemId: matrix.cheapestItemId, recommendedItemId: matrix.recommendedItemId, firstTierQty: opts.firstTierQty }, { hideAmounts: true }),
+    generatedAt: matrix.generatedAt,
+    costHidden: true,
+  };
 }
 
 /* ---------------------------------- price_scenario 投影（Muse 脱敏） ---------------------------------- */
@@ -292,9 +336,14 @@ export function buildInterpretationPayload(
     closeDate: ctx.closeDate,
     recommended,
     summary: matrix.summaryZh,
+    ...(matrix.costHidden ? { costHidden: true as const } : {}),
     rows,
   };
 }
+
+/** CHAIN-2e：输入不含落地价时，系统提示词多这一条硬规则（有权限时不出现，提示词与改动前逐字相同） */
+const COST_HIDDEN_PROMPT_RULE = `
+- 本次不提供落地价（看的人没有财务查看权）：landedCadTotal / landedCadUnit 为空不代表换算不出，换算不出看 not_normalized；不得估算或给出任何金额，价格只说排序与谁最便宜。`;
 
 export function buildMatrixInterpretationPrompt(
   matrix: CompareMatrix,
@@ -306,7 +355,7 @@ export function buildMatrixInterpretationPrompt(
 硬规则：
 - 不得计算、换算或给出矩阵里没有的任何数字；引用数字时必须与矩阵完全一致。
 - 不得改变推荐结论：推荐供应商已由代码确定（见 recommended），你只解释原因。
-- 换算不出落地价的供应商（not_normalized），只说明缺什么参数，不要估算。
+- 换算不出落地价的供应商（not_normalized），只说明缺什么参数，不要估算。${matrix.costHidden ? COST_HIDDEN_PROMPT_RULE : ""}
 
 只输出 JSON：{"priceAnalysis": "...", "deliveryAnalysis": "...", "risks": "...", "recommendation": "..."}`;
   const userPrompt = JSON.stringify(buildInterpretationPayload(matrix, ctx), null, 1);

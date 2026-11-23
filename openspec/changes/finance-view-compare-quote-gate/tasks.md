@@ -9,8 +9,8 @@
 
 ## 2. 比价矩阵与 AI 报价分析
 
-- [ ] 2.1 `src/lib/tender-rfq/compare.ts` 加 `compareMatrixFinanceView`、`summarizeMatrixZh` 的 `hideAmounts`、模型输入与提示词的 `costHidden` 分支与提示常量（D3、D4）；`compare.test.ts` 加：有权逐字段相同、无权搜不到落地价与逐项金额、无金额结论没有数字金额与「%」、模型输入搜不到落地价且提示词有「不提供落地价」、有权输入逐字相同；verify：`npx tsx src/lib/tender-rfq/__tests__/compare.test.ts` 与 `interpretation-guard.test.ts` 通过
-- [ ] 2.2 `…/compare/matrix/route.ts` 与 `…/compare/analysis/route.ts` 按 D1 裁剪（解读失败的 502 返回也裁）；`quote-analysis-panel.tsx` 在 `costHidden` 时显示提示；verify：`npm run typecheck` 与 `npm run lint:baseline` 通过
+- [x] 2.1 `src/lib/tender-rfq/compare.ts` 加 `compareMatrixFinanceView`、`summarizeMatrixZh` 的 `hideAmounts`、模型输入与提示词的 `costHidden` 分支与提示常量（D3、D4）；`compare.test.ts` 加：有权逐字段相同、无权搜不到落地价与逐项金额、无金额结论没有数字金额与「%」、模型输入搜不到落地价且提示词有「不提供落地价」、有权输入逐字相同；verify：`npx tsx src/lib/tender-rfq/__tests__/compare.test.ts` 与 `interpretation-guard.test.ts` 通过
+- [x] 2.2 `…/compare/matrix/route.ts` 与 `…/compare/analysis/route.ts` 按 D1 裁剪（解读失败的 502 返回也裁）；`quote-analysis-panel.tsx` 在 `costHidden` 时显示提示；verify：`npm run typecheck` 与 `npm run lint:baseline` 通过
 
 ## 3. 询价追踪页
 
