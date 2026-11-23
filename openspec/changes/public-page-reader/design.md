@@ -70,7 +70,7 @@
 - 返回字段 `text` 为空字符串表示没有正文。
 
 ### D8 审计
-每次真正发出页面请求（缓存命中、拒绝、到上限不写）写一条 `AuditLog`：`action = "research.web_read"`、`targetType = "research_job"`、`targetId = jobId`、`userId = 发起人`、`afterData = { url, finalUrl, outcome, httpStatus, chars, truncated, reason, attempts, site }`。正文、请求头、响应头一律不写。写审计失败只记日志（`logAudit` 自己就吞错），不影响读页结果。
+每次真正发出页面请求（缓存命中、拒绝、到上限不写）写一条 `AuditLog`：`action = "research.web_read"`、`targetType = "research_job"`、`targetId = jobId`、`userId = 发起人`、`afterData = { branchKey, url, finalUrl, outcome, httpStatus, chars, truncated, reason, attempts, site }`。正文、请求头、响应头一律不写。写审计失败只记日志（`logAudit` 自己就吞错），不影响读页结果。
 - 否决「每次请求（含重试、robots）各写一条」：一棵树最多 24 × 12 次读页，再乘重试会到上千条；一次读页一条已能回答「读了什么、结果如何」。
 
 ### D9 开关模块放在 `src/lib/tender-research-tree/flags.ts`
