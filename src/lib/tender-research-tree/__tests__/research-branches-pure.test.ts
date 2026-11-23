@@ -456,6 +456,7 @@ console.log("\n[挑错后：认不清的数、减项、别的币种、口径提�
   ok(negs.every((v) => parseAmountValue(v) === null), "括号里货币符号写在后面、各种横线做负号、会计写法的尾负号：都不收", negs.map((v) => [v, dec(v)]));
   const labels = ["CAD 230,000", "$230,000 - credit", "Total - $230,000", "Chairco - $230,000", "Lot A - $230,000", "Award amount - 230 000 $", "$230,000 (CAD)"];
   ok(labels.every((v) => amt(v) === "230000.00") && parseQuantityValue("Qty - 500")?.int === BigInt(500), "标签与值之间的横线、值后面的括号说明：不当减项", labels.map((v) => [v, amt(v)]));
+  ok(["(500 pcs)", "(12 kg)", "(10 ea)"].every((v) => parseQuantityValue(v) !== null) && parseAmountValue("(230k)") === null && parseAmountValue("230 000 $ –") === null, "括号里带单位的数量照认；括号里的 230k、货币符号后面的尾负号不收");
   ok(currencyMentionOf("230 000 $ CA") === "CAD" && currencyMentionOf("$CAN 230,000") === "CAD" && currencyMentionOf("230 000 $ CAN") === "CAD", "「$ CA」「$CAN」认成加元");
   ok(["$US 230,000", "230 000 $ US", "230 000 $US", "230 000 dollars américains"].every((v) => currencyMentionOf(v) === "USD"), "「$US」「$ US」「dollars américains」认成美元（不再按 .ca 推断成加元）");
   const ctx = { buyer: null, quantity: null, refYear: 2026, specTokens: [] as string[] };
@@ -465,10 +466,17 @@ console.log("\n[挑错后：认不清的数、减项、别的币种、口径提�
   const eurWithCad = assembleRecords([g("award_amount", "230 000 €", "Total 230 000 €"), g("currency", "CAD", "All amounts in CAD")], "comparable_award", ctx)[0]!;
   ok(eurWithCad.currency === null && eurWithCad.currencyBasis === "unknown", "合同额写 €、同组币种事实写 CAD：不明（不让别处的一句盖过合同额自己写的）", eurWithCad);
   ok(["AU$230,000", "A$230,000", "230 000 euros"].every((v) => otherCurrencyMentioned(v)) && !otherCurrencyMentioned("CA$230,000"), "AU$ / A$ / euros 算别的币种，CA$ 不算");
+  ok(!otherCurrencyMentioned("awarded to Euro Office Systems for $230,000") && !otherCurrencyMentioned("Euro Style Furniture $230,000"), "公司名里的 Euro 不算欧元");
+  const usOnCa = assembleRecords([g("award_amount", "230 000 $ US", "Total : 230 000 $ US")], "comparable_award", ctx)[0]!;
+  ok(usOnCa.currency === "USD" && usOnCa.currencyBasis === "stated", ".ca 网站上写「230 000 $ US」：写明的 USD（不按网站推断）", usOnCa);
   ok(!scopeBasisOk("multi_year", "includes a 1-year warranty") && !scopeBasisOk("multi_year", "term of 1 year") && !scopeBasisOk("multi_year", "1 an"), "一年的写法不算多年期");
   ok(!scopeBasisOk("multi_year", "contract 2024 to 2024") && scopeBasisOk("multi_year", "contract 2022–2025") && scopeBasisOk("multi_year", "3-year contract") && scopeBasisOk("multi_year", "10 ans"), "起止年份要不同；两年以上照认");
   const notTerm = ["includes a 2-year warranty", "5-year manufacturer warranty on frames", "garantie de 5 ans", "质保 3 年", "0.5 year pilot", "for fiscal year 2024-2025"];
   ok(notTerm.every((e) => !scopeBasisOk("multi_year", e)), "保修年限、财年、0.5 年：不算多年期", notTerm.filter((e) => scopeBasisOk("multi_year", e)));
+  const notTerm2 = ["24-month warranty", "warranty of 36 months", "garantie de 24 mois", "2 ans de garantie", "warranty: 2 years", "warranty period: 3 years", "2 years' warranty", "3 years parts and labour warranty", "三年质保", "3年保修", "the 2024-2025 fiscal year", "FY 2024-2025"];
+  ok(notTerm2.every((e) => !scopeBasisOk("multi_year", e)), "按月写的保修、保修写在后面、中文质保、财年的几种写法：也不算", notTerm2.filter((e) => scopeBasisOk("multi_year", e)));
+  const termWithWarranty = ["a 3-year service and warranty contract", "5-year maintenance and warranty agreement", "3-year contract including warranty", "3-year term plus warranty", "three-year supply and warranty agreement", "3-year guaranteed pricing"];
+  ok(termWithWarranty.every((e) => scopeBasisOk("multi_year", e)), "合同期里带着保修（service and warranty contract、guaranteed pricing）：照认多年期", termWithWarranty.filter((e) => !scopeBasisOk("multi_year", e)));
   const term = ["3-year contract with 2-year warranty", "for a period of three (3) years", "36-month contract", "contrat de trois ans", "contrat de deux ans", "2024年至2026年", "合同期三年，质保两年"];
   ok(term.every((e) => scopeBasisOk("multi_year", e)) && !scopeBasisOk("multi_year", "12 months"), "合同期的写法（三 (3) 年、36 个月、trois ans、2024年至2026年）照认；保修另写的不影响", term.filter((e) => !scopeBasisOk("multi_year", e)));
   ok(!scopeBasisOk("freight", "bins delivered by March 2024") && !scopeBasisOk("freight", "delivery date: May 1"), "只写交货时间：不算含运费");
@@ -494,8 +502,12 @@ console.log("\n[挑错后：认不清的数、减项、别的币种、口径提�
   ];
   ok(freightOk.every((e) => scopeBasisOk("freight", e)), "标书常见的供货并送货、含送货写法（英 / 法 / 中）照认", freightOk.filter((e) => !scopeBasisOk("freight", e)));
   ok(!scopeBasisOk("freight", "delivery within 6 weeks") && !scopeBasisOk("freight", "délai de livraison : 6 semaines"), "交货期限不算含运费");
+  const timing = ["Bids must include delivery schedule", "Supply and delivery dates to be confirmed", "with delivery by March 31, 2024", "avec livraison prévue en mars", "avec livraison le 1er mars", "配送时间：3月", "Delivery: included in Schedule B timeline", "provide and deliver training sessions", "Goods must be delivered to the following location by May 1", "awarded by Transport Canada"];
+  ok(timing.every((e) => !scopeBasisOk("freight", e)), "「送货」后面跟着日期 / 时间表、单写 Transport（部门名）：不算含运费", timing.filter((e) => scopeBasisOk("freight", e)));
+  const negated = ["Freight not included", "Delivery charges are not included", "delivery costs are extra", "frais de livraison en sus", "prices exclusive of freight", "hors livraison", "不含运费"];
+  ok(negated.every((e) => !scopeBasisOk("freight", e)), "写明不含运费的：不算含运费", negated.filter((e) => scopeBasisOk("freight", e)));
   ok(groupKeyOf("Contract 2024-001") !== groupKeyOf("Contract 2024-002") && groupKeyOf("Purchase Order Alpha") !== groupKeyOf("Purchase Order Beta"), "长组名截到 12 字后相同（contract-202）：带哈希，不并", [groupKeyOf("Contract 2024-001"), groupKeyOf("Contract 2024-002")]);
-  ok(groupKeyOf("Contract 2024-001") === groupKeyOf("CONTRACT  2024-001") && groupKeyOf("Lot 1.1") === groupKeyOf("LOT 1.1") && groupKeyOf("Lot 1") === groupKeyOf("Lot 1.") && groupKeyOf("Lot 1") === groupKeyOf("Lot 1\u200b"), "同一个组名的大小写、空白、末尾标点、不可见字符不同：照并");
+  ok(groupKeyOf("Contract 2024-001") === groupKeyOf("CONTRACT  2024-001") && groupKeyOf("Lot 1.1") === groupKeyOf("LOT 1.1") && groupKeyOf("Lot 1") === groupKeyOf("Lot 1.") && groupKeyOf("Lot 1") === groupKeyOf("Lot 1\u200b") && groupKeyOf("第一包") === groupKeyOf("第一包。"), "同一个组名的大小写、空白、末尾标点（含中文句号）、不可见字符不同：照并");
   {
     const ctx2 = { buyer: null, quantity: null, refYear: 2026, specTokens: [] as string[] };
     const u = "https://www.city.example.ca/c";

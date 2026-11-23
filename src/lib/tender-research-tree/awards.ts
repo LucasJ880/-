@@ -127,12 +127,14 @@ function multiplierAfter(text: string, tok: { dec: Dec; end: number }): Multipli
 //   - 括号括起来的值（货币符号、币种字母在前在后都行）：「(230,000)」「($230,000 CAD)」「(230 000 $)」
 //   - 数后面的负号（会计写法）：「230,000-」
 const DASH = "[-−‐‑‒–—]";
+/** 括号里允许的币种字母（「(500 pcs)」「(12 kg)」这种带单位的数量不当减项） */
+const CUR_CODE = "(?:CAD|CDN|USD|US|CA|CAN|EUR|C|U\\.S\\.)";
 const NEGATIVE_RE = new RegExp(
   [
     `^\\s*${DASH}\\s*(?:[A-Za-z]{1,3}\\s*)?[$€£¥]?\\s*\\d`,
     `(?:[\\s(:=$€£¥]|\\b(?:CAD|CDN|USD|US))${DASH}(?:[A-Za-z]{1,3}\\s?)?[$€£¥]?\\d`,
-    `\\(\\s*(?:[A-Za-z]{1,3}\\s*)?[$€£¥]?\\s*\\d[\\d.,\\s]*[$€£¥]?\\s*(?:[A-Za-z]{1,3}\\s*)?\\)`,
-    `\\d\\s*${DASH}\\s*$`,
+    `\\(\\s*(?:${CUR_CODE}\\s*)?[$€£¥]?\\s*\\d[\\d.,\\s]*(?:[kKmM]{1,2}\\s*)?[$€£¥]?\\s*(?:${CUR_CODE}\\s*)?\\)`,
+    `\\d\\s*(?:[$€£¥]\\s*)?(?:${CUR_CODE}\\s*)?${DASH}\\s*$`,
   ].join("|"),
   "u",
 );
@@ -201,7 +203,7 @@ export function unitPriceOf(amount: Dec | string | null, quantity: Dec | string 
 
 const CAD_RE = /(?:\bCAD\b|\bC\s?\$|\bCA\s?\$|\bCDN\s?\$|\bCDN\b|\$\s?CAN?\b|canadian\s+dollars?|dollars?\s+canadiens?)/i;
 /** 别的币种（欧元、英镑等）：写了就不按网站推断成加元 / 美元 */
-const OTHER_CURRENCY_RE = /€|£|¥|₹|\b(?:EUR|GBP|JPY|CNY|RMB|AUD|MXN|CHF|INR)\b|(?<![A-Za-z])AU?\$|\beuros?\b|人民币|欧元|英镑|日元/i;
+const OTHER_CURRENCY_RE = /€|£|¥|₹|\b(?:EUR|GBP|JPY|CNY|RMB|AUD|MXN|CHF|INR)\b|(?<![A-Za-z])AU?\$|\d\s*euros?\b|\beuros?\s*\d|人民币|欧元|英镑|日元/i;
 
 /** 文字里写到别的币种（不是加元、美元） */
 export function otherCurrencyMentioned(...texts: Array<string | null | undefined>): boolean {
@@ -253,6 +255,12 @@ export const SCOPE_BASIS_UNCLEAR_ZH = "不明";
  * 口径标签要在摘录里看得到的提示词（防模型乱贴标签；宁可少认）。多年期要写出年数、起止年份或 multi-year；
  * 多品项要写出复数的品项 / 批次或 various / assorted / multiple / several
  */
+/** 交货时间的说法（跟在「送货」后面时不算含运费） */
+const NOT_TIMING = "(?!\\s*(?:dates?|schedules?|timelines?|times?|periods?|windows?|deadlines?|within|by|before|no\\s+later|prévue|prévues|date|délai|calendrier|le|en|avant|d'ici)\\b)";
+/** 写明不含运费的（「Freight not included」「delivery charges are extra」「hors livraison」「不含运费」）：含运费的提示词不作数 */
+const FREIGHT_NEGATED_RE =
+  /(?:freight|shipping|delivery|transport|livraison)[^.;\n]{0,30}?\b(?:not\s+included|not\s+incl\b|excluded|extra|additional|en\s+sus|non\s+compris(?:e|es)?|en\s+plus)|(?:excluding|excludes|exclusive\s+of|plus|hors|sans|not\s+including)\s+(?:the\s+)?(?:freight|shipping|delivery|transport|livraison)|不含运费|运费另计|不包括运费|运费另付/iu;
+
 const BASIS_HINTS: Record<ScopeBasisTag, RegExp> = {
   installation: /install|montage|mise en place|安装/i,
   // 「delivered by March」「délai de livraison」只是交货时间，不算含运费；要写到运费、FOB / DDP、供货并送货（supply and
@@ -260,18 +268,20 @@ const BASIS_HINTS: Record<ScopeBasisTag, RegExp> = {
   // y compris la livraison、livraison comprise）、免费送货、送到某处（delivered to the site / warehouse）
   freight: new RegExp(
     [
-      "freight|shipping|shipped|transport",
+      // 单写 transport 不算（「Transport Canada」是部门名）；要写运输费用
+      "freight|shipping|shipped|transport(?:ation)?\\s+(?:costs?|charges?|fees?|included|incl)",
       "\\bf\\.?o\\.?b\\b|\\bd\\.?d\\.?p\\b|delivered\\s+duty\\s+paid|\\bFAB\\s+destination|franco\\s+(?:de\\s+port|destination)",
-      "(?:supply|supplying|furnish|provide)\\s*(?:,|and|&)\\s*(?:the\\s+)?deliver",
-      "(?:include[sd]?|including|inclusive\\s+of|incl\\.?|with)\\s+(?:the\\s+)?(?:delivery|shipping)",
-      "deliver(?:y|ed)?(?:\\s+and\\s+installation)?\\s*(?:is\\s+|are\\s+|:\\s*)?(?:included|incl\\b|incl\\.|inclusive|cost|costs|charges?|fees?)",
-      "delivered\\s+to\\s+(?:the\\s+)?(?:[\\p{L}]+\\s+){0,2}(?:site|destination|warehouse|depot|facility|facilities|location|address|premises)",
+      // 后面跟着日期 / 时间表的不算（「Supply and delivery dates」「include delivery schedule」「avec livraison prévue」）
+      `(?:supply|supplying)\\s*(?:,|and|&)\\s*(?:the\\s+)?deliver(?:y|ing)?\\b${NOT_TIMING}`,
+      `(?:include[sd]?|including|inclusive\\s+of|incl\\.?|with)\\s+(?:the\\s+)?(?:delivery|shipping)\\b${NOT_TIMING}`,
+      "deliver(?:y|ed)?(?:\\s+and\\s+installation)?\\s*(?:is\\s+|are\\s+|:\\s*)?(?:included|incl\\b|incl\\.|inclusive|cost|costs|charges?|fees?)(?!\\s+in\\s+(?:the\\s+)?(?:schedule|timeline|calendar))",
+      "delivered\\s+to\\s+(?:the\\s+)?(?:[\\p{L}]+\\s+){0,2}(?:site|destination|warehouse|depot|facility|facilities|premises)",
       "free\\s+(?:delivery|shipping)",
-      "fourniture\\s*(?:,|et)\\s*(?:la\\s+)?livraison",
-      "(?:y\\s+compris|incluant|avec)\\s+(?:la\\s+)?livraison",
+      `fourniture\\s*(?:,|et)\\s*(?:la\\s+)?livraison${NOT_TIMING}`,
+      `(?:y\\s+compris|incluant|avec)\\s+(?:la\\s+)?livraison${NOT_TIMING}`,
       "livraison(?:\\s+et\\s+installation)?\\s+(?:incluses?|comprises?|gratuite)",
       "frais\\s+de\\s+(?:livraison|transport)",
-      "运费|运输|送货|配送",
+      "运费|运输|送货|配送(?!\\s*(?:时间|日期|期))",
     ].join("|"),
     "iu",
   ),
@@ -296,13 +306,21 @@ function multiYearRangeOk(text: string): boolean {
  * 多年期判断前先去掉不是合同期的年数：保修 / 质保年限（「2-year warranty」「garantie de 5 ans」「质保 3 年」）与财年
  * （「fiscal year 2024-2025」「exercice 2024-2025」——加拿大的财年本身就是一年）
  */
+const WARRANTY_SPAN = "(?:\\d+|two|three|four|five|six|seven|eight|nine|ten)";
+const WARRANTY_ADJ = "(?:manufacturer'?s?|manufacturer’s|limited|extended|full|standard|parts\\s+(?:and|&)\\s+labou?r|parts|labou?r|product|structural|frame|on-site)";
 const NOT_CONTRACT_TERM_RE = new RegExp(
   [
-    "\\b(?:\\d+|two|three|four|five|six|seven|eight|nine|ten)[\\s-]*(?:years?|yr)\\s+(?:[\\p{L}'’-]+\\s+){0,2}(?:warrant(?:y|ies)|guarantee)",
-    "(?:warrant(?:y|ies)|guarantee)\\s+(?:of|for|period\\s+of)\\s+(?:\\d+|two|three|four|five|six|seven|eight|nine|ten)[\\s-]*years?",
-    "garantie\\s+(?:de\\s+)?(?:\\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\\s+ans",
-    "(?:质保|保修)(?:期)?\\s*(?:为|是)?\\s*(?:\\d+|[两三四五六七八九十])\\s*年",
+    // 「N 年 / 月 + 保修」：中间只放过形容词一类的词（manufacturer's、limited、extended…），「3-year service and warranty
+    // contract」「5-year maintenance and warranty agreement」这种合同期不去掉
+    `\\b${WARRANTY_SPAN}[\\s-]*(?:years?|yrs?|months?)['’]?\\s+(?:${WARRANTY_ADJ}\\s+){0,2}(?:warrant(?:y|ies)|guarantee)\\b(?!\\s+(?:and|&|plus)\\b)`,
+    `(?:warrant(?:y|ies)|guarantee)\\b\\s*(?:period\\s*)?(?:of|for|:)?\\s*${WARRANTY_SPAN}[\\s-]*(?:years?|months?)`,
+    `garantie\\s+(?:de\\s+)?(?:\\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\\s+(?:ans|mois)`,
+    `(?:\\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\\s+(?:ans|mois)\\s+de\\s+garantie`,
+    "(?:质保|保修)(?:期)?\\s*(?:为|是)?\\s*(?:\\d+|[两三四五六七八九十])\\s*(?:年|个月)",
+    "(?:\\d+|[两三四五六七八九十])\\s*(?:年|个月)\\s*(?:质保|保修)",
     "(?:fiscal|financial)\\s+year\\s+(?:19|20)\\d{2}\\s*[-–—/]\\s*(?:(?:19|20)?\\d{2})",
+    "(?:the\\s+)?(?:19|20)\\d{2}\\s*[-–—/]\\s*(?:(?:19|20)?\\d{2})\\s+(?:fiscal|financial)\\s+year",
+    "\\bFY\\s*(?:19|20)?\\d{2}\\s*[-–—/]\\s*(?:(?:19|20)?\\d{2})",
     "exercice\\s+(?:financier\\s+)?(?:19|20)\\d{2}\\s*[-–—/]\\s*(?:(?:19|20)?\\d{2})",
   ].join("|"),
   "giu",
@@ -311,6 +329,7 @@ const NOT_CONTRACT_TERM_RE = new RegExp(
 export function scopeBasisOk(tag: string, excerpt: string): boolean {
   if (!isScopeBasisTag(tag)) return false;
   const raw = String(excerpt ?? "").normalize("NFKC");
+  if (tag === "freight" && FREIGHT_NEGATED_RE.test(raw)) return false;
   const text = tag === "multi_year" ? raw.replace(NOT_CONTRACT_TERM_RE, " ") : raw;
   return BASIS_HINTS[tag].test(text) || (tag === "multi_year" && multiYearRangeOk(text));
 }
