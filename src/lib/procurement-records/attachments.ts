@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { putPrivateBlob, readBlobBuffer } from "@/lib/files/blob-access";
+import { toStorableJson, toStorableText } from "@/lib/files/extracted-text";
 import { normalizeFilename } from "@/lib/files/upload-guard";
 import { extractFromPdfPage, extractFromTable, pageNeedsOcr, type ExtractedLine } from "./extract-pure";
 import { appendRequestEvent } from "./requests";
@@ -109,8 +110,9 @@ export async function parseAttachmentBuffer(buffer: Buffer, filename: string): P
     try {
       const { extractText } = await import("unpdf");
       const res = await extractText(new Uint8Array(buffer), { mergePages: false });
-      const pages = Array.isArray(res.text) ? res.text : [String(res.text ?? "")];
-      const units: ParsedUnit[] = pages.map((t, i) => ({ unitIndex: i + 1, unitKind: "page", unitLabel: null, text: t ?? "", parseStatus: pageNeedsOcr(t ?? "") ? "OCR_REQUIRED" : "done" }));
+      // FIX-14：每页文字先清掉写不进库的字符再判断要不要 OCR（只有 U+0000 的页不算有效文字）
+      const pages = (Array.isArray(res.text) ? res.text : [String(res.text ?? "")]).map((t) => toStorableText(t ?? ""));
+      const units: ParsedUnit[] = pages.map((t, i) => ({ unitIndex: i + 1, unitKind: "page", unitLabel: null, text: t, parseStatus: pageNeedsOcr(t) ? "OCR_REQUIRED" : "done" }));
       const allOcr = units.length > 0 && units.every((u) => u.parseStatus === "OCR_REQUIRED");
       return { status: allOcr ? "NEEDS_OCR" : "PARSED", error: allOcr ? "PDF 无文字层（扫描件），当前没有 OCR 能力；请人工录入" : null, units, pageCount: res.totalPages ?? units.length, sheets: null };
     } catch (e) {
@@ -132,8 +134,10 @@ export async function parseAttachmentBuffer(buffer: Buffer, filename: string): P
       if (!wb.SheetNames.length) return { status: "CORRUPT", error: "工作簿没有工作表", units: [], pageCount: null, sheets: null };
       const units: ParsedUnit[] = [];
       const sheets: Array<{ sheet: string; rows: number }> = [];
-      wb.SheetNames.forEach((name, i) => {
-        const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false });
+      wb.SheetNames.forEach((rawName, i) => {
+        // FIX-14：工作表文字与工作表名（进单元标签与 sheetRangesJson）先清理（单元格里的 _x0000_ 读出来是 U+0000）
+        const name = toStorableText(rawName);
+        const csv = toStorableText(XLSX.utils.sheet_to_csv(wb.Sheets[rawName], { blankrows: false }));
         const rows = csv.split("\n").filter((l) => l.replace(/,/g, "").trim()).length;
         sheets.push({ sheet: name, rows });
         units.push({ unitIndex: i + 1, unitKind: "sheet", unitLabel: `${name} · ${rows} 行`, text: csv, parseStatus: "done" });
@@ -203,7 +207,8 @@ export async function processAttachment(attachmentId: string, opts?: { readBuffe
   });
   let lineCount = 0;
   if (att.kind === "DISCLOSURE_FILE" && parsed.status === "PARSED") {
-    const lines = extractLinesFromUnits(parsed.units, att.originalFilename);
+    // FIX-14：明细写库前整条清理（extract-pure.ts 里按字数截断原文片段 / 描述，可能劈开一对代理字符）
+    const lines = toStorableJson(extractLinesFromUnits(parsed.units, att.originalFilename));
     if (lines.length) {
       const res = await db.procurementLineItem.createMany({
         data: lines.map((l) => ({

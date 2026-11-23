@@ -12,8 +12,9 @@
  *   逐字解析：改这里的措辞或分隔符必须同步改 notes-parse.ts，并跑 __tests__/notes-parse.test.ts 往返测试。
  */
 
+import { toStorableText } from "@/lib/files/extracted-text";
 import { INBOUND_MISSING_LABEL, type InboundMissingField } from "./inbound-contract";
-import type { ParsedQuote } from "./inbound-parse";
+import type { AttachmentSeen, ParsedQuote } from "./inbound-parse";
 
 export type ExistingInquiryItem = {
   status: string;
@@ -66,6 +67,20 @@ function toYmd(v: Date | string | null): string | null {
 
 function q(evidence: string | null | undefined): string {
   return evidence ? `（证据："${evidence.replace(/\s+/g, " ").trim()}"）` : "";
+}
+
+/**
+ * FIX-14：附件里有 U+0000 被换成空格（勾选框之类的字形抽不出字）且仍记为已解析时，在「已解析」后注明
+ * （措辞按文案审查调整）。这句话里有一个「；」：比价回读（notes-parse.ts）按「；」切开后，
+ * 两半分别以「附件：」与「请打开原件」开头，都不进任何回读字段（notes-parse.test.ts 往返测试与
+ * extracted-text-other-paths.test.ts「带与不带这句话 parseAutoNotes 结果相同」覆盖）。
+ */
+function unreadableSymbolsNote(nulCount: number): string {
+  return `（有 ${nulCount} 处符号没读出来，已当空格处理，多半是勾选框；请打开原件核对勾选项和价格）`;
+}
+
+function attachmentParsedLabel(a: AttachmentSeen): string {
+  return a.nulCount && a.nulCount > 0 ? `已解析${unreadableSymbolsNote(a.nulCount)}` : "已解析";
 }
 
 /** 多档价选档：与询价第一档数量相同的那档；只有一档时就用它；否则不选（不猜）。 */
@@ -204,9 +219,10 @@ export function planInquiryItemUpdate(
   if (missingFields.length) segs.push(`缺：${missingFields.map((f) => INBOUND_MISSING_LABEL[f]).join("、")}`);
   if (parsed.attachmentsSeen.length) {
     const notesByName = new Map((meta.attachmentNotes ?? []).map((n) => [n.split("：")[0], n.slice(n.indexOf("：") + 1)]));
-    segs.push(`附件：${parsed.attachmentsSeen.map((a) => `${a.filename} ${a.parsed ? "已解析" : notesByName.get(a.filename) ?? "未解析"}`).join("、")}`);
+    segs.push(`附件：${parsed.attachmentsSeen.map((a) => `${a.filename} ${a.parsed ? attachmentParsedLabel(a) : notesByName.get(a.filename) ?? "未解析"}`).join("、")}`);
   }
-  const notesAppend = `[auto ${meta.now.toISOString()} msg=${meta.messageId}] ${segs.join("；")}`;
+  // FIX-14：写库前把这次追加的整段清理一遍（证据可能以半个表情符号结尾：按码元仍能在原文里找到）
+  const notesAppend = toStorableText(`[auto ${meta.now.toISOString()} msg=${meta.messageId}] ${segs.join("；")}`);
 
   return { data, notesAppend, missingFields, transition, events };
 }

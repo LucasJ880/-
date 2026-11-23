@@ -51,7 +51,7 @@ import {
   startDurableFollowupTask,
   type ScheduleAfterResponse,
 } from "@/lib/assistant/followup-task";
-import type { ChatAttachment } from "@/lib/chat-attachments/core";
+import { storableTitle, type ChatAttachment } from "@/lib/chat-attachments/core";
 
 export type DispatchHandleResult = {
   kind: "handled";
@@ -193,7 +193,7 @@ async function persistUserAndInitialAssistant(input: {
     data: {
       lastMessageAt: new Date(),
       ...(input.threadTitle === "新对话"
-        ? { title: input.userContent.slice(0, 60) }
+        ? { title: storableTitle(input.userContent, 60) }
         : {}),
     },
   });
