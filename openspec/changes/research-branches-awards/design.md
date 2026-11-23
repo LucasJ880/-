@@ -53,7 +53,7 @@ TREE-2（`research-tree-runtime`）已经有：六步两波的图、`tender_rese
 
 - 新卡片 `ResearchClausesCard`（`src/components/tender-analysis/research-clauses-card.tsx`）放在 `BidFitMatrixCard` 之后，`requirements-tab.tsx` 只加一行。
 - 卡片读新接口 `GET /api/projects/[id]/research-tree`：第一步不带条件地调用 `requireProjectReadAccess`（FIX-21 写法，读权限即可，与授标历史读取同口径）；项目没有组织或开关关 → 404，卡片不渲染（同 `sourcing-suggestions-card.tsx`）。返回本项目最新一棵调研树（按建立时间）的 Job 状态与条款一步的结果；不读情报室（条款一支完成就能看到，不用等树干）。
-- 没有调研树 → 卡片不渲染（「开始调研」按钮在 TREE-5）；在查 → 「条款员还在查」；查完 → 三问、引文（文件名 + 页码 / 单元标签 + 摘录）、证明要求、未写明的澄清草稿；未接通 → 原因句。
+- 没有调研树 → 卡片不渲染（「开始调研」按钮在 TREE-5）；在查 → 「条款员还在查」；查完 → 三问、引文（文件名 + 页码 / 单元标签 + 摘录）、证明要求、未写明的澄清草稿；未接通 → 原因句。读取中与读取出错也不渲染：这张卡是补充信息，不让开关关着的项目因为网络出错多出一张卡（代价：开关开着时读取出错，用户看不到这张卡，要刷新）。
 - 只读：卡片与接口不写任何数据、不改已确认的要求、不进关键事实槽位（判断点 3）。
 
 备选 A：写进 `TenderAnalysisRun.summaryJson`。不选：调研 Job 去写分析运行，会与一键分析重跑互相覆盖，且要锁分析行；TREE-2 的隔离库测试还断言分析记录不被调研碰。备选 B：只放情报页签。不选：任务书写明招标要求页。
