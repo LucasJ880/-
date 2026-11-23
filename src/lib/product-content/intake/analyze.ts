@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { readBlobBuffer } from "@/lib/files/blob-access";
 import { parseFileBuffer } from "@/lib/files/parse-buffer";
+import { toStorableText } from "@/lib/files/extracted-text";
 import {
   setJobStatus,
   upsertProductFactsFromExtraction,
@@ -31,10 +32,13 @@ function normalizeKey(raw: string): string | null {
 }
 
 function extractFactsFromText(
-  text: string,
+  rawText: string,
   sourceType: ExtractedFact["sourceType"],
   sourceId?: string,
 ): { facts: ExtractedFact[]; taskRequirements: string[] } {
+  // FIX-14：文件（PDF、Excel）、网页、文字、语音转写四种来源都经这一处先清掉写不进库的字符
+  // （勾选框被抽成的 U+0000 → 空格、落单代理字符 → U+FFFD），再按行抽事实：值、原文行照旧去首尾空白
+  const text = toStorableText(rawText);
   const facts: ExtractedFact[] = [];
   const taskRequirements: string[] = [];
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);

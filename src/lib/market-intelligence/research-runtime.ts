@@ -6,6 +6,7 @@ import {
 } from "@/lib/agent-core/skills/runtime";
 import type { SkillRunOutput } from "@/lib/agent-core/skills/types";
 import { logAudit } from "@/lib/audit/logger";
+import { toStorableText } from "@/lib/files/extracted-text";
 import { getMarketingDashboard } from "@/lib/marketing/query-dashboard";
 import { pushMessage } from "@/lib/messaging/gateway";
 import { createNotification } from "@/lib/notifications/create";
@@ -208,7 +209,8 @@ export async function queueMarketResearchRequest(input: {
       ).slice(0, 20_000),
       salesModel: "询价型混合漏斗：内容/广告 → 咨询 → 预约量房 → 报价 → 成交",
       competitors: list(brandTruth?.competitorsJson) || "未确认竞争对手，请标记待验证",
-      marketEvidence: (input.marketEvidence?.trim() || "未提供新的公开证据").slice(0, 20_000),
+      // FIX-14：市场证据来自附件正文与文件名（对话路由先截 8 万字），截到 2 万字之后再清理一遍
+      marketEvidence: toStorableText((input.marketEvidence?.trim() || "未提供新的公开证据").slice(0, 20_000)),
       firstPartyData: JSON.stringify(dashboard.summary),
       unitEconomics: (input.unitEconomics?.trim() || "未提供，禁止编造").slice(0, 20_000),
       outputType: (input.outputType?.trim() || "comprehensive").slice(0, 100),
