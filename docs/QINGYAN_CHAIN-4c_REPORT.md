@@ -16,7 +16,7 @@
 |---|---|---|
 | 要求 | 「原地审批与待批轮次保护」正文 522 字（W-1 写的 351 字 + CHAIN-4a 加的 171 字例外），5 个场景 | 「询价卡的原地审批与待批轮次保护」390 字（原 351 字逐字不变 + 一句不含 SHALL 的指引 39 字），4 个场景；「询价单 PDF 对不上时只给驳回」198 字（原例外句，开头补两处），1 个场景 |
 | `openspec validate tender/rfq-web-entry --type spec --strict` | 失败（`requirements[5]` 超过 500 字） | valid |
-| `openspec validate --specs --strict` | 143 过 1 不过 | 144 / 144 |
+| `openspec validate --specs --strict` | 143 过 1 不过 | 144 / 144（演练基线 `91d928e4`；2026-11-23 在 `07c02358` 上实际归档后 147 / 147） |
 | 本规格要求 / 场景 / SHALL / SHALL NOT | 13 / 35 / 52 / 17 | 14 / 35 / 52 / 17 |
 
 为什么是 REMOVED + ADDED 而不是 MODIFIED（design D2）：OpenSpec 1.15 不允许 MODIFIED 丢掉现有场景，也不允许同一个名字既在 REMOVED 又在 ADDED（两条都实测过）。所以原条换名为「询价卡的原地审批与待批轮次保护」（只在前面加「询价卡的」）。
