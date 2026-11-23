@@ -247,11 +247,13 @@ import { toolDomainForWorkDomain, allowRolesForToolDomain } from "../execution-p
     (TENDER_PLAN_SEMANTIC_STAGES as readonly string[]).includes("deliverables"),
     "DELIV-13: 语义阶段表含交付物物化阶段",
   );
-  // Segment 2：可执行集合扩到 9（新增 canonical V2 能力），
+  // Segment 2：可执行集合扩到 9（新增 canonical V2 能力）；TREE-2 另加 2 个调研工具（共 11），
   // descriptor 必须仍然 100% 覆盖——未知 descriptor 一律 fail-closed。
   ok(
-    DESCS.length === NAMES.length && NAMES.length === 9,
-    `DELIV-14: 工具数 9，descriptor 覆盖 ${DESCS.length}/${NAMES.length}`,
+    DESCS.length === NAMES.length &&
+      NAMES.length === 11 &&
+      NAMES.filter((n) => n !== "tender_research_branch" && n !== "tender_research_trunk").length === 9,
+    `DELIV-14: 工具数 9 个分析 + 2 个调研，descriptor 覆盖 ${DESCS.length}/${NAMES.length}`,
   );
 }
 

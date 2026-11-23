@@ -512,6 +512,9 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
       "tender-workforce/v2-persist-workforce.ts",
       // T5-P1.1：可续跑编排层（cursor checkpoint + 落库都要 fence）
       "tender-workforce/v2-resumable-workforce.ts",
+      // TREE-2 情报调研树：分支写游标审计、树干写情报室摘要都经 fence（只调用 check / guard，不序列化）
+      "tender-research-tree/branch-run.ts",
+      "tender-research-tree/trunk.ts",
     ];
     ok(
       hits.every((h) => allowed.includes(h)),
@@ -531,6 +534,12 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
     const toolsSrc = read("tender-workforce/tools.ts");
     const returnsFence = /data:\s*{[^}]*runFence/s.test(toolsSrc);
     ok(!returnsFence, "V2-SPINE-14c: 工具返回数据不含 fence（不会落 outputJson）");
+    // TREE-2 的两个使用点同样检查
+    const researchFenceUsers = ["tender-research-tree/branch-run.ts", "tender-research-tree/trunk.ts"].map(read);
+    ok(
+      researchFenceUsers.every((src) => !/data:\s*{[^}]*runFence/s.test(src) && !/(handoff|summary|afterData)[^;\n]*runFence/.test(src)),
+      "V2-SPINE-14d: 调研树的分支与树干返回数据、交接单与审计不含 fence",
+    );
   }
 
   /* ── V2-SPINE-15：新工具不在任何 planner 投影里 ── */

@@ -87,14 +87,34 @@ ok(
 
 /* ── §12 工具白名单与全局目录零污染 ── */
 console.log("\n[§12 Tool Scope]");
-// Segment 3：三层工具面。可执行 9；LLM 兼容面 7（旧 T1B 回滚语义，
-// 既无 canonical V2 也无 grounded 交付物）；确定性 V2 面 8（无 legacy extract）。
+// Segment 3：三层工具面。可执行 9 个分析工具（TREE-2 另加 2 个只给调研 Job 用的工具，
+// 不进下面两个面）；LLM 兼容面 7（旧 T1B 回滚语义，既无 canonical V2 也无 grounded 交付物）；确定性 V2 面 8（无 legacy extract）。
+const RESEARCH_TOOL_NAMES = ["tender_research_branch", "tender_research_trunk"];
+const ANALYSIS_TOOL_NAMES = TENDER_WORKFORCE_TOOL_NAMES.filter((n) => !RESEARCH_TOOL_NAMES.includes(n));
+const ORIGINAL_ANALYSIS_TOOL_NAMES = [
+  "tender_validate_input",
+  "tender_parse_documents",
+  "tender_extract_requirements",
+  "tender_evidence_compliance",
+  "tender_risk_analysis",
+  "tender_clarification_draft",
+  "tender_build_deliverables",
+  "tender_finalize_analysis",
+  "tender_analyze_package_v2",
+];
 ok(
-  TENDER_WORKFORCE_TOOL_DESCRIPTORS.length === 9 &&
-    TENDER_WORKFORCE_TOOL_NAMES.length === 9 &&
+  TENDER_WORKFORCE_TOOL_DESCRIPTORS.length === 11 &&
+    TENDER_WORKFORCE_TOOL_NAMES.length === 11 &&
+    JSON.stringify([...ANALYSIS_TOOL_NAMES]) === JSON.stringify(ORIGINAL_ANALYSIS_TOOL_NAMES) &&
+    RESEARCH_TOOL_NAMES.every((n) => (TENDER_WORKFORCE_TOOL_NAMES as readonly string[]).includes(n)) &&
     TENDER_WORKFORCE_PLANNER_TOOL_NAMES.length === 7 &&
-    TENDER_WORKFORCE_DETERMINISTIC_TOOL_NAMES.length === 8,
-  "scope: 可执行 9 / LLM 兼容 7 / 确定性 V2 8",
+    TENDER_WORKFORCE_DETERMINISTIC_TOOL_NAMES.length === 8 &&
+    !RESEARCH_TOOL_NAMES.some(
+      (n) =>
+        (TENDER_WORKFORCE_PLANNER_TOOL_NAMES as readonly string[]).includes(n) ||
+        (TENDER_WORKFORCE_DETERMINISTIC_TOOL_NAMES as readonly string[]).includes(n),
+    ),
+  "scope: 可执行 = 9 个分析工具 + 2 个调研工具 / LLM 兼容 7 / 确定性 V2 8（调研工具不进两个面）",
   {
     exec: TENDER_WORKFORCE_TOOL_NAMES.length,
     llm: TENDER_WORKFORCE_PLANNER_TOOL_NAMES.length,
@@ -137,7 +157,7 @@ ok(
   "scope/#88: 白名单 ⊆ EXECUTABLE（每个工具都有真实 server handler）",
 );
 ok(
-  Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).length === 9 &&
+  Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).length === 11 &&
     TENDER_WORKFORCE_TOOL_NAMES.every(
       (n) => typeof TENDER_WORKFORCE_TOOL_HANDLERS[n] === "function",
     ),
