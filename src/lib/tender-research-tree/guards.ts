@@ -210,6 +210,19 @@ export function normalizeForMatch(s: string): string {
     .toLowerCase();
 }
 
+/**
+ * 收下的值与摘录在存下之前清一遍：NFKC、去掉不可见的格式字符（零宽、双向控制等）与控制字符、空白压成一个。
+ * 核对比的是归一后的文字，存下的也要是同一份，免得「$‮230,000」这种带双向控制字符的值在页面上被倒着显示
+ */
+export function cleanFactText(s: string): string {
+  return String(s ?? "")
+    .normalize("NFKC")
+    .replace(/\p{Cf}/gu, "")
+    .replace(/\p{Cc}/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** 归一后还有 0–9 以外的数字（阿拉伯-印度数字等）：数字核对认不了，一律不收 */
 function hasNonAsciiDigit(s: string): boolean {
   return /[^\P{Nd}0-9]/u.test(s);
@@ -249,17 +262,17 @@ export function checkFact(
   if (c.factType === "currency") {
     const cur = value.toUpperCase();
     if ((cur !== "CAD" && cur !== "USD") || statedCurrencyOf(excerpt) !== cur) return { ok: false, why: "bad_enum_value" };
-    return { ok: true, factType: c.factType, value: cur, excerpt };
+    return { ok: true, factType: c.factType, value: cur, excerpt: cleanFactText(excerpt) };
   }
   if (c.factType === "scope_basis") {
     const tag = value.toLowerCase();
     if (!scopeBasisOk(tag, excerpt)) return { ok: false, why: "bad_enum_value" };
-    return { ok: true, factType: c.factType, value: tag, excerpt };
+    return { ok: true, factType: c.factType, value: tag, excerpt: cleanFactText(excerpt) };
   }
   if (!e.includes(v)) return { ok: false, why: "value_not_in_excerpt" };
   const inExcerpt = numbersIn(excerpt);
   for (const n of numbersIn(value)) {
     if (!inExcerpt.some((m) => Math.abs(m - n) < 1e-9)) return { ok: false, why: "number_not_in_excerpt" };
   }
-  return { ok: true, factType: c.factType, value, excerpt };
+  return { ok: true, factType: c.factType, value: cleanFactText(value), excerpt: cleanFactText(excerpt) };
 }

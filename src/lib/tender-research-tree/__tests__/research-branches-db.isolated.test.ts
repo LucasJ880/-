@@ -118,10 +118,12 @@ async function main() {
     process.env.TENDER_RESEARCH_TREE_ORG_ALLOWLIST = "";
     const off = await get(WRITER, p.id);
     ok(off.status === 404 && off.body.error === "未找到", "开关关：读取 404", off);
+    const offOutsider = await get(OUTSIDER, p.id);
+    ok(offOutsider.status === 403 && offOutsider.body.error === "无权查看该项目", "开关关 + 不是项目成员：守卫先判，得到守卫的 403（不是 404）", offOutsider);
     process.env.TENDER_RESEARCH_TREE_ENABLED = "1";
     process.env.TENDER_RESEARCH_TREE_ORG_ALLOWLIST = ORG;
     const outsider = await get(OUTSIDER, p.id);
-    ok(outsider.status === 403 || outsider.status === 404, "不是项目成员：守卫的结果", outsider.status);
+    ok(outsider.status === 403 && outsider.body.error === "无权查看该项目" && !("clauses" in outsider.body), "不是项目成员：原样得到守卫的 403", outsider);
     const empty = await get(READER, p.id);
     ok(empty.status === 200 && empty.body.job === null && empty.body.clauses === null, "项目读者、还没有调研树：job 与 clauses 都是 null", empty.body);
 
@@ -194,6 +196,19 @@ async function main() {
     const offAgain = (process.env.TENDER_RESEARCH_TREE_ENABLED = "0", await get(READER, p.id));
     ok(offAgain.status === 404, "再关开关：读取又是 404");
     process.env.TENDER_RESEARCH_TREE_ENABLED = "1";
+
+    /* ── Job 停下、条款没交单：读取说「停下了」，不说在查 ── */
+    const p2 = await db.project.create({
+      data: { name: `Office Chairs B ${fx.tag}`, orgId: ORG, ownerId: WRITER.id, workDomain: "tender", intakeStatus: "dispatched", clientOrganization: "Treasury Board of Canada Secretariat" },
+      select: { id: true },
+    });
+    projectIds.push(p2.id);
+    await db.projectMember.create({ data: { projectId: p2.id, userId: READER.id, role: "viewer", status: "active" } }).catch(() => undefined);
+    const s2 = await startResearchTree({ orgId: ORG, projectId: p2.id, userId: WRITER.id, role: WRITER.role, trigger: "human_start" });
+    const job2 = s2.ok ? s2.jobId : "";
+    await db.agentRun.update({ where: { id: job2 }, data: { status: "cancelled" } });
+    const stopped = await get(READER, p2.id);
+    ok(stopped.status === 200 && (stopped.body.clauses as { state: string }).state === "stopped", "Job 取消、条款没交单：停下了", stopped.body);
   } finally {
     for (const id of projectIds) {
       await db.agentRun.deleteMany({ where: { orgId: ORG, AND: [{ metadata: { path: ["researchProjectId"], equals: id } }] } }).catch(() => undefined);

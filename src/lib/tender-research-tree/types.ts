@@ -130,6 +130,8 @@ export type ClauseFindingsV1 = {
   questions: ClauseQuestionResult[];
   /** 等效品要什么证明（摘录）；没有为 null */
   proof: ClauseCitation | null;
+  /** 「限定品牌，不接受替代」与「接受等效品」同时成立（两问互相打架，请人看原文） */
+  conflict?: boolean;
 };
 
 /** 被挡明细：站与读页层给的原因句 */

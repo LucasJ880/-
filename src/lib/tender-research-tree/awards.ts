@@ -79,8 +79,10 @@ function normNum(text: string | null | undefined): string {
 
 export function numberTokens(text: string): Array<{ dec: Dec; end: number }> {
   const s = normNum(text);
+  // 依次：法文千分位小数 230 000,50；英文千分位 230,000.50；空格千分位 10 000（最后一组后面紧跟字母或连字符时不算千分位，
+  // 免得「500 240L」被吞成 500240）；法文小数 1,25 / 12,5（逗号后只有 1–2 位，不会是英文千分位）；不带分隔的 230000 / 1.25
   const re =
-    /(?<![\d.,])(?:(\d{1,3}(?:[   .]\d{3})+),(\d{1,2})(?![\d])|(\d{1,3}(?:,\d{3})+)(?:\.(\d+))?|(\d{1,3}(?:[   ]\d{3})+)(?:\.(\d+))?|(\d+)(?:\.(\d+))?)(?![\d])/g;
+    /(?<![\d.,])(?:(\d{1,3}(?:[   .]\d{3})+),(\d{1,2})(?![\d])|(\d{1,3}(?:,\d{3})+)(?:\.(\d+))?|(\d{1,3}(?:[   ]\d{3})+)(?![\p{L}\d-])(?:\.(\d+))?|(\d+),(\d{1,2})(?![\d,])|(\d+)(?:\.(\d+))?)(?![\d])/gu;
   const out: Array<{ dec: Dec; end: number }> = [];
   for (const m of s.matchAll(re)) {
     let dec: Dec | null = null;
@@ -88,42 +90,52 @@ export function numberTokens(text: string): Array<{ dec: Dec; end: number }> {
     else if (m[3] !== undefined) dec = decOf(m[3].replace(/,/g, ""), m[4] ?? "");
     else if (m[5] !== undefined) dec = decOf(m[5].replace(/[   ]/g, ""), m[6] ?? "");
     else if (m[7] !== undefined) dec = decOf(m[7], m[8] ?? "");
+    else if (m[9] !== undefined) dec = decOf(m[9], m[10] ?? "");
     if (dec) out.push({ dec, end: (m.index ?? 0) + m[0].length });
   }
   return out;
 }
 
+/** 数后面的倍数词：千 / 百万 / 十亿 / 万 / 亿（「m」「mm」「b」这种缩写单独标出，数量里不认） */
 const MULTIPLIER_AFTER =
-  /^\s*(?:(k|thousand|thousands)\b|(m|mm|mil|million|millions)\b|(b|bn|billion|billions)\b|(万)|(亿))/i;
+  /^\s*(?:(k|thousand|thousands)\b|(million|millions|millions?\s+de)\b|(m|mm|mil)\b|(billion|billions)\b|(b|bn)\b|(万)|(亿))/iu;
 
-function withMultiplier(text: string, tok: { dec: Dec; end: number }): Dec {
-  const rest = normNum(text).slice(tok.end);
-  const m = MULTIPLIER_AFTER.exec(rest);
-  if (!m) return tok.dec;
+type Multiplier = { factor: bigint; abbreviated: boolean } | null;
+
+function multiplierAfter(text: string, tok: { dec: Dec; end: number }): Multiplier {
+  const m = MULTIPLIER_AFTER.exec(normNum(text).slice(tok.end));
+  if (!m) return null;
   const ten = BigInt(10);
-  if (m[1]) return decMul(tok.dec, ten ** BigInt(3));
-  if (m[2]) return decMul(tok.dec, ten ** BigInt(6));
-  if (m[3]) return decMul(tok.dec, ten ** BigInt(9));
-  if (m[4]) return decMul(tok.dec, ten ** BigInt(4));
-  return decMul(tok.dec, ten ** BigInt(8));
+  if (m[1]) return { factor: ten ** BigInt(3), abbreviated: m[1].toLowerCase() === "k" };
+  if (m[2]) return { factor: ten ** BigInt(6), abbreviated: false };
+  if (m[3]) return { factor: ten ** BigInt(6), abbreviated: true };
+  if (m[4]) return { factor: ten ** BigInt(9), abbreviated: false };
+  if (m[5]) return { factor: ten ** BigInt(9), abbreviated: true };
+  if (m[6]) return { factor: ten ** BigInt(4), abbreviated: false };
+  return { factor: ten ** BigInt(8), abbreviated: false };
 }
 
-/** 合同额的值 → 十进制（只有一个数才认；区间、两个数、0 → null）。货币符号与币种字母不影响 */
+/** 合同额的值 → 十进制（只有一个数才认；区间、两个数、0 → null）。货币符号与币种字母不影响；认 k / m / million / 万 等倍数 */
 export function parseAmountValue(value: string | null | undefined): Dec | null {
   if (!value) return null;
   const toks = numberTokens(value);
   if (toks.length !== 1) return null;
-  const d = withMultiplier(value, toks[0]);
+  const mul = multiplierAfter(value, toks[0]);
+  const d = mul ? decMul(toks[0].dec, mul.factor) : toks[0].dec;
   return decIsZero(d) ? null : d;
 }
 
-/** 数量的值 → 十进制（只有一个数才认；认 k / thousand；0 → null） */
+/**
+ * 数量的值 → 十进制（只有一个数才认；认 k / thousand / million / 万 / 亿；「m」「mm」「b」在数量里可能是单位（米），
+ * 认不清 → null；0 → null）
+ */
 export function parseQuantityValue(value: string | null | undefined): Dec | null {
   if (!value) return null;
   const toks = numberTokens(value);
   if (toks.length !== 1) return null;
-  const rest = normNum(value).slice(toks[0].end);
-  const d = /^\s*(?:k|thousand|thousands)\b/i.test(rest) ? decMul(toks[0].dec, BigInt(1000)) : toks[0].dec;
+  const mul = multiplierAfter(value, toks[0]);
+  if (mul && mul.abbreviated && mul.factor !== BigInt(1000)) return null;
+  const d = mul ? decMul(toks[0].dec, mul.factor) : toks[0].dec;
   return decIsZero(d) ? null : d;
 }
 
@@ -153,6 +165,8 @@ export function unitPriceOf(amount: Dec | string | null, quantity: Dec | string 
   const den = q.int * ten ** BigInt(a.scale);
   let cents = num / den;
   if ((num % den) * BigInt(2) >= den) cents += BigInt(1);
+  // 不到半分（四舍五入成 0.00）：单价写不出来，不算
+  if (cents === BigInt(0)) return null;
   return decToFixed({ int: cents, scale: 2 }, 2);
 }
 
@@ -161,13 +175,19 @@ export function unitPriceOf(amount: Dec | string | null, quantity: Dec | string 
 const CAD_RE = /(?:\bCAD\b|\bC\s?\$|\bCA\s?\$|\bCDN\s?\$|\bCDN\b|canadian\s+dollars?|dollars?\s+canadiens?)/i;
 const USD_RE = /(?:\bUSD\b|\bUS\s?\$|\bU\.S\.\s?\$|\bU\.S\.\s+dollars?|\bUS\s+dollars?|american\s+dollars?)/i;
 
-/** 文字里写明的币种：只有一种 → 它；两种都有或都没有 → null */
-export function statedCurrencyOf(text: string | null | undefined): "CAD" | "USD" | null {
-  const s = String(text ?? "").normalize("NFKC");
+/** 文字里写到的币种：只有一种 → 它；两种都有 → "both"；都没有 → null */
+export function currencyMentionOf(...texts: Array<string | null | undefined>): "CAD" | "USD" | "both" | null {
+  const s = texts.map((t) => String(t ?? "")).join("\n").normalize("NFKC");
   const cad = CAD_RE.test(s);
   const usd = USD_RE.test(s);
-  if (cad === usd) return null;
-  return cad ? "CAD" : "USD";
+  if (cad && usd) return "both";
+  return cad ? "CAD" : usd ? "USD" : null;
+}
+
+/** 文字里写明的币种：只有一种 → 它；两种都有或都没有 → null */
+export function statedCurrencyOf(text: string | null | undefined): "CAD" | "USD" | null {
+  const m = currencyMentionOf(text);
+  return m === "both" ? null : m;
 }
 
 /** 按网站推断：.ca → CAD；.gov / .mil / .us → USD；其余 null */
@@ -195,12 +215,16 @@ export const SCOPE_BASIS_ZH: Record<ScopeBasisTag, string> = {
 };
 export const SCOPE_BASIS_UNCLEAR_ZH = "不明";
 
-/** 口径标签要在摘录里看得到的提示词（防模型乱贴标签） */
+/**
+ * 口径标签要在摘录里看得到的提示词（防模型乱贴标签；宁可少认）。多年期要写出年数、起止年份或 multi-year；
+ * 多品项要写出复数的品项 / 批次或 various / assorted / multiple / several
+ */
 const BASIS_HINTS: Record<ScopeBasisTag, RegExp> = {
   installation: /install|montage|mise en place|安装/i,
-  freight: /freight|deliver|shipping|shipped|transport|f\.?o\.?b|d\.?d\.?p|livraison|运费|运输|送货/i,
-  multi_year: /\byears?\b|multi[\s-]?year|\bterm\b|\bannual|(?:19|20)\d{2}\s*[-–—~]\s*(?:19|20)\d{2}|\bans?\b|pluriannuel|年/i,
-  multi_item: /\bitems?\b|\blots?\b|various|assorted|multiple|\bincluding\b|articles|多种|多项|品项/i,
+  freight: /freight|deliver|shipping|shipped|transport|\bf\.?o\.?b\b|\bd\.?d\.?p\b|livraison|运费|运输|送货/i,
+  multi_year:
+    /multi[\s-]?years?|\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)[\s-]+years?\b|\b\d+[\s-]*year\b|\bterm\s+of\s+\d+|(?:19|20)\d{2}\s*(?:[-–—~]|to|through|à|au)\s*(?:19|20)\d{2}|\b\d+\s*ans\b|pluriannuel|\bpar\s+an\b|(?<!\d)\d{1,2}\s*年|[两三四五六七八九十]\s*年|多年/i,
+  multi_item: /\b(?:items|lots|articles)\b|\b(?:various|assorted|multiple|several)\b|多种|多项|多个品项|多个品种/i,
 };
 
 export function isScopeBasisTag(v: string): v is ScopeBasisTag {
@@ -324,12 +348,13 @@ function recordIdOf(parts: string[]): string {
 }
 
 export type RecordDraft = {
+  /** 记录号的组成（网页：来源 + 网址 + 组；联邦数据：来源 + 合同编号，没有编号用 中标方 | 金额 | 日期） */
+  idParts: string[];
   kind: RecordKind;
   source: ResearchAwardRecordV1["source"];
   url: string;
   requestedUrl?: string;
   fetchedAt: string;
-  groupKey: string;
   referenceNumber: string | null;
   fields: Partial<Record<RecordFieldKey, AwardRecordField>>;
   basisEvidence: Array<{ tag: ScopeBasisTag; excerpt: string }>;
@@ -346,18 +371,23 @@ export function finishRecord(d: RecordDraft, ctx: ComparabilityContext): Researc
     d.kind === "prior_award" ? Boolean(f.winner || amount || f.priorTender) : Boolean(f.winner || amount);
   if (!keep) return null;
 
+  // 币种：数据集口径 > 合同额的值与摘录里写明的（两种都写了 → 不明）> 币种事实（与合同额写明的冲突 → 不明）> 按网站推断
   let currency: "CAD" | "USD" | null = null;
   let currencyBasis: CurrencyBasis = "unknown";
-  const fromFact = f.currency ? f.currency.value.trim().toUpperCase() : null;
-  const statedFromAmount = f.amount ? statedCurrencyOf(f.amount.value) ?? statedCurrencyOf(f.amount.excerpt) : null;
+  const fromFact = f.currency && (f.currency.value.trim().toUpperCase() === "CAD" || f.currency.value.trim().toUpperCase() === "USD")
+    ? (f.currency.value.trim().toUpperCase() as "CAD" | "USD")
+    : null;
+  const onAmount = f.amount ? currencyMentionOf(f.amount.value, f.amount.excerpt) : null;
   if (d.datasetCurrency) {
     currency = d.datasetCurrency;
     currencyBasis = "dataset";
-  } else if (fromFact === "CAD" || fromFact === "USD") {
-    currency = fromFact;
+  } else if (onAmount === "both" || (onAmount && fromFact && onAmount !== fromFact)) {
+    // 写明了两种、或两处写的不一样：不猜
+  } else if (onAmount) {
+    currency = onAmount;
     currencyBasis = "stated";
-  } else if (statedFromAmount) {
-    currency = statedFromAmount;
+  } else if (fromFact) {
+    currency = fromFact;
     currencyBasis = "stated";
   } else if (amount) {
     const site = siteCurrencyOf(d.url);
@@ -371,7 +401,7 @@ export function finishRecord(d: RecordDraft, ctx: ComparabilityContext): Researc
     (a, b) => SCOPE_BASIS_TAGS.indexOf(a) - SCOPE_BASIS_TAGS.indexOf(b),
   );
   return {
-    recordId: recordIdOf([d.source, d.url, d.groupKey]),
+    recordId: recordIdOf(d.idParts),
     kind: d.kind,
     source: d.source,
     url: d.url,
@@ -394,9 +424,13 @@ export function finishRecord(d: RecordDraft, ctx: ComparabilityContext): Researc
   };
 }
 
+/** 页面上没写组名的这几类事实，作为同一页各组的缺省（一页一个采购方、一句「金额都是美元」很常见） */
+const PAGE_LEVEL_FIELDS: readonly RecordFieldKey[] = ["buyer", "currency"];
+
 /**
- * 网页上已核对的事实 → 授标记录：同一网址、同一组（模型给的组名；没给就按页）的事实成一条；每个字段取先出现的
- * 那条；口径收全部标签。保留条件：往期同标要有中标方、合同额或往期标名之一；同类要有合同额或中标方之一。
+ * 网页上已核对的事实 → 授标记录：同一网址、同一组（组名；没给就按页）的事实成一条；每个字段取先出现的那条；口径收
+ * 全部标签。同一页没写组名的采购方与币种，补到这一页写了组名、却缺这一项的记录上。保留条件：往期同标要有中标方、
+ * 合同额或往期标名之一；同类要有合同额或中标方之一。
  */
 export function assembleRecords(facts: ReadonlyArray<FoundFact>, kind: RecordKind, ctx: ComparabilityContext): ResearchAwardRecordV1[] {
   const drafts = new Map<string, RecordDraft>();
@@ -406,12 +440,12 @@ export function assembleRecords(facts: ReadonlyArray<FoundFact>, kind: RecordKin
     let d = drafts.get(key);
     if (!d) {
       d = {
+        idParts: ["web", fact.url, groupKey],
         kind,
         source: "web",
         url: fact.url,
         ...(fact.requestedUrl ? { requestedUrl: fact.requestedUrl } : {}),
         fetchedAt: fact.fetchedAt,
-        groupKey,
         referenceNumber: null,
         fields: {},
         basisEvidence: [],
@@ -426,6 +460,13 @@ export function assembleRecords(facts: ReadonlyArray<FoundFact>, kind: RecordKin
     }
     const field = FACT_TYPE_TO_FIELD[fact.factType];
     if (field && !d.fields[field]) d.fields[field] = { value: fact.value, excerpt: fact.excerpt };
+  }
+  // 页级缺省：同一网址没写组名的那一组里的采购方、币种
+  for (const d of drafts.values()) {
+    if (d.idParts[2] === "") continue;
+    const page = drafts.get(`${d.url}\u0000`);
+    if (!page) continue;
+    for (const k of PAGE_LEVEL_FIELDS) if (!d.fields[k] && page.fields[k]) d.fields[k] = page.fields[k];
   }
   const out: ResearchAwardRecordV1[] = [];
   for (const d of drafts.values()) {
@@ -461,22 +502,29 @@ export function openDataAmount(v: number | null): string | null {
   return v.toFixed(2);
 }
 
-/** 这一行的采购部门与本项目是不是同一个（三档不是「无关」；本项目没有采购方 → 都算） */
+/** 这一行与本项目是同一个采购方的那个名字（部门名优先、再看采购人名；三档不是「无关」）；本项目没有采购方 → 部门名 */
+export function openDataMatchedBuyer(row: OpenDataRow, projectBuyer: string | null): string | null {
+  const names = [row.ownerOrg, row.buyerName].filter((b): b is string => Boolean(b && b.trim()));
+  if (!projectBuyer || !projectBuyer.trim()) return names[0] ?? "";
+  return names.find((b) => compareCompanyNames(b, projectBuyer).relation !== "UNRELATED") ?? null;
+}
+
+/** 这一行的采购部门与本项目是不是同一个（本项目没有采购方 → 都算） */
 export function openDataBuyerMatches(row: OpenDataRow, projectBuyer: string | null): boolean {
-  if (!projectBuyer || !projectBuyer.trim()) return true;
-  return [row.ownerOrg, row.buyerName].some((b) => b && compareCompanyNames(b, projectBuyer).relation !== "UNRELATED");
+  return openDataMatchedBuyer(row, projectBuyer) !== null;
 }
 
 /**
  * 联邦数据的一行 → 往期同标记录。摘录是代码按原始字段拼的一行（中标方 · 合同额 CAD · 日期 · 采购部门 · 描述），
- * 每个字段的值都逐字在这一行里；币种按数据集口径记 CAD。
+ * 每个字段的值都逐字在这一行里；币种按数据集口径记 CAD；记录号按合同编号（不含查询网址：两个检索词查到同一份合同
+ * 是同一条）。
  */
 export function openDataRecord(row: OpenDataRow, ctx: ComparabilityContext, fetchedAt: string): ResearchAwardRecordV1 | null {
   const vendor = clip(row.vendorName, 80);
   if (!vendor) return null;
   const amount = openDataAmount(row.contractValue);
   const date = clip(row.contractDate, 10);
-  const buyer = clip(row.ownerOrg ?? row.buyerName, 80);
+  const buyer = clip(openDataMatchedBuyer(row, ctx.buyer) || row.ownerOrg || row.buyerName, 80);
   const ref = clip(row.referenceNumber, 60) || null;
   const head = [vendor, amount ? `${amount} CAD` : "", date, buyer].filter(Boolean).join(" · ");
   const room = RESEARCH_TREE_LIMITS.MAX_EXCERPT_CHARS - head.length - 3;
@@ -489,11 +537,11 @@ export function openDataRecord(row: OpenDataRow, ctx: ComparabilityContext, fetc
   if (desc) fields.item = { value: desc, excerpt: line };
   return finishRecord(
     {
+      idParts: ["open_data", ref ? `ref:${ref.toLowerCase()}` : `${vendor.toLowerCase()}|${amount ?? ""}|${date}`],
       kind: "prior_award",
       source: "open_data",
       url: row.sourceUrl,
       fetchedAt,
-      groupKey: ref ?? `${vendor}|${amount ?? ""}|${date}`,
       referenceNumber: ref,
       fields,
       basisEvidence: [],
@@ -503,7 +551,10 @@ export function openDataRecord(row: OpenDataRow, ctx: ComparabilityContext, fetc
   );
 }
 
-/** 联邦数据：同一采购方的行按日期从近到远取前 N 条转成记录（按合同编号 / 中标方 + 金额 + 日期去重） */
+/**
+ * 联邦数据：采购方与本项目同一、且规格不是明显不同（描述与项目的规格关键词对得上，或认不出关键词）的行，按日期从近到远
+ * 转成记录，最多 N 条（按记录号去重）。同一部门不相干的合同（例如只用采购方名查到的 IT 咨询）不成记录，只交给模型看。
+ */
 export function openDataRecords(
   rows: ReadonlyArray<OpenDataRow>,
   ctx: ComparabilityContext,
@@ -517,8 +568,10 @@ export function openDataRecords(
   const out: ResearchAwardRecordV1[] = [];
   const seen = new Set<string>();
   for (const row of matching) {
+    if (max <= 0) break;
     const r = openDataRecord(row, ctx, fetchedAt);
     if (!r || seen.has(r.recordId)) continue;
+    if (r.comparability.sameSpec === "no") continue;
     seen.add(r.recordId);
     out.push(r);
     if (out.length >= max) break;

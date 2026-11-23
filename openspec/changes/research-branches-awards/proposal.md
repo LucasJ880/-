@@ -8,10 +8,10 @@ TREE-2 的树已经能跑，但三支都还是同一个通用循环：条款一�
 
 ## What Changes
 
-- 接通条款员（① 条款）：不联网，先用关键词规则（英法双语：等效品、不接受替代 / 指定品牌、加拿大含量、限制性招标）在已解析的标书页里找段落，有命中才发一次模型请求（每棵树一次），判断「是否要求加拿大 / 本地含量」「是否指定品牌」「是否接受等效品及要什么证明」；引文由代码逐字核对、页码由代码填。
+- 接通条款员（① 条款）：不联网，先用关键词规则（英法双语：等效品、不接受替代 / 限定品牌、加拿大含量、限制性招标）在已解析的标书页里找段落，有命中才发一次模型请求（每棵树一次），判断「是否要求加拿大 / 本地含量」「是否限定品牌」「是否接受等效品及要什么证明」；引文由代码逐字核对、存标书原文、页码由代码填。
 - 新增条款三问「未写明」时的澄清问题草稿：固定模板（英文正文 + 中文说明），不调模型。
 - 新增招标要求页的只读卡片「标书条款（调研树）」与读取接口 `GET /api/projects/[id]/research-tree`：第一步不带条件地调用项目读权限守卫；开关关 404、卡片不显示；卡片只读，不改已确认的要求、不进关键事实槽位。
-- 改往期同标员（② 往期同标）：先确定性地查联邦合同公开数据（`tender-intel/canadabuys.ts` 的 `searchAwardHistory`，最多 2 次，每次算一次搜索、过外发闸），采购方与本项目同一的行转成带网址与摘录的事实；再接着用搜索与读页补中标方、合同额、数量、年份。
+- 改往期同标员（② 往期同标）：先确定性地查联邦合同公开数据（`tender-intel/canadabuys.ts` 的 `searchAwardHistory`，最多 2 次，每次算一次搜索、过外发闸、有管到正文读完的超时），采购方与本项目同一、规格对得上的行转成带网址与摘录的授标记录（按合同编号去重，全支最多 5 条）；再接着用搜索与读页补中标方、合同额、数量、年份。
 - 改同类项目员（③ 与第二波甲乙）：目标改成交回一组（采购方、年份、数量、合同额、币种）记录及其来源。
 - 新增事实分组与结构化记录：同一网址、同一组的已核对事实由代码组装成授标记录 `records[]`；新事实类型币种、口径、品项，去掉「同类授标」这一类型。
 - 新增单价纯函数：合同额 ÷ 数量，原币、不换汇、十进制精确到分；金额或数量缺、为 0、为区间时不算。
@@ -43,7 +43,7 @@ TREE-2 的树已经能跑，但三支都还是同一个通用循环：条款一�
 
 ## Impact
 
-- 新增：`src/lib/tender-research-tree/{awards.ts, clauses.ts, clauses-run.ts, federal.ts, view.ts}`（单价 / 口径 / 币种 / 可比度 / 记录组装纯函数；条款规则、核对与草稿纯函数；条款员执行；联邦数据一步；读取视图）、`src/components/tender-analysis/research-clauses-card.tsx`；测试 `src/lib/tender-research-tree/__tests__/research-branches-pure.test.ts`、`src/lib/web-reader/__tests__/tree3-research-branches.test.ts`、`src/lib/tender-research-tree/__tests__/research-branches-db.isolated.test.ts`、`src/components/tender-analysis/__tests__/research-clauses-card.test.tsx`，都注册进 `scripts/test-all.sh`（单元测试另进 `scripts/test-ci-unit.sh`）。
-- 修改：`src/lib/tender-research-tree/{types.ts, limits.ts, fork-rules.ts, prompt.ts, guards.ts, cursor.ts, deps.ts, branch-run.ts, trunk.ts}`、`src/app/api/projects/[id]/research-tree/route.ts`（加 GET）、`src/components/project-detail/tabs/requirements-tab.tsx`（挂卡片，一行）；TREE-2 的四份测试里随行为改动的断言。
+- 新增：`src/lib/tender-research-tree/{awards.ts, clauses.ts, clauses-run.ts, federal.ts, results.ts, view.ts}`（单价 / 口径 / 币种 / 可比度 / 记录组装纯函数；条款规则、核对与草稿纯函数；条款员执行；联邦数据一步的检索词与给模型看的行；分支与条款员共用的交单 / 让出；读取视图）、`src/components/tender-analysis/research-clauses-card.tsx`；测试 `src/lib/tender-research-tree/__tests__/research-branches-pure.test.ts`、`src/lib/web-reader/__tests__/tree3-research-branches.test.ts`、`src/lib/tender-research-tree/__tests__/research-branches-db.isolated.test.ts`、`src/components/tender-analysis/__tests__/research-clauses-card.test.tsx`，都注册进 `scripts/test-all.sh`（单元测试另进 `scripts/test-ci-unit.sh`）。
+- 修改：`src/lib/tender-research-tree/{types.ts, limits.ts, fork-rules.ts, prompt.ts, guards.ts, cursor.ts, deps.ts, branch-run.ts, trunk.ts, graph.ts, start.ts}`（`start.ts` 只把 `researchJobWhere` 导出给读取用；`graph.ts` 只改条款一步的描述）、`src/app/api/projects/[id]/research-tree/route.ts`（加 GET）、`src/components/project-detail/tabs/requirements-tab.tsx`（挂卡片，一行）；TREE-2 的三份测试（`research-tree-pure`、`tree2-research-branch`、`tree2-research-tree-job-db`）里随行为改动的断言。
 - 文档：`docs/QINGYAN_TREE-3_REPORT.md`、`docs/QINGYAN_TREE_HANDOFF.md`、`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 状态列。
 - 零 schema、零依赖、零出站发送；新增模型调用只有条款员每棵树一次（config 第 7 条例外二已登记）；分支循环的上限不变。

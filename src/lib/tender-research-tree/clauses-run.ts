@@ -27,7 +27,7 @@ import {
 import type { BranchCursorState, CursorKind } from "./cursor";
 import type { ResearchExternalDeps, ResearchStore, TenderPagesRow } from "./deps";
 import { TEXT_ZH, statusLineZh, type BranchDef } from "./fork-rules";
-import { RESEARCH_TREE_TIMING, type BranchLimits } from "./limits";
+import { RESEARCH_TREE_LIMITS, RESEARCH_TREE_TIMING, type BranchLimits } from "./limits";
 import { branchDone, branchYield } from "./results";
 import {
   RESEARCH_HANDOFF_VERSION,
@@ -63,10 +63,12 @@ function statsOf(t: TenderPagesRow, snippetCount: number): ClauseScanStats {
   };
 }
 
+/** 理由句（给人看）：查了多少份、多少处，找没找到可能相关的文字；不写内部说法 */
 function reasonOf(stats: ClauseScanStats, called: boolean): string {
   const scanned = stats.scannedPages > 0 ? `；另有 ${stats.scannedPages} 页是扫描件，没有文字` : "";
-  if (stats.snippetCount === 0) return `关键词规则在 ${stats.documentCount} 份标书的 ${stats.pagesWithText} 页里没有命中，没有请求模型${scanned}`;
-  return `在 ${stats.documentCount} 份标书的 ${stats.pagesWithText} 页里找到 ${stats.snippetCount} 段相关条款${called ? "，请模型判断了一次" : ""}${scanned}`;
+  const where = `${stats.documentCount} 份标书（${stats.pagesWithText} 页 / 单元）`;
+  if (stats.snippetCount === 0) return `在 ${where}里没找到与加拿大含量、品牌、等效品有关的文字${scanned}`;
+  return `在 ${where}里找到 ${stats.snippetCount} 段可能相关的文字${called ? "，请 AI 判断了一次" : ""}${scanned}`;
 }
 
 export async function runClausesBranch(i: ClausesRunInput): Promise<AdapterResult> {
@@ -120,13 +122,16 @@ export async function runClausesBranch(i: ClausesRunInput): Promise<AdapterResul
   // 一条都没命中：不请求模型，三问「未写明」+ 草稿
   if (snippets.length === 0) {
     const f = notStatedFindings(stats);
-    return finish(handoff("none", f, [{ reason: "none", messageZh: "三问在标书里都没有写明，已给澄清问题草稿" }], reasonOf(stats, false)));
+    return finish(handoff("none", f, [{ reason: "none", messageZh: TEXT_ZH.clausesNoneStatedLine }], reasonOf(stats, false)));
   }
-  if (i.limits.modelCalls < 1) {
-    return finish(handoff("limit", null, [{ reason: "limit", messageZh: TEXT_ZH.limit }], `本组织把每支模型请求调到了 ${i.limits.modelCalls} 次`));
+  const cap = Math.min(RESEARCH_TREE_LIMITS.CLAUSE_MODEL_REQUESTS_PER_TREE, i.limits.modelCalls);
+  if (cap < 1) {
+    return finish(handoff("limit", null, [{ reason: "limit", messageZh: "到上限：本组织把 AI 请求次数调到了 0，这次没有判断标书条款" }], reasonOf(stats, false)));
   }
-  // 每棵树只请求一次：请求过、没交单（中断了）→ 不再请求
-  if (st.modelCalls >= 1) return unavailable(TEXT_ZH.clausesModelUsed, null, reasonOf(stats, true));
+  // 请求成功、结论已记下、交单前中断：原样交回这份结论（不再请求）
+  if (st.clausesFindings) return finishFound(st.clausesFindings);
+  // 每棵树只请求一次：请求过、没有结论（中断了或失败了）→ 不再请求
+  if (st.modelCalls >= cap) return unavailable(TEXT_ZH.clausesModelUsed, null, reasonOf(stats, true));
   if (i.sliceDeadline - i.ext.now() < CLAUSES_MIN_CALL_MS) return branchYield(i.def.stepId, 1);
 
   await i.record("model_call", { turn: 1, snippets: snippets.length });
@@ -152,20 +157,22 @@ export async function runClausesBranch(i: ClausesRunInput): Promise<AdapterResul
     return unavailable(TEXT_ZH.clausesModelFailed, null, reasonOf(stats, true));
   }
   const f = verifyClauseDecision(res.value, snippets, stats);
+  // 整份结论（答案枚举、核对过的 ≤200 字标书摘录、页码）记进这一行：交单前中断，续跑时原样交回、不再请求
   await i.record("decision", {
     turn: 1,
     ok: true,
-    answers: Object.fromEntries(f.questions.map((q) => [q.key, q.answer])),
+    findings: f,
     downgraded: f.questions.filter((q) => q.downgraded).map((q) => q.key),
     ...(res.logs.some((l) => l.fallbackUsed) ? { fallbackUsed: true } : {}),
   });
-  const n = statedCount(f);
-  return finish(
-    handoff(
-      n > 0 ? "found" : "none",
-      f,
-      n > 0 ? [] : [{ reason: "none", messageZh: "三问在标书里都没有写明，已给澄清问题草稿" }],
-      reasonOf(stats, true),
-    ),
-  );
+  return finishFound(f);
+
+  function finishFound(found: ClauseFindingsV1): Promise<AdapterResult> {
+    const n = statedCount(found);
+    return finish(handoff(n > 0 ? "found" : "none", found, n > 0 ? [] : [{ reason: "none", messageZh: TEXT_ZH.clausesNoneStatedLine }], reasonOf(statsFromFindings(found), true)));
+  }
+}
+
+function statsFromFindings(f: ClauseFindingsV1): ClauseScanStats {
+  return { documentCount: f.documentCount, pagesWithText: f.pagesWithText, scannedPages: f.scannedPages, snippetCount: f.snippetCount };
 }

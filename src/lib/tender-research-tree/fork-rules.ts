@@ -147,15 +147,20 @@ export const TEXT_ZH = Object.freeze({
   none: "没查到",
   flagOff: "未开启：情报调研树没有对本组织开放",
   notWired: "未接通：这一支还没有接入",
-  clausesNoDocs: "未接通：项目里还没有解析好的标书文件，没法查条款",
-  clausesScannedOnly: "未接通：标书都是扫描件，没有文字可查",
-  clausesModelUsed: "未接通：条款员这次的模型请求没有拿到结果",
-  clausesModelFailed: "未接通：条款员没有交回可用的结论（模型不可用或回答格式不对），这次没有结论",
+  clausesNoDocs: "未接通：项目里还没有解析好的标书文件，没法查条款（上传招标文件、解析完成后再发起调研）",
+  clausesScannedOnly: "未接通：标书都是扫描件，没有文字可查（需要先做文字识别）",
+  clausesModelUsed: "未接通：请 AI 判断标书条款的那一次请求没有拿到结果",
+  clausesModelFailed: "未接通：AI 没有交回可用的条款结论（服务暂时不可用或回答格式不对），这次没有结论",
   clausesNoneStated: "都未写明",
-  noneScattered: "没查到成条的授标：只收下了零散的事实，凑不成一条授标",
-  openDataOff: "联邦合同公开数据没有开通，只用了搜索与读页",
-  openDataNoQuery: "项目名里没有可用的英文检索词，没有查联邦合同公开数据",
-  openDataBlocked: "联邦合同公开数据的检索词被外发闸拦下，没有查",
+  clausesNoneStatedLine: "加拿大含量、品牌、等效品三项在标书里都没有写明，已给澄清问题草稿",
+  clausesStopped: "这次调研没有跑完，标书条款没有查完",
+  clausesUnreadable: "标书条款的结果读不出来",
+  noneScattered: "没查到完整的授标：只找到零散的信息，凑不成一笔授标",
+  openDataOff: "联邦合同公开数据没有开通，没有查",
+  openDataNoQuery: "项目名、采购方与类别里没有可用的英文检索词，没有查联邦合同公开数据",
+  openDataBlocked: "联邦合同公开数据的检索词里有不能外发的词，没有查",
+  openDataFailed: "联邦合同公开数据这次没查成（数据源出错或超时）",
+  openDataBudget: "搜索次数用完，联邦合同公开数据没有查完",
   searchUnavailable: "未接通：搜索服务没有开通",
   searchFailed: "未接通：搜索服务出错，这一支没查成",
   modelUnavailable: "未接通：模型暂时不可用",
@@ -213,8 +218,9 @@ export type BranchEndFacts = {
  */
 export function branchOutcome(f: BranchEndFacts): { status: BranchStatus; notFound: NotFoundEntry[] } {
   if (f.foundCount > 0) {
+    // 查到了也写明没查完的原因（出错停下、模型不可用、搜索没接通、到上限），不编成「查完了」
     const nf: NotFoundEntry[] = [];
-    if (f.stopped && f.unavailableZh) nf.push({ reason: "unavailable", messageZh: f.unavailableZh });
+    if (f.unavailableZh) nf.push({ reason: "unavailable", messageZh: f.unavailableZh });
     if (f.limitHit) nf.push({ reason: "limit", messageZh: TEXT_ZH.limit });
     return { status: "found", notFound: nf };
   }
@@ -230,7 +236,7 @@ export function branchOutcome(f: BranchEndFacts): { status: BranchStatus; notFou
   return { status, notFound };
 }
 
-/** 不需要联网就能交的单（未开启、条款未接入、第二波无需追查、出错停下） */
+/** 不需要联网就能交的单（未开启、未接通、第二波无需追查、出错停下） */
 export function staticHandoff(
   def: BranchDef,
   status: "flag_off" | "unavailable" | "not_needed",

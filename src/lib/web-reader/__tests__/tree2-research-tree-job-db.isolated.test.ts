@@ -320,10 +320,11 @@ async function main() {
     const m0 = modelCalls.length;
     const q0 = searches.length;
     const n0 = world.log.length;
+    const o0 = openDataQueries.length;
     const st6 = await runToEnd(job6);
     const steps6 = await stepOutputs(job6);
     ok(st6 === "completed" && Object.keys(steps6).filter((k) => k !== "research_trunk").every((k) => handoff(steps6[k]?.outputJson)?.status === "flag_off"), "每一支都交「开关已关」", st6);
-    ok(modelCalls.length === m0 && searches.length === q0 && world.log.length === n0, "零模型请求、零搜索、零读页");
+    ok(modelCalls.length === m0 && searches.length === q0 && world.log.length === n0 && openDataQueries.length === o0, "零模型请求、零搜索、零联邦数据查询、零读页");
     ok((await db.auditLog.count({ where: { orgId: ORG, action: { in: ["research.branch_step", "research.web_read"] }, targetId: job6 } })) === 0, "零审计");
     const offChanged = changedTables(offBefore, await snapshot());
     ok(offChanged.every((t) => RUNTIME_TABLES.includes(t)), "开关关：整库只有运行时自己的表有变化", offChanged);

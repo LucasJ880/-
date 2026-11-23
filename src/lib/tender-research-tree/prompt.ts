@@ -49,6 +49,8 @@ export type PublicProjectFacts = {
   /** 招标要求里的数量（只给一个数）与合同期（天数）；没有为 null */
   quantity: string | null;
   contractDays: number | null;
+  /** 规格关键词（代码从项目名与类别取，最多 5 个） */
+  specKeywords: string[];
 };
 
 /** 每种事实类型给模型的说明 */
@@ -126,7 +128,7 @@ export type BranchPromptInput = {
   latest:
     | { kind: "search"; query: string; hits: Array<{ url: string; title: string; snippet: string }> }
     | { kind: "page"; url: string; text: string; truncated: boolean }
-    | { kind: "open_data"; lines: string[]; recorded: number }
+    | { kind: "open_data"; lines: string[]; recorded: number; note?: string }
     | { kind: "note"; text: string }
     | null;
 };
@@ -149,6 +151,7 @@ export function buildBranchUserPrompt(input: BranchPromptInput): string {
     line("截标年份", p.closeYear),
     line("数量", p.quantity),
     line("合同期（天）", p.contractDays),
+    line("规格关键词", p.specKeywords.join(", ")),
     "",
     "【剩余额度】",
     `搜索 ${input.remaining.searches} 次${input.searchNote ? `（${input.searchNote}）` : ""}；读页 ${input.remaining.reads} 次；模型请求 ${input.remaining.modelCalls} 次（含本次）`,
@@ -182,6 +185,7 @@ export function buildBranchUserPrompt(input: BranchPromptInput): string {
       );
       if (l.lines.length === 0) parts.push("（没有结果）");
       else parts.push(...l.lines.map((x, i) => `${i + 1}. ${U(x, 220)}`));
+      if (l.note) parts.push(U(l.note, 200));
     }
     else if (l.kind === "search") {
       parts.push(`搜索「${U(l.query, RESEARCH_TREE_LIMITS.MAX_QUERY_CHARS)}」的结果：`);

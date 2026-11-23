@@ -6,7 +6,9 @@
  * 不再为同一个决定请求一次模型。
  */
 
-import type { FoundFact, ResearchAwardRecordV1, ResearchHandoffV1, SuggestedBranch } from "./types";
+import type { ClauseFindingsV1, FoundFact, ResearchAwardRecordV1, ResearchHandoffV1, SuggestedBranch } from "./types";
+import { RESEARCH_CLAUSES_VERSION } from "./types";
+import { RESEARCH_TREE_LIMITS } from "./limits";
 import type { CursorRow } from "./deps";
 import { RESEARCH_HANDOFF_VERSION } from "./types";
 
@@ -61,12 +63,18 @@ export type BranchCursorState = {
   unextractedPage: string | null;
   /** 已经交过的单（再执行时原样交回） */
   finished: ResearchHandoffV1 | null;
-  /** 往期同标：已发出的联邦数据查询（按检索词序号；崩在结果之前的也算发过） */
+  /** 往期同标：已发出的联邦数据查询（按检索词序号与检索词文字；崩在结果之前的也算发过） */
   openDataSent: Set<number>;
+  openDataSentQueries: Set<string>;
   /** 往期同标：联邦数据转成的记录 */
   openDataRecords: ResearchAwardRecordV1[];
-  /** 往期同标：最近一次联邦数据结果给模型看的行（模型请求过一次之后清空） */
+  /** 往期同标：各次联邦数据结果给模型看的行（合并去重，最多 10 行；模型第一次交回可用的决定之后清空） */
   openDataLines: string[];
+  /** 往期同标：联邦数据查询出错的次数与成功的次数 */
+  openDataFailures: number;
+  openDataSuccesses: number;
+  /** 条款员：请求成功、已记下的结论（交单前中断时续跑原样交回） */
+  clausesFindings: ClauseFindingsV1 | null;
 };
 
 function str(v: unknown): string | null {
@@ -155,9 +163,30 @@ export function emptyCursorState(): BranchCursorState {
     unextractedPage: null,
     finished: null,
     openDataSent: new Set(),
+    openDataSentQueries: new Set(),
     openDataRecords: [],
     openDataLines: [],
+    openDataFailures: 0,
+    openDataSuccesses: 0,
+    clausesFindings: null,
   };
+}
+
+function asClauseFindings(v: unknown): ClauseFindingsV1 | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const f = v as Record<string, unknown>;
+  return f.version === RESEARCH_CLAUSES_VERSION && Array.isArray(f.questions) ? (v as ClauseFindingsV1) : null;
+}
+
+/** 合并联邦数据给模型看的行（去重、保序、最多 10 行、每行不超过 200 字） */
+export function mergeOpenDataLines(a: readonly string[], b: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const x of [...a, ...b]) {
+    const t = String(x ?? "").slice(0, RESEARCH_TREE_LIMITS.MAX_EXCERPT_CHARS);
+    if (t && !out.includes(t)) out.push(t);
+    if (out.length >= RESEARCH_TREE_LIMITS.OPEN_DATA_ROWS_FOR_MODEL) break;
+  }
+  return out;
 }
 
 /** 从这棵树的游标行里取这一支的，按 seq 重建状态 */
@@ -166,6 +195,13 @@ export function restoreCursorState(allRows: readonly CursorRow[], branchKey: str
   const rows = allRows.filter((r) => r.branchKey === branchKey).sort((a, b) => a.seq - b.seq);
   /** 记了 read_sent、还没有 read_result 的网址（崩在读页途中） */
   let openRead: string | null = null;
+  /** 记了联邦数据的 search_sent、还没有 open_data_result 的检索词（崩在查询途中） */
+  let openQuery: string | null = null;
+  const closeOpenQuery = () => {
+    if (openQuery === null) return;
+    st.history.push("  → （查询时中断，结果没有保存，这个检索词不再查）");
+    openQuery = null;
+  };
   const closeOpenRead = () => {
     if (!openRead) return;
     // 读了、结果丢了：算读过一次，这一页不再读
@@ -180,8 +216,8 @@ export function restoreCursorState(allRows: readonly CursorRow[], branchKey: str
     if (typeof d.at === "number" && Number.isFinite(d.at)) st.firstAt = st.firstAt === null ? d.at : Math.min(st.firstAt, d.at);
     switch (r.kind as CursorKind) {
       case "model_call":
+        closeOpenQuery();
         st.modelCalls += 1;
-        st.openDataLines = [];
         break;
       case "decision": {
         if (d.ok !== true) {
@@ -192,6 +228,10 @@ export function restoreCursorState(allRows: readonly CursorRow[], branchKey: str
         }
         st.consecutiveModelFailures = 0;
         st.unextractedPage = null;
+        // 模型交回了可用的决定：联邦数据的行已经看过了
+        st.openDataLines = [];
+        const cf = asClauseFindings(d.findings);
+        if (cf) st.clausesFindings = cf;
         const facts = asFacts(d.facts);
         st.facts.push(...facts);
         st.rejectedFacts += typeof d.rejected === "number" ? d.rejected : 0;
@@ -217,13 +257,17 @@ export function restoreCursorState(allRows: readonly CursorRow[], branchKey: str
       case "blocked_query":
         st.pending = null;
         if (d.budget === true) st.limitHit = true;
+        if (typeof d.openDataIndex === "number") st.openDataSent.add(d.openDataIndex);
         st.history.push(`（${str(d.messageZh) ?? "这一步被拦下，没有发出"}）`);
         break;
       case "search_sent":
         st.searches += 1;
         if (str(d.source) === "open_data") {
           // 联邦数据的查询不动「待执行的决定」（它在第一轮模型请求之前、由代码发出）
+          closeOpenQuery();
           if (typeof d.openDataIndex === "number") st.openDataSent.add(d.openDataIndex);
+          if (str(d.query)) st.openDataSentQueries.add(str(d.query)!);
+          openQuery = str(d.query) ?? "";
           st.history.push(`查联邦合同公开数据「${short(str(d.query) ?? "", 120)}」`);
           break;
         }
@@ -231,9 +275,13 @@ export function restoreCursorState(allRows: readonly CursorRow[], branchKey: str
         st.history.push(`搜索「${short(str(d.query) ?? "", 120)}」`);
         break;
       case "open_data_result": {
+        openQuery = null;
         const recs = asRecords(d.records);
         for (const r of recs) if (!st.openDataRecords.some((x) => x.recordId === r.recordId)) st.openDataRecords.push(r);
-        st.openDataLines = Array.isArray(d.lines) ? d.lines.filter((x): x is string => typeof x === "string").slice(0, 10) : [];
+        const lines = Array.isArray(d.lines) ? d.lines.filter((x): x is string => typeof x === "string") : [];
+        st.openDataLines = mergeOpenDataLines(st.openDataLines, lines);
+        if (d.ok === true) st.openDataSuccesses += 1;
+        else st.openDataFailures += 1;
         const rows = typeof d.rows === "number" ? d.rows : 0;
         st.history.push(
           d.ok === true
@@ -288,6 +336,7 @@ export function restoreCursorState(allRows: readonly CursorRow[], branchKey: str
     }
   }
   closeOpenRead();
+  closeOpenQuery();
   return st;
 }
 

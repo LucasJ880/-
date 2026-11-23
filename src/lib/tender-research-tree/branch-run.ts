@@ -52,8 +52,12 @@ import {
   refreshComparability,
   specTokens,
   type ComparabilityContext,
+  type OpenDataRow,
 } from "./awards";
 import { openDataLinesOf, openDataPlanFor, type OpenDataPlanEntry } from "./federal";
+import { mergeOpenDataLines } from "./cursor";
+import { sanitizeUntrusted } from "./prompt";
+import { createHash } from "node:crypto";
 import { runClausesBranch } from "./clauses-run";
 import { branchDone as done, branchYield as yieldSlice } from "./results";
 import { allowReadableUrl, checkFact, internalNumberTokens, outboundBlockReason, OUTBOUND_BLOCK_ZH, urlBlockReason } from "./guards";
@@ -113,13 +117,16 @@ export function checkResearchJob(job: { orgId: string; status?: string; metadata
   return { ok: true, projectId, initiatedByUserId };
 }
 
-/** 交给模型的项目公开资料（只这几项；数量只给一个数，合同期只给天数） */
+/**
+ * 交给模型的项目公开资料（只这几项；数量只给一个数，合同期只给天数，规格关键词由代码从项目名与类别取）。
+ * 项目名、采购方等可能是从标书摘要自动回填的外来文字：同样清洗（块边界、零宽、控制字符）
+ */
 export function publicProjectFacts(p: ResearchProjectRow, req: RequirementFactsRow | null = null): PublicProjectFacts {
-  const clean = (s: string | null) => (s && s.trim() ? s.trim().slice(0, 200) : null);
+  const clean = (s: string | null) => (s && s.trim() ? sanitizeUntrusted(s.trim(), 200).trim() || null : null);
   const q = projectQuantityDec(req?.quantity ?? null);
   const days = req?.contractDays;
   return {
-    name: p.name.trim().slice(0, 200),
+    name: sanitizeUntrusted(p.name.trim(), 200).trim(),
     buyer: clean(p.clientOrganization),
     solicitationNumber: clean(p.solicitationNumber),
     location: clean(p.location),
@@ -127,7 +134,18 @@ export function publicProjectFacts(p: ResearchProjectRow, req: RequirementFactsR
     closeYear: p.closeDate ? p.closeDate.getUTCFullYear() : null,
     quantity: q ? decToFixed(q, Math.min(q.scale, 3)) : null,
     contractDays: typeof days === "number" && Number.isFinite(days) && days > 0 ? Math.round(days) : null,
+    specKeywords: specTokens([p.name, p.category], PROJECT_SPEC_TOKENS_MAX).map((t) => sanitizeUntrusted(t, 40)),
   };
+}
+
+/**
+ * 模型给的组名 → 组键：小写、空白换成连字符、只留字母数字下划线连字符、最多 12 字（「Lot 1」→「lot-1」）；
+ * 清完是空的（例如全是中文）就用原文的哈希，保证不同的组名不会被并成一组
+ */
+export function groupKeyOf(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  const g = raw.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "").slice(0, 12);
+  return g || `g${createHash("sha256").update(raw.normalize("NFKC").trim()).digest("hex").slice(0, 8)}`;
 }
 
 /** 可比度的项目一侧：采购方、数量、参照年（截标年份，没有就今年）、规格关键词（项目名与类别，最多 5 个） */
@@ -416,7 +434,8 @@ class BranchLoop {
       this.openDataPlan = [];
       this.openDataNote = null;
     }
-    if (i.state.openDataLines.length > 0 && i.state.modelCalls === 0) {
+    // 联邦数据的行在模型第一次交回可用的决定之前一直交给模型（续跑、请求失败、撞到截止都不丢）
+    if (i.state.openDataLines.length > 0) {
       this.latest = { kind: "open_data", lines: i.state.openDataLines, recorded: i.state.openDataRecords.length };
     }
     if (i.state.unextractedPage) {
@@ -463,39 +482,61 @@ class BranchLoop {
     return this.recordCursor(kind, data);
   }
 
-  /** 往期同标：还没查的联邦数据检索词（第一轮模型请求之前；已经请求过模型就不再查） */
+  /** 往期同标：还没查的联邦数据检索词（第一轮模型请求之前；已经请求过模型就不再查；按序号与检索词文字都比） */
   private nextOpenData(): OpenDataPlanEntry | null {
     if (this.st.modelCalls > 0) return null;
     for (const e of this.openDataPlan) {
-      if (e.blocked || this.st.openDataSent.has(e.index)) continue;
+      if (e.blocked || this.st.openDataSent.has(e.index) || this.st.openDataSentQueries.has(e.query)) continue;
       return e;
     }
     return null;
   }
 
-  /** 查一次联邦合同公开数据：先记游标、算一次搜索；同一采购方的行转成记录；全部行交给模型看 */
+  /** 联邦数据查一次，最多等到「数据接口超时」与「这一片剩余时间 − 余量」中较早的那个；出错或超时都当作没查成 */
+  private async queryOpenData(query: string): Promise<{ ok: boolean; rows: OpenDataRow[]; note: string | null }> {
+    const timeoutMs = Math.max(1_000, Math.min(RESEARCH_TREE_TIMING.OPEN_DATA_TIMEOUT_MS, this.remainingMs() - RESEARCH_TREE_TIMING.CALL_MARGIN_MS));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.i.ext.openData(query, this.i.ext.env, { timeoutMs }),
+        new Promise<{ ok: boolean; rows: OpenDataRow[]; note: string | null }>((resolve) => {
+          timer = setTimeout(() => resolve({ ok: false, rows: [], note: "查询超时" }), timeoutMs);
+        }),
+      ]);
+    } catch {
+      return { ok: false, rows: [], note: "查询出错" };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** 查一次联邦合同公开数据：先记游标、算一次搜索；同一采购方、规格对得上的行转成记录（全支最多 5 条）；全部行交给模型看 */
   private async doOpenData(e: OpenDataPlanEntry): Promise<void> {
     await this.record("search_sent", { query: e.query, source: "open_data", openDataIndex: e.index });
     this.st.searches += 1;
     this.st.openDataSent.add(e.index);
+    this.st.openDataSentQueries.add(e.query);
     this.st.history.push(`查联邦合同公开数据「${e.query.slice(0, 120)}」`);
-    const r = await this.i.ext.openData(e.query, this.i.ext.env);
+    const r = await this.queryOpenData(e.query);
     const fetchedAt = new Date(this.i.ext.now()).toISOString();
     const before = new Set(this.st.openDataRecords.map((x) => x.recordId));
-    const recs = r.ok ? openDataRecords(r.rows, this.cmp, fetchedAt).filter((x) => !before.has(x.recordId)) : [];
-    const lines = r.ok ? openDataLinesOf(r.rows) : [];
+    const room = Math.max(0, RESEARCH_TREE_LIMITS.OPEN_DATA_RECORDS - this.st.openDataRecords.length);
+    const recs = r.ok ? openDataRecords(r.rows, this.cmp, fetchedAt).filter((x) => !before.has(x.recordId)).slice(0, room) : [];
+    const merged = mergeOpenDataLines(this.st.openDataLines, r.ok ? openDataLinesOf(r.rows) : []);
     await this.record("open_data_result", {
       ok: r.ok,
       rows: r.ok ? r.rows.length : 0,
       records: recs,
-      lines,
+      // 合并后的行（续跑时整份恢复给模型；每行不超过 200 字，最多 10 行）
+      lines: merged,
       ...(r.ok ? {} : { messageZh: String(r.note ?? "查询失败").slice(0, 120) }),
     });
     this.st.openDataRecords.push(...recs);
-    const merged = [...new Set([...this.st.openDataLines, ...lines])].slice(0, RESEARCH_TREE_LIMITS.OPEN_DATA_ROWS_FOR_MODEL);
     this.st.openDataLines = merged;
+    if (r.ok) this.st.openDataSuccesses += 1;
+    else this.st.openDataFailures += 1;
     this.st.history.push(
-      r.ok ? `  → 联邦数据 ${r.rows.length} 行（同一采购方的 ${recs.length} 行记为记录）` : `  → 联邦数据没查成：${String(r.note ?? "").slice(0, 80)}`,
+      r.ok ? `  → 联邦数据 ${r.rows.length} 行（同一采购方、规格对得上的 ${recs.length} 行记为记录）` : `  → 联邦数据没查成：${String(r.note ?? "").slice(0, 80)}`,
     );
     this.latest = { kind: "open_data", lines: merged, recorded: this.st.openDataRecords.length };
   }
@@ -512,6 +553,8 @@ class BranchLoop {
         const od = this.nextOpenData();
         if (od) {
           if (this.st.searches >= this.i.limits.searches) {
+            // 搜索次数用完：这个检索词不查，记一行（续跑时同样跳过，到上限也照样成立）
+            await this.record("blocked_query", { target: "search", budget: true, openDataIndex: od.index, messageZh: TEXT_ZH.openDataBudget });
             this.limitHit = true;
             this.st.openDataSent.add(od.index);
             continue;
@@ -585,8 +628,14 @@ class BranchLoop {
     if (!res.ok) {
       await this.record("decision", { turn, ok: false, errorCode: res.errorCode });
       this.st.history.push(`（第 ${turn} 次模型请求没有交回可用的结果）`);
-      // 刚读到的页留着，下一轮还能提取（同一片里）；没有页时提示重新给出下一步
-      if (!page) this.latest = { kind: "note", text: "上一次请求没有交回可用的结果，请重新给出下一步。" };
+      // 刚读到的页留着，下一轮还能提取（同一片里）；没有页时提示重新给出下一步（联邦数据的行还没看过就一并留着）
+      if (!page) {
+        const retry = "上一次请求没有交回可用的结果，请重新给出下一步。";
+        this.latest =
+          this.st.openDataLines.length > 0
+            ? { kind: "open_data", lines: this.st.openDataLines, recorded: this.st.openDataRecords.length, note: retry }
+            : { kind: "note", text: retry };
+      }
       // 撞到这一片的截止：不算模型失败，下一片接着做
       if (res.errorCode === TENDER_CALL_DEADLINE_CODE) return "yield";
       this.st.consecutiveModelFailures += 1;
@@ -594,6 +643,8 @@ class BranchLoop {
     }
     this.page = null;
     this.st.consecutiveModelFailures = 0;
+    // 模型交回了可用的决定：联邦数据的行已经看过了
+    this.st.openDataLines = [];
     const v = res.value;
 
     // 事实：只认刚读到的那一页
@@ -611,9 +662,8 @@ class BranchLoop {
         rejected += 1;
         continue;
       }
-      // 组名只收小写字母、数字、下划线与连字符（≤12 字），别的写法当作没给组名
-      const g = typeof c.group === "string" ? c.group.trim().toLowerCase() : "";
-      const group = /^[a-z0-9_-]{1,12}$/.test(g) ? g : undefined;
+      // 组名归一成组键（「Lot 1」→「lot-1」；清完是空的用原文的哈希），不同的组名不会被并成一组
+      const group = groupKeyOf(c.group);
       const candidate = { url: page.url, factType: chk.factType, value: chk.value, group };
       // 先去重（重复的不占名额、也不算丢弃），再按名额截
       if (known.has(factKey(candidate))) continue;
@@ -884,7 +934,9 @@ class BranchLoop {
       records.length === 0 && facts.length > 0
         ? outcome.notFound.map((n) => (n.reason === "none" ? { reason: n.reason, messageZh: TEXT_ZH.noneScattered } : n))
         : outcome.notFound;
-    const reasonZh = [this.i.reasonZh, this.openDataNote].filter((x): x is string => Boolean(x)).join("；") || null;
+    const openDataZh =
+      this.openDataNote ?? (this.st.openDataFailures > 0 && this.st.openDataSuccesses === 0 ? TEXT_ZH.openDataFailed : null);
+    const reasonZh = [this.i.reasonZh, openDataZh].filter((x): x is string => Boolean(x)).join("；") || null;
     const since = this.st.firstAt ?? this.sliceStarted;
     return {
       version: RESEARCH_HANDOFF_VERSION,

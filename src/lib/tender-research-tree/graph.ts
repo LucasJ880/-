@@ -57,7 +57,7 @@ export function buildResearchTreePlan(): ServerAuthoredPlanV1 {
     task({
       id: RESEARCH_STEP_IDS.clauses,
       title: "调研分支：条款",
-      description: "第一波。确认标书里的本地含量、指定品牌与等效品条款（条款员尚未接入，这次交「未接通」）。",
+      description: "第一波。在本项目已解析的标书里查本地 / 加拿大含量、限定品牌与等效品条款，并带页码（不联网）。",
       dependsOn: [],
       preferredTool: RESEARCH_BRANCH_TOOL,
       expectedOutput: handoffNote,

@@ -6,12 +6,14 @@
  */
 
 import { db } from "@/lib/db";
-import { RESEARCH_STEP_IDS, handoffFromOutput } from "./fork-rules";
-import { researchJobWhere } from "./start";
+import { RESEARCH_STEP_IDS, TEXT_ZH, handoffFromOutput } from "./fork-rules";
+import { OPEN_RESEARCH_STATUSES, researchJobWhere } from "./start";
 import type { BranchStatus, ClauseFindingsV1 } from "./types";
 
 export type ResearchClausesView =
   | { state: "pending" }
+  /** 调研已经停下（完成、失败、取消、需要人工处理）而条款一步没有结果，或结果读不出来 */
+  | { state: "stopped"; messageZh: string }
   | {
       state: "done";
       status: BranchStatus;
@@ -27,10 +29,10 @@ export type ResearchTreeView = {
   clauses: ResearchClausesView | null;
 };
 
-/** 条款一步的业务输出 → 视图（形状不对的当作还没交单） */
+/** 条款一步的业务输出 → 视图（形状不对的：结果读不出来） */
 export function clausesViewOf(outputJson: unknown): ResearchClausesView {
   const h = handoffFromOutput(outputJson);
-  if (!h || h.kind !== "clauses") return { state: "pending" };
+  if (!h || h.kind !== "clauses") return { state: "stopped", messageZh: TEXT_ZH.clausesUnreadable };
   return {
     state: "done",
     status: h.status,
@@ -39,6 +41,20 @@ export function clausesViewOf(outputJson: unknown): ResearchClausesView {
     messagesZh: h.notFound.filter((n) => typeof n.messageZh === "string").map((n) => n.messageZh),
     findings: h.clauses ?? null,
   };
+}
+
+/** 步骤停下、不会再跑的状态 */
+const STOPPED_STEP_STATUSES: ReadonlySet<string> = new Set(["failed", "skipped", "cancelled", "blocked"]);
+
+/**
+ * Job 与条款一步的状态 → 条款视图：步骤完成 → 读结果；Job 还在排队或运行中、步骤也没停 → 在查；
+ * 其余（Job 完成 / 失败 / 取消 / 需要人工处理、步骤失败或跳过）→ 停下了（不会自己再跑，不能一直说「在查」）
+ */
+export function clausesViewFor(jobStatus: string, step: { status: string; outputJson: unknown } | null): ResearchClausesView {
+  if (step && step.status === "completed") return clausesViewOf(step.outputJson);
+  const jobOpen = (OPEN_RESEARCH_STATUSES as readonly string[]).includes(jobStatus);
+  if (jobOpen && !(step && STOPPED_STEP_STATUSES.has(step.status))) return { state: "pending" };
+  return { state: "stopped", messageZh: TEXT_ZH.clausesStopped };
 }
 
 export async function loadResearchTreeView(orgId: string, projectId: string): Promise<ResearchTreeView> {
@@ -54,6 +70,6 @@ export async function loadResearchTreeView(orgId: string, projectId: string): Pr
   });
   return {
     job: { id: job.id, status: job.status, createdAt: job.createdAt.toISOString() },
-    clauses: step && step.status === "completed" ? clausesViewOf(step.outputJson) : { state: "pending" },
+    clauses: clausesViewFor(job.status, step),
   };
 }

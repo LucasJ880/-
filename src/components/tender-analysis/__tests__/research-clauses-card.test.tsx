@@ -11,6 +11,9 @@ import {
   ResearchClausesCard,
   ResearchClausesPanel,
   clausesCardStateOf,
+  keepOnError,
+  shouldPollClauses,
+  startedAtZh,
   visibleClausesOf,
 } from "../research-clauses-card";
 import { CLAUSE_CLARIFICATIONS, notStatedFindings, verifyClauseDecision, findClauseSnippets } from "@/lib/tender-research-tree/clauses";
@@ -49,8 +52,10 @@ console.log("查完");
   ok("三问都在", m.includes(RESEARCH_CLAUSES_TEXT.questions.local_content) && m.includes(RESEARCH_CLAUSES_TEXT.questions.brand) && m.includes(RESEARCH_CLAUSES_TEXT.questions.equivalents));
   ok("接受等效品，带文件名与第 7 页、原文", m.includes("接受等效品") && m.includes("RFP-24062-27-057.pdf · 第 7 页") && m.includes("Equivalent products will be considered"), m);
   ok("出处对不上的写明", m.includes(RESEARCH_CLAUSES_TEXT.downgraded));
-  ok("等效证明", m.includes(RESEARCH_CLAUSES_TEXT.proofTitle) && m.includes("product data sheets are submitted"));
-  ok("未写明的两问有澄清草稿，写明系统不会自动发出", m.includes(CLAUSE_CLARIFICATIONS.local_content.en) && m.includes(CLAUSE_CLARIFICATIONS.brand.en) && !m.includes(CLAUSE_CLARIFICATIONS.equivalents.en) && m.includes("系统不会自动发出"));
+  ok("等效品要交的证明，挂在等效品那一问下面", m.includes(RESEARCH_CLAUSES_TEXT.proofTitle) && m.includes("product data sheets are submitted") && m.indexOf(RESEARCH_CLAUSES_TEXT.proofTitle) > m.indexOf("接受等效品"));
+  ok("品牌一问的措辞", m.includes(RESEARCH_CLAUSES_TEXT.questions.brand) && m.includes("是否限定品牌（不接受替代）"));
+  ok("未写明的两问有澄清草稿，写明系统不会自动发出、指向正式澄清", m.includes(CLAUSE_CLARIFICATIONS.local_content.en) && m.includes(CLAUSE_CLARIFICATIONS.brand.en) && !m.includes(CLAUSE_CLARIFICATIONS.equivalents.en) && m.includes("系统不会自动发出") && m.includes("正式澄清（RFI）") && m.includes(`意思：${CLAUSE_CLARIFICATIONS.brand.zh}`));
+  ok("没有内部说法（条款员、模型、三问、TREE）", !/条款员|模型|三问|TREE-|这一支/.test(m), m);
   const raw = renderToStaticMarkup(<ResearchClausesPanel clauses={{ state: "done", status: "found", statusZh: "写明了 1 项", reasonZh: null, messagesZh: [], findings: found }} />);
   ok("只读：没有按钮、输入框或表单", !/<button|<input|<textarea|<form/.test(raw));
 }
@@ -61,7 +66,24 @@ console.log("都未写明 / 未接通 / 在查");
   ok("都未写明：三条草稿", none.includes("都未写明") && Object.values(CLAUSE_CLARIFICATIONS).every((c) => none.includes(c.en)));
   const un = panel({ state: "done", status: "unavailable", statusZh: "未接通", reasonZh: null, messagesZh: ["未接通：项目里还没有解析好的标书文件，没法查条款"], findings: null });
   ok("未接通：写原因句，没有答案与草稿", un.includes("未接通") && un.includes("没有解析好的标书文件") && !un.includes("澄清问题草稿"));
-  ok("在查：条款员还在查", panel({ state: "pending" }).includes(RESEARCH_CLAUSES_TEXT.pending));
+  ok("在查：正在查标书条款", panel({ state: "pending" }).includes(RESEARCH_CLAUSES_TEXT.pending));
+  ok("未接通时只写原因句，不重复「未接通」短标签", (un.match(/未接通/g) ?? []).length === 1, un);
+  const stopped = panel({ state: "stopped", messageZh: "这次调研没有跑完，标书条款没有查完" });
+  ok("调研停下了：写原因，不说在查", stopped.includes("没有跑完") && !stopped.includes(RESEARCH_CLAUSES_TEXT.pending));
+  const conflictView = verifyClauseDecision(
+    {
+      local_content: { answer: "not_stated", citations: [] },
+      brand: { answer: "specified", citations: [{ snippet: s9, excerpt: "No substitutes will be accepted" }] },
+      equivalents: { answer: "accepted", citations: [{ snippet: s7, excerpt: "Equivalent products will be considered" }] },
+    },
+    snips,
+    stats,
+  );
+  const cm = panel({ state: "done", status: "found", statusZh: "写明了 2 项", reasonZh: null, messagesZh: [], findings: conflictView });
+  ok("限定品牌与接受等效品同时成立：提示看原文", cm.includes(RESEARCH_CLAUSES_TEXT.conflict));
+  const stamped = text(renderToStaticMarkup(<ResearchClausesPanel clauses={{ state: "pending" }} startedAt="2026-11-23T10:05:00.000Z" />));
+  ok("显示调研发起时间", stamped.includes(RESEARCH_CLAUSES_TEXT.startedAt) && /2026-11-23 \d{2}:05/.test(stamped), stamped);
+  ok("发起时间读不出就不显示", startedAtZh("not a date") === null && startedAtZh(null) === null);
 }
 
 console.log("显示不显示");
@@ -73,6 +95,9 @@ console.log("显示不显示");
   ok("还没有调研树 → 不显示", visibleClausesOf(clausesCardStateOf(200, { job: null, clauses: null })) === null);
   ok("有树 → 显示", visibleClausesOf(clausesCardStateOf(200, tree))?.state === "pending");
   ok("首屏（读取中）什么都不渲染", renderToStaticMarkup(<ResearchClausesCard projectId="p1" />) === "");
+  ok("在查时要再读；查完、停下、404 不再读", shouldPollClauses(clausesCardStateOf(200, tree)) && !shouldPollClauses(clausesCardStateOf(200, { ...tree, clauses: { state: "stopped", messageZh: "x" } })) && !shouldPollClauses(clausesCardStateOf(404, null)));
+  const okState = clausesCardStateOf(200, tree);
+  ok("重读时出错：保留上一次读到的（卡片不一闪消失）；第一次就出错 → 不显示", keepOnError(okState, { kind: "error" }) === okState && keepOnError({ kind: "loading" }, { kind: "error" }).kind === "error" && keepOnError(okState, { kind: "hidden" }).kind === "hidden");
 }
 
 console.log(`\n结果: ${passed} 通过, 0 失败`);

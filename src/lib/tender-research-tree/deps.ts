@@ -25,7 +25,7 @@ import {
   type ResearchReadSession,
 } from "@/lib/web-reader";
 import { RESEARCH_BRANCH_PROMPT_VERSION } from "./prompt";
-import { RESEARCH_TREE_LIMITS } from "./limits";
+import { RESEARCH_TREE_LIMITS, RESEARCH_TREE_TIMING } from "./limits";
 import type { OpenDataRow } from "./awards";
 import type { ClausePage } from "./clauses";
 import type { ResearchTreeSummaryV1 } from "./types";
@@ -39,7 +39,23 @@ export type ResearchSearchFn = (query: string, opts: { timeoutMs: number; maxRes
 
 /** 联邦合同公开数据的一次查询（`canadabuys.ts` 的 searchAwardHistory；内部先判外部情报开关，超时 25 秒） */
 export type OpenDataResult = { ok: boolean; rows: OpenDataRow[]; note: string | null };
-export type ResearchOpenDataFn = (query: string, env: Record<string, string | undefined>) => Promise<OpenDataResult>;
+export type ResearchOpenDataFn = (
+  query: string,
+  env: Record<string, string | undefined>,
+  opts?: { timeoutMs?: number },
+) => Promise<OpenDataResult>;
+
+/**
+ * 给联邦数据查询用的 fetch：超时一直管到正文读完（`canadabuys.ts` 自己的 25 秒定时器在拿到响应头时就清掉了，
+ * 读正文没有时限）
+ */
+export function fetchWithBodyTimeout(timeoutMs: number, base: typeof fetch = fetch): typeof fetch {
+  return (input, init) => {
+    const signals = [AbortSignal.timeout(Math.max(1, timeoutMs))];
+    if (init?.signal) signals.push(init.signal);
+    return base(input, { ...init, signal: AbortSignal.any(signals) });
+  };
+}
 
 export type ResearchExternalDeps = {
   now: () => number;
@@ -58,8 +74,12 @@ const productionExternal: ResearchExternalDeps = {
     return process.env;
   },
   search: (query, opts) => tavilySearchDetailed(query, { maxResults: opts.maxResults, timeoutMs: opts.timeoutMs }),
-  openData: async (query, env) => {
-    const r = await searchAwardHistory({ query, env: env as NodeJS.ProcessEnv });
+  openData: async (query, env, opts) => {
+    const r = await searchAwardHistory({
+      query,
+      env: env as NodeJS.ProcessEnv,
+      fetchImpl: fetchWithBodyTimeout(opts?.timeoutMs ?? RESEARCH_TREE_TIMING.OPEN_DATA_TIMEOUT_MS),
+    });
     return {
       ok: r.ok,
       note: r.note,
@@ -91,8 +111,22 @@ export function __setResearchTreeDepsForTest(deps: Partial<ResearchExternalDeps>
   testExternal = deps;
 }
 
+/** 测试里会发出外部请求的几项：注入时缺了哪一项就直接报错，不悄悄走生产实现（免得测试真的去连外网） */
+const NETWORK_DEPS = ["search", "openData", "invokerFor", "openReadSession", "readPage"] as const;
+
 export function externalDeps(): ResearchExternalDeps {
-  if (testExternal && process.env.NODE_ENV === "test") return { ...productionExternal, ...testExternal };
+  if (testExternal && process.env.NODE_ENV === "test") {
+    const t = testExternal;
+    const strict: Partial<ResearchExternalDeps> = {};
+    for (const k of NETWORK_DEPS) {
+      if (t[k] === undefined) {
+        (strict as Record<string, unknown>)[k] = () => {
+          throw new Error(`测试没有注入 ${k}（调研树测试里一律不发真实的外部请求）`);
+        };
+      }
+    }
+    return { ...productionExternal, ...strict, ...t };
+  }
   return productionExternal;
 }
 

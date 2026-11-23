@@ -4,7 +4,7 @@
 
 ### Requirement: 分支在额度内自己决定下一步
 
-每一支 SHALL 是一个循环：每一轮由一次模型请求提出下一步（搜索 / 读页 / 结束）及针对刚读到那一页的事实，代码执行并扣减额度。每支上限 SHALL 为搜索 16、读页 12、模型请求 30（③ 初查各取一半：8、6、15；同一次请求里的重试与换备用模型不另算）；往期同标查联邦合同公开数据每次算一次搜索。因额度停下时 SHALL 记「到上限，未查完」；模型自己说结束的 SHALL NOT 记到上限。条款一支不走这个循环（见 `tender/research-branches`）。
+每一支 SHALL 是一个循环：每一轮由一次模型请求提出下一步（搜索 / 读页 / 结束）及针对刚读到那一页的事实，代码执行并扣减额度。每支上限 SHALL 为搜索 16、读页 12、模型请求 30（③ 初查各取一半：8、6、15；同一次请求里的重试与换备用模型不另算）；往期同标查联邦合同公开数据每次算一次搜索。因额度停下（模型请求到上限、能做的动作都没额度、要的搜索或读页因额度被拒）时 SHALL 记「到上限，未查完」；模型自己说结束的 SHALL NOT 记到上限。条款一支不走这个循环（见 `tender/research-branches`）。
 
 #### Scenario: 每支额度调到 2 次搜索
 - **WHEN** 组织把每支搜索额度调到 2，模型一直要求搜索
@@ -27,12 +27,12 @@
 - **THEN** 一次都不发出，审计里也没有这个数（`tree2-research-branch.test.ts`）
 
 #### Scenario: 联邦数据检索词被拦
-- **WHEN** 项目名里带着本项目的估值
-- **THEN** 那个检索词不发、不记审计（`tree3-research-branches.test.ts`）
+- **WHEN** 项目名里带外发敏感词（如 Budget）
+- **THEN** 那个检索词不发、不记审计；检索词只取英文字母组成的词，项目的估值等数字进不了检索词（`tree3-research-branches.test.ts`、`research-branches-pure.test.ts`）
 
 ### Requirement: 只收逐字核对过的事实
 
-`found[]` 每条 SHALL 来自这一支刚读到的那一页；摘录 12–200 字、逐字（不计空白多少与大小写）出现在正文里；值逐字出现在摘录里（币种与口径的值是枚举，币种的摘录要有对应写法，口径的摘录要有对应提示词）；只含 0–9 的数字，值里的数都在摘录里；金额、数量、年份的值带数。事实类型往期同标为往期标名、中标方、采购方、品项、合同额、数量、年份、币种、口径，同类项目同上去掉往期标名；可带组名。有跳转时网址记跳转后的；跳到别的站且不在搜索结果里的页 SHALL NOT 收事实。每支最多 40 条。
+`found[]` 每条 SHALL 来自这一支刚读到的那一页；摘录 12–200 字、逐字（不计空白多少与大小写）出现在正文里；值逐字出现在摘录里（币种与口径的值是枚举，币种的摘录要有对应写法，口径的摘录要有对应提示词）；只含 0–9 的数字，值里的数都在摘录里；金额、数量、年份的值带数。事实类型往期同标为往期标名、中标方、采购方、品项、合同额、数量、年份、币种、口径，同类项目同上去掉往期标名；可带组名。有跳转时网址 SHALL 记跳转后的、另记请求的；跳到别的站且不在搜索结果里的页 SHALL NOT 收事实。存下的值与摘录去掉不可见字符。每支最多 40 条。
 
 #### Scenario: 摘录或值对不上
 - **WHEN** 模型交回的摘录不在正文里、值不在摘录里、摘录只有几个字
@@ -48,7 +48,7 @@
 
 ### Requirement: 交接单 research-handoff/v1
 
-每一支完成时 SHALL 在步骤业务输出 `researchHandoff` 里交一张 `research-handoff/v1`：`branchKey`、`kind`、`labelZh`、`status`、`statusZh`（短标签：查到 N 条 / 写明了 N 项 / 都未写明 / 没查到 / 被挡 / 到上限 / 未接通 / 无需追查 / 未开启）、`reasonZh`、`found[]`、`records[]`（授标记录）、`clauses`（条款结论，别的支为 null）、`notFound[]`、`suggestedBranches[]`、`usage`、`blockedSites[]`、`rejectedFacts`。授标支的 N 是记录数；没有这两项的旧单按空处理。
+每一支完成时 SHALL 在步骤业务输出 `researchHandoff` 里交一张 `research-handoff/v1`（另有摘要 `researchSummary`）：`branchKey`、`kind`、`labelZh`、`status`（found / none / blocked / limit / unavailable / not_needed / flag_off）、`statusZh`（短标签：查到 N 条 / 写明了 N 项 / 都未写明 / 没查到 / 被挡 / 到上限 / 未接通 / 无需追查 / 未开启；授标支 N 为记录数）、`reasonZh`、`found[]`、`records[]`、`clauses`（别的支为 null）、`notFound[]`（没有 / 未接通 / 被挡 / 到上限 + 中文句）、`suggestedBranches[]`、`usage`、`blockedSites[]`（站与原因句）、`rejectedFacts`。没有 records / clauses 的旧单按空处理。
 
 #### Scenario: 交单字段
 - **WHEN** 一支跑完
@@ -76,7 +76,7 @@
 
 ### Requirement: 调研游标审计
 
-每一支的进度 SHALL 记在审计 `research.branch_step`（targetType `research_job`、targetId 为 jobId、记在发起人名下），每行一种：模型请求、模型决定（动作、搜索词或网址、收下的事实、丢弃数、建议）、搜索发出（网页或联邦数据）、搜索结果（网址与标题）、联邦数据结果（状态、行数、收下的记录）、读页发出、读页结果、被拦、交单。审计 SHALL NOT 含网页正文、搜索摘要、标书正文、被外发闸拦下的词与网址或不在本支可读网址里的网址；摘录 SHALL 不超过 200 字。
+每一支的进度 SHALL 记在审计 `research.branch_step`（targetType `research_job`、targetId 为 jobId、记在发起人名下），每行一种：模型请求、模型决定（动作、搜索词或网址、收下的事实、丢弃数、建议；条款员记整份核对后的结论）、搜索发出（网页或联邦数据）、搜索结果、联邦数据结果（状态、行数、收下的记录、给模型看的行，最多 10 行）、读页发出、读页结果、被拦、交单。审计 SHALL NOT 含网页正文、搜索摘要、标书正文、被外发闸拦下的词与网址或不在本支可读网址里的网址（代码拼的联邦数据查询网址除外）；摘录与行 SHALL 不超过 200 字。
 
 #### Scenario: 被拦的不记
 - **WHEN** 模型提出的搜索词被外发闸拦下
@@ -101,6 +101,18 @@
 #### Scenario: 跑完一棵树
 - **WHEN** 一棵树从发起跑到树干完成
 - **THEN** 整库快照里只有运行时的表、审计与情报室有变化，新增审计只有调研游标、读页与配额记账（`tree2-research-tree-job-db.isolated.test.ts`、`research-branches-db.isolated.test.ts`）
+
+### Requirement: 被挡了换来源
+
+读页被挡时这一支 SHALL NOT 结束，SHALL 在明细里记下被挡的站与原因句，让模型换别的来源；同一站在这一支被挡过后，这一支 SHALL NOT 再读它。读页层报这一支不能再读页时，这一支 SHALL 不再读页。授标支一条授标记录都没有时（只收下了零散事实也算），未查到原因 SHALL 列出所有成立的（被挡、到上限、未接通），状态取被挡 > 到上限 > 未接通 > 没查到；有记录的支 SHALL NOT 在树干里提被挡。
+
+#### Scenario: 第一个读页目标被挡
+- **WHEN** 一支的第一个读页目标返回 403，第二个来源读到了事实
+- **THEN** 这一支照常交回事实，明细里有该站与原因，树干不提被挡（`tree2-research-branch.test.ts`）
+
+#### Scenario: 被挡又到上限
+- **WHEN** 读页额度为 1、第一页被挡、模型还要读第二页
+- **THEN** 状态「被挡」，原因两条：被挡、到上限（同上测试）
 
 ## REMOVED Requirements
 

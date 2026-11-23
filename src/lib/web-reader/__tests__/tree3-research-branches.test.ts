@@ -66,6 +66,8 @@ function makeHarness(opts: {
   decide?: (i: number, req: LlmCallRequest) => unknown;
   search?: (q: string) => TavilyDetailedResult;
   openData?: (q: string) => OpenDataResult;
+  /** 每次联邦数据查询让假时钟走多久 */
+  openDataMs?: number;
   pages?: TenderPagesRow;
   req?: RequirementFactsRow;
   env?: Record<string, string | undefined>;
@@ -111,6 +113,7 @@ function makeHarness(opts: {
       },
       openData: async (q) => {
         openDataQueries.push(q);
+        offset += opts.openDataMs ?? 0;
         return opts.openData ? opts.openData(q) : { ok: true, rows: [], note: null };
       },
       invokerFor: (input) => {
@@ -207,7 +210,7 @@ async function main() {
     const h = makeHarness({ pages: tenderPages([[1, filler], [2, "The supplier shall deliver 500 chairs to Ottawa."]]) });
     const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.clauses), h.deps));
     ok(
-      ho.status === "none" && ho.statusZh === "都未写明" && h.prompts.length === 0 && ho.clauses!.questions.every((q) => q.answer === "not_stated" && q.clarification) && /没有命中，没有请求模型/.test(String(ho.reasonZh)),
+      ho.status === "none" && ho.statusZh === "都未写明" && h.prompts.length === 0 && ho.clauses!.questions.every((q) => q.answer === "not_stated" && q.clarification) && /没找到与加拿大含量、品牌、等效品有关的文字/.test(String(ho.reasonZh)),
       "两种条款都没有 → 未写明 + 澄清草稿，模型请求为 0",
       ho,
     );
@@ -410,6 +413,158 @@ async function main() {
     h.world.handlers.set(A, () => html(AWARDS_PAGE));
     const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.similar), h.deps));
     ok(ho.found.length === 0 && ho.rejectedFacts === 2, "币种与摘录对不上、口径摘录没有提示词：都丢", ho);
+  }
+
+  /* ── 审查后补的用例 ── */
+  console.log("\n[审查后：联邦数据去重、不相干合同、出错、额度、中断、续跑]");
+  const fedFor = (q: string): OpenDataResult => ({
+    ok: true,
+    note: null,
+    rows: [
+      { ...row("CHAIRCO LTD", 230000, "2023-04-01", "Treasury Board of Canada Secretariat", "R-2023-1"), sourceUrl: `https://open.canada.ca/data/en/api/3/action/datastore_search?resource_id=x&q=${encodeURIComponent(q)}` },
+      { ...row("CLOUDWORKS INC", 999000, "2024-05-01", "Treasury Board of Canada Secretariat", "R-2024-7"), descriptionEn: "IT consulting services for cloud migration", sourceUrl: `https://open.canada.ca/x?q=${encodeURIComponent(q)}` },
+    ],
+  });
+  {
+    const h = makeHarness({ openData: fedFor, decide: () => ({ next: { action: "finish" } }) });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    const recs = ho.records ?? [];
+    ok(h.openDataQueries.length === 2 && recs.length === 1 && recs[0]!.referenceNumber === "R-2023-1", "两个检索词（查询网址不同）查到同一份合同：一条；同一部门的 IT 咨询不成记录", recs.map((r) => [r.referenceNumber, r.fields.item?.value]));
+    ok(h.prompts[0]!.userPrompt.includes("CLOUDWORKS INC"), "不成记录的行照样交给模型看");
+    const lines = h.rows.filter((r) => r.kind === "open_data_result").map((r) => (r.data.lines as string[]) ?? []);
+    ok(lines.every((ls) => ls.every((l) => l.length <= 200)) && lines[1]!.length >= lines[0]!.length, "游标里存合并后的行（每行不超过 200 字）");
+  }
+  {
+    // E2：两次都查完、离截止不到 45 秒让出 → 续跑的第一次模型请求看得到两次查到的行
+    const one = (q: string): OpenDataResult => ({ ok: true, note: null, rows: [row(q.includes("Office") ? "OFFICE ROW LTD" : "BUYER ROW LTD", 1000, "2022-01-01", "Elsewhere", `R-${q.length}`)] });
+    const h = makeHarness({ openData: one, openDataMs: 10_000, decide: () => ({ next: { action: "finish" } }) });
+    const r1 = await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards, { executionBudget: { deadlineAt: h.deps.external.now() + 50_000, tickBudgetMs: 50_000 } }), h.deps);
+    ok("continuation" in r1 && !!r1.continuation && h.openDataQueries.length === 1, "第一片：查了一个检索词就让出");
+    const h2 = makeHarness({ rows: h.rows, openData: one, decide: () => ({ next: { action: "finish" } }) });
+    await runResearchBranch(h2.ctx(RESEARCH_STEP_IDS.priorAwards), h2.deps);
+    const p0 = h2.prompts[0]!.userPrompt;
+    ok(h2.openDataQueries.length === 1 && p0.includes("OFFICE ROW LTD") && p0.includes("BUYER ROW LTD"), "续跑：只查第二个检索词，第一次模型请求看得到两次的行", p0.slice(p0.indexOf("联邦合同公开数据"), p0.indexOf("联邦合同公开数据") + 300));
+  }
+  {
+    // E3：第一次模型请求格式不对 → 下一次照样看得到联邦数据的行
+    const h = makeHarness({ openData: () => FED, decide: (i) => (i < 2 ? "not json" : { next: { action: "finish" } }) });
+    await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    ok(h.prompts.length === 3 && h.prompts[2]!.userPrompt.includes("CHAIRCO LTD") && h.prompts[2]!.userPrompt.includes("上一次请求没有交回可用的结果"), "第一次请求失败：联邦数据的行留着，另附重试提示");
+  }
+  {
+    // E4：第一次模型请求撞到截止让出 → 续跑后还看得到
+    const h = makeHarness({ openData: () => FED, decide: () => new Error("CALL_DEADLINE_EXCEEDED") });
+    const deadlineErr = Object.assign(new Error("deadline"), { code: "CALL_DEADLINE_EXCEEDED" });
+    const h1 = makeHarness({ openData: () => FED, decide: () => deadlineErr });
+    await runResearchBranch(h1.ctx(RESEARCH_STEP_IDS.priorAwards), h1.deps);
+    const h2 = makeHarness({ rows: h1.rows, openData: () => FED, decide: () => ({ next: { action: "finish" } }) });
+    await runResearchBranch(h2.ctx(RESEARCH_STEP_IDS.priorAwards), h2.deps);
+    ok(h2.openDataQueries.length === 0 && h2.prompts[0]!.userPrompt.includes("CHAIRCO LTD"), "第一次请求没交回可用的决定就续跑：联邦数据的行还在", { q: h2.openDataQueries.length });
+    void h;
+  }
+  {
+    const h = makeHarness({
+      openData: () => {
+        throw new Error("boom");
+      },
+      search: () => ({ status: "EMPTY", hits: [], httpStatus: 200 }),
+      decide: (i) => (i === 0 ? { next: { action: "search", query: "office chairs award" } } : { next: { action: "finish" } }),
+    });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(ho.status === "none" && h.searches.length === 1 && ho.reasonZh === TEXT_ZH.openDataFailed, "联邦数据查询抛错：当作没查成、照常往下搜，理由写明", ho);
+  }
+  {
+    const h = makeHarness({ settings: { researchTree: { limits: { searchesPerBranch: 1 } } }, openData: () => FED, decide: () => ({ next: { action: "finish" } }) });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    const blocked = h.rows.filter((r) => r.kind === "blocked_query");
+    ok(h.openDataQueries.length === 1 && blocked.length === 1 && blocked[0]!.data.openDataIndex === 1 && ho.status === "found" && ho.notFound.some((n) => n.reason === "limit"), "额度只够一次：第二个检索词不查、记一行到上限", { q: h.openDataQueries, nf: ho.notFound });
+    const h2 = makeHarness({ rows: h.rows.filter((r) => r.kind !== "finish"), settings: { researchTree: { limits: { searchesPerBranch: 1 } } }, openData: () => FED, decide: () => ({ next: { action: "finish" } }) });
+    const ho2 = handoffOf(await runResearchBranch(h2.ctx(RESEARCH_STEP_IDS.priorAwards), h2.deps));
+    ok(h2.openDataQueries.length === 0 && ho2.notFound.some((n) => n.reason === "limit"), "续跑：同样不查、同样到上限");
+  }
+  {
+    const rows: CursorWrite[] = [{ orgId: ORG, userId: "u1", jobId: JOB, branchKey: RESEARCH_STEP_IDS.priorAwards, seq: 0, kind: "search_sent", data: { query: "Office Chairs Replacement", source: "open_data", openDataIndex: 0, at: 1 } }];
+    const h = makeHarness({ rows, openData: () => FED, decide: () => ({ next: { action: "finish" } }) });
+    await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    ok(h.openDataQueries.length === 1 && !h.openDataQueries.includes("Office Chairs Replacement") && h.prompts[0]!.userPrompt.includes("查询时中断"), "崩在联邦数据查询途中：那个检索词不再查，给模型的记录里写明中断", h.openDataQueries);
+  }
+  {
+    const h = makeHarness({ env: { TENDER_RESEARCH_TREE_ENABLED: "0", TENDER_EXTERNAL_INTEL_ENABLED: "1", TAVILY_API_KEY: "k" }, openData: () => FED });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(ho.status === "flag_off" && h.openDataQueries.length === 0 && h.storeCalls.length === 0, "开关关（英文项目名、外部情报开着）：联邦数据一次都不查");
+  }
+
+  console.log("\n[审查后：条款员续跑交回已记下的结论、矛盾提示]");
+  {
+    const pages = tenderPages([[7, EQUIV_PAGE7 + " Bins shall be Brand X only; no substitutes will be accepted."]]);
+    const h = makeHarness({
+      pages,
+      decide: (_i, req) => {
+        // 按摘录所在的那一段给段号
+        const sidFor = (needle: string) => {
+          const parts = req.userPrompt.split(/\[(S\d+)\]/);
+          for (let k = 1; k < parts.length; k += 2) if (parts[k + 1]!.includes(needle)) return parts[k]!;
+          return "S1";
+        };
+        return {
+          local_content: { answer: "not_stated", citations: [] },
+          brand: { answer: "specified", citations: [{ snippet: sidFor("Bins shall be Brand X only"), excerpt: "Bins shall be Brand X only" }] },
+          equivalents: { answer: "accepted", citations: [{ snippet: sidFor("Equivalent products will be considered"), excerpt: "Equivalent products will be considered" }] },
+        };
+      },
+    });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.clauses), h.deps));
+    ok(ho.clauses?.conflict === true && ho.statusZh === "写明了 2 项", "限定品牌 + 接受等效品：结论标出矛盾", ho.clauses);
+    // 结论已记进 decision、交单那一行没写成：续跑原样交回，不再请求
+    const rows2 = h.rows.filter((r) => r.kind !== "finish");
+    const h2 = makeHarness({ rows: rows2, pages, decide: () => ({}) });
+    const ho2 = handoffOf(await runResearchBranch(h2.ctx(RESEARCH_STEP_IDS.clauses), h2.deps));
+    ok(h2.prompts.length === 0 && ho2.status === "found" && JSON.stringify(ho2.clauses) === JSON.stringify(ho.clauses), "续跑：交回已记下的结论，不再请求");
+  }
+
+  console.log("\n[审查后：同类项目员的组名、模型后来不可用、规格关键词]");
+  {
+    const h = makeHarness({
+      search: () => HITS,
+      decide: (i) =>
+        i === 0
+          ? { next: { action: "search", query: "office chairs award" } }
+          : i === 1
+            ? { next: { action: "read", url: A } }
+            : i === 2
+              ? {
+                  facts: [
+                    { factType: "award_amount", value: "$230,000.00", excerpt: "Total value: $230,000.00 for 10,000 office chairs", group: "Lot 1" },
+                    { factType: "quantity", value: "10,000", excerpt: "Total value: $230,000.00 for 10,000 office chairs", group: "Lot 1" },
+                    { factType: "award_amount", value: "US$200,000", excerpt: "Total value: US$200,000 for 8,000 office chairs", group: "Lot 2" },
+                    { factType: "quantity", value: "8,000", excerpt: "Total value: US$200,000 for 8,000 office chairs", group: "Lot 2" },
+                  ],
+                  next: { action: "search", query: "more" },
+                }
+              : "not json",
+    });
+    h.world.handlers.set(A, () => html(AWARDS_PAGE));
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.similar), h.deps));
+    ok((ho.records ?? []).map((r) => r.unitPrice).join(",") === "23.00,25.00", "组名「Lot 1」「Lot 2」：两条记录、单价各自算（不拼成 28.75）", ho.records?.map((r) => r.unitPrice));
+    ok(ho.status === "found" && ho.notFound.some((n) => n.messageZh === TEXT_ZH.modelUnavailable), "后来模型连续不可用：状态按记录数，原因里写明未接通", ho.notFound);
+    ok(h.prompts[0]!.userPrompt.includes("规格关键词：office, chair, replacement"), "项目资料里有规格关键词", h.prompts[0]!.userPrompt.slice(0, 400));
+    ok(ho.clauses === null && Array.isArray(ho.records), "授标支的交接单：records 是数组、clauses 为 null");
+  }
+  {
+    // 测试注入漏了会发请求的那几项：直接报错，不悄悄走生产实现
+    const { __setResearchTreeDepsForTest, externalDeps } = await import("@/lib/tender-research-tree/deps");
+    const prev = process.env.NODE_ENV;
+    (process.env as Record<string, string>).NODE_ENV = "test";
+    __setResearchTreeDepsForTest({ search: async () => ({ status: "EMPTY", hits: [], httpStatus: 200 }) });
+    let threw = false;
+    try {
+      await externalDeps().openData("q", {});
+    } catch {
+      threw = true;
+    }
+    __setResearchTreeDepsForTest(null);
+    (process.env as Record<string, string | undefined>).NODE_ENV = prev;
+    ok(threw, "测试注入漏了 openData：调用就报错（不去连 open.canada.ca）");
   }
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
