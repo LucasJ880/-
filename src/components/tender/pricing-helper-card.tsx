@@ -22,6 +22,7 @@ import {
   type OurCostSourceClaim,
 } from "@/lib/tender-pricing/compare-cost-source";
 import { CompareCostSourceBlock, MarkupHint } from "./pricing-compare-source";
+import { COST_ACCESS_HINT_ZH, COST_HIDDEN_FIELD_ZH, COST_HIDDEN_NOTE_ZH, COST_TARGET_MARGIN_NOTE_ZH } from "@/lib/tender-pricing/finance-view";
 
 type Payload = {
   runId: string | null;
@@ -41,6 +42,10 @@ type Payload = {
   note: string | null;
   /** FLOW-H2：开关开启时才有 */
   compareCost?: CompareCostView;
+  /** CHAIN-2b：没有财务查看权时为 true（我方成本为 null、情景按没有成本算） */
+  costHidden?: boolean;
+  /** CHAIN-2b：没有财务查看权、开关开着时为 true（不带成本建议） */
+  compareCostHidden?: boolean;
 };
 
 const ORIGIN_LABEL: Record<Payload["modelOrigin"], string> = {
@@ -68,6 +73,7 @@ export function PricingHelperCard({
   const [data, setData] = useState<Payload | null>(null);
   const [busy, setBusy] = useState<"save" | "derive" | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [msgIsError, setMsgIsError] = useState(false);
   const [form, setForm] = useState<{ competitor: string; cost: string; margin: string }>({
     competitor: "",
     cost: "",
@@ -98,6 +104,7 @@ export function PricingHelperCard({
   const post = async (body: Record<string, unknown>, kind: "save" | "derive") => {
     setBusy(kind);
     setMsg(null);
+    setMsgIsError(false);
     try {
       const res = await apiFetch(`/api/projects/${projectId}/pricing-helper`, {
         method: "POST",
@@ -105,7 +112,12 @@ export function PricingHelperCard({
         body: JSON.stringify(body),
       });
       const json = (await res.json()) as { error?: string; via?: string; keptHumanOverride?: boolean };
-      if (!res.ok) setMsg(json.error ?? "操作失败");
+      if (!res.ok) {
+        setMsg(json.error ?? "操作失败");
+        setMsgIsError(true);
+        // CHAIN-2b：成本不能改（403）时保留表单里刚填的对手价与目标毛利，不重新读取
+        if (res.status === 403) return;
+      }
       else if (kind === "derive")
         setMsg(
           json.keptHumanOverride
@@ -122,12 +134,13 @@ export function PricingHelperCard({
 
   const save = () => {
     const n = (s: string) => (s.trim() === "" ? null : Number(s));
+    // CHAIN-2b：没有财务查看权时不带我方成本（带了会被 403）
     void post(
       {
         action: "save",
         inputs: {
           competitorPriceCad: n(form.competitor),
-          ourCostCad: n(form.cost),
+          ...(data.costHidden ? {} : { ourCostCad: n(form.cost) }),
           targetMarginPct: n(form.margin),
         },
         ...(costClaim ? { ourCostSource: costClaim } : {}),
@@ -139,6 +152,9 @@ export function PricingHelperCard({
   const m = data.model;
   const r = data.result;
   const cc = data.compareCost;
+  const costHidden = data.costHidden === true;
+  // 目标毛利写法与成本加成提示只由目标毛利算出：开关开着时（有建议，或没有财务查看权而只带 compareCostHidden）都显示
+  const compareOn = !!cc || data.compareCostHidden === true;
   // 按钮只填输入框，不保存
   const fill = () => {
     if (!cc) return;
@@ -223,9 +239,14 @@ export function PricingHelperCard({
               [
                 ["competitor", "对手价"],
                 ["cost", "我方成本"],
-                ["margin", cc ? TARGET_MARGIN_ON_PRICE_ZH : "目标毛利 %"],
+                ["margin", compareOn ? TARGET_MARGIN_ON_PRICE_ZH : "目标毛利 %"],
               ] as const
-            ).map(([k, label]) => (
+            ).map(([k, label]) => k === "cost" && costHidden ? (
+              <p key={k} className="text-[10px] text-muted" data-testid="pricing-cost-hidden">
+                我方成本
+                <span className="mt-0.5 block text-[11px] text-foreground/80">{COST_HIDDEN_FIELD_ZH}</span>
+              </p>
+            ) : (
               <label key={k} className="text-[10px] text-muted">
                 {label}
                 <input
@@ -242,7 +263,8 @@ export function PricingHelperCard({
               </label>
             ))}
           </div>
-          <MarkupHint enabled={!!cc} margin={form.margin} />
+          <MarkupHint enabled={compareOn} margin={form.margin} />
+          {costHidden ? <p className="mt-1 text-[10px] text-muted">{COST_TARGET_MARGIN_NOTE_ZH}</p> : null}
           {canManage ? (
             <button
               type="button"
@@ -254,11 +276,23 @@ export function PricingHelperCard({
               {busy === "save" ? "保存中…" : "保存并重算"}
             </button>
           ) : null}
-          {msg ? <span className="ml-2 text-[10px] text-muted">{msg}</span> : null}
+          {msg ? (
+            <span className={`ml-2 text-[10px] ${msgIsError ? "text-danger" : "text-muted"}`} role="status" aria-live="polite">
+              {msg}
+            </span>
+          ) : null}
         </div>
       </div>
 
       {cc ? <CompareCostSourceBlock view={cc} canManage={canManage} onFill={fill} /> : null}
+
+      {/* CHAIN-2b：没有财务查看权时，情景表上方说明少了什么、找谁 */}
+      {costHidden && r ? (
+        <p className="mt-3 text-[11px] text-muted" data-testid="pricing-cost-hidden-note">
+          {COST_HIDDEN_NOTE_ZH}
+          {COST_ACCESS_HINT_ZH}
+        </p>
+      ) : null}
 
       {/* 情景表 */}
       {r && r.scenarios.length > 0 ? (
@@ -278,7 +312,7 @@ export function PricingHelperCard({
                 <th className="py-1 pr-2">价格分 我/对</th>
                 <th className="py-1 pr-2">总分 我/对</th>
                 <th className="py-1 pr-2">差</th>
-                <th className="py-1 pr-2">{cc ? MARGIN_ON_PRICE_ZH : "毛利"}</th>
+                {costHidden ? null : <th className="py-1 pr-2">{cc ? MARGIN_ON_PRICE_ZH : "毛利"}</th>}
               </tr>
             </thead>
             <tbody>
@@ -291,9 +325,11 @@ export function PricingHelperCard({
                   <td className={`py-1 pr-2 font-mono ${s.deltaPts > 0 ? "text-emerald-700" : s.deltaPts < 0 ? "text-danger" : ""}`}>
                     {s.deltaPts > 0 ? "+" : ""}{s.deltaPts}
                   </td>
-                  <td className={`py-1 pr-2 font-mono ${s.marginPct != null && s.marginPct < 0 ? "text-danger" : ""}`}>
-                    {s.marginPct == null ? "—" : `${s.marginPct}%`}
-                  </td>
+                  {costHidden ? null : (
+                    <td className={`py-1 pr-2 font-mono ${s.marginPct != null && s.marginPct < 0 ? "text-danger" : ""}`}>
+                      {s.marginPct == null ? "—" : `${s.marginPct}%`}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -303,11 +339,14 @@ export function PricingHelperCard({
         <p className="mt-3 text-[11px] text-muted">{r.breakEvenNoteZh}</p>
       ) : null}
 
-      {r && r.assumptionsZh.length > 0 ? (
+      {/* CHAIN-2b：没有财务查看权时那句已经写在情景表上方，假设说明里不再重复 */}
+      {r && r.assumptionsZh.filter((a) => !(costHidden && a === COST_HIDDEN_NOTE_ZH)).length > 0 ? (
         <ul className="mt-2 list-disc pl-4 text-[10px] text-muted">
-          {r.assumptionsZh.map((a, i) => (
-            <li key={i}>{a}</li>
-          ))}
+          {r.assumptionsZh
+            .filter((a) => !(costHidden && a === COST_HIDDEN_NOTE_ZH))
+            .map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
         </ul>
       ) : null}
     </div>
