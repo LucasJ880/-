@@ -32,7 +32,7 @@
   - 原因顺序改为：具体码 → 已知标记 → 笼统码 → 执行出错；已知标记里余额不足排第一，从 `constants.ts` 取同一份识别规则。
   - 写进分析记录的错误码取失败步骤的。
   - verify：`npx tsx src/lib/tender-workforce/__tests__/job-failure-surfacing.test.ts` 与 `NODE_ENV=test npx tsx src/lib/tender-workforce/__tests__/job-failure-surfacing-db.isolated.test.ts` 全过。场景包括：分析记录与 `[tender-alert]` 的码为 `model_quota_exhausted`；三处原因一字不差；通知不含 `quota` 与「前置步骤没有完成」。
-- [ ] 2.5 界面。
+- [x] 2.5 界面。
   - `src/app/(main)/workforce/[id]/page.tsx`：进度一节写受阻原因与重试句，任务行写重试句，最终结果写综合汇总未生成。
   - `trigger-service.ts` 卡片接口加 `retrying`、`blockedReason`、`synthesisNotGenerated`。
   - 项目卡片：进行中那一行与待审阅那一行。FIX-18 已合并时写进 `src/lib/tender-workforce/agent-card-view.ts`，否则写在 `agent-card.tsx`。组件不自己拼原因文字。
