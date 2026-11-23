@@ -147,7 +147,7 @@
 
 ## 7. 上线顺序与询价开关的前提
 
-三个询价开关（`TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED`、`TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`）要以下四条都满足才开（G2 已定 A：不拆，没有「询价回信先合」的捷径；要在 FIX-14 合并之前开，先回 GATE 重新定 G2）：
+三个询价开关（`TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED`、`TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`）要以下四条都满足才开（G2 已定 A：不拆，没有「询价回信先合」的捷径；要在 FIX-14 合并之前开，先回 GATE 重新定 G2）：（以 `docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 第 7 行为准：FIX-24 在这四条之后加了 ⑤「FIX-24 只读核查」。）
 
 1. CHAIN-4b staging 真实标包实测已做（TASKFLOW CHAIN-4b 行）；
 2. FIX-14（PR #569）已合并、且那次生产部署成功（在 Vercel → Deployments 按合并提交核对）；
@@ -263,7 +263,7 @@ ROLLBACK;
 3. **报价成本表**：3b 名单按创建人交给各自的人，在报价的成本导入面板里重新「上传并抽取」同一份文件（`reimported_since` 为真的已经重新导入过，可以跳过）。
 4. **采购附件（G1 已定 A：不写补救代码）**：1a、1b 都为零就结束。认领不满 5 次、还停在「解析中」的附件不用管，每小时 25 分的 `tender-watch` 会自己重跑。有 1a / 1b 的，按 G1-A 的字段改法走 Owner Gate（Evan 拍板）做一次生产写操作：1a 类把 `parseAttempts` 改成 0；1b 类把 `parseStatus` 改回 `PENDING`、`parseAttempts` 改成 0。之后由 `tender-watch` 自动重新认领（解析单元按 `(attachmentId, unitIndex)`、明细按 `(attachmentId, dedupeKey)` 跳过已有的，分析多一个版本），不用人点。1b 的查法可能混进少数真的没有明细、又没跑过分析的文件，重跑对它们无害。
 5. **AI 对话**：改动前写库失败的消息没有存下，查不出名单，不用做；用户重发即可。
-6. 上面几步做完、§7 的四条前提都满足，才打开询价开关（核查表第 7 行的日期晚于 FIX-14 与 FIX-24 的部署日期，三个白名单只填 Sunny 的组织 id）。
+6. 上面几步做完、§7 的四条前提都满足，才打开询价开关（核查表第 7 行的日期晚于 FIX-14 与 FIX-24 的部署日期，三个白名单只填 Sunny 的组织 id）。以核查表第 7 行为准（FIX-24 加了 ⑤：只读核查 `docs/acceptance/fix-24/prod-check.sql`，第 7 项日期还要晚于这次核查或修复后重跑的日期）。
 
 ## 10. GATE 六条的结论（Lucas 2026-11-22，都与原推荐相同）
 

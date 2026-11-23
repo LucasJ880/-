@@ -5,7 +5,7 @@
 >    - 四件套按 main `2a0eb964` 写行号；FIX-14 合并后的版本见 design「相邻改动」（起草时对照 `e2b4cd83`，审查时 `101efab9`，以合并时为准）。
 >    - 合入后逐处复核 `inbound-apply.ts`、`inbound-parse.ts`、`notes-parse.ts`、两个测试脚本、`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 的 FIX-24 一行与 CHAIN-0 一行、`docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 第 7 项。对不上就先改四件套、跑 `openspec validate inbound-notes-filename-forgery --strict`，再动代码。
 >    - 复核 FIX-14 附件提示句的最终原文。design 里引的是「…多半是勾选框；请打开原件核对勾选项和价格」，3.2 的 SQL 照原文排除。
-> 2. design「留给 GATE」三条已定：1 = A、2 = B + 整段 R3、R4、R5、3 = A（协调会话 2026-11-23 定，Lucas 2026-11-22 授权按推荐）。下面各条按这个结论写，没有分支。
+> 2. design「留给 GATE」三条已定：1 = A、2 = B + 整段 R3（按多维审查收窄）、R4、R5、3 = A（协调会话 2026-11-23 定，Lucas 2026-11-22 授权按推荐）。下面各条按这个结论写，没有分支。
 > 3. 开工前跑一遍将要触碰模块的已注册测试，记下通过数，写进报告草稿。
 >    - main 上实测：`notes-parse.test.ts` 17、`inbound-apply.test.ts` 72、`inbound-parse.test.ts` 38、`chase-pure.test.ts` 55、`compare.test.ts` 47、`tracker-pure.test.tsx` 89。
 >    - 合入后再记：`tracking-notify.test.ts` 与 FIX-14 的 `src/lib/files/__tests__/extracted-text-other-paths.test.ts`。
@@ -46,6 +46,13 @@
     - `notes-parse.test.ts`、`chase-pure.test.ts`、`compare.test.ts`、`tracker-pure.test.tsx`、`tracking-notify.test.ts`、`src/lib/files/__tests__/extracted-text-other-paths.test.ts` 通过数与开工前相同；
     - `git diff origin/main -- src/lib/tender-rfq/notes-parse.ts | grep -E '^[-+]export'` 无输出；`npm run typecheck` 退出码 0。
 
+- [x] 2.4 按多维审查修订（协调会话 2026-11-23 的修订清单）。
+  - `notes-parse.ts`：R1 行头按原始行匹配、只对正文换空格（Q1 / M1）；R3 按多维审查收窄（K3、Q5，design D4）；导出写入顺序表 `AUTO_NOTES_WRITE_ORDER`（M6）。
+  - `inbound-apply.ts`：「（证据：」也中和（K1）；强制项编号过同一个中和（Q4）。
+  - `compare-service.ts`：取数循环原样抽成 `toCompareInputs`（M8，design D8）。
+  - `notes-forgery.test.ts` 补 M2–M7、Q1、K1、K3、Q4、Q5、P3、P4 与可选各条；每条新断言在对应源码变异下跑一次（28 个变异），确认失败，记数字，再还原。
+  - verify：`notes-forgery.test.ts` 120 / 0；28 个变异每个都有新断言失败、还原后 120 / 0；既有测试通过数与开工前相同；`npm run typecheck` 退出码 0。
+
 ## 3. 验收
 
 - [x] 3.1 全部门禁。
@@ -57,7 +64,7 @@
     - `bash scripts/check-test-registry.sh` OK；
     - `OPENSPEC_TELEMETRY=0 openspec validate inbound-notes-filename-forgery --strict` valid；
     - 开工前提第 3 条记下的通过数不减。
-- [x] 3.2 写 `docs/acceptance/fix-24/prod-check.sql`，内容是 design Migration Plan 的 A、B、C、C0、D 五段：`BEGIN READ ONLY` 开头、`ROLLBACK` 结尾，中间只有 `SET LOCAL` 与 SELECT / WITH。
+- [x] 3.2 写 `docs/acceptance/fix-24/prod-check.sql`，内容是 design Migration Plan 的 A、B、C、C0、D 五段：`BEGIN READ ONLY` 开头、`ROLLBACK` 结尾，中间只有 `SET LOCAL`、SELECT / WITH 与 psql 的 `\echo` / `\gset` / `\if`。多维审查后：输出不出价格与原文、带项目名 / 轮次 / 供应商名 / 链接，B 段加「比价还采信这次回信吗」、口径与读取规则一致，`[0-9]` 代替 `\d`，不合法的审计原文挪进 C0（Q2、Q3、Q6、P5、W2、W3、W8）；新增隔离库回归测试 `src/lib/tender-rfq/__tests__/prod-check-fix24-db.isolated.test.ts`（M9），注册进 `scripts/test-all.sh`，每个条件一个 SQL 变异跑过。
   - 在隔离库上用一次性种子跑一遍。种子不进仓库，审计都是 `targetType = 'rfq_inbound_message'`、`action = 'rfq_inbound:applied'`、`afterData` 带对应 `itemId`、时间在行头之后 2 分钟内：
     - 真实条目甲：四行，**每行都配一条对得上的审计**：
       - ① 正常段；
@@ -75,10 +82,11 @@
       - 带反斜杠加「u0000」文字（JSON 里是 `\\u0000`）；
       - 带落单代理字符转义 `\ud800`。
     - 一个币种为「.*.」的条目。
-  - verify：
+  - verify（初版种子）：
     - 整个文件跑完、中途不报错；
     - A 段正好 4 行（乙②③④⑤），B 段正好 3 行（甲②③④），C 段正好 2 行（甲②的文件名、甲③的价格证据），C0 段正好 1 行，D 段正好 1 行；
     - 输出存进报告；
+  - verify（多维审查后）：`NODE_ENV=test DATABASE_ENVIRONMENT=isolated … npx tsx src/lib/tender-rfq/__tests__/prod-check-fix24-db.isolated.test.ts` 在 `qy_iso_a` 上退出码 0；30 个 SQL 变异除 SQ-A7（这个库 `C.UTF-8` 排序规则下 `\d` 与 `[0-9]` 等价）外都让它失败；
     - `grep -vE '^\s*(--|$)' docs/acceptance/fix-24/prod-check.sql` 里没有 INSERT / UPDATE / DELETE / ALTER / CREATE / DROP。
 - [x] 3.3 写 `docs/QINGYAN_FIX-24_REPORT.md` + 更新 TASKFLOW 状态列。
   - 报告：
@@ -93,7 +101,7 @@
       - A 段不为 0 时另开 change 做一次性修复（Owner Gate），修完再跑一次。
   - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：
     - 改写「Phase F（续）— 情报串联」表里已有的 FIX-24 一行（FIX-14 已登记，main `fbacf6bd` 上状态 `[ ]`），写成本 change 的说明，依赖 FIX-14，状态 `[~]`，不另加第二行；
-    - CHAIN-0 一行：核对已有的 ④「FIX-24 已合并部署」，在其后加 ⑤「FIX-24 只读核查（`docs/acceptance/fix-24/prod-check.sql`）A 段为 0 行或已处理」。
+    - CHAIN-0 一行：核对已有的 ④「FIX-24 已合并部署」，在其后加 ⑤（A 段为 0 行；不为 0 时按 TASKFLOW「FIX-24 后续 4」另开 change 删掉伪造行、重跑核查；剩下的每一行写明为什么是真实行，经 Owner Gate 逐行确认，记在核查表验证表第 7 项）。
   - `docs/QINGYAN_CHAIN-0_ENV_CHECK.md`：
     - 填写顺序与第 7 行「建议值」同样核对 ④、加 ⑤；
     - 「验证」表第 7 项一行写明 ⑤ 的证据：只读核查跑的日期与 A 段行数。
