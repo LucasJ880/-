@@ -88,6 +88,11 @@ console.log("BIDPAGE-1 新页面与入口");
   ok(/useEffect\(\(\) => \{\s*if \(!onV2\) return;\s*const onFocus/.test(effectBody), "改版前的页面上不挂「回到标签页刷新」的监听（只在新页面上挂）", effectBody);
   const loadBody = entrySrc.slice(entrySrc.indexOf("const load = useCallback("), entrySrc.indexOf("}, [projectId]);"));
   ok(loadBody.length > 50 && !/console\.|toast|location|router|history|localStorage|sessionStorage|document\.cookie/.test(loadBody), "入口取数这一段没有打日志、提示、跳转、改地址、写存储", loadBody);
+  // 整个入口文件与取数函数所在文件：都没有日志、提示、跳转、改地址、写存储（另起 effect 打日志、401 跳登录这类坏改动也抓得到）
+  const sideEffects = /console\.|toast|window\.location|location\.(assign|replace|href)|router\.|useRouter|history\.|localStorage|sessionStorage|document\.cookie|alert\(/;
+  ok(!sideEffects.test(entrySrc), "入口组件文件里没有日志、提示、跳转、改地址、写存储", entrySrc.match(sideEffects));
+  ok(!sideEffects.test(stripComments(read("src/components/bid-page-v2/entry-mode.ts"))), "取数函数文件（entry-mode.ts）里没有日志、提示、跳转、改地址、写存储");
+  ok((entrySrc.match(/useEffect\(/g) ?? []).length === 2, "入口只有两个 effect：挂载时取一次、新页面上挂焦点监听（没有另起的 effect）", (entrySrc.match(/useEffect\(/g) ?? []).length);
   ok(!/sessionStorage|localStorage/.test(entrySrc) && !/sessionStorage|localStorage/.test(stripComments(read("src/components/bid-page-v2/entry-mode.ts"))), "入口不在浏览器里记「开过」（开过再关时第一次渲染仍是改版前页面）");
   ok(!/apiJson|apiFetch/.test(entrySrc), "入口不用 apiJson（401 时不跳登录、没有副作用）");
   const modeSrc = stripComments(read("src/components/bid-page-v2/entry-mode.ts"));
@@ -173,7 +178,7 @@ async function entryFlow() {
   ok(!/china-supplier-brief|ChinaSupplierBriefPanel/.test(pageSrc), "新页面不引入国内供应商简报面板");
   ok(["TenderSourcingEntry", "ProjectInquirySection", "ProjectSupplierLinks", "BidWorkspacePanel", "TenderOurBidCard", "BidQuoteArea", "ProjectGenerateMenu", "VersionHistoryDrawer"].every((c) => new RegExp(`<${c}\\b`).test(pageSrc)), "三个分区挂既有组件，版本历史用同一个抽屉");
 
-  const toReq = decideBidPageNextStep(facts({ analysisStatus: "REVIEW_REQUIRED", inquiry: { askedCount: 0, respondedCount: 0, quotedCount: 0, repliedNoQuoteCount: 0, waitingSince: null } }));
+  const toReq = decideBidPageNextStep(facts({ analysisStatus: "REVIEW_REQUIRED", inquiry: { askedCount: 0, respondedCount: 0, quotedCount: 0, repliedNoQuoteCount: 0, waitingCount: 0, waitingSince: null } }));
   const reqHtml = render(<BidPageV2 projectId="p1" orgId="o1" canManage view={toReq} />);
   ok(toReq.rule === "requirements_unapproved" && openOf(reqHtml, "sourcing") && reqHtml.includes("去「招标要求」"), "下一步指向招标要求时展开 ①", toReq.rule);
   const also = decideBidPageNextStep(facts({ analysisStatus: "REVIEW_REQUIRED" }));
@@ -242,7 +247,7 @@ async function entryFlow() {
   const pageSrc = stripComments(read("src/components/bid-page-v2/bid-page-v2.tsx"));
   ok(/window\.addEventListener\("hashchange", expandForHash\)/.test(pageSrc) && /sectionForAnchor\(hash\)/.test(pageSrc), "挂载时与 hashchange 时按 #位置 展开分区");
   ok(/scrollIntoView\(\{ behavior: "auto", block: "start" \}\)/.test(pageSrc.slice(pageSrc.indexOf("const expandForHash"), pageSrc.indexOf("expandForHash();"))), "按 #位置 展开后自己滚过去一次（不只靠项目页 1.6 秒的重滚）");
-  const toSourcing = decideBidPageNextStep(facts({ supplierCount: 0, inquiry: { askedCount: 0, respondedCount: 0, quotedCount: 0, repliedNoQuoteCount: 0, waitingSince: null } }));
+  const toSourcing = decideBidPageNextStep(facts({ supplierCount: 0, inquiry: { askedCount: 0, respondedCount: 0, quotedCount: 0, repliedNoQuoteCount: 0, waitingCount: 0, waitingSince: null } }));
   ok(toSourcing.expanded === "sourcing" && initialOpenSection("#bid-quote-area", toSourcing) === "quote", "#位置 优先：下一步指向 ①、地址带 #bid-quote-area → 展开 ②");
   ok(initialOpenSection("", toSourcing) === "sourcing" && initialOpenSection("#project-discussion", toSourcing) === "sourcing", "没有 #位置（或不认识）→ 展开下一步指向的那个");
   ok(/useEffect\(\(\) => \{\s*if \(userTouched\.current \|\| sectionForAnchor\(window\.location\.hash\)\) return;/.test(pageSrc), "汇总刷新后跟着「下一步」展开：人自己开合过、或地址里有 #位置 时不动");
