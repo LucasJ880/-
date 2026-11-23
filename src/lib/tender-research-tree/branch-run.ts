@@ -2,13 +2,14 @@
  * 情报调研树的一支（`tender_research_branch` 的处理函数）：一个有上限的循环，一轮 = 一次模型请求。
  *
  * 每一轮：模型提出下一步（搜索 / 读页 / 结束）与针对上一页的事实；代码执行并扣额度；直到模型结束或额度用完。
- * 跨处理切片续跑：每一轮先记审计（research.branch_step）再发请求，续跑时从审计恢复；快到截止就让出。
- * 任何问题（模型不可用、搜索未接通、被挡、到上限、内部出错）都交一张写明原因的交接单、正常完成步骤；
- * 只有「不是调研 Job」「计划里没有这一步」这类不该发生的情况返回失败。租约丢了原样抛出交给运行时。
+ * 跨处理切片续跑：每一次模型请求、搜索与读页之前先经租约防栅栏记一条审计（research.branch_step），续跑时从审计
+ * 恢复；快到截止就让出。任何问题（模型不可用、搜索未接通、被挡、到上限、读库出错）都交一张写明原因的交接单、
+ * 正常完成步骤；只有「不是调研 Job」「计划里没有这一步」这类不该发生的情况返回失败。租约丢了原样抛出交给运行时。
  */
 
 import type { AdapterContext, AdapterResult } from "@/lib/agent-runtime-v2/adapters";
 import { LostLeaseError, type RunFence } from "@/lib/agent-runtime/lease";
+import { AGENT_RUN_TERMINAL_STATUSES } from "@/lib/agent-runtime/types";
 import { TENDER_CALL_DEADLINE_CODE } from "@/lib/ai/model-policy";
 import { callStructured } from "@/lib/tender-understanding/llm";
 import { isExternalIntelEnabled } from "@/lib/tender-intel/canadabuys";
@@ -22,6 +23,8 @@ import {
 import { isResearchTreeEnabledForOrgWithEnv } from "./flags";
 import {
   BRANCH_DEFS,
+  BRANCH_STEP_IDS,
+  NUMERIC_FACT_TYPES,
   RESEARCH_STEP_IDS,
   TEXT_ZH,
   branchDefOf,
@@ -34,8 +37,8 @@ import {
   statusLineZh,
   type BranchDef,
 } from "./fork-rules";
-import { checkFact, internalNumberTokens, outboundBlockReason, OUTBOUND_BLOCK_ZH } from "./guards";
-import { RESEARCH_TREE_LIMITS, RESEARCH_TREE_TIMING, effectiveBranchLimits, type BranchLimits } from "./limits";
+import { allowReadableUrl, checkFact, internalNumberTokens, outboundBlockReason, OUTBOUND_BLOCK_ZH, urlBlockReason } from "./guards";
+import { RESEARCH_TREE_LIMITS, RESEARCH_TREE_TIMING, effectiveBranchLimits, effectiveTreeLimits, type BranchLimits } from "./limits";
 import {
   BranchDecisionSchema,
   RESEARCH_BRANCH_PROMPT_NAME,
@@ -45,7 +48,7 @@ import {
   type BranchPromptInput,
   type PublicProjectFacts,
 } from "./prompt";
-import { restoreCursorState, type BranchCursorState, type CursorKind } from "./cursor";
+import { restoreCursorState, treeReadIndex, type BranchCursorState, type CursorKind, type TreeReadEntry } from "./cursor";
 import { CURSOR_TAKE, externalDeps, productionStore, type ResearchExternalDeps, type ResearchProjectRow, type ResearchStore } from "./deps";
 import { RESEARCH_HANDOFF_VERSION, type FoundFact, type ResearchHandoffV1 } from "./types";
 
@@ -61,10 +64,13 @@ export type ResearchJobCheck =
   | { ok: true; projectId: string; initiatedByUserId: string }
   | { ok: false; error: string };
 
-/** 工具只在调研 Job 里跑：组织一致、调研标记齐全、发起方式是人发起的几种 */
-export function checkResearchJob(job: { orgId: string; metadata: unknown } | null, orgId: string): ResearchJobCheck {
+const FINISHED: ReadonlySet<string> = new Set(AGENT_RUN_TERMINAL_STATUSES);
+
+/** 工具只在调研 Job 里跑：组织一致、调研标记齐全、发起方式是人发起的几种、Job 没结束 */
+export function checkResearchJob(job: { orgId: string; status?: string; metadata: unknown } | null, orgId: string): ResearchJobCheck {
   if (!job) return { ok: false, error: "RESEARCH_JOB_NOT_FOUND: 调研 Job 不存在" };
   if (job.orgId !== orgId) return { ok: false, error: "RESEARCH_JOB_ORG_MISMATCH: 调研 Job 不属于该组织" };
+  if (typeof job.status === "string" && FINISHED.has(job.status)) return { ok: false, error: "RESEARCH_JOB_FINISHED: 调研 Job 已结束" };
   const m = job.metadata && typeof job.metadata === "object" && !Array.isArray(job.metadata) ? (job.metadata as Record<string, unknown>) : {};
   if (m.researchTree !== true || m.workDomain !== "tender" || m.researchTreeVersion !== 1) {
     return { ok: false, error: "NOT_RESEARCH_JOB: 这不是一条调研 Job" };
@@ -123,14 +129,22 @@ export async function handleResearchBranch(ctx: AdapterContext): Promise<Adapter
 
 export async function runResearchBranch(ctx: AdapterContext, deps: BranchRunDeps): Promise<AdapterResult> {
   const def = branchDefOf(ctx.stepKey);
-  if (!def) return { ok: false, error: `RESEARCH_UNKNOWN_BRANCH: 计划里没有这一支（${String(ctx.stepKey).slice(0, 60)}）` };
   const { external: ext, store } = deps;
 
-  // 开关关：什么都不做（不读库、不写审计、不发请求）
+  // 开关关：什么都不做（不读库、不写审计、不发请求），先于其它任何判断
   if (!isResearchTreeEnabledForOrgWithEnv(ctx.orgId, ext.env)) {
-    return done(staticHandoff(def, "flag_off", TEXT_ZH.flagOff));
+    return def
+      ? done(staticHandoff(def, "flag_off", TEXT_ZH.flagOff))
+      : { ok: true, data: { researchSkipped: { status: "flag_off", messageZh: TEXT_ZH.flagOff } } };
   }
-  const job = await store.loadJob(ctx.runId);
+  if (!def) return { ok: false, error: `RESEARCH_UNKNOWN_BRANCH: 计划里没有这一支（${String(ctx.stepKey).slice(0, 60)}）` };
+  let job: Awaited<ReturnType<ResearchStore["loadJob"]>>;
+  try {
+    job = await store.loadJob(ctx.runId);
+  } catch {
+    // 读库出错：这一支以「出错停下了」收尾，不连累别的支与树干（还没有发出任何请求）
+    return done(staticHandoff(def, "unavailable", TEXT_ZH.internalError));
+  }
   const jc = checkResearchJob(job, ctx.orgId);
   if (!jc.ok) return { ok: false, error: jc.error };
 
@@ -138,17 +152,18 @@ export async function runResearchBranch(ctx: AdapterContext, deps: BranchRunDeps
 
   // 第二波：按分叉规则决定跑不跑
   let alreadyCovered: string[] = [];
+  let reasonZh: string | null = null;
   if (def.wave === 2) {
     const up = (key: string) => handoffFromOutput(ctx.priorEvidence?.[key]);
-    if (def.stepId === RESEARCH_STEP_IDS.wave2Full) {
-      const d = decideWave2Full(up(RESEARCH_STEP_IDS.priorAwards));
-      if (!d.run) return done(staticHandoff(def, "not_needed", d.reasonZh));
-      alreadyCovered = coveredFrom([up(RESEARCH_STEP_IDS.similar)]);
-    } else {
-      const d = decideWave2Relaxed([up(RESEARCH_STEP_IDS.similar), up(RESEARCH_STEP_IDS.wave2Full)]);
-      if (!d.run) return done(staticHandoff(def, "not_needed", d.reasonZh));
-      alreadyCovered = coveredFrom([up(RESEARCH_STEP_IDS.similar), up(RESEARCH_STEP_IDS.wave2Full)]);
-    }
+    const d =
+      def.stepId === RESEARCH_STEP_IDS.wave2Full
+        ? decideWave2Full(up(RESEARCH_STEP_IDS.priorAwards))
+        : decideWave2Relaxed([up(RESEARCH_STEP_IDS.similar), up(RESEARCH_STEP_IDS.wave2Full)]);
+    if (!d.run) return done(staticHandoff(def, "not_needed", d.reasonZh));
+    reasonZh = d.reasonZh;
+    alreadyCovered = coveredFrom(
+      def.stepId === RESEARCH_STEP_IDS.wave2Full ? [up(RESEARCH_STEP_IDS.similar)] : [up(RESEARCH_STEP_IDS.similar), up(RESEARCH_STEP_IDS.wave2Full)],
+    );
   }
 
   const fence = ctx.runFence;
@@ -161,14 +176,27 @@ export async function runResearchBranch(ctx: AdapterContext, deps: BranchRunDeps
     settings = await store.loadOrgSettings(ctx.orgId);
     rows = await store.loadCursorRows(ctx.orgId, ctx.runId, CURSOR_TAKE);
   } catch {
-    // 读库出错：这一支以「未接通」收尾，不连累别的支与树干（还没有发出任何请求）
     return done(staticHandoff(def, "unavailable", TEXT_ZH.internalError));
   }
   if (!project || project.orgId !== ctx.orgId || project.workDomain !== "tender") {
-    return done(staticHandoff(def, "unavailable", "未接通：调研的项目不存在或不是招投标项目"));
+    return done(staticHandoff(def, "unavailable", TEXT_ZH.projectMissing));
   }
-  const limits = effectiveBranchLimits(def.scale, settings);
 
+  // 组织把每棵树的分支数或深度调低了：超出的支不跑（交「到上限」）
+  const tree = effectiveTreeLimits(settings);
+  const index = BRANCH_STEP_IDS.indexOf(def.stepId) + 1;
+  if (index > tree.maxBranches || def.depth > tree.maxDepth) {
+    const h = staticHandoff(def, "unavailable", TEXT_ZH.limit);
+    return done({
+      ...h,
+      status: "limit",
+      statusZh: statusLineZh("limit", 0),
+      reasonZh: index > tree.maxBranches ? `本组织设置每棵树最多 ${tree.maxBranches} 支` : `本组织设置最深 ${tree.maxDepth} 层`,
+      notFound: [{ reason: "limit", messageZh: TEXT_ZH.limit }],
+    });
+  }
+
+  const limits = effectiveBranchLimits(def.scale, settings);
   const loop = new BranchLoop({
     ctx,
     def,
@@ -179,17 +207,25 @@ export async function runResearchBranch(ctx: AdapterContext, deps: BranchRunDeps
     limits,
     initiatedByUserId: jc.initiatedByUserId,
     alreadyCovered,
+    reasonZh,
     state: restoreCursorState(rows, def.stepId),
+    treeReads: treeReadIndex(rows, def.stepId),
     historyOverflow: rows.length > RESEARCH_TREE_LIMITS.CURSOR_MAX_ROWS,
   });
   return loop.run();
 }
 
+/** 第二波的「已经查过的」：上游收下的事实（类型与值）与读过的网址 */
 function coveredFrom(handoffs: ReadonlyArray<ResearchHandoffV1 | null>): string[] {
   const out: string[] = [];
+  const urls = new Set<string>();
   for (const h of handoffs) {
-    for (const f of h?.found ?? []) out.push(`${f.factType}：${f.value}（${f.url}）`);
+    for (const f of h?.found ?? []) {
+      out.push(`${f.factType}：${f.value}`);
+      urls.add(f.url);
+    }
   }
+  for (const u of urls) out.push(`读过：${u}`);
   return out.slice(0, 40);
 }
 
@@ -205,14 +241,17 @@ type LoopInput = {
   limits: BranchLimits;
   initiatedByUserId: string;
   alreadyCovered: string[];
+  reasonZh: string | null;
   state: BranchCursorState;
+  /** 这棵树里别的支请求过的网址（同一网址在一棵树内只读一次） */
+  treeReads: Map<string, TreeReadEntry>;
   historyOverflow: boolean;
 };
 
 type Latest = BranchPromptInput["latest"];
 
 /** 本片里刚读到、还没交给模型提取的页 */
-type FreshPage = { url: string; text: string; fetchedAt: string; truncated: boolean };
+type FreshPage = { url: string; requestedUrl: string; text: string; fetchedAt: string; truncated: boolean; factsAllowed: boolean };
 
 class StopBranch extends Error {
   constructor(readonly unavailableZh: string) {
@@ -220,8 +259,17 @@ class StopBranch extends Error {
   }
 }
 
+/** 主机名去掉开头的 www.：用来判断跳转有没有换站 */
+function siteHostOf(u: string): string {
+  try {
+    return new URL(u).hostname.toLowerCase().replace(/^www\./, "").replace(/\.+$/, "");
+  } catch {
+    return "";
+  }
+}
+
 class BranchLoop {
-  private readonly started: number;
+  private readonly sliceStarted: number;
   private readonly sliceDeadline: number;
   private readonly internalNumbers: string[];
   private readonly searchConfigured: boolean;
@@ -232,20 +280,25 @@ class BranchLoop {
   private latest: Latest = null;
   private page: FreshPage | null = null;
   private ticks = 0;
-  private exhausted = false;
+  private limitHit: boolean;
   private unavailableZh: string | null = null;
+  private stopped = false;
 
   constructor(private readonly i: LoopInput) {
-    this.started = i.ext.now();
+    this.sliceStarted = i.ext.now();
     const budgetDeadline = i.ctx.executionBudget?.deadlineAt;
     this.sliceDeadline =
       typeof budgetDeadline === "number" && Number.isFinite(budgetDeadline)
         ? budgetDeadline
-        : this.started + RESEARCH_TREE_TIMING.DEFAULT_SLICE_MS;
+        : this.sliceStarted + RESEARCH_TREE_TIMING.DEFAULT_SLICE_MS;
     this.internalNumbers = internalNumberTokens([i.project.estimatedValue, i.project.ourBidPrice, i.project.winningBidPrice]);
     this.searchConfigured = isExternalIntelEnabled(i.ext.env as NodeJS.ProcessEnv) && hasWebSearchKey(i.ext.env as NodeJS.ProcessEnv);
+    this.limitHit = i.state.limitHit;
     if (i.state.unextractedPage) {
-      this.latest = { kind: "note", text: `上一片读到了 ${i.state.unextractedPage}，但没来得及提取就让出了；这一页的正文没有保存，不会重读。` };
+      this.latest = {
+        kind: "note",
+        text: `上一轮处理时间到了：读到了 ${i.state.unextractedPage}，但还没来得及提取；这一页的正文没有保存，也不会再读。`,
+      };
     }
   }
 
@@ -257,25 +310,35 @@ class BranchLoop {
     return this.sliceDeadline - this.i.ext.now();
   }
 
+  private searchAvailable(): boolean {
+    return this.searchConfigured && !this.st.searchUnavailable;
+  }
+
   private canSearch(): boolean {
-    return this.searchConfigured && !this.st.searchUnavailable && this.st.searches < this.i.limits.searches;
+    return this.searchAvailable() && this.st.searches < this.i.limits.searches;
   }
 
   private readsUsed(): number {
     return Math.max(this.st.reads, this.readerUsed);
   }
 
+  private readsSpent(): boolean {
+    return this.st.readsClosed || this.readsUsed() >= this.i.limits.reads;
+  }
+
   private unreadUrls(): string[] {
-    return [...this.st.readable.keys()].filter((u) => !this.st.attempted.has(u));
+    return [...this.st.readable.keys()].filter((u) => !this.st.attempted.has(u) && !this.i.treeReads.has(u));
   }
 
   private canRead(): boolean {
-    return !this.readerUnavailable && !this.st.readsClosed && this.readsUsed() < this.i.limits.reads && this.unreadUrls().length > 0;
+    return !this.readerUnavailable && !this.readsSpent() && this.unreadUrls().length > 0;
   }
 
-  /** 先写后发：每条游标都经租约防栅栏写入；写不进去就停（租约丢了原样抛出） */
+  /** 先写后发：每条游标都经租约防栅栏写入（栅栏同时断言租约还在）；写不进去就停（租约丢了原样抛出） */
   private async record(kind: CursorKind, data: Record<string, unknown>): Promise<void> {
     const seq = this.st.nextSeq++;
+    const at = this.i.ext.now();
+    if (this.st.firstAt === null) this.st.firstAt = at;
     try {
       await this.i.fence.guard((client) =>
         this.i.store.writeCursorRow(client, {
@@ -285,7 +348,7 @@ class BranchLoop {
           branchKey: this.i.def.stepId,
           seq,
           kind,
-          data,
+          data: { ...data, at },
         }),
       );
     } catch (err) {
@@ -294,24 +357,19 @@ class BranchLoop {
     }
   }
 
-  /** 每次外部请求之前：租约还在才发 */
-  private async ensureLease(): Promise<void> {
-    if (!(await this.i.fence.check())) throw new LostLeaseError(this.i.ctx.runId);
-  }
-
   async run(): Promise<AdapterResult> {
     if (this.st.finished) return done(this.st.finished);
     try {
       if (this.i.historyOverflow) {
-        this.exhausted = true;
+        this.limitHit = true;
         return await this.finish();
       }
       for (;;) {
         // 上一片留下的、还没执行的决定先执行（不为同一个决定再请求一次模型）
         if (this.st.pending) {
           const p = this.st.pending;
-          if (p.action === "read" && this.remainingMs() < RESEARCH_TREE_TIMING.MIN_READ_TURN_MS) return yieldSlice(this.i.def.stepId, this.ticks);
-          if (p.action === "search" && this.remainingMs() < RESEARCH_TREE_TIMING.MIN_TURN_MS) return yieldSlice(this.i.def.stepId, this.ticks);
+          const need = p.action === "read" ? RESEARCH_TREE_TIMING.MIN_READ_TURN_MS : RESEARCH_TREE_TIMING.MIN_TURN_MS;
+          if (this.remainingMs() < need) return yieldSlice(this.i.def.stepId, this.ticks);
           this.st.pending = null;
           if (p.action === "search") await this.doSearch(p.query);
           else await this.doRead(p.url);
@@ -323,15 +381,14 @@ class BranchLoop {
           return await this.finish();
         }
         if (this.st.modelCalls >= this.i.limits.modelCalls) {
-          this.exhausted = true;
+          this.limitHit = true;
           return await this.finish();
         }
         if (!this.canSearch() && !this.canRead() && !this.page) {
           // 什么都做不了：额度用完记到上限；否则是搜索没接通
-          const searchSpent = this.st.searches >= this.i.limits.searches;
-          const readSpent = this.st.readsClosed || this.readsUsed() >= this.i.limits.reads;
-          if (searchSpent || (readSpent && this.st.readable.size > 0)) this.exhausted = true;
-          else this.unavailableZh = TEXT_ZH.searchUnavailable;
+          const searchSpent = this.searchAvailable() && this.st.searches >= this.i.limits.searches;
+          if (searchSpent || (this.readsSpent() && this.st.readable.size > 0)) this.limitHit = true;
+          else if (!this.searchAvailable()) this.unavailableZh = TEXT_ZH.searchUnavailable;
           return await this.finish();
         }
         if (this.remainingMs() < RESEARCH_TREE_TIMING.MIN_TURN_MS) return yieldSlice(this.i.def.stepId, this.ticks);
@@ -340,12 +397,9 @@ class BranchLoop {
       }
     } catch (err) {
       if (err instanceof LostLeaseError) throw err;
-      if (err instanceof StopBranch) {
-        this.unavailableZh = err.unavailableZh;
-        return this.finishWithoutRecord();
-      }
-      this.unavailableZh = TEXT_ZH.internalError;
-      return this.finishWithoutRecord();
+      this.unavailableZh = err instanceof StopBranch ? err.unavailableZh : TEXT_ZH.internalError;
+      this.stopped = true;
+      return done(this.buildHandoff());
     }
   }
 
@@ -355,13 +409,11 @@ class BranchLoop {
     const turn = this.st.modelCalls + 1;
     await this.record("model_call", { turn });
     this.st.modelCalls += 1;
-    await this.ensureLease();
     const page = this.page;
     this.invoker ??= this.i.ext.invokerFor({ orgId: this.i.ctx.orgId, userId: this.i.initiatedByUserId });
-    const invoker = this.invoker;
     const callDeadline = Math.max(this.i.ext.now() + 1_000, this.sliceDeadline - RESEARCH_TREE_TIMING.CALL_MARGIN_MS);
     const res = await callStructured(
-      invoker,
+      this.invoker,
       {
         promptName: RESEARCH_BRANCH_PROMPT_NAME,
         promptVersion: RESEARCH_BRANCH_PROMPT_VERSION,
@@ -377,11 +429,12 @@ class BranchLoop {
     );
     if (!res.ok) {
       await this.record("decision", { turn, ok: false, errorCode: res.errorCode });
-      this.st.consecutiveModelFailures += 1;
       this.st.history.push(`（第 ${turn} 次模型请求没有交回可用的结果）`);
       // 刚读到的页留着，下一轮还能提取（同一片里）；没有页时提示重新给出下一步
       if (!page) this.latest = { kind: "note", text: "上一次请求没有交回可用的结果，请重新给出下一步。" };
+      // 撞到这一片的截止：不算模型失败，下一片接着做
       if (res.errorCode === TENDER_CALL_DEADLINE_CODE) return "yield";
+      this.st.consecutiveModelFailures += 1;
       return "continue";
     }
     this.page = null;
@@ -392,17 +445,34 @@ class BranchLoop {
     const accepted: FoundFact[] = [];
     let rejected = 0;
     const room = RESEARCH_TREE_LIMITS.MAX_FACTS_PER_BRANCH - this.st.facts.length;
+    const keyOf = (f: { url: string; factType: string; value: string }) => `${f.url}\u0000${f.factType}\u0000${f.value.trim().toLowerCase()}`;
+    const known = new Set(this.st.facts.map(keyOf));
     for (const c of v.facts.slice(0, RESEARCH_TREE_LIMITS.MAX_FACTS_PER_TURN)) {
-      if (!page || accepted.length >= room) {
+      if (!page || !page.factsAllowed) {
         rejected += 1;
         continue;
       }
-      const chk = checkFact(c, page.text, this.i.def.factTypes);
+      const chk = checkFact(c, page.text, this.i.def.factTypes, NUMERIC_FACT_TYPES);
       if (!chk.ok) {
         rejected += 1;
         continue;
       }
-      accepted.push({ factType: chk.factType, value: chk.value, url: page.url, excerpt: chk.excerpt, fetchedAt: page.fetchedAt, source: "web" });
+      // 先去重（重复的不占名额、也不算丢弃），再按名额截
+      if (known.has(keyOf({ url: page.url, factType: chk.factType, value: chk.value }))) continue;
+      if (accepted.length >= room) {
+        rejected += 1;
+        continue;
+      }
+      known.add(keyOf({ url: page.url, factType: chk.factType, value: chk.value }));
+      accepted.push({
+        factType: chk.factType,
+        value: chk.value,
+        url: page.url,
+        ...(page.requestedUrl !== page.url ? { requestedUrl: page.requestedUrl } : {}),
+        excerpt: chk.excerpt,
+        fetchedAt: page.fetchedAt,
+        source: "web",
+      });
     }
     rejected += Math.max(0, v.facts.length - RESEARCH_TREE_LIMITS.MAX_FACTS_PER_TURN);
     const fresh = dedupeFacts([...this.st.facts, ...accepted]).slice(this.st.facts.length);
@@ -411,7 +481,16 @@ class BranchLoop {
       .map((s) => ({ kind: s.kind.trim().slice(0, 40), reasonZh: s.reason.trim().slice(0, 200) }))
       .filter((s) => s.kind && s.reasonZh);
 
+    // 外发闸在记决定之前：被拦的搜索词与网址不进审计
     const next = v.next;
+    let blockedZh: string | null = null;
+    if (next.action === "search") {
+      const why = outboundBlockReason(next.query.trim(), { internalNumbers: this.internalNumbers, maxChars: RESEARCH_TREE_LIMITS.MAX_QUERY_CHARS });
+      if (why) blockedZh = OUTBOUND_BLOCK_ZH[why];
+    } else if (next.action === "read") {
+      const why = urlBlockReason(next.url, this.internalNumbers);
+      if (why) blockedZh = OUTBOUND_BLOCK_ZH[why];
+    }
     const decision: Record<string, unknown> = {
       turn,
       ok: true,
@@ -422,52 +501,59 @@ class BranchLoop {
       ...(page ? { pageUrl: page.url } : {}),
       ...(res.logs.some((l) => l.fallbackUsed) ? { fallbackUsed: true } : {}),
     };
-    if (next.action === "search") decision.query = next.query.slice(0, RESEARCH_TREE_LIMITS.MAX_QUERY_CHARS * 2);
-    if (next.action === "read") decision.url = next.url.slice(0, 2048);
+    if (blockedZh) decision.blocked = true;
+    else if (next.action === "search") decision.query = next.query.trim();
+    else if (next.action === "read") decision.url = next.url.trim();
     await this.record("decision", decision);
     this.st.facts.push(...fresh);
     this.st.rejectedFacts += rejected;
     this.st.suggestions.push(...suggestions);
     if (fresh.length) this.st.history.push(`收下 ${fresh.length} 条事实`);
+    if (rejected) this.st.history.push(`另有 ${rejected} 条对不上原文，没收`);
 
+    if (blockedZh) {
+      await this.blocked(next.action === "search" ? "search" : "read", blockedZh, false);
+      return "continue";
+    }
     if (next.action === "finish") {
       this.st.modelFinished = true;
       return "continue";
     }
-    if (next.action === "search") {
-      await this.doSearch(next.query);
-      return "continue";
-    }
-    if (this.remainingMs() < RESEARCH_TREE_TIMING.MIN_READ_TURN_MS) {
-      // 读页要的时间不够：决定已记下，下一片先执行它
-      this.st.pending = { action: "read", url: next.url };
+    const need = next.action === "read" ? RESEARCH_TREE_TIMING.MIN_READ_TURN_MS : RESEARCH_TREE_TIMING.MIN_TURN_MS;
+    if (this.remainingMs() < need) {
+      // 时间不够：决定已记下，下一片先执行它
+      this.st.pending = next.action === "search" ? { action: "search", query: next.query.trim() } : { action: "read", url: next.url.trim() };
       return "yield";
     }
-    await this.doRead(next.url);
+    if (next.action === "search") await this.doSearch(next.query.trim());
+    else await this.doRead(next.url.trim());
     return "continue";
   }
 
-  private async blocked(target: "search" | "read", messageZh: string): Promise<void> {
-    await this.record("blocked_query", { target, messageZh });
+  private async blocked(target: "search" | "read", messageZh: string, budget: boolean): Promise<void> {
+    await this.record("blocked_query", { target, messageZh, ...(budget ? { budget: true } : {}) });
+    if (budget) this.limitHit = true;
     this.st.history.push(`（${messageZh}）`);
     this.latest = { kind: "note", text: messageZh };
   }
 
-  private async doSearch(rawQuery: string): Promise<void> {
-    const query = rawQuery.trim();
-    if (!this.canSearch()) {
-      await this.blocked("search", this.searchConfigured && !this.st.searchUnavailable ? "搜索额度已用完，没有发出" : "搜索现在不可用，没有发出");
+  private async doSearch(query: string): Promise<void> {
+    if (!this.searchAvailable()) {
+      await this.blocked("search", "搜索现在不可用，没有发出", false);
+      return;
+    }
+    if (this.st.searches >= this.i.limits.searches) {
+      await this.blocked("search", "搜索额度已用完，没有发出", true);
       return;
     }
     const why = outboundBlockReason(query, { internalNumbers: this.internalNumbers, maxChars: RESEARCH_TREE_LIMITS.MAX_QUERY_CHARS });
     if (why) {
-      await this.blocked("search", OUTBOUND_BLOCK_ZH[why]);
+      await this.blocked("search", OUTBOUND_BLOCK_ZH[why], false);
       return;
     }
     await this.record("search_sent", { query });
     this.st.searches += 1;
     this.st.history.push(`搜索「${query.slice(0, 120)}」`);
-    await this.ensureLease();
     const timeoutMs = Math.max(1_000, Math.min(RESEARCH_TREE_TIMING.SEARCH_TIMEOUT_MS, this.remainingMs() - RESEARCH_TREE_TIMING.CALL_MARGIN_MS));
     const r = await this.i.ext.search(query, { timeoutMs, maxResults: RESEARCH_TREE_LIMITS.SEARCH_MAX_RESULTS });
     const hits: Array<{ url: string; title: string; snippet: string }> = [];
@@ -489,6 +575,8 @@ class BranchLoop {
       this.st.readable.set(h.url, h.title);
     }
     if (r.status === "AUTH_ERROR") this.st.searchUnavailable = true;
+    if (r.status === "SUCCESS" || r.status === "EMPTY") this.st.searchSuccesses += 1;
+    else this.st.searchFailures += 1;
     this.st.history.push(`  → ${hits.length} 条结果（新增可读网址 ${added} 个）${statusZh ? `；${statusZh}` : ""}`);
     this.latest = { kind: "search", query, hits };
   }
@@ -502,8 +590,9 @@ class BranchLoop {
       this.reader = session.forBranch({
         branchKey: this.i.def.stepId,
         budget: { remaining: Math.max(0, this.i.limits.reads - used), used },
-        blockedSites: [...this.st.blockedSites],
-        deadlineAt: this.sliceDeadline - RESEARCH_TREE_TIMING.CALL_MARGIN_MS,
+        blockedSites: [...this.st.blockedSites.keys()],
+        // 给读完之后的那次提取留够一轮
+        deadlineAt: this.sliceDeadline - RESEARCH_TREE_TIMING.MIN_TURN_MS,
         allowUrl: (url: URL) => this.allowUrl(url),
       });
       this.readerUsed = this.reader.budget.used;
@@ -515,44 +604,52 @@ class BranchLoop {
     }
   }
 
-  /** 读页层交来的网址：只有本支搜索结果里的、且网址本身过外发闸的才放行 */
+  /** 读页层交来的网址：只有本支搜索结果里的、且网址里没有本项目内部数字的才放行 */
   private allowUrl(url: URL): boolean {
-    const key = normalizeReadableUrl(url.toString());
-    if (!key || !this.st.readable.has(key)) return false;
-    return outboundBlockReason(key, { internalNumbers: this.internalNumbers, maxChars: 4096 }) === null;
+    return allowReadableUrl(normalizeReadableUrl(url.toString()), this.st.readable, this.internalNumbers);
   }
 
   private async doRead(rawUrl: string): Promise<void> {
     const url = normalizeReadableUrl(rawUrl);
     if (!url || !this.st.readable.has(url)) {
-      await this.blocked("read", "这个网址不在本支的搜索结果里，没有读");
+      await this.blocked("read", "这个网址不在本支的搜索结果里，没有读", false);
       return;
     }
     if (this.st.attempted.has(url)) {
-      await this.blocked("read", "这个网址这一支已经读过，没有再读");
+      await this.blocked("read", "这个网址这一支已经读过，没有再读", false);
       return;
     }
-    const outbound = outboundBlockReason(url, { internalNumbers: this.internalNumbers, maxChars: 4096 });
+    const other = this.i.treeReads.get(url);
+    if (other) {
+      this.st.attempted.add(url);
+      await this.blocked("read", other.blocked ? "这个网址在别的支被挡过，没有再读" : "这个网址在这棵树里已经读过，没有再读", false);
+      return;
+    }
+    const outbound = urlBlockReason(url, this.internalNumbers);
     if (outbound) {
-      await this.blocked("read", OUTBOUND_BLOCK_ZH[outbound]);
+      await this.blocked("read", OUTBOUND_BLOCK_ZH[outbound], false);
       return;
     }
-    if (!this.canRead()) {
-      await this.blocked("read", "这一支不能再读页了，没有读");
+    if (this.readsSpent()) {
+      await this.blocked("read", "这一支不能再读页了，没有读", true);
       return;
     }
     const reader = await this.openReader();
     if (!reader) {
-      await this.blocked("read", "读网页现在不可用，没有读");
+      await this.blocked("read", "读网页现在不可用，没有读", false);
       return;
     }
-    await this.ensureLease();
+    // 先写后发：崩在读页途中，续跑时这一页算读过一次、不再读
+    await this.record("read_sent", { url });
     const r: PageReadResult = await this.i.ext.readPage(url, reader);
     this.readerUsed = Math.max(this.readerUsed, reader.budget.used);
-    this.st.attempted.add(url);
+    const deadlineMiss = r.outcome === "unreachable" && r.reason === "deadline";
+    if (!deadlineMiss) this.st.attempted.add(url);
+    const finalUrl = r.finalUrl ? normalizeReadableUrl(r.finalUrl) ?? r.finalUrl : url;
+    if (finalUrl !== url) this.st.attempted.add(finalUrl);
     if (r.attempts > 0) this.st.reads += 1;
     const blockedSite = r.blocked?.site ?? null;
-    if (blockedSite) this.st.blockedSites.add(blockedSite);
+    if (blockedSite && !this.st.blockedSites.has(blockedSite)) this.st.blockedSites.set(blockedSite, r.messageZh.slice(0, 200));
     if (r.outcome === "limit") this.st.readsClosed = true;
     await this.record("read_result", {
       url,
@@ -568,8 +665,13 @@ class BranchLoop {
     });
     this.st.history.push(`读 ${url.slice(0, 200)} → ${r.messageZh.slice(0, 120)}`);
     if (r.outcome === "ok" && r.text) {
-      this.page = { url, text: r.text, fetchedAt: r.fetchedAt, truncated: r.truncated || r.text.length > RESEARCH_TREE_LIMITS.PAGE_CHARS_FOR_MODEL };
-      this.latest = { kind: "page", url, text: r.text, truncated: this.page.truncated };
+      // 跳转到了别的站、且那个站不在本支搜索结果里：这一页的事实不收（免得别的站的内容记在搜索结果那个网址名下）
+      const crossSite = siteHostOf(finalUrl) !== siteHostOf(url) && !this.st.readable.has(finalUrl);
+      const truncated = r.truncated || r.text.length > RESEARCH_TREE_LIMITS.PAGE_CHARS_FOR_MODEL;
+      this.page = { url: finalUrl, requestedUrl: url, text: r.text, fetchedAt: r.fetchedAt, truncated, factsAllowed: !crossSite };
+      this.latest = crossSite
+        ? { kind: "note", text: `读 ${url} 跳转到了别的站（${siteHostOf(finalUrl)}），这一页的事实不收；要用那个站的内容，请先搜索到它。` }
+        : { kind: "page", url: finalUrl, text: r.text, truncated };
     } else {
       const extra = blockedSite ? `（${blockedSite} 被挡，这一支不再读这个站，换别的来源）` : "";
       this.latest = { kind: "note", text: `读 ${url} 没有读到正文：${r.messageZh}${extra}` };
@@ -578,6 +680,7 @@ class BranchLoop {
 
   private promptInput(): BranchPromptInput {
     const remainingReads = Math.max(0, this.i.limits.reads - this.readsUsed());
+    const searchNote = !this.searchAvailable() ? "搜索现在不可用" : this.st.searches >= this.i.limits.searches ? "搜索额度已用完" : null;
     return {
       def: this.i.def,
       project: publicProjectFacts(this.i.project),
@@ -586,7 +689,7 @@ class BranchLoop {
         reads: this.st.readsClosed || this.readerUnavailable ? 0 : remainingReads,
         modelCalls: this.i.limits.modelCalls - this.st.modelCalls + 1,
       },
-      canSearch: this.canSearch(),
+      searchNote,
       history: this.st.history,
       accepted: this.st.facts.map((f) => ({ factType: f.factType, value: f.value, url: f.url })),
       alreadyCovered: this.i.alreadyCovered,
@@ -595,31 +698,26 @@ class BranchLoop {
     };
   }
 
-  /** 有一项额度用完（或读页层说这一支到上限）就记「到上限，未查完」 */
-  private budgetSpent(): boolean {
-    return (
-      this.st.searches >= this.i.limits.searches ||
-      this.readsUsed() >= this.i.limits.reads ||
-      this.st.readsClosed ||
-      this.st.modelCalls >= this.i.limits.modelCalls
-    );
-  }
-
   private buildHandoff(): ResearchHandoffV1 {
     const facts = dedupeFacts(this.st.facts);
-    const spent = this.unavailableZh === null && this.budgetSpent();
     const { status, notFound } = branchOutcome({
       foundCount: facts.length,
-      exhausted: this.exhausted || spent,
+      limitHit: this.limitHit,
       anyBlocked: this.st.blockedSites.size > 0,
       unavailableZh: this.unavailableZh,
+      searchFailures: this.st.searchFailures,
+      searchSuccesses: this.st.searchSuccesses,
+      stopped: this.stopped,
     });
+    const since = this.st.firstAt ?? this.sliceStarted;
     return {
       version: RESEARCH_HANDOFF_VERSION,
       branchKey: this.i.def.stepId,
       kind: this.i.def.kind,
+      labelZh: this.i.def.labelZh,
       status,
-      statusZh: notFound[0] && status !== "found" ? notFound[0].messageZh : statusLineZh(status, facts.length),
+      statusZh: statusLineZh(status, facts.length),
+      reasonZh: this.i.reasonZh,
       found: facts,
       notFound,
       suggestedBranches: this.st.suggestions.slice(0, RESEARCH_TREE_LIMITS.MAX_UNCHASED_LEADS),
@@ -628,9 +726,9 @@ class BranchLoop {
         reads: this.readsUsed(),
         modelCalls: this.st.modelCalls,
         blockedSites: this.st.blockedSites.size,
-        elapsedMs: Math.max(0, this.i.ext.now() - this.started),
+        elapsedMs: Math.max(0, this.i.ext.now() - since),
       },
-      blockedSites: [...this.st.blockedSites].slice(0, 24),
+      blockedSites: [...this.st.blockedSites].slice(0, 24).map(([site, messageZh]) => ({ site, messageZh })),
       rejectedFacts: this.st.rejectedFacts,
     };
   }
@@ -644,11 +742,6 @@ class BranchLoop {
       // 交单记录写不进去也照样交单（下次再执行会按没有交过处理，不会多花：额度已经从前面的记录恢复）
     }
     return done(handoff);
-  }
-
-  /** 内部出错时：不再写任何记录，按已知的交单 */
-  private finishWithoutRecord(): AdapterResult {
-    return done(this.buildHandoff());
   }
 }
 

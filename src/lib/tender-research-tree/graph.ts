@@ -22,7 +22,7 @@ export const RESEARCH_PLAN_TOOLS: ReadonlyArray<{ name: string }> = Object.freez
 ]);
 
 /** 作业中心里看到的标题（不含项目名） */
-export const RESEARCH_TREE_GOAL = "情报调研树：按固定分支查往期同标与同类项目，汇总回树干（只产出线索，不对外发送）";
+export const RESEARCH_TREE_GOAL = "情报调研：查往期同标与同类项目的公开授标（只读公开网页，不对外发送）";
 
 const WORKER = "tender_worker";
 
@@ -57,7 +57,7 @@ export function buildResearchTreePlan(): ServerAuthoredPlanV1 {
     task({
       id: RESEARCH_STEP_IDS.clauses,
       title: "调研分支：条款",
-      description: "第一波。确认标书里的本地含量、指定品牌与等效品条款（条款员尚未接入，本批交「未接通」）。",
+      description: "第一波。确认标书里的本地含量、指定品牌与等效品条款（条款员尚未接入，这次交「未接通」）。",
       dependsOn: [],
       preferredTool: RESEARCH_BRANCH_TOOL,
       expectedOutput: handoffNote,
@@ -72,7 +72,7 @@ export function buildResearchTreePlan(): ServerAuthoredPlanV1 {
     }),
     task({
       id: RESEARCH_STEP_IDS.similar,
-      title: "调研分支：同类项目（限量）",
+      title: "调研分支：同类项目（初查）",
       description: "第一波。在一半额度内找数量与要求相近的同类采购授标。",
       dependsOn: [],
       preferredTool: RESEARCH_BRANCH_TOOL,
@@ -80,15 +80,15 @@ export function buildResearchTreePlan(): ServerAuthoredPlanV1 {
     }),
     task({
       id: RESEARCH_STEP_IDS.wave2Full,
-      title: "调研分支：同类项目（全量）",
-      description: "第二波。往期同标没查到时，按全额额度继续找同类项目；否则交「无需追查」。",
+      title: "调研分支：同类项目（补查）",
+      description: "第二波。往期同标没查到时，用全额额度继续找同类项目；否则交「无需追查」。",
       dependsOn: [...WAVE1],
       preferredTool: RESEARCH_BRANCH_TOOL,
       expectedOutput: handoffNote,
     }),
     task({
       id: RESEARCH_STEP_IDS.wave2Relaxed,
-      title: "调研分支：同类项目（放宽）",
+      title: "调研分支：同类项目（放宽条件）",
       description: "第二波。同类授标不足 3 条时放宽到数量不限、近 6 年、加上美国；否则交「无需追查」。",
       dependsOn: [...WAVE1, RESEARCH_STEP_IDS.wave2Full],
       preferredTool: RESEARCH_BRANCH_TOOL,

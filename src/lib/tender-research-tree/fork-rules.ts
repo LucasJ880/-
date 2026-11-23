@@ -3,7 +3,7 @@
  * - 每一支的定义（类别、波次、目标句、允许的事实类型、额度缩放）；
  * - 分叉规则（任务书 TREE-2）：② 没查到 → 第二波甲「同类项目全量」；② 查到中标方 → 待反查（本批只列出）；
  *   ③（含第二波甲）收下的同类授标不足 3 条 → 第二波乙「同类项目放宽」；子代理建议、不在规则表的 → 未追的线索；
- * - 一支收尾时的状态与未查到原因（优先级：到上限 > 被挡 > 未接通 > 没有）与中文句。
+ * - 一支收尾时的状态与未查到原因（一条没查到时成立的原因都列出，状态取：被挡 > 到上限 > 未接通 > 没查到）与中文句。
  */
 
 import type {
@@ -11,9 +11,7 @@ import type {
   BranchStatus,
   FoundFact,
   NotFoundEntry,
-  NotFoundReason,
   ResearchHandoffV1,
-  SuggestedBranch,
 } from "./types";
 import { RESEARCH_HANDOFF_VERSION } from "./types";
 import { RESEARCH_TREE_LIMITS } from "./limits";
@@ -46,7 +44,7 @@ export type BranchDef = {
   goalZh: string;
   /** 这一支允许收下的事实类型 */
   factTypes: readonly string[];
-  /** 额度缩放：第一波 ③ 限量用一半 */
+  /** 额度缩放：第一波 ③（初查）用一半 */
   scale: "full" | "half";
   /** 这一支本批不联网、不调模型（条款员在 TREE-3 接入） */
   notWired: boolean;
@@ -54,6 +52,8 @@ export type BranchDef = {
 
 const PRIOR_FACTS = ["prior_tender", "winner", "award_amount", "quantity", "award_year"] as const;
 const SIMILAR_FACTS = ["comparable_award", "buyer", "award_amount", "quantity", "award_year"] as const;
+/** 值里必须有数字的事实类型（金额、数量、年份；一条同类授标也必须带数） */
+export const NUMERIC_FACT_TYPES: readonly string[] = Object.freeze(["award_amount", "quantity", "award_year", "comparable_award"]);
 
 export const BRANCH_DEFS: Readonly<Record<ResearchBranchStepId, BranchDef>> = Object.freeze({
   [RESEARCH_STEP_IDS.clauses]: {
@@ -83,7 +83,7 @@ export const BRANCH_DEFS: Readonly<Record<ResearchBranchStepId, BranchDef>> = Ob
     kind: "similar",
     wave: 1,
     depth: 1,
-    labelZh: "同类项目（限量）",
+    labelZh: "同类项目（初查）",
     goalZh: "找加拿大近 3 年数量与要求相近（一半到两倍）的同类采购的授标：采购方、年份、数量、合同额。",
     factTypes: SIMILAR_FACTS,
     scale: "half",
@@ -94,7 +94,7 @@ export const BRANCH_DEFS: Readonly<Record<ResearchBranchStepId, BranchDef>> = Ob
     kind: "similar_full",
     wave: 2,
     depth: 2,
-    labelZh: "同类项目（全量）",
+    labelZh: "同类项目（补查）",
     goalZh: "往期同标没查到：继续找加拿大近 3 年数量与要求相近的同类采购的授标，避开已经查过的来源。",
     factTypes: SIMILAR_FACTS,
     scale: "full",
@@ -105,7 +105,7 @@ export const BRANCH_DEFS: Readonly<Record<ResearchBranchStepId, BranchDef>> = Ob
     kind: "similar_relaxed",
     wave: 2,
     depth: 2,
-    labelZh: "同类项目（放宽）",
+    labelZh: "同类项目（放宽条件）",
     goalZh: "同类授标不足 3 条：放宽到数量不限、近 6 年、加上美国，找同类型采购的授标（币种照原文）。",
     factTypes: SIMILAR_FACTS,
     scale: "full",
@@ -130,14 +130,14 @@ export function branchDefOf(stepKey: string): BranchDef | null {
 export const TEXT_ZH = Object.freeze({
   limit: "到上限，未查完",
   blockedNothing: "这一支被挡，未查到",
-  none: "没有查到",
-  flagOff: "未接通：情报调研树的开关已关",
-  clausesNotWired: "未接通：条款员尚未接入（TREE-3），本批不查",
+  none: "没查到",
+  flagOff: "未开启：情报调研树没有对本组织开放",
+  clausesNotWired: "未接通：条款员尚未接入，这次没有查标书条款",
   searchUnavailable: "未接通：搜索服务没有开通",
+  searchFailed: "未接通：搜索服务出错，这一支没查成",
   modelUnavailable: "未接通：模型暂时不可用",
-  internalError: "未接通：这一支内部出错，已停下",
-  wave2FullNotNeeded: "无需追查：往期同标已查到",
-  wave2RelaxedNotNeeded: "无需追查：同类授标已有 3 条以上",
+  internalError: "出错停下了：这一支没查完，可以重新查",
+  projectMissing: "没查：项目已删除或不再是招投标项目",
 });
 
 export const STATUS_ZH: Readonly<Record<BranchStatus, string>> = Object.freeze({
@@ -147,9 +147,10 @@ export const STATUS_ZH: Readonly<Record<BranchStatus, string>> = Object.freeze({
   limit: "到上限",
   unavailable: "未接通",
   not_needed: "无需追查",
-  flag_off: "开关已关",
+  flag_off: "未开启",
 });
 
+/** 状态短标签（交接单与树干摘要的 statusZh 一律用它；整句只放在 notFound[].messageZh 与 reasonZh） */
 export function statusLineZh(status: BranchStatus, foundCount: number): string {
   if (status === "found") return `查到 ${foundCount} 条`;
   return STATUS_ZH[status];
@@ -159,42 +160,63 @@ export function statusLineZh(status: BranchStatus, foundCount: number): string {
 
 export type BranchEndFacts = {
   foundCount: number;
-  /** 额度用完而模型没说结束（模型请求到上限、或搜索与读页都已到上限） */
-  exhausted: boolean;
+  /**
+   * 这一支因为额度停下：模型请求到上限、搜索与读页都不能再用而额度已用完、模型要的搜索或读页因额度被拒、
+   * 这棵树的游标超限。模型自己说结束（哪怕某项额度恰好用满）不算
+   */
+  limitHit: boolean;
   /** 读过被挡的页（被挡站数 > 0） */
   anyBlocked: boolean;
-  /** 不可用的原因（搜索未接通、模型不可用、内部出错）；null 表示都接通了 */
+  /** 不可用的原因（搜索没开通、模型不可用、内部出错）；null 表示都接通了 */
   unavailableZh: string | null;
+  /** 发出过的搜索里出错的次数（超时、限流、服务出错、鉴权失败）与成功的次数（含没有结果） */
+  searchFailures: number;
+  searchSuccesses: number;
+  /** 这一支是出错停下的（审计写不进去、内部出错）：「未接通 / 出错停下了」排在最前 */
+  stopped?: boolean;
 };
 
-/** 一支收尾：状态与未查到原因（优先级：到上限 > 被挡 > 未接通 > 没有）。查到了的也记「到上限，未查完」 */
+/**
+ * 一支收尾：状态与未查到原因。查到了：状态「查到」，额度停下的另记「到上限，未查完」。一条都没查到：把成立的原因
+ * 都列出来（被挡、到上限、未接通；都不成立才是「没查到」），状态取第一条（被挡 > 到上限 > 未接通 > 没查到）。
+ * 搜索一次都没成功、全部出错的算「未接通：搜索服务出错」，不说成「没查到」。
+ */
 export function branchOutcome(f: BranchEndFacts): { status: BranchStatus; notFound: NotFoundEntry[] } {
-  const notFound: NotFoundEntry[] = [];
   if (f.foundCount > 0) {
-    if (f.exhausted) notFound.push({ reason: "limit", messageZh: TEXT_ZH.limit });
-    return { status: "found", notFound };
+    const nf: NotFoundEntry[] = [];
+    if (f.stopped && f.unavailableZh) nf.push({ reason: "unavailable", messageZh: f.unavailableZh });
+    if (f.limitHit) nf.push({ reason: "limit", messageZh: TEXT_ZH.limit });
+    return { status: "found", notFound: nf };
   }
-  if (f.exhausted) return { status: "limit", notFound: [{ reason: "limit", messageZh: TEXT_ZH.limit }] };
-  if (f.anyBlocked) return { status: "blocked", notFound: [{ reason: "blocked", messageZh: TEXT_ZH.blockedNothing }] };
-  if (f.unavailableZh) return { status: "unavailable", notFound: [{ reason: "unavailable", messageZh: f.unavailableZh }] };
-  return { status: "none", notFound: [{ reason: "none", messageZh: TEXT_ZH.none }] };
+  const notFound: NotFoundEntry[] = [];
+  if (f.stopped && f.unavailableZh) notFound.push({ reason: "unavailable", messageZh: f.unavailableZh });
+  if (f.anyBlocked) notFound.push({ reason: "blocked", messageZh: TEXT_ZH.blockedNothing });
+  if (f.limitHit) notFound.push({ reason: "limit", messageZh: TEXT_ZH.limit });
+  if (f.unavailableZh && !f.stopped) notFound.push({ reason: "unavailable", messageZh: f.unavailableZh });
+  else if (!f.unavailableZh && f.searchSuccesses === 0 && f.searchFailures > 0) notFound.push({ reason: "unavailable", messageZh: TEXT_ZH.searchFailed });
+  if (notFound.length === 0) notFound.push({ reason: "none", messageZh: TEXT_ZH.none });
+  const first = notFound[0]!.reason;
+  const status: BranchStatus = first === "blocked" ? "blocked" : first === "limit" ? "limit" : first === "unavailable" ? "unavailable" : "none";
+  return { status, notFound };
 }
 
-/** 不需要联网就能交的单（开关已关、条款未接入、第二波无需追查） */
+/** 不需要联网就能交的单（未开启、条款未接入、第二波无需追查、出错停下） */
 export function staticHandoff(
   def: BranchDef,
   status: "flag_off" | "unavailable" | "not_needed",
   messageZh: string,
 ): ResearchHandoffV1 {
-  const reason: NotFoundReason | null = status === "not_needed" ? null : "unavailable";
+  const notNeeded = status === "not_needed";
   return {
     version: RESEARCH_HANDOFF_VERSION,
     branchKey: def.stepId,
     kind: def.kind,
+    labelZh: def.labelZh,
     status,
-    statusZh: status === "not_needed" ? messageZh : statusLineZh(status, 0),
+    statusZh: statusLineZh(status, 0),
+    reasonZh: notNeeded ? messageZh : null,
     found: [],
-    notFound: reason ? [{ reason, messageZh }] : [],
+    notFound: notNeeded ? [] : [{ reason: "unavailable", messageZh }],
     suggestedBranches: [],
     usage: { searches: 0, reads: 0, modelCalls: 0, blockedSites: 0, elapsedMs: 0 },
     blockedSites: [],
@@ -224,7 +246,7 @@ export function comparableAwardCount(handoffs: ReadonlyArray<ResearchHandoffV1 |
   const seen = new Set<string>();
   for (const h of handoffs) {
     for (const f of h?.found ?? []) {
-      if (f.factType === "comparable_award") seen.add(`${f.url}\u0000${f.value}`);
+      if (f.factType === "comparable_award") seen.add(`${f.url}\u0000${f.value.trim().toLowerCase()}`);
     }
   }
   return seen.size;
@@ -234,11 +256,11 @@ export const MIN_COMPARABLE_AWARDS = 3;
 
 export type Wave2Decision = { run: boolean; reasonZh: string };
 
-/** 第二波甲：② 没查到 → 同类项目全量 */
+/** 第二波甲：② 没查到 → 同类项目全量（补查） */
 export function decideWave2Full(prior: ResearchHandoffV1 | null): Wave2Decision {
   return priorAwardsFoundNothing(prior)
-    ? { run: true, reasonZh: "往期同标没查到，转查同类项目（全量）" }
-    : { run: false, reasonZh: TEXT_ZH.wave2FullNotNeeded };
+    ? { run: true, reasonZh: "往期同标没查到，继续查同类项目" }
+    : { run: false, reasonZh: `无需追查：往期同标查到了 ${prior!.found.length} 条` };
 }
 
 /** 第二波乙：③（含第二波甲）收下的同类授标不足 3 条 → 放宽 */
@@ -246,33 +268,29 @@ export function decideWave2Relaxed(similar: ReadonlyArray<ResearchHandoffV1 | nu
   const n = comparableAwardCount(similar);
   return n < MIN_COMPARABLE_AWARDS
     ? { run: true, reasonZh: `同类授标只有 ${n} 条，放宽到数量不限、近 6 年、加上美国` }
-    : { run: false, reasonZh: TEXT_ZH.wave2RelaxedNotNeeded };
+    : { run: false, reasonZh: `无需追查：同类授标已有 ${n} 条` };
 }
 
-/** 摘要里不放金额与网址：看着像金额（货币符号、连着 3 位以上的数字）的名字不收 */
-export function looksLikeAmountOrUrl(s: string): boolean {
-  return /[$€£¥]|\d[\d,.\s]{1,}\d{1,}|\d{3,}|https?:\/\/|www\./i.test(s);
+/**
+ * 摘要（所有项目读者可见）里能放的名字：不含任何数字、货币符号、@、协议、形如域名的写法（宁可少列：
+ * 带数字的公司名不进摘要，详情仍在这一支的交接单里）
+ */
+export function isSafeSummaryName(s: string): boolean {
+  const t = s.normalize("NFKC").replace(/\p{Cf}/gu, "").trim();
+  if (!t || t.length > 120) return false;
+  if (/\p{Nd}/u.test(t)) return false;
+  if (/[$€£¥@]|:\/\/|\b[a-z0-9-]+\.[a-z]{2,}\b/i.test(t)) return false;
+  return true;
 }
 
-/** 摘要里的自由文字：去掉网址，把成串的数字换成「…」 */
-export function scrubSummaryText(s: string, max: number): string {
-  return s
-    .replace(/https?:\/\/\S+|www\.\S+/gi, "（网址略）")
-    .replace(/[$€£¥]\s*/g, "")
-    .replace(/\d[\d,.\s]*\d|\d/g, (m) => (m.replace(/\D/g, "").length >= 3 ? "…" : m))
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, max);
-}
-
-/** 待反查：② 收下的中标方名（去重、保留先后，最多 10 个；看着像金额或网址的不收） */
+/** 待反查：② 收下的中标方名（去重、保留先后，最多 10 个；只收 isSafeSummaryName 的） */
 export function pendingReverseOf(prior: ResearchHandoffV1 | null): string[] {
   const out: string[] = [];
   for (const f of prior?.found ?? []) {
     if (f.factType !== "winner") continue;
-    const name = f.value.trim().slice(0, 120);
-    if (looksLikeAmountOrUrl(name)) continue;
-    if (name && !out.some((x) => x.toLowerCase() === name.toLowerCase())) out.push(name);
+    const name = f.value.normalize("NFKC").replace(/\p{Cf}/gu, "").replace(/\s+/g, " ").trim();
+    if (!isSafeSummaryName(name)) continue;
+    if (!out.some((x) => x.toLowerCase() === name.toLowerCase())) out.push(name);
     if (out.length >= RESEARCH_TREE_LIMITS.MAX_PENDING_REVERSE) break;
   }
   return out;
@@ -281,19 +299,19 @@ export function pendingReverseOf(prior: ResearchHandoffV1 | null): string[] {
 /** 规则表里能自动长出来的分支类别（本批第二波的两类由上面两条规则决定，模型建议不触发任何自动生长） */
 export const RULE_TABLE_KINDS: ReadonlySet<string> = new Set(["similar_full", "similar_relaxed"]);
 
-/** 未追的线索：各支建议的分支，去重（最多 20 条；文字去掉网址与成串数字）。规则表里的两类已由规则处理，不重复列 */
-export function unchasedLeadsOf(handoffs: ReadonlyArray<ResearchHandoffV1 | null>): SuggestedBranch[] {
-  const out: SuggestedBranch[] = [];
+/** 未追的线索的类别：只收小写英文与下划线（模型写的理由不进摘要） */
+export const LEAD_KIND_RE = /^[a-z][a-z_]{0,39}$/;
+
+/** 未追的线索：各支建议的分支类别，去重（最多 20 个）。规则表里的两类已由规则处理，不重复列 */
+export function unchasedLeadsOf(handoffs: ReadonlyArray<ResearchHandoffV1 | null>): Array<{ kind: string }> {
+  const out: Array<{ kind: string }> = [];
   const seen = new Set<string>();
   for (const h of handoffs) {
     for (const raw of h?.suggestedBranches ?? []) {
-      if (typeof raw?.kind !== "string" || typeof raw?.reasonZh !== "string") continue;
-      const s = { kind: scrubSummaryText(raw.kind, 40), reasonZh: scrubSummaryText(raw.reasonZh, 200) };
-      if (!s.kind || !s.reasonZh || RULE_TABLE_KINDS.has(s.kind)) continue;
-      const key = `${s.kind}\u0000${s.reasonZh}`.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(s);
+      const kind = typeof raw?.kind === "string" ? raw.kind.trim() : "";
+      if (!LEAD_KIND_RE.test(kind) || RULE_TABLE_KINDS.has(kind) || seen.has(kind)) continue;
+      seen.add(kind);
+      out.push({ kind });
       if (out.length >= RESEARCH_TREE_LIMITS.MAX_UNCHASED_LEADS) return out;
     }
   }

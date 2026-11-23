@@ -111,10 +111,10 @@ async function main() {
     const steps = await db.agentRunStep.findMany({ where: { runId: job.id }, orderBy: { createdAt: "asc" }, select: { stepKey: true, title: true } });
     ok(steps.length === 6 && steps.map((s) => s.stepKey).join(",") === "research_clauses,research_prior_awards,research_similar,research_wave2_full,research_wave2_relaxed,research_trunk", "六步计划已落库", steps.map((s) => s.stepKey));
     ok(steps.every((s) => !s.title.includes("Fixture Bins")), "步骤标题里没有项目名");
-    ok(meta.plannerLlmCalls === 0 || meta.plannerLlmCalls === undefined, "规划模型调用为 0", meta.plannerLlmCalls);
+    ok(meta.plannerLlmCalls === 0, "规划模型调用为 0", meta.plannerLlmCalls);
 
     const s2 = await post(WRITER, p1);
-    ok(s2.status === 200 && s2.body.jobId === s1.body.jobId && s2.body.reused === true && (await researchJobs(p1)).length === 1, "再点一次：复用那条，不另建", s2);
+    ok(s2.status === 200 && s2.body.jobId === s1.body.jobId && s2.body.reused === true && s2.body.status === "queued" && (await researchJobs(p1)).length === 1, "再点一次：复用那条（带上它的状态），不另建", s2);
 
     /* ── 一键分析看不到调研 Job ── */
     const { getTenderWorkforceAnalysisStatus } = await import("@/lib/tender-workforce/trigger-service");
@@ -132,16 +132,33 @@ async function main() {
     const p3 = await mkProject();
     const r1 = await post(WRITER, p3, { action: "start", requestId: "req-1" });
     await db.agentRun.update({ where: { id: String(r1.body.jobId) }, data: { status: "completed" } });
+    ok(r1.body.status === "queued", "新建的那条状态是排队中", r1.body);
     const r2 = await post(WRITER, p3, { action: "start", requestId: "req-1" });
     ok(r2.body.jobId === r1.body.jobId && r2.body.reused === true, "同一个 requestId 重放：返回同一条", r2);
     const r3 = await post(WRITER, p3, { action: "start" });
     ok(r3.status === 200 && r3.body.jobId !== r1.body.jobId && r3.body.reused === false && (await researchJobs(p3)).length === 2, "上一棵树结束了：再发起建新的一条", r3);
 
-    /* ── 坏请求与非招投标项目 ── */
+    /* ── 停在「需要人工处理」的树不挡住新的一棵 ── */
+    const p5 = await mkProject();
+    const n1 = await post(WRITER, p5);
+    await db.agentRun.update({ where: { id: String(n1.body.jobId) }, data: { status: "needs_human" } });
+    const n2 = await post(WRITER, p5);
+    ok(n2.status === 200 && n2.body.jobId !== n1.body.jobId && n2.body.reused === false, "上一棵停在「需要人工处理」：再发起建新的一条", n2);
+
+    /* ── 请求体 ── */
+    const p6 = await mkProject();
+    const empty = await post(WRITER, p6, undefined, "");
+    ok(empty.status === 200 && typeof empty.body.jobId === "string", "请求体为空：按开始调研处理", empty);
+    const noAction = await post(WRITER, p6, {});
+    ok(noAction.status === 200 && noAction.body.jobId === empty.body.jobId && noAction.body.reused === true, "省略 action：按开始调研处理（复用在查的那条）", noAction);
     const bad = await post(WRITER, p3, undefined, "{not json");
     ok(bad.status === 400, "请求体坏了：400", bad);
+    const arr = await post(WRITER, p3, undefined, "[1,2]");
+    ok(arr.status === 400, "请求体不是对象：400", arr);
     const unk = await post(WRITER, p3, { action: "cancel" });
-    ok(unk.status === 400, "不认识的 action：400", unk);
+    ok(unk.status === 400 && unk.body.error === "不支持的操作", "不认识的 action：400「不支持的操作」", unk);
+    const num = await post(WRITER, p3, { action: 1 });
+    ok(num.status === 400, "action 不是字符串：400", num);
     const p4 = await mkProject("sales");
     const sales = await post(WRITER, p4);
     ok(sales.status === 409 && (await researchJobs(p4)).length === 0, "不是招投标项目：409，不建 Job", sales);

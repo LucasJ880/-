@@ -48,7 +48,10 @@ export const RESEARCH_TREE_TIMING = Object.freeze({
   CALL_MARGIN_MS: 15_000,
   /** 离这一片的截止不足这么多，就不再开始新的一轮（让出） */
   MIN_TURN_MS: 45_000,
-  /** 要读页时离截止不足这么多就先让出（读页最长 15 秒 × 3 次尝试 + 间隔，加一次模型请求） */
+  /**
+   * 要读页时离截止不足这么多就先让出。读页层的截止 = 这一片的截止 − MIN_TURN_MS（给读完之后的那次提取留一轮），
+   * 所以读页本身最多用 MIN_READ_TURN_MS − MIN_TURN_MS = 45 秒
+   */
   MIN_READ_TURN_MS: 90_000,
   /** 运行时没给执行预算时，这一片按这么长算 */
   DEFAULT_SLICE_MS: 120_000,
@@ -77,14 +80,29 @@ function lowered(base: number, raw: unknown): number {
   return Math.min(base, raw);
 }
 
-/** 组织设置里的额度覆盖：只能调低 */
-export function readOrgLimitOverride(settingsJson: unknown): Partial<Record<keyof BranchLimits, unknown>> {
+/** 每棵树的分支数与深度（常量；组织设置 researchTree.limits.maxBranchesPerTree / maxDepth 只能调低） */
+export type TreeLimits = { maxBranches: number; maxDepth: number };
+
+export function effectiveTreeLimits(settingsJson: unknown): TreeLimits {
+  const l = readLimitsObject(settingsJson);
+  return {
+    maxBranches: lowered(RESEARCH_TREE_LIMITS.MAX_BRANCHES_PER_TREE, l.maxBranchesPerTree),
+    maxDepth: lowered(RESEARCH_TREE_LIMITS.MAX_DEPTH, l.maxDepth),
+  };
+}
+
+function readLimitsObject(settingsJson: unknown): Record<string, unknown> {
   if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return {};
   const tree = (settingsJson as Record<string, unknown>).researchTree;
   if (!tree || typeof tree !== "object" || Array.isArray(tree)) return {};
   const limits = (tree as Record<string, unknown>).limits;
   if (!limits || typeof limits !== "object" || Array.isArray(limits)) return {};
-  const l = limits as Record<string, unknown>;
+  return limits as Record<string, unknown>;
+}
+
+/** 组织设置里的额度覆盖：只能调低 */
+export function readOrgLimitOverride(settingsJson: unknown): Partial<Record<keyof BranchLimits, unknown>> {
+  const l = readLimitsObject(settingsJson);
   return { searches: l.searchesPerBranch, reads: l.readsPerBranch, modelCalls: l.modelCallsPerBranch };
 }
 

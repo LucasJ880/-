@@ -44,13 +44,13 @@ const PAGES: Record<string, { html: string; facts: Array<{ factType: string; val
   },
   [S1]: {
     html: "<html><body><p>Region of Example: 8,000 waste bins awarded for $200,000 in 2024.</p></body></html>",
-    facts: [{ factType: "comparable_award", value: "8,000 waste bins for $200,000 (2024)", excerpt: "8,000 waste bins awarded for $200,000 in 2024." }],
+    facts: [{ factType: "comparable_award", value: "8,000 waste bins awarded for $200,000 in 2024", excerpt: "Region of Example: 8,000 waste bins awarded for $200,000 in 2024." }],
   },
   [R1]: {
     html: "<html><body><p>County award: 12,500 refuse containers, $262,500 (2022).</p><p>Second award: 4,000 carts, $96,000 (2021).</p></body></html>",
     facts: [
-      { factType: "comparable_award", value: "12,500 containers $262,500 (2022)", excerpt: "12,500 refuse containers, $262,500 (2022)." },
-      { factType: "comparable_award", value: "4,000 carts $96,000 (2021)", excerpt: "4,000 carts, $96,000 (2021)." },
+      { factType: "comparable_award", value: "12,500 refuse containers, $262,500 (2022)", excerpt: "County award: 12,500 refuse containers, $262,500 (2022)." },
+      { factType: "comparable_award", value: "4,000 carts, $96,000 (2021)", excerpt: "Second award: 4,000 carts, $96,000 (2021)." },
     ],
   },
 };
@@ -69,12 +69,12 @@ async function main() {
   const { onWorkforceJobStopped } = await import("@/lib/workforce-runtime/domain-hooks");
   const { claimRunLease } = await import("@/lib/agent-runtime/lease");
   const { WORKFORCE_JOB_RUN_TYPE, WORKFORCE_ACTIVE_STATUSES } = await import("@/lib/workforce-runtime/constants");
-  const { createResearchReadSessionWithDeps } = await import("@/lib/web-reader/read-page");
-  const { loadResearchJobRow, loadOrgSettingsJson, loadTreeHistory, writeWebReadAudit } = await import("@/lib/web-reader/db-deps");
+  const { createResearchReadSessionWithDeps } = await import("../read-page");
+  const { loadResearchJobRow, loadOrgSettingsJson, loadTreeHistory, writeWebReadAudit } = await import("../db-deps");
   const { readPublicPage } = await import("@/lib/web-reader");
-  const { makeWorld, html } = await import("@/lib/web-reader/__tests__/fake-world");
-  const { __setResearchTreeDepsForTest } = await import("../deps");
-  const { startResearchTree } = await import("../start");
+  const { makeWorld, html } = await import("./fake-world");
+  const { __setResearchTreeDepsForTest } = await import("@/lib/tender-research-tree/deps");
+  const { startResearchTree } = await import("@/lib/tender-research-tree/start");
 
   console.log("TREE-2 research tree job — isolated DB");
   const fx = await seedWorkforceFixture("rj");
@@ -133,15 +133,21 @@ async function main() {
     if (withRoom) await db.bidIntelligenceRoom.create({ data: { orgId: ORG, projectId: p.id, summaryJson: { otherFeature: { keep: true } } } });
     return p.id;
   }
-  const counts = async () => ({
-    pendingActions: await db.pendingAction.count({ where: { orgId: ORG } }),
-    notifications: await db.notification.count({ where: { userId: { in: [fx.ownerUserId, fx.approverUserId] } } }),
-    awardRecords: await db.awardRecord.count(),
-    suppliers: await db.supplier.count(),
-    quotes: await db.projectQuote.count(),
-    inquiries: await db.projectInquiry.count(),
-    projectEmails: await db.projectEmail.count(),
-  });
+  /** 整库快照：每张表的行数与内容哈希（能抓到插入，也能抓到改动） */
+  async function snapshot(): Promise<Record<string, string>> {
+    const tables = await db.$queryRaw<Array<{ table_name: string }>>`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name <> '_prisma_migrations' ORDER BY table_name`;
+    const out: Record<string, string> = {};
+    for (const { table_name } of tables) {
+      const r = await db.$queryRawUnsafe<Array<{ n: bigint; h: string }>>(
+        `SELECT count(*)::bigint AS n, md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) AS h FROM "${table_name.replace(/"/g, "")}" t`,
+      );
+      out[table_name] = `${r[0]!.n}:${r[0]!.h}`;
+    }
+    return out;
+  }
+  const changedTables = (a: Record<string, string>, b: Record<string, string>) => Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]).sort();
+  /** 运行时自己的表（Job、步骤、事件、验证、会话、配额预留） */
+  const RUNTIME_TABLES = ["AgentRun", "AgentRunEvent", "AgentRunStep", "AgentRunVerification", "AgentSession", "CapabilityQuotaReservation"];
   async function runToEnd(jobId: string, maxSlices = 40) {
     for (let i = 0; i < maxSlices; i++) {
       const row = await db.agentRun.findUniqueOrThrow({ where: { id: jobId }, select: { status: true } });
@@ -160,8 +166,9 @@ async function main() {
   try {
     /* ── 整棵树跑完 ── */
     console.log("\n[整棵树经处理器跑完]");
-    const before = await counts();
     const p1 = await mkProject();
+    const auditBefore = await db.auditLog.count();
+    const before = await snapshot();
     const started = await startResearchTree({ orgId: ORG, projectId: p1, userId: USER, role: "admin", trigger: "human_start" });
     ok(started.ok, "发起", started);
     const jobId = started.ok ? started.jobId : "";
@@ -188,8 +195,18 @@ async function main() {
     const branchRows = await db.auditLog.count({ where: { orgId: ORG, action: "research.branch_step", targetId: jobId } });
     const readRows = await db.auditLog.count({ where: { orgId: ORG, action: "research.web_read", targetId: jobId } });
     ok(branchRows > 0 && readRows === 3, "游标审计与读页审计都写在这条调研 Job 下", { branchRows, readRows });
-    const after = await counts();
-    ok(JSON.stringify(after) === JSON.stringify(before), "零出站：待批卡、通知、授标记录、供应商、报价、询价、项目邮件行数都不变", { before, after });
+    const after = await snapshot();
+    const changed = changedTables(before, after);
+    const allowed = new Set([...RUNTIME_TABLES, "AuditLog", "BidIntelligenceRoom"]);
+    ok(changed.every((t) => allowed.has(t)), "零出站：整库只有运行时自己的表、审计与情报室有变化（待批卡、通知、邮件、授标记录、供应商、询价、报价、项目都不变）", changed);
+    const newAudits = await db.auditLog.findMany({ orderBy: { createdAt: "asc" }, skip: auditBefore, select: { action: true } });
+    ok(newAudits.every((a) => /^research\.(branch_step|web_read)$|^QUOTA_/.test(a.action)), "新增的审计只有调研游标、读页与运行时配额记账", [...new Set(newAudits.map((a) => a.action))]);
+    const planJson = (await db.agentRun.findUniqueOrThrow({ where: { id: jobId }, select: { planJson: true } })).planJson as { completionCriteria?: Array<{ verificationType: string; evidenceStepIds?: string[] }> };
+    ok(
+      (planJson.completionCriteria ?? []).length > 0 && (planJson.completionCriteria ?? []).every((c) => c.verificationType === "tool_result" && (c.evidenceStepIds ?? []).length > 0),
+      "落库的计划：完成条件全是工具结果（验证器不调模型）",
+      planJson.completionCriteria,
+    );
     const runMeta = (await db.agentRun.findUniqueOrThrow({ where: { id: jobId }, select: { metadata: true } })).metadata as Record<string, unknown>;
     ok(runMeta.plannerLlmCalls === 0 || runMeta.plannerLlmCalls === undefined, "规划模型调用为 0");
 
@@ -223,6 +240,20 @@ async function main() {
     /* ── 调研 Job 失败不标「AI 分析未完成」 ── */
     console.log("\n[调研 Job 失败：一键分析的收尾什么都不做]");
     const p4 = await mkProject();
+    const { buildWorkforceTenderIdempotencyKey, TENDER_WORKFORCE_ANALYSIS_VERSION } = await import("@/lib/tender-workforce/analysis-run-service");
+    // 这个项目有一条正在「AI 数字员工分析中」的分析记录（另一条分析 Job 的）
+    const analysisRun = await db.tenderAnalysisRun.create({
+      data: {
+        orgId: ORG,
+        projectId: p4,
+        status: "AGENT_ANALYZING",
+        analysisVersion: TENDER_WORKFORCE_ANALYSIS_VERSION,
+        idempotencyKey: buildWorkforceTenderIdempotencyKey(`analysis-job-${fx.tag}`),
+        sourceHashFingerprint: "fixture",
+        createdById: USER,
+      },
+      select: { id: true },
+    });
     const s4 = await startResearchTree({ orgId: ORG, projectId: p4, userId: USER, role: "admin", trigger: "human_start" });
     const job4 = s4.ok ? s4.jobId : "";
     const notifBefore = await db.notification.count();
@@ -234,8 +265,8 @@ async function main() {
     await db.agentRun.update({ where: { id: job4 }, data: { status: "needs_human" } });
     await onWorkforceJobStopped({ runId: job4 });
     const surfaced = await db.auditLog.count({ where: { action: "tender.workforce.failed_surfaced", targetId: job4 } });
-    const runs = await db.tenderAnalysisRun.count({ where: { projectId: p4 } });
-    ok(surfaced === 0 && runs === 0 && (await db.notification.count()) === notifBefore, "没有失败收尾审计、没有分析记录、没有通知", { surfaced, runs });
+    const ar = await db.tenderAnalysisRun.findUniqueOrThrow({ where: { id: analysisRun.id }, select: { status: true, errorCode: true } });
+    ok(surfaced === 0 && ar.status === "AGENT_ANALYZING" && ar.errorCode === null && (await db.notification.count()) === notifBefore, "项目那条在跑的分析记录不变（不标「AI 分析未完成」）、没有失败收尾审计、没有通知", { surfaced, ar });
 
     /* ── 一键分析不复用调研 Job ── */
     const { startTenderWorkforceAnalysis } = await import("@/lib/tender-workforce/trigger-service");
@@ -264,6 +295,7 @@ async function main() {
     const s6 = await startResearchTree({ orgId: ORG, projectId: p6, userId: USER, role: "admin", trigger: "human_start" });
     const job6 = s6.ok ? s6.jobId : "";
     delete process.env.TENDER_RESEARCH_TREE_ENABLED;
+    const offBefore = await snapshot();
     const m0 = modelCalls.length;
     const q0 = searches.length;
     const n0 = world.log.length;
@@ -272,6 +304,8 @@ async function main() {
     ok(st6 === "completed" && Object.keys(steps6).filter((k) => k !== "research_trunk").every((k) => handoff(steps6[k]?.outputJson)?.status === "flag_off"), "每一支都交「开关已关」", st6);
     ok(modelCalls.length === m0 && searches.length === q0 && world.log.length === n0, "零模型请求、零搜索、零读页");
     ok((await db.auditLog.count({ where: { orgId: ORG, action: { in: ["research.branch_step", "research.web_read"] }, targetId: job6 } })) === 0, "零审计");
+    const offChanged = changedTables(offBefore, await snapshot());
+    ok(offChanged.every((t) => RUNTIME_TABLES.includes(t)), "开关关：整库只有运行时自己的表有变化", offChanged);
     const sj6 = (await db.bidIntelligenceRoom.findUniqueOrThrow({ where: { projectId: p6 } })).summaryJson as Record<string, unknown>;
     ok(sj6.researchTree === undefined && (sj6.otherFeature as { keep?: boolean })?.keep === true, "情报室不变");
     process.env.TENDER_RESEARCH_TREE_ENABLED = "1";

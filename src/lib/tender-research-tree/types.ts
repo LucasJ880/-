@@ -23,15 +23,23 @@ export type NotFoundReason = "none" | "unavailable" | "blocked" | "limit";
 
 export type NotFoundEntry = { reason: NotFoundReason; messageZh: string };
 
-/** 一条收下的事实：网址是本支实际读到正文的页，摘录 ≤200 字且逐字出现在那页正文里，值里的数字都在摘录里 */
+/**
+ * 一条收下的事实：网址是本支实际读到正文的那一页（有跳转时是跳转后的网址，另记请求的网址）；摘录 12–200 字且
+ * 逐字出现在那页正文里；值逐字出现在摘录里；值里的数都在摘录里
+ */
 export type FoundFact = {
   factType: string;
   value: string;
   url: string;
+  /** 跳转过时：本支请求的那个网址（在本支搜索结果里） */
+  requestedUrl?: string;
   excerpt: string;
   fetchedAt: string;
   source: "web";
 };
+
+/** 被挡明细：站与读页层给的原因句 */
+export type BlockedSiteDetail = { site: string; messageZh: string };
 
 export type SuggestedBranch = { kind: string; reasonZh: string };
 
@@ -47,27 +55,36 @@ export type ResearchHandoffV1 = {
   version: typeof RESEARCH_HANDOFF_VERSION;
   branchKey: string;
   kind: BranchKind;
+  /** 这一支的中文名 */
+  labelZh: string;
   status: BranchStatus;
-  /** 给人看的一句话（中文） */
+  /** 状态短标签：查到 N 条 / 没查到 / 被挡 / 到上限 / 未接通 / 无需追查 / 未开启 */
   statusZh: string;
+  /** 第二波为什么跑或为什么不跑（分叉规则给的理由）；第一波为 null */
+  reasonZh: string | null;
   found: FoundFact[];
   notFound: NotFoundEntry[];
   suggestedBranches: SuggestedBranch[];
   usage: BranchUsage;
-  /** 明细：这一支被挡过的站（只在分支里，树干不列） */
-  blockedSites: string[];
+  /** 明细：这一支被挡过的站与原因（只在分支里，树干不列） */
+  blockedSites: BlockedSiteDetail[];
   /** 模型交回、没过核对被丢弃的事实条数 */
   rejectedFacts: number;
 };
 
+/** 树干摘要里的用量：不列被挡站数（查到了的支在树干里不提被挡；被挡明细只在分支的交接单里） */
+export type TrunkUsage = Omit<BranchUsage, "blockedSites">;
+
 export type TrunkBranchSummary = {
   key: string;
   kind: BranchKind;
+  labelZh: string;
   status: BranchStatus;
   statusZh: string;
+  reasonZh: string | null;
   foundCount: number;
   notFound: NotFoundEntry[];
-  usage: BranchUsage;
+  usage: TrunkUsage;
 };
 
 /** summaryJson.researchTree：只放摘要（不放金额、摘录、正文与网址） */
@@ -80,7 +97,7 @@ export type ResearchTreeSummaryV1 = {
   branches: TrunkBranchSummary[];
   /** 往期同标查到的中标方名（第三批才长反查分支，本批只列出） */
   pendingReverse: string[];
-  /** 子代理建议、不在分叉规则表里的分支（不自动长） */
-  unchasedLeads: SuggestedBranch[];
-  usage: BranchUsage;
+  /** 子代理建议、不在分叉规则表里的分支类别（不自动长；只存类别，不存模型写的理由） */
+  unchasedLeads: Array<{ kind: string }>;
+  usage: TrunkUsage;
 };

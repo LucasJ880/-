@@ -8,12 +8,13 @@ import { LostLeaseError, type RunFence } from "@/lib/agent-runtime/lease";
 import { readPublicPage } from "@/lib/web-reader";
 import type { LlmCallRequest } from "@/lib/tender-understanding/llm";
 import type { TavilyDetailedResult } from "@/lib/tender-intel/tavily-client";
-import { html, makeWorld, openSession, RESEARCH_JOB, status, type World } from "@/lib/web-reader/__tests__/fake-world";
-import { runResearchBranch, type BranchRunDeps } from "../branch-run";
-import { runResearchTrunk } from "../trunk";
-import type { CursorRow, CursorWrite, ResearchProjectRow, ResearchStore } from "../deps";
-import { RESEARCH_STEP_IDS, TEXT_ZH } from "../fork-rules";
-import type { ResearchHandoffV1 } from "../types";
+import { html, makeWorld, openSession, redirect, RESEARCH_JOB, status, type World } from "./fake-world";
+import { runResearchBranch, type BranchRunDeps } from "@/lib/tender-research-tree/branch-run";
+import { allowReadableUrl } from "@/lib/tender-research-tree/guards";
+import { runResearchTrunk } from "@/lib/tender-research-tree/trunk";
+import type { CursorRow, CursorWrite, ResearchProjectRow, ResearchStore } from "@/lib/tender-research-tree/deps";
+import { RESEARCH_STEP_IDS, TEXT_ZH } from "@/lib/tender-research-tree/fork-rules";
+import type { ResearchHandoffV1 } from "@/lib/tender-research-tree/types";
 
 let pass = 0;
 let fail = 0;
@@ -204,8 +205,8 @@ async function main() {
     const kinds = h.rows.map((x) => x.kind);
     ok(
       JSON.stringify(kinds) ===
-        JSON.stringify(["model_call", "decision", "search_sent", "search_result", "model_call", "decision", "read_result", "model_call", "decision", "finish"]),
-      "游标顺序：先记 model_call / search_sent 再发请求",
+        JSON.stringify(["model_call", "decision", "search_sent", "search_result", "model_call", "decision", "read_sent", "read_result", "model_call", "decision", "finish"]),
+      "游标顺序：先记 model_call / search_sent / read_sent 再发请求",
       kinds,
     );
     ok(h.rows.every((x) => x.userId === "u1" && x.jobId === JOB && x.branchKey === RESEARCH_STEP_IDS.priorAwards), "游标记在调研 Job 与发起人名下");
@@ -227,7 +228,7 @@ async function main() {
     const r = await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
     const ho = handoffOf(r);
     ok(h.searches.length === 2, "只发出 2 次搜索", h.searches);
-    ok(ho.status === "limit" && ho.notFound[0]?.messageZh === "到上限，未查完" && ho.statusZh === "到上限，未查完", "交「到上限，未查完」", ho);
+    ok(ho.status === "limit" && ho.notFound[0]?.messageZh === "到上限，未查完" && ho.statusZh === "到上限", "交「到上限，未查完」（状态短标签「到上限」）", ho);
   }
   {
     const h = makeHarness({ decide: () => ({ next: { action: "search", query: "bins award" } }), search: () => ({ status: "EMPTY", hits: [], httpStatus: 200 }) });
@@ -269,7 +270,7 @@ async function main() {
     const r = await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
     const ho = handoffOf(r);
     ok(ho.status === "found" && ho.found.length === 1 && ho.found[0]!.url === B, "被挡后换别的来源查到了", ho);
-    ok(ho.blockedSites.includes("www.example-city.ca") && ho.usage.blockedSites === 1, "明细里记了被挡的站", ho.blockedSites);
+    ok(ho.blockedSites.length === 1 && ho.blockedSites[0]!.site === "www.example-city.ca" && /403/.test(ho.blockedSites[0]!.messageZh) && ho.usage.blockedSites === 1, "明细里记了被挡的站与原因", ho.blockedSites);
     ok(ho.notFound.length === 0 && !ho.statusZh.includes("被挡"), "查到了的支不提被挡");
     ok(h.world.log.filter((l) => l.url === A).length === 1 && !h.world.log.some((l) => l.url === A2), "被挡的页不重试；同一站别的页这一支不再读", h.world.log.map((l) => l.url));
   }
@@ -303,7 +304,7 @@ async function main() {
     ok(ho.usage.searches === 1 && ho.usage.modelCalls === 7, "被拦的不扣搜索额度，模型请求照算", ho.usage);
     const blocked = h.rows.filter((x) => x.kind === "blocked_query").map((x) => String(x.data.messageZh));
     ok(blocked.length === 4 && blocked.some((m) => m.includes("内部数字")) && blocked.some((m) => m.includes("不能外发的词")) && blocked.some((m) => m.includes("不在本支的搜索结果里")), "每次被拦都记一笔（不记词本身）", blocked);
-    ok(!JSON.stringify(h.rows).includes("987,654") || h.rows.filter((x) => x.kind === "blocked_query").every((x) => !JSON.stringify(x.data).includes("987")), "被拦的那一行不记搜索词");
+    ok(!JSON.stringify(h.rows).includes("987,654") && !JSON.stringify(h.rows).includes("987654"), "被拦的搜索词不进任何一行审计（决定那一行也只记「被拦」）", h.rows.filter((x) => x.kind === "decision").map((x) => x.data));
   }
 
   /* ── 5. 事实核对 ── */
@@ -347,7 +348,7 @@ async function main() {
     const short = () => h.ctx(RESEARCH_STEP_IDS.priorAwards, { executionBudget: { deadlineAt: h.deps.external.now() + 100_000, tickBudgetMs: 100_000 } });
     const r1 = await runResearchBranch(short(), h.deps);
     ok(r1.ok && r1.continuation?.reason === "TIME_BUDGET_YIELD", "快到截止就让出", r1);
-    ok(h.searches.length === 3 && h.prompts.length === 3, "第一片：3 轮", { s: h.searches.length, p: h.prompts.length });
+    ok(h.searches.length === 2 && h.prompts.length === 3, "第一片：3 次模型请求；第 3 次决定的搜索时间不够，记下待下一片执行", { s: h.searches.length, p: h.prompts.length });
     const r2 = await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
     const ho = handoffOf(r2);
     ok(ho && ho.usage.searches === 4 && ho.usage.modelCalls === 5 && h.searches.length === 4, "第二片从第 4 轮接着做：总数 4 次搜索、5 次模型", ho?.usage);
@@ -461,6 +462,223 @@ async function main() {
     for (let i = 0; i < 1201; i++) h.rows.push({ orgId: ORG, userId: "u1", jobId: JOB, branchKey: "other", seq: i, kind: "model_call", data: {} });
     const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
     ok(ho.status === "limit" && h.prompts.length === 0 && h.searches.length === 0, "这棵树的游标超过 1200 行：到上限收尾，不再发请求");
+  }
+
+  /* ── 8b. 审查后补的 ── */
+  console.log("\n[审查后补：收尾口径、跳转、树级只读一次、先写后发、截止、上限]");
+  {
+    // 模型自己说结束：哪怕搜索额度刚好用满，也不记到上限
+    const h = makeHarness({ settings: { researchTree: { limits: { searchesPerBranch: 2 } } }, search: () => HITS, decide: (i) => (i < 2 ? { next: { action: "search", query: `bins award ${2021 + i}` } } : { next: { action: "finish" } }) });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(h.prompts.length === 3 && ho.status === "none" && ho.notFound.length === 1 && ho.notFound[0]!.messageZh === "没查到", "模型自己说结束（搜索额度恰好用满、还能读页）：没查到，不记到上限", ho);
+    const h2 = makeHarness({ settings: { researchTree: { limits: { searchesPerBranch: 2 } } }, decide: (i) => ({ next: { action: "search", query: `bins award ${2021 + i}` } }) });
+    const ho2 = handoffOf(await runResearchBranch(h2.ctx(RESEARCH_STEP_IDS.priorAwards), h2.deps));
+    ok(h2.prompts.length === 2 && ho2.status === "limit", "搜索额度用完、又没有可读的网址：循环因额度停下，记到上限", ho2);
+  }
+  {
+    // 被挡 + 读页额度用完：两条都列，状态取被挡
+    const h = makeHarness({
+      settings: { researchTree: { limits: { readsPerBranch: 1 } } },
+      search: () => HITS,
+      decide: (i) => [{ next: { action: "search", query: "bins" } }, { next: { action: "read", url: A } }, { next: { action: "read", url: B } }, { next: { action: "finish" } }][i] as Decision,
+    });
+    h.world.handlers.set(A, () => status(403));
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(ho.status === "blocked" && ho.notFound.map((n) => n.reason).join(",") === "blocked,limit" && ho.statusZh === "被挡", "被挡后额度也用完：状态「被挡」，原因两条都列", ho);
+  }
+  {
+    // 搜索一直出错：未接通，不说成没查到
+    const h = makeHarness({ search: () => ({ status: "PROVIDER_ERROR", hits: [], httpStatus: 500 }), decide: (i) => (i < 3 ? { next: { action: "search", query: `bins ${2020 + i}` } } : { next: { action: "finish" } }) });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(ho.status === "unavailable" && ho.notFound[0]?.messageZh === TEXT_ZH.searchFailed && ho.usage.searches === 3, "搜索每次都出错：交「未接通：搜索服务出错，这一支没查成」", ho);
+  }
+  {
+    // 跳到别的站：这一页的事实不收；同站跳转：事实记跳转后的网址、另记请求的网址
+    const X = "https://www.example-city.ca/go/1";
+    const h = makeHarness({
+      search: () => ({ status: "SUCCESS", httpStatus: 200, hits: [{ title: "x", url: X, snippet: "" }, { title: "a", url: A, snippet: "" }] }),
+      decide: (i) =>
+        [
+          { next: { action: "search", query: "bins" } },
+          { next: { action: "read", url: X } },
+          { facts: [{ factType: "winner", value: "Fake Corp", excerpt: "awarded the contract to Fake Corp for bins" }], next: { action: "read", url: A } },
+          { facts: [{ factType: "winner", value: "Acme Bins Ltd", excerpt: "awarded contract RFT-2023-044 to Acme Bins Ltd." }], next: { action: "finish" } },
+        ][i] as Decision,
+    });
+    h.world.handlers.set(X, () => redirect("https://attacker.example/fake-award"));
+    h.world.handlers.set("https://attacker.example/fake-award", () => html("<p>The city awarded the contract to Fake Corp for bins, total $999,999.</p>"));
+    h.world.handlers.set(A, () => redirect("https://example-city.ca/awards/final"));
+    h.world.handlers.set("https://example-city.ca/awards/final", () => html(AWARD_PAGE));
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(!ho.found.some((f) => f.value === "Fake Corp"), "跳到别的站读到的页：事实不收", ho.found);
+    const acme = ho.found.find((f) => f.value === "Acme Bins Ltd");
+    ok(acme?.url === "https://example-city.ca/awards/final" && acme?.requestedUrl === A, "同站跳转：事实记跳转后的网址、另记请求的网址", acme);
+  }
+  {
+    // 树级只读一次：别的支读过 / 被挡过的网址这一支不再请求
+    const h = makeHarness({ search: () => HITS, decide: (i) => [{ next: { action: "search", query: "bins" } }, { next: { action: "read", url: A } }, { next: { action: "read", url: B } }, { next: { action: "finish" } }][i] as Decision });
+    h.rows.push({ orgId: ORG, userId: "u1", jobId: JOB, branchKey: RESEARCH_STEP_IDS.similar, seq: 0, kind: "read_sent", data: { url: A } });
+    h.rows.push({ orgId: ORG, userId: "u1", jobId: JOB, branchKey: RESEARCH_STEP_IDS.similar, seq: 1, kind: "read_result", data: { url: A, outcome: "blocked", reason: "http_403", attempts: 1, blockedSite: "www.example-city.ca", messageZh: "对方禁止访问（403），未读取" } });
+    h.rows.push({ orgId: ORG, userId: "u1", jobId: JOB, branchKey: RESEARCH_STEP_IDS.similar, seq: 2, kind: "read_result", data: { url: B, outcome: "ok", reason: null, attempts: 1 } });
+    h.world.handlers.set(A, () => html(AWARD_PAGE));
+    h.world.handlers.set(B, () => html(AWARD_PAGE));
+    await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    const blocked = h.rows.filter((x) => x.kind === "blocked_query" && x.branchKey === RESEARCH_STEP_IDS.priorAwards).map((x) => String(x.data.messageZh));
+    ok(!h.world.log.some((l) => l.url === A || l.url === B), "别的支读过 / 被挡过的网址：这一支不再发请求", h.world.log.map((l) => l.url));
+    ok(blocked.some((m) => m.includes("别的支被挡过")) && blocked.some((m) => m.includes("这棵树里已经读过")), "并告诉模型为什么没读", blocked);
+  }
+  {
+    // 先写后发：读完页之后崩了（结果没记上）→ 续跑时这一页算读过一次、不再读
+    const h = makeHarness({ search: () => HITS, decide: (i) => [{ next: { action: "search", query: "bins" } }, { next: { action: "read", url: A } }, { next: { action: "read", url: A } }, { next: { action: "finish" } }][i] as Decision });
+    h.world.handlers.set(A, () => html(AWARD_PAGE));
+    const realRead = h.deps.external.readPage;
+    let crash = true;
+    h.deps.external.readPage = async (u, c) => {
+      const r = await realRead(u, c);
+      if (crash) throw new Error("process killed after read");
+      return r;
+    };
+    const r1 = await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    ok(r1.ok && handoffOf(r1).status === "unavailable", "读页途中出错：这一支先以「出错停下了」交单（没写交单记录）");
+    crash = false;
+    // 交单记录没写：再执行一次会接着做
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(h.world.log.filter((l) => l.url === A).length === 1 && ho.usage.reads >= 1, "续跑：A 只请求过 1 次，读页次数算上了", { n: h.world.log.filter((l) => l.url === A).length, u: ho.usage });
+  }
+  {
+    // 时间到了没读成（没发请求）的网址：不算读过，下一次还能读
+    const h = makeHarness({ search: () => HITS, decide: (i) => [{ next: { action: "search", query: "bins" } }, { next: { action: "read", url: A } }, { next: { action: "read", url: A } }, { next: { action: "finish" } }][i] as Decision });
+    h.world.handlers.set(A, () => html(AWARD_PAGE));
+    const realRead = h.deps.external.readPage;
+    let first = true;
+    h.deps.external.readPage = async (u, c) => {
+      if (first) {
+        first = false;
+        return { untrusted: true, url: u, finalUrl: null, fetchedAt: new Date().toISOString(), text: "", truncated: false, blocked: null, outcome: "unreachable", reason: "deadline", messageZh: "这一轮处理时间到了", httpStatus: null, attempts: 0, robotsRequests: 0, fromCache: false };
+      }
+      return realRead(u, c);
+    };
+    await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    ok(h.world.log.filter((l) => l.url === A).length === 1, "没发请求的「时间到了」：同一网址下一次照常读", h.world.log.map((l) => l.url));
+  }
+  {
+    // 搜索前时间不够：决定记下、让出；下一片先搜，不再为它请求模型
+    const h = makeHarness({ modelCallMs: 60_000, decide: (i) => [{ next: { action: "search", query: "bins" } }, { next: { action: "finish" } }][i] as Decision, search: () => ({ status: "EMPTY", hits: [], httpStatus: 200 }) });
+    const r1 = await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards, { executionBudget: { deadlineAt: h.deps.external.now() + 100_000, tickBudgetMs: 100_000 } }), h.deps);
+    ok(r1.continuation?.reason === "TIME_BUDGET_YIELD" && h.searches.length === 0, "模型交回搜索时离截止不到 45 秒：不发，让出", { s: h.searches.length });
+    await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    ok(h.searches.length === 1 && h.prompts.length === 2, "下一片先执行那次搜索，只再请求一次模型", { s: h.searches.length, p: h.prompts.length });
+  }
+  {
+    // 读完页再搜索：之后那一轮交的事实不算（不是刚读到的页）
+    const h = makeHarness({
+      search: () => HITS,
+      decide: (i) =>
+        [
+          { next: { action: "search", query: "bins" } },
+          { next: { action: "read", url: A } },
+          { next: { action: "search", query: "bins 2" } },
+          { facts: [{ factType: "winner", value: "Acme Bins Ltd", excerpt: "awarded contract RFT-2023-044 to Acme Bins Ltd." }], next: { action: "finish" } },
+        ][i] as Decision,
+    });
+    h.world.handlers.set(A, () => html(AWARD_PAGE));
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(ho.found.length === 0 && ho.rejectedFacts === 1, "页读过之后隔了一次搜索再交的事实：不收", ho);
+  }
+  {
+    // 每支最多收 40 条
+    const pages = Array.from({ length: 9 }, (_, k) => `https://www.example-city.ca/awards/p${k}`);
+    const h = makeHarness({
+      search: () => ({ status: "SUCCESS", httpStatus: 200, hits: [] }),
+      decide: (_i, req) => {
+        const m = /读到的网页：(\S+)/.exec(req.userPrompt);
+        const read = new Set(h.world.log.map((l) => l.url));
+        if (m) {
+          const k = pages.indexOf(m[1]!);
+          const next = pages.find((u) => !read.has(u));
+          return {
+            facts: Array.from({ length: 5 }, (_, j) => ({ factType: "winner", value: `Vendor ${String.fromCharCode(65 + k)}${String.fromCharCode(65 + j)} Ltd`, excerpt: `Contract awarded to Vendor ${String.fromCharCode(65 + k)}${String.fromCharCode(65 + j)} Ltd today.` })),
+            next: next ? { action: "read", url: next } : { action: "finish" },
+          };
+        }
+        return { next: { action: "read", url: pages[0]! } };
+      },
+    });
+    for (const [k, u] of pages.entries()) {
+      h.world.handlers.set(u, () => html(`<p>${Array.from({ length: 5 }, (_, j) => `Contract awarded to Vendor ${String.fromCharCode(65 + k)}${String.fromCharCode(65 + j)} Ltd today.`).join(" ")}</p>`));
+    }
+    for (const u of pages) h.rows.push({ orgId: ORG, userId: "u1", jobId: JOB, branchKey: RESEARCH_STEP_IDS.priorAwards, seq: -1, kind: "search_result", data: { status: "SUCCESS", hits: [{ url: u, title: "p" }] } });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps));
+    ok(ho.found.length === 40 && ho.rejectedFacts >= 5, "每支最多收 40 条事实，多的记丢弃", { n: ho.found.length, r: ho.rejectedFacts });
+  }
+  {
+    // 第一波 ③（初查）模型请求最多 15 次
+    const h = makeHarness({ decide: () => ({ next: { action: "read", url: "https://nowhere.example/x" } }), search: () => HITS });
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.similar), h.deps));
+    ok(h.prompts.length === 15 && ho.usage.modelCalls === 15 && ho.status === "limit", "同类项目（初查）：模型请求最多 15 次", ho.usage);
+  }
+  {
+    // 组织把每棵树的分支数 / 深度调低：超出的支不跑
+    const h = makeHarness({ settings: { researchTree: { limits: { maxBranchesPerTree: 3 } } }, search: () => HITS });
+    const prior = { researchHandoff: { version: "research-handoff/v1", found: [], notFound: [], suggestedBranches: [] } };
+    const ho = handoffOf(await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.wave2Full, { priorEvidence: { research_prior_awards: prior } }), h.deps));
+    ok(ho.status === "limit" && /最多 3 支/.test(String(ho.reasonZh)) && h.prompts.length === 0, "组织每棵树最多 3 支：第 4 支交到上限、不调模型", ho);
+    const h2 = makeHarness({ settings: { researchTree: { limits: { maxDepth: 1 } } }, search: () => HITS });
+    const ho2 = handoffOf(await runResearchBranch(h2.ctx(RESEARCH_STEP_IDS.wave2Relaxed), h2.deps));
+    ok(ho2.status === "limit" && /最深 1 层/.test(String(ho2.reasonZh)), "组织最深 1 层：第二波交到上限", ho2);
+  }
+  {
+    // 外发闸：我方报价（含编码写法）、认不清的数字
+    const h = makeHarness({
+      decide: (i) =>
+        [
+          { next: { action: "search", query: "bins 876,543" } },
+          { next: { action: "search", query: "bins %38%37%36%35%34%33" } },
+          { next: { action: "search", query: "bins 876.543k" } },
+          { next: { action: "search", query: "bins ٨٧٦٥٤٣" } },
+          { next: { action: "finish" } },
+        ][i] as Decision,
+      search: () => HITS,
+    });
+    await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    ok(h.searches.length === 0 && !JSON.stringify(h.rows).includes("876"), "我方报价的各种写法与认不清的数字：一次都不发，也不进审计", { s: h.searches, rows: h.rows.filter((x) => x.kind === "decision").map((x) => x.data) });
+  }
+  {
+    // 网页来的文字只出现在不可信块里
+    const h = makeHarness({
+      search: () => HITS,
+      decide: (i) =>
+        [
+          { next: { action: "search", query: "bins" } },
+          { next: { action: "read", url: A } },
+          { facts: [{ factType: "winner", value: "Acme Bins Ltd", excerpt: "awarded contract RFT-2023-044 to Acme Bins Ltd." }], next: { action: "search", query: "Acme Bins Ltd other awards" } },
+          { next: { action: "finish" } },
+        ][i] as Decision,
+    });
+    h.world.handlers.set(A, () => html(AWARD_PAGE));
+    await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    const last = h.prompts[3]!.userPrompt;
+    const outside = last.replace(/<untrusted>[\s\S]*?<\/untrusted>/g, "");
+    ok(last.includes("Acme Bins Ltd") && !outside.includes("Acme") && !outside.includes("example-city"), "已收下的事实、搜索词、网址都在不可信块里", outside.slice(0, 600));
+  }
+  {
+    // allowUrl（读页层的最后一道检查）
+    const readable = new Map([[A, "t"]]);
+    ok(allowReadableUrl(A, readable, []) && !allowReadableUrl(B, readable, []) && !allowReadableUrl(null, readable, []), "allowUrl：只放行本支搜索结果里的网址");
+    const r2 = new Map([["https://x.gov/award?v=987654", "t"]]);
+    ok(!allowReadableUrl("https://x.gov/award?v=987654", r2, ["987654"]), "allowUrl：带内部数字的网址即使在搜索结果里也不放行");
+  }
+  {
+    // Job 已结束：不跑
+    const h = makeHarness({ job: { orgId: ORG, status: "completed", metadata: META } });
+    const r = await runResearchBranch(h.ctx(RESEARCH_STEP_IDS.priorAwards), h.deps);
+    ok(!r.ok && /RESEARCH_JOB_FINISHED/.test(String(r.error)) && h.prompts.length === 0, "调研 Job 已结束：拒绝执行");
+  }
+  {
+    // 开关关：步骤键不认识也先交「未开启」（不报错）
+    const h = makeHarness({ env: {} });
+    const r = await runResearchBranch(h.ctx("t3_analyze_package_v2"), h.deps);
+    ok(r.ok && (r.data?.researchSkipped as { status?: string })?.status === "flag_off" && h.storeCalls.length === 0, "开关关时先判开关：不认识的步骤也不报错、不读库");
   }
 
   /* ── 9. 树干 ── */

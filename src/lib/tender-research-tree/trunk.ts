@@ -22,25 +22,27 @@ import {
 } from "./fork-rules";
 import {
   RESEARCH_TREE_SUMMARY_VERSION,
-  type BranchUsage,
   type ResearchHandoffV1,
   type ResearchTreeSummaryV1,
   type TrunkBranchSummary,
+  type TrunkUsage,
 } from "./types";
 
-const ZERO_USAGE: BranchUsage = { searches: 0, reads: 0, modelCalls: 0, blockedSites: 0, elapsedMs: 0 };
+const ZERO_USAGE: TrunkUsage = { searches: 0, reads: 0, modelCalls: 0, elapsedMs: 0 };
 
-function addUsage(a: BranchUsage, b: BranchUsage): BranchUsage {
+function addUsage(a: TrunkUsage, b: TrunkUsage): TrunkUsage {
   return {
     searches: a.searches + b.searches,
     reads: a.reads + b.reads,
     modelCalls: a.modelCalls + b.modelCalls,
-    blockedSites: a.blockedSites + b.blockedSites,
     elapsedMs: a.elapsedMs + b.elapsedMs,
   };
 }
 
-/** 纯函数：从五个上游的输出算出树干摘要（不含金额、摘录、正文与网址） */
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
+const REASONS: ReadonlySet<string> = new Set(["none", "unavailable", "blocked", "limit"]);
+
+/** 纯函数：从五个上游的输出算出树干摘要（不含金额、摘录、正文与网址；文字只取代码写的那几句） */
 export function summarizeTree(input: {
   jobId: string;
   startedAt: string | null;
@@ -56,8 +58,10 @@ export function summarizeTree(input: {
       return {
         key: id,
         kind: def.kind,
+        labelZh: def.labelZh,
         status: "unavailable",
-        statusZh: TEXT_ZH.internalError,
+        statusZh: statusLineZh("unavailable", 0),
+        reasonZh: null,
         foundCount: 0,
         notFound: [{ reason: "unavailable", messageZh: TEXT_ZH.internalError }],
         usage: { ...ZERO_USAGE },
@@ -66,16 +70,19 @@ export function summarizeTree(input: {
     return {
       key: id,
       kind: def.kind,
+      labelZh: def.labelZh,
       status: h.status,
-      statusZh: h.statusZh || statusLineZh(h.status, h.found.length),
+      statusZh: statusLineZh(h.status, h.found.length),
+      reasonZh: typeof h.reasonZh === "string" ? h.reasonZh.slice(0, 200) : null,
       foundCount: h.found.length,
-      notFound: h.notFound.map((n) => ({ reason: n.reason, messageZh: n.messageZh })),
+      notFound: h.notFound
+        .filter((n) => REASONS.has(n.reason) && typeof n.messageZh === "string")
+        .map((n) => ({ reason: n.reason, messageZh: n.messageZh.slice(0, 200) })),
       usage: {
-        searches: h.usage?.searches ?? 0,
-        reads: h.usage?.reads ?? 0,
-        modelCalls: h.usage?.modelCalls ?? 0,
-        blockedSites: h.usage?.blockedSites ?? 0,
-        elapsedMs: h.usage?.elapsedMs ?? 0,
+        searches: num(h.usage?.searches),
+        reads: num(h.usage?.reads),
+        modelCalls: num(h.usage?.modelCalls),
+        elapsedMs: num(h.usage?.elapsedMs),
       },
     };
   });
@@ -102,7 +109,12 @@ export async function runResearchTrunk(ctx: AdapterContext, deps: BranchRunDeps)
   if (!isResearchTreeEnabledForOrgWithEnv(ctx.orgId, ext.env)) {
     return { ok: true, data: { researchTrunk: { status: "flag_off", roomWritten: false, messageZh: TEXT_ZH.flagOff } } };
   }
-  const job = await store.loadJob(ctx.runId);
+  let job: Awaited<ReturnType<typeof store.loadJob>>;
+  try {
+    job = await store.loadJob(ctx.runId);
+  } catch {
+    return { ok: true, data: { researchTrunk: { status: "error", roomWritten: false, messageZh: "树干没汇总：读库出错，可以重新查" } } };
+  }
   const jc = checkResearchJob(job, ctx.orgId);
   if (!jc.ok) return { ok: false, error: jc.error };
 
@@ -115,14 +127,17 @@ export async function runResearchTrunk(ctx: AdapterContext, deps: BranchRunDeps)
   });
 
   let roomWritten = false;
+  let writeFailed = false;
   const fence = ctx.runFence;
   if (fence) {
     try {
       roomWritten = await fence.guard((client) => store.writeRoomSummary(client, jc.projectId, summary));
     } catch (err) {
       if (err instanceof LostLeaseError) throw err;
-      roomWritten = false;
+      writeFailed = true;
     }
+  } else {
+    writeFailed = true;
   }
   return {
     ok: true,
@@ -130,7 +145,11 @@ export async function runResearchTrunk(ctx: AdapterContext, deps: BranchRunDeps)
       researchTrunk: {
         status: "done",
         roomWritten,
-        messageZh: roomWritten ? "树干已汇总，写进了情报室" : "树干已汇总；项目还没有情报室或写入失败，摘要只留在这一步的结果里",
+        messageZh: roomWritten
+          ? "树干已汇总，写进了情报室"
+          : writeFailed
+            ? "树干已汇总，但写进情报室时出错；摘要只留在这一步的结果里"
+            : "树干已汇总；项目还没有情报室，摘要只留在这一步的结果里",
       },
       researchTree: summary,
     },
