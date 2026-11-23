@@ -132,7 +132,7 @@ Revert 本 PR 的合并提交即可：零 schema、没有数据迁移、没有�
 - 审查发现、另开任务（TASKFLOW「编号待定」各一行）：legacy 报价接口（上线前提）；项目财务接口仍认项目角色成本读权限；Muse compare / price_scenario 不看项目读权限与财务查看权、整份回复进审计；问青砚 `project_get_project_quotes` 返回毛利率、不查项目读权限与财务查看权；派发时负责人必填；三处兜底口径不一（并入两份兜底收成一份那一行）。
 - 解读格式异常的 502 照旧带模型原文 `raw`：模型输入里没有落地价，原文里不会有真实落地价。
 - `compare.test.ts` 进 CI 子集靠 `scripts/test-ci-unit.sh` 里那一行，没有校验在守它（`check-test-registry.sh` 只查 `test-all.sh`）；有人删掉那一行，CI 里这些接线断言就不跑了（交叉验证 F6，不改）。
-- main 新合入的 BIDPAGE-1 汇总接口（`bid-page-summary`）按旧签名调 `resolveQuoteCapabilities`，合入时改为新签名（`49bffa7c`）；它的金额门仍用不带兜底的 `resolveFinancePrivilege`，授权查询出错时整个接口报错——并入「财务查看权兜底收成一份」那一行。
+- main 新合入的 BIDPAGE-1 汇总接口（`bid-page-summary`）按旧签名调 `resolveQuoteCapabilities`，合入时改为新签名（`49bffa7c`）；它的金额门仍用不带兜底的 `resolveFinancePrivilege`，授权查询出错时整个接口报错——并入「财务查看权兜底收成一份」那一行。 **行为也随之变了一点**（交叉验证复核发现）：新签名下 `canViewInternal` 就是 `finance.canReadAll`，汇总接口的金额门 `canViewBidAmounts` 从「（特权 或 项目角色有成本读）且 `canReadAll`」变成「只看 `canReadAll`」——只在「组织管理员或企业负责人、持组织范围「查看项目结算」、又不是项目成员」这一类人身上不同：他们在汇总接口里 `canViewAmounts` 从 false 变成 true、能看到我方报价金额（12 种身份对照只有这一类不同）。BIDPAGE 开关在生产关着、我方报价金额另外还要报价引擎开关，合并当天没有生产影响；方向与 CHAIN-2e 一致（同一类人在报价引擎里同样能看到内部数字）。BIDPAGE 规格里「有财务查看权但不能看内部成本 → 看不到金额」那个场景因此不会再出现，已告知 BIDPAGE 轨道。
 
 ## 审查后的修订（协调会话清单，2026-11-23）
 
