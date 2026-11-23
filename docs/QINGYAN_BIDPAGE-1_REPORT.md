@@ -34,7 +34,34 @@
 
 ## 3. 测试与门禁
 
-（门禁结果待填）
+本机（Node 24、Postgres 16 隔离库，`NODE_ENV=test DATABASE_ENVIRONMENT=isolated`），2026-11-23：
+
+| 项 | 结果 |
+|---|---|
+| `npm test`（全量，带隔离库），main `13c7ed33` 基线 | 705/715，10 项失败 |
+| `npm test`，本分支（审查修订后 `9b0828ac`） | **708/718，10 项失败，与 main 逐项相同**（多出的 3 项是本 PR 的三份新测试，都过） |
+| 本 PR 新测试 | `next-step.test.ts` 124/124；`bid-page-v2.test.tsx` 97/97；`bid-page-summary-db.isolated.test.ts` 55/55 |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS（无新增 error fingerprint） |
+| `bash scripts/check-test-registry.sh` | 通过（已注册 684，历史欠账 66 条未增） |
+| `npx -y @fission-ai/openspec@1.15.0 validate bid-page-v2-shell --strict` | valid |
+| `git diff origin/main -- prisma/ vercel.json` | 空 |
+
+main 上本来就失败的 10 项（本分支相同）：
+   - 来信观察 DB 端到端（MAIL-2；隔离库执行，否则跳过）
+   - Sunny 工艺单 签字→草稿→门禁→确认→导出 DB 端到端（隔离库执行，否则跳过）
+   - Phase3A-3 Approvals Smoke
+   - Phase3A-4 Governance Smoke
+   - Phase3A-4 Acceptance
+   - Autopilot A2-P0 Isolated E2E
+   - Phase3A-5 Overview Acceptance
+   - T4 授标情报真实 Postgres 矩阵
+   - Quote Operations 客户报价 PDF 分页布局（Chromium；缺失则 SKIP）
+   - 招标询价 自动起草第 1 轮 DB 端到端（隔离库执行，否则跳过，RFQ-AUTO-2）
+
+两处环境问题（与本 PR 无关，已写进交接）：
+1. 第一次跑分支全量时「Mention Gateway M2-A Identity DB」失败：它给固定的平台组织建一条 wecom 网关，同一个库上第二次跑就撞唯一约束（main 基线是这个库上第一次跑）。删掉残留行后单独重跑 93/93 通过；第二次全量前先删了这一行。
+2. 第一次跑分支全量时类型检查失败：报错全在 `.next/dev/types/routes.d.ts`（浏览器抽检时开发服务被系统内存不足杀掉，生成文件只写了一半）。删掉 `.next/dev` 后通过。
 
 ## 4. 浏览器抽检
 

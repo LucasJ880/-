@@ -15,7 +15,7 @@
 
 ## 4. 门禁与验证
 
-- [ ] 4.1 全量门禁（verify：`npm test` 与 main 基线比对没有新增失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`npx -y @fission-ai/openspec@1.15.0 validate bid-page-v2-shell --strict` valid；`git diff origin/main -- prisma/ vercel.json` 为空；`git diff --name-only origin/main` 只有 design「验证方式」列的白名单文件）
+- [x] 4.1 全量门禁（verify：`npm test` 与 main 基线比对没有新增失败；`npm run test:ci` PASS；`npm run typecheck`；`npm run lint:baseline` PASS；`npx -y @fission-ai/openspec@1.15.0 validate bid-page-v2-shell --strict` valid；`git diff origin/main -- prisma/ vercel.json` 为空；`git diff --name-only origin/main` 只有 design「验证方式」列的白名单文件）
 - [x] 4.2 真实浏览器抽检（verify：本地起应用、用隔离库的种子数据，开关关 / 开各截一张「标书与报价」页的图，开关关时与 main 的截图像素一致或说明差别；截图放 `docs/acceptance/bidpage-1/`）
 
 ## 5. 报告与 TASKFLOW
