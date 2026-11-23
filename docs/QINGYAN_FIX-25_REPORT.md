@@ -10,7 +10,7 @@
 | 起因 | 只读成员从 `GET /api/projects/:id/bid-intelligence` 拿到 `pricingInputs.targetMarginPct = 23.7` 与 `ourPriceCad = 114881.15`，114,881.15 × (1 − 0.237) = 87,654.32，正好是我方成本（报价按报价表助手「成本 + 目标毛利」底价定时精确反推，`src/lib/tender-pricing/calc.ts:213-215`） |
 | GATE | 七条由协调会话 2026-11-23 按推荐定（Lucas 2026-11-22 授权「都按照你的推荐来」），第 ④ 条措辞按多维审查的文案意见调整，见 §7 |
 | OpenSpec change | `openspec/changes/target-margin-finance-gate/`（`tender/pricing-helper`：新增 1 条、改 7 条；`tender/pricing-compare-cost-source`：改 1 条） |
-| 基线 | 四件套 main `2a0eb964`；实施与修订时依次合入 `c376be86`（#564 BIDPAGE-3）、`fc321a7d`（#538 CHAIN-2d）、`fbacf6bd`（#569 FIX-14）、`71a86a0a`（#574 FIX-26a）、`4b6c3dd4`（#581 BIDPAGE-4、#579 FIX-26a 归档） |
+| 基线 | 四件套 main `2a0eb964`；实施与修订时依次合入 `c376be86`（#564 BIDPAGE-3）、`fc321a7d`（#538 CHAIN-2d）、`fbacf6bd`（#569 FIX-14）、`71a86a0a`（#574 FIX-26a）、`4b6c3dd4`（#581 BIDPAGE-4、#579 FIX-26a 归档）、`9ff1b29e`（#582 BIDPAGE-4 归档）、`58508ecc`（#575 TREE-2）；本分支最后合入的 main 提交是 `58508ecc` |
 | 分支 / PR | `claude/zen-turing-azudvx-fix25`；Draft PR #578 |
 | 开关 | 没有；合并即生效 |
 
@@ -31,7 +31,7 @@
 | `src/app/api/projects/[id]/pricing-helper/route.ts` | 保存里三项输入与成本来源的「请求里带了没有」改用 `hasKey`（与 403 判定同一个；多维审查对三个键核对过与原来的 `in` 结果 0 处不同）；注释 |
 | `src/components/tender/pricing-helper-card.tsx` | 展示部分抽成纯组件 `PricingHelperCardView`（多审 T7）；`costHidden` 时目标毛利格换成固定标签「目标毛利」+ 那句话（`data-testid="pricing-margin-hidden"`）、不渲染成本加成提示、去掉那句说明；保存请求体由 `buildPricingSaveBody` 给出，没有财务查看权时只带对手价 |
 | `src/app/api/projects/route.ts`、`src/app/api/projects/[id]/bid-intelligence/route.ts` | 只改注释 |
-| 测试 | 新增 `target-margin-finance-view.test.ts`（不连库，57 项）、`target-margin-finance-db.isolated.test.ts`（隔离库，134 项），登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；`finance-view.test.ts`、`pricing-helper-finance-db.isolated.test.ts`、`compare-cost-source.test.tsx` 只改随行为变的断言（另按多审补了几条） |
+| 测试 | 新增 `target-margin-finance-view.test.ts`（不连库，60 项）、`target-margin-finance-db.isolated.test.ts`（隔离库，135 项），登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；`finance-view.test.ts`、`pricing-helper-finance-db.isolated.test.ts`、`compare-cost-source.test.tsx` 只改随行为变的断言（另按多审补了几条） |
 
 零 schema、零依赖、零新增模型调用、没有新增出站。不碰 `src/lib/muse-bridge/**`、BIDPAGE 的 `bid-page-summary` 金额门与 `src/app/api/projects/[id]/bid-page/**`、`src/lib/project-finance/access.ts`。
 
@@ -64,7 +64,7 @@
 | **审计日志详情** `GET /api/audit-logs/:id`（`src/app/api/audit-logs/[id]/route.ts:46-55,72`）原样返回 `beforeData` / `afterData` 给本组织任一组织管理员与该项目 `project_admin`，不看财务查看权；报价引擎另起新版时往审计写 `sourceSellingPrice`、`sourceCost`、`sourceMargin`（`src/lib/quote-engine/service.ts:351`）；审计 id 可从审计列表或项目动态（`src/lib/activity/formatter.ts:143`）拿到；接口本身没有开关 | FIX-26 主体（多审 S1；FIX-26 四件套由协调会话另补） |
 | 询价列表 / 明细 / 旧比价接口给项目读者供应商报价原价（`src/lib/inquiry/service.ts:191-201`、`…/compare/route.ts:6-11`） | FIX-26b（等 Lucas） |
 | 问青砚 `project_get_project_quotes` 给组织成员 `profitMargin` + `totalAmount` | FIX-26 主体 |
-| 投标策略备忘送进模型的目标毛利（`2a0eb964` 上 `orchestrate.ts:425-439`）；`GET …/bid-draft` 返回的 `internalNotesZh`；生成的投标文件草稿文件本身带「内部审阅注（提交前删除）」（`src/lib/tender-bid-draft/render.ts:68-70` 写进文件，`src/lib/projects/generate/generate-docs.ts:446-467` 存成项目文件，项目读者能看） | CHAIN-2d #538（已合并 `fc321a7d`，编排只取对手价）；草稿那两项是它列的后续（多审 S3） |
+| 投标策略备忘送进模型的目标毛利（`2a0eb964` 上 `orchestrate.ts:425-439`）；`GET …/bid-draft` 返回的 `internalNotesZh`；生成的投标文件草稿文件本身带「内部审阅注（提交前删除）」（`src/lib/tender-bid-draft/render.ts:68-70` 写进文件，`src/lib/projects/generate/generate-docs.ts:446-467` 存成项目文件，项目读者能看） | CHAIN-2d #538（已合并 `fc321a7d`，编排只取对手价）；草稿那两项是它列的后续（多审 S3），TASKFLOW「待定」「投标文件草稿的内部注给项目读者」 |
 | 项目财务的实际利润与预算利润百分比（`GET …/finance/budget`、`/api/org/tender-portfolio`；`TENDER_FINANCIAL_CONTROL_ENABLED` 生产关） | CHAIN-2e Out of scope「另开任务」 |
 | 离开组织、但岗位绑定与项目成员身份还在的人仍有财务查看权（软移除不撤绑定与项目成员身份：`src/app/api/organizations/[orgId]/members/[memberId]/route.ts:176`；`src/lib/projects/access.ts:160` 只看项目成员；岗位判定只看绑定） | 范围外，即 TASKFLOW「待定」「财务特权 / 岗位绑定跟着组织成员身份走（CHAIN-2c 交叉验证 F3）」那一行（多审 S2） |
 
@@ -91,16 +91,16 @@
 
 | 测试 | 改动前（`origin/main` 版本的 `finance-view.ts`、路由、卡片三个文件） | 改动后 |
 |---|---|---|
-| `npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts`（新，不连库） | 23 过 21 不过（另 13 项依赖新导出，在旧代码上没跑到）；第一版 45 项时是 23 过 19 不过 | 57 过 |
-| `NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`（新，隔离库 `qy_iso_c`） | 44 过 90 不过；第一版 42 项时是 16 过 26 不过 | 134 过 |
+| `npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts`（新，不连库） | 23 过 21 不过（另 16 项依赖新导出，在旧代码上没跑到）；第一版 45 项时是 23 过 19 不过 | 60 过 |
+| `NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`（新，隔离库 `qy_iso_c`） | 44 过 91 不过；第一版 42 项时是 16 过 26 不过 | 135 过 |
 | `finance-view.test.ts` | 47 过 | 48 过 |
 | `pricing-helper-finance-db.isolated.test.ts` | 34 过 | 38 过（夹具目标毛利 15 → 17.3 并加进搜索、先去掉时间戳；w4 / w5 改期望 403 且库不变；「只带对手价」另起一次保存；项目列表逐身份搜；403 句写字面量） |
 | `compare-cost-source.test.tsx` | 83 过 | 83 过（两条接线字符串） |
 | `pricing-helper.test.ts` / `pricing-helper-save-db` / `pricing-helper-lock-db` / `compare-cost-source-db` / `room-summary-merge-db` / `memo-pricing` | 13 / 17 / 17 / 42 / 15 / 52 | 原样 |
 
-隔离库新测试覆盖：复现数据（成本 87,654.32、目标毛利 23.7、成本来源里的落地价 76,543.21、镜像我方报价与 `ourBidPrice` 114,881.15、带内部注的 `bidDraft`）；读取在比价成本来源开关关、开下各跑一遍；七种没有财务查看权的项目读者（只读成员、项目编辑者、没有财务键的 `org_admin`、只在分配范围持 `project.finance.read` 的投标同事、组织负责人 `org_owner`、项目级 `accounting`、项目级 `operator`）读调查室、项目列表、报价表助手、项目详情——四个响应都没有目标毛利，`summaryJson` 没有 `pricingInputs` 与 `bidDraft`，报价表助手的顶层键在白名单内、`inputs` 恰好三项、与「成本、目标毛利都没填」的项目逐字节相同，去掉时间戳后搜不到目标毛利、成本、落地价与内部注，项目列表与详情照旧带 `ourBidPrice`；本组织普通成员（不是项目成员）在项目列表看到该项目、带 `ourBidPrice`、没有 `pricingInputs`，另外三个 403；负责人、组织范围 `project.finance.read`、平台超级管理员读报价表助手得 23.7 且逐字节相同，负责人读两个房间 JSON 接口同样没有那三个键；编辑者带成本 / 成本来源 / 目标毛利数字 / 目标毛利 `null` / 与库里相同的 23.7 保存都 403、库不变；`org_admin` 与组织负责人带目标毛利 403、只带对手价 200 且返回置空；只带对手价成功且目标毛利、成本、成本来源保留；409 → 403 → 400。
+隔离库新测试覆盖：复现数据（成本 87,654.32、目标毛利 23.7、成本来源里的落地价 76,543.21、镜像我方报价与 `ourBidPrice` 114,881.15、带内部注的 `bidDraft`）；读取在比价成本来源开关关、开下各跑一遍；七种没有财务查看权的项目读者（只读成员、项目编辑者、没有财务键的 `org_admin`、只在分配范围持 `project.finance.read` 的投标同事、组织负责人 `org_owner`、项目级 `accounting`、项目级 `operator`）读调查室、项目列表、报价表助手、项目详情——四个响应都没有目标毛利，`summaryJson` 没有 `pricingInputs` 与 `bidDraft`，报价表助手的顶层键在白名单内、`inputs` 恰好三项、与「成本、目标毛利都没填」的项目逐字节相同，去掉时间戳后搜不到目标毛利、成本、落地价与内部注，项目列表与详情照旧带 `ourBidPrice`；本组织普通成员（不是项目成员）在项目列表看到该项目、带 `ourBidPrice`、没有 `pricingInputs`，另外三个 403；负责人、组织范围 `project.finance.read`、平台超级管理员读报价表助手得 23.7 且逐字节相同，负责人读两个房间 JSON 接口同样没有那三个键；编辑者带成本 / 成本来源 / 只带顶层成本来源不带 inputs / 目标毛利数字 / 目标毛利 `null` / 与库里相同的 23.7 保存都 403、库不变；`org_admin` 与组织负责人带目标毛利 403、只带对手价 200 且返回置空；只带对手价成功且目标毛利、成本、成本来源保留；409 → 403 → 400。
 
-**每个新断言的变异对照**（`qy_iso_c`；每次只放一个变异，跑五个测试，记下失败条数，再用 `git checkout` 还原；还原后五个测试是 57 / 48 / 83 / 134 / 38 全过）：
+**每个新断言的变异对照**（`qy_iso_c`；每次只放一个变异，跑五个测试，记下失败条数，再用 `git checkout` 还原；还原后五个测试是 60 / 48 / 83 / 135 / 38 全过）：
 
 | 变异（对应审查条目） | 抓住它的测试：失败条数 |
 |---|---|
@@ -122,14 +122,29 @@
 | P7 调查室对负责人多带回显 / 项目列表对负责人多带回显 | tmdb 2、fdb 1 / tmdb 2、fdb 2 |
 | P8 403 前先把目标毛利写进库 | fv 1、tmdb 2、fdb 1 |
 | 可选：项目列表对不是负责人的人多带回显目标毛利 / 回显成本 | tmdb 16 / tmdb 16、fdb 1（正是新加的「项目列表（只读成员）…搜不到」） |
+| 交叉验证 X14：有财务查看权时目标毛利 `n(form.margin) \|\| null`（填 0 存成 null） | tmv 1（新加的「填 0 就存 0」） |
+| 交叉验证 X09：路由的 403 判定只看 `inputs`、漏掉顶层 `ourCostSource` | tmdb 2（含新加的「只带顶层成本来源、不带 inputs」）、fdb 1、tmv 1、fv 3 |
+| 交叉验证 X12：只读、没有财务查看权时目标毛利格回到（禁用的）输入框 | tmv 2（含新加的「只读、没有财务查看权」渲染） |
 
 （tmv = `target-margin-finance-view.test.ts`，fv = `finance-view.test.ts`，tmdb = `target-margin-finance-db.isolated.test.ts`，fdb = `pricing-helper-finance-db.isolated.test.ts`。审查列的等价变异 M16–M19 不做。）
 
 ## 6. 门禁
 
-（本机。以第四轮为准：多维审查修订后、合入 main `4b6c3dd4` 后。）
+（本机。以第五轮为准：交叉验证补测试、合入 main `58508ecc`（带进 #575 TREE-2 源码）后。）
 
-第四轮（`e05d789a` + 文档，全新库 `qy_full_fix25`，`prisma migrate deploy` 后）：
+第五轮（`50eae3a3` + 文档，全新库 `qy_full_fix25`，`prisma migrate deploy` 后）：
+
+| 命令 | 结果 |
+|---|---|
+| `npm test`（`< /dev/null`） | **748/758 通过，10 失败，与 main 基线 10 项逐条相同**；偶发项没出现；全量里 typecheck 0 错误；本 change 的五个测试 60 / 48 / 83 / 135 / 38 全过 |
+| CI 子集 `npm run test:ci` | PASS（含 `check-swc-nullish-logical`） |
+| `npm run typecheck` / `npm run lint:baseline` / `bash scripts/test-runtime-architecture.sh` | 0 错误 / PASS（errors 38，基线 53） / PASS |
+| `bash scripts/check-test-registry.sh` | OK（已注册 722，基线剩余 66） |
+| `npx openspec validate target-margin-finance-gate --strict` | valid |
+| 归档演练 | + 1、~ 8，`--specs --strict` 161/161 |
+| 不改的文件 | 与 `58508ecc` 无差异（之后 main 只多了 #583 TREE-2 归档的文档与主规格，已合入） |
+
+第四轮（`e05d789a` + 文档，合入 `4b6c3dd4` 后）：
 
 | 命令 | 结果 |
 |---|---|
@@ -163,7 +178,17 @@
 
 ## 8. 多维审查
 
-（由协调会话补）
+五个维度各一个子 agent，各自在 `234d4304` 的干净快照上做，互相不看结论——**都没有阻断项**：
+
+| 维度 | 主要发现 | 处理 |
+|---|---|---|
+| 正确性与回归（有财务查看权的 248 个用例改前改后对照、`in` → `hasKey` 13 种请求体、D2 用 20000 组随机验证） | 有财务查看权的人 0 处不同；没有的人唯一差别是目标毛利为 null；带目标毛利的 8 种值全部 403、库不变；顺带修好「编辑者发非法目标毛利会清掉负责人存的值」；两个房间 JSON 接口去掉的键没有读者；与 #538 兼容、与 CHAIN-2e 代码 0 冲突、不成环 | 写进报告 |
+| 安全 / 隐私与八条硬纪律（约 150 个项目 GET + 10 个组织级接口 + 30 多个问青砚工具 + Muse，开关全关 / 全开两轮，8 种没有财务权的身份） | 本 change 的五个出口都搜不到目标毛利与成本；403 不能用来试探已存值；**审计日志详情接口返回报价引擎另起新版写的 `sourceCost` / `sourceMargin`，出口表漏了**；离开组织仍有财务查看权（既有）；生成的草稿文件带内部审阅注 | 审计详情补进出口表 #11、归 FIX-26 主体（FIX-26 四件套已补读取侧裁剪与写入侧少写）；其余写进范围外与出口表 #9 |
+| 规格—代码—测试一致性（改前数字重跑、既有测试期望逐条核对、归档演练） | 数字都对；既有测试的期望改动都比原来严，没有把泄露写成期望；几处文档漂移与两个场景引用不全 | 全部改正 |
+| 使用流畅与文案 | 403 那句先说「页面已更新」易被扫成「存上了」；隐藏时标签还带「%（按售价）」；报告白话太长；上线当天旧卡片要刷新后再填一次对手价 | 403 改成「没有保存：页面已更新，……」；标签固定「目标毛利」；白话三句；§11 给同事的话 |
+| 测试质量（73 个变异：58 抓住、15 存活，1 个等价） | org_owner、项目 accounting / operator 角色、org_admin / org_owner 的写路径没测；值相同时 200 / 403 可当探针；派生值（0.237、加成率）子串搜不到；卡片没有行为测试；导入约束能被 `export … from` 绕过；隔离库测试只在开关关着时跑 | 补身份与写路径、值相同也 403、响应键白名单与逐字节对照、卡片抽纯函数 / 纯组件并测、导入说明符集合断言、开关两种状态各跑一遍；每条在对应变异下失败 |
+
+**交叉验证**（另起一个没参与实现与上面审查的子 agent，在 `534e29f8` 上亲自跑：15 种身份 × 本 change 五个出口与 BIDPAGE-4 新接口、开关两轮，252 个没有财务权的响应扫目标毛利与成本的各种形式 0 命中，改动前同一探针每种身份都漏；有财务查看权的人 96 步保存 / 读取与 96 份卡片 HTML 改前改后逐字相同；上线当天旧卡片回放 403、库不变、刷新后能存；23 个自设变异抓 21（1 个等价）；与 main `58508ecc`、与 CHAIN-2e 试合无新冲突、不成环；归档演练通过）：**可以合并**。它提的三个测试缺口（有财务权时目标毛利 0、只带顶层成本来源的 403、只读的人的卡片渲染）与两处文档（基线行、`…/bid-draft` 内部注没有 TASKFLOW 行）都已补上。
 
 ## 9. 没验证到的
 
@@ -192,5 +217,6 @@
 
 - 实施前按独立审查 F1–F11 修订了四件套（`93bd6021`）：项目列表受众、旧隔离库测试改法、FIX-26 范围、预算利润百分比、`bidDraft`、TASKFLOW 位置、目标毛利格标签、共用「有没有这个键」、403 句首、D3 的否决理由；GATE 七条标「已定」。
 - 多维审查后按修订清单改了代码（X1 403 句、X2 固定标签、T7 保存请求体纯函数与展示纯组件）、测试（T1–T9、P7、P8 与可选两条）和四件套（S1 审计日志详情进出口表、S3、P1–P6；P5 把主规格「我方成本只给有财务查看权的人」场景里的目标毛利 15% 改成 17.3%，作为一条 MODIFIED）。没有会改变范围的地方。
+- 交叉验证后只补了测试与文档（不改源码）：有财务查看权时目标毛利 0、只带顶层成本来源的 403、只读的人的卡片渲染三条用例；报告基线行；TASKFLOW「投标文件草稿的内部注给项目读者」一行「待定」与 design 出口表 #9 的指向。
 - 合入 main 带进来 #564 BIDPAGE-3 与 #581 BIDPAGE-4：逐行报价、只报总价都把目标毛利存在 `ProjectQuote.pricingRate`，自己的接口按金额门；已补进 design 出口表 #6 与本报告 §3、§4（归 FIX-26 主体），不改本 change 范围。
 - 顺带发现：FLOW-H1「下一步」隔离库测试的金额正则会撞时间戳（§6），没改，留作另开小改动。
