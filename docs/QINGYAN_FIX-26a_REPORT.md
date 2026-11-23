@@ -6,7 +6,7 @@
 |---|---|
 | change | `quote-pdf-no-margin`（已归档到 `openspec/changes/archive/2026-11-23-quote-pdf-no-margin/`；新能力 `projects/legacy-quote-pdf`，2 条要求） |
 | PR | #574，2026-11-23 合并（合并提交 `71a86a0a`）；归档后 `openspec validate --specs --strict` 160 / 160 |
-| TASKFLOW | FIX-26a（从 FIX-26 / 「待定」FIX-21 后续 8 拆出；协调会话 2026-11-23 定 GATE ④ 不出内部版 PDF、⑤ PDF 单独先做）；TASKFLOW 在「FIX-21 后续 8」那一行之后新增 FIX-26a 一行，状态 `[~]` |
+| TASKFLOW | FIX-26a（从 FIX-26 / 「待定」FIX-21 后续 8 拆出；协调会话 2026-11-23 定 GATE ④ 不出内部版 PDF、⑤ PDF 单独先做）；TASKFLOW 在「FIX-21 后续 8」那一行之后新增 FIX-26a 一行，状态 `[x]`（#574 合并、归档后） |
 | 分支 | `claude/zen-turing-azudvx-fix26a`，从 main `325cbdc0` 切出；审查修订时先后合入 main `70da7956`、`fbacf6bd`（都没有冲突，本 change 的文件都没变） |
 | 性质 | 堵住内部数字外流。零 schema、不调模型、没有新增出站、没有新队列。**没有开关——已随合并（2026-11-23）在生产生效** |
 
@@ -49,7 +49,7 @@
 | `bash scripts/test-runtime-architecture.sh` | PASS（repo conformance 9 / 0） |
 | `npx openspec validate quote-pdf-no-margin --strict` | valid |
 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
-| 归档演练（副本里 `openspec archive quote-pdf-no-margin --yes` 前后各跑 `openspec validate --specs --strict`） | 前 158 / 0，后 159 / 0（新增主规格 `projects/legacy-quote-pdf`，没有新增失败） |
+| 归档演练（副本里 `openspec archive quote-pdf-no-margin --yes` 前后各跑 `openspec validate --specs --strict`） | 前 158 / 0，后 159 / 0（演练在 `be9ba8e5` 上做；之后 #577 归档 FIX-14，正式归档时是 159 → 160；新增主规格 `projects/legacy-quote-pdf`，没有新增失败） |
 
 ## 4. 没验证到的与已知限制
 
@@ -81,7 +81,7 @@
 - `e7594dd0` 删去「Profit Margin」一行（改动后 24 / 0）
 - `be9ba8e5` 报告与 TASKFLOW 一行、tasks 3.1 / 4.1 打勾
 - `512bdf73`、`b1eea423` 合入 main `70da7956`、`fbacf6bd`
-- 审查修订：规格 Purpose 补足、测试加四条兜底（改动前 26 / 6，改动后 32 / 0）、`isInternal` 措辞与生产只读查询、白话重写、多维审查一节（本次最后一个提交）
+- 审查修订：规格 Purpose 补足、测试加四条兜底（改动前 26 / 6，改动后 32 / 0）、`isInternal` 措辞与生产只读查询、白话重写、多维审查一节（`c670b89b`，#574 合并前最后一个提交）
 
 ## 9. 多维审查
 
