@@ -28,33 +28,34 @@
 | 8 | Excel（`src/lib/quote/export-excel.ts:43-47,55,66`；`quote-editor.tsx:25,326`） | 能打开编辑器的人 | 「内部成本」「利润率」「成本价（内部）」 | 有财务查看权：内部成本表；没有：不含这三样（D5） |
 | 9 | 智能体报价技能 `src/lib/agent/skills/quote.ts` | 问青砚 `project_bid_quote`（`src/lib/agent-core/tools/project-skills.ts:108-130`；工具角色 admin / sales，`_policy.ts:116`；`runStaticSkill` 只核对项目所属组织，`src/lib/agent-core/skills/static-bridge.ts:67-79`，不查项目读权限）；智能体任务里执行这一步的人（`flow-runner.ts:344-348`）；一键投标方案（项目写者，`run-step/route.ts:114-117`） | review：按传入的 `quoteId` 取报价、**不核对属于本项目**（`:179-187`）；成本价、内部成本、利润率交给模型（`:249`、`:253-254`）；规则检查带利润率（`:230`）。draft：供应商单价 / 总价交给模型（`:94-102`），返回带 `costPrice` 的草稿（`:148-152`） | 按执行的人判（D7）：`quoteId` 必须属于本项目；没有财务查看权时 review 不调模型、规则检查不评利润率，draft 不调模型；问青砚路径先查项目读权限 |
 | 10 | 问青砚 `project_get_project_quotes`（`src/lib/agent-core/tools/enterprise-readonly.ts:516-557`） | 本组织任一 active 成员（`requireOrgMember` `:19-31`，不查项目读权限）；企业微信 @青砚 的项目上下文也能调（`src/lib/mention-gateway/policy.ts:33-42`，回复只给发起人 `:195-198`）；数字员工技能「投标废标风险检查」用它（`src/lib/agent-core/skills/tender-seed.ts:127`） | 每份报价 `subtotal`、`totalAmount`、`profitMargin`（`:548-550`） | 先查项目读权限；没有财务查看权 `profitMargin: null`、带 `costHidden`（D7） |
+| 11 | 审计日志详情 `GET /api/audit-logs/{id}`（`src/app/api/audit-logs/[id]/route.ts:14-80`；界面 `src/app/(main)/admin/audit-logs/page.tsx:172`） | 平台超级管理员；本组织任一 active 组织管理员（任何一条，`:45-46`）；带项目的那几条另给该项目 active 的 `project_admin`（`:47-61`）——都不看财务查看权；没有开关。审计 id 从审计列表或项目动态拿得到（`src/lib/activity/formatter.ts:143`） | 整行 `beforeData` / `afterData` 原样解析返回（`:72-73`）。报价引擎另起新版时写进去的 `sourceCost`（估算成本）、`sourceMargin`（毛利率）（`src/lib/quote-engine/service.ts:351`，逐行报价另起新版也走这里）；项目财务预测的 `expectedRemainingCostCad`（`src/lib/project-finance/forecast-service.ts:45`）；Muse 账本行把整份回复（含所选供应商落地价）写进 `afterData`（CHAIN-2e 报告）。FIX-25 安全审查 S1 复现：不是负责人的项目管理员与组织管理员读到 `"sourceCost":100402.74,"sourceMargin":16.59`，只读成员 403；开关关掉后已写的行照样能读 | 读取侧裁剪（D11）：没有财务查看权的人，`beforeData` / `afterData` 里成本、毛利、落地价类键的值置 `null`，带 `costHidden` 与被藏的键路径；写入侧不再往另起新版的审计里写估算成本与毛利率（留给 GATE ④ 推荐 C） |
 
 不在本 change（写明归属）：
 
 | # | 出口 | 谁能拿到 | 拿到什么 | 归属 |
 |---|---|---|---|---|
-| 11 | 报价单 PDF（`src/lib/quote/export-pdf.ts:137-139`） | 能打开编辑器的人 | 「Profit Margin: x%」印在给客户的报价单上 | **FIX-26a**（`quote-pdf-no-margin`，已单独实施）：对所有人不印 |
-| 12 | 询价列表 `GET …/inquiries`、单轮明细 `GET …/inquiries/{轮次}`、旧比价 `GET …/inquiries/{轮次}/compare`（`src/lib/inquiry/service.ts:176-202,438-462`）；询价写接口的返回；`record-quote`；询价明细表（`src/components/inquiry/inquiry-detail.tsx:186-203,326`） | 项目读者（写接口：项目写者） | 每家供应商单价、总价、报价备注 | **FIX-26b**（待 Lucas 答 GATE ①） |
-| 13 | 比价矩阵 / AI 报价分析里的原价 `quoted` 与模型输入里的原价 | 项目读者 | 供应商原价（CHAIN-2e D3 有意保留；落地价 CHAIN-2e 已收） | FIX-26b |
-| 14 | 询价追踪页「报价 CAD x / 件」（`src/lib/tender-rfq/tracker-pure.ts:232-233`） | 每行所在项目的读者 | 供应商原价 | FIX-26b |
-| 15 | 供应商履历 `GET /api/suppliers/{供应商}/history`（`src/lib/supplier/service.ts:139-174`） | 本组织 active 成员，不看项目 | 跨项目每次询价的 `totalPrice` | FIX-26b |
-| 16 | 组织项目智能的供应商平均单价（`src/lib/projects/supplier-performance.ts:21-41`） | 本组织 active 成员 | 跨项目、跨品类的平均单价 | FIX-26b |
-| 17 | Muse `compare` / `price_scenario` | 有 Muse 身份的组织成员（只按组织取，`router.ts:480-481`） | 所选供应商落地价（决定 A）、矩阵 | CHAIN-2e 登记的「编号待定」 |
-| 18 | 报价引擎 14 个路由文件、「报价与成本」卡、单个报价页 | 改动前：项目角色带 `project:cost:read`（含 viewer） | 估算成本、毛利率 | CHAIN-2e |
-| 19 | 逐行报价 `bid-page/quotes/**` | 金额门（`src/lib/bid-page-v2/quote-line/api-gate.ts:20-27`） | 成本行、毛利 | BIDPAGE-3，已收；它的报价经 #1–#3 的旧接口仍可读写——本 change 用 D3 堵上 |
-| 20 | 报价表助手的目标毛利、房间 JSON 的 `pricingInputs` / `bidDraft` | 项目读者；项目列表是组织成员 | 目标毛利、成本、镜像的我方报价 | CHAIN-2b / FIX-25 |
+| 12 | 报价单 PDF（`src/lib/quote/export-pdf.ts:137-139`） | 能打开编辑器的人 | 「Profit Margin: x%」印在给客户的报价单上 | **FIX-26a**（`quote-pdf-no-margin`，已单独实施）：对所有人不印 |
+| 13 | 询价列表 `GET …/inquiries`、单轮明细 `GET …/inquiries/{轮次}`、旧比价 `GET …/inquiries/{轮次}/compare`（`src/lib/inquiry/service.ts:176-202,438-462`）；询价写接口的返回；`record-quote`；询价明细表（`src/components/inquiry/inquiry-detail.tsx:186-203,326`） | 项目读者（写接口：项目写者） | 每家供应商单价、总价、报价备注 | **FIX-26b**（待 Lucas 答 GATE ①） |
+| 14 | 比价矩阵 / AI 报价分析里的原价 `quoted` 与模型输入里的原价 | 项目读者 | 供应商原价（CHAIN-2e D3 有意保留；落地价 CHAIN-2e 已收） | FIX-26b |
+| 15 | 询价追踪页「报价 CAD x / 件」（`src/lib/tender-rfq/tracker-pure.ts:232-233`） | 每行所在项目的读者 | 供应商原价 | FIX-26b |
+| 16 | 供应商履历 `GET /api/suppliers/{供应商}/history`（`src/lib/supplier/service.ts:139-174`） | 本组织 active 成员，不看项目 | 跨项目每次询价的 `totalPrice` | FIX-26b |
+| 17 | 组织项目智能的供应商平均单价（`src/lib/projects/supplier-performance.ts:21-41`） | 本组织 active 成员 | 跨项目、跨品类的平均单价 | FIX-26b |
+| 18 | Muse `compare` / `price_scenario` | 有 Muse 身份的组织成员（只按组织取，`router.ts:480-481`） | 所选供应商落地价（决定 A）、矩阵 | CHAIN-2e 登记的「编号待定」 |
+| 19 | 报价引擎 14 个路由文件、「报价与成本」卡、单个报价页 | 改动前：项目角色带 `project:cost:read`（含 viewer） | 估算成本、毛利率 | CHAIN-2e |
+| 20 | 逐行报价 `bid-page/quotes/**` | 金额门（`src/lib/bid-page-v2/quote-line/api-gate.ts:20-27`） | 成本行、毛利 | BIDPAGE-3，已收；它的报价经 #1–#3 的旧接口仍可读写——本 change 用 D3 堵上 |
+| 21 | 报价表助手的目标毛利、房间 JSON 的 `pricingInputs` / `bidDraft` | 项目读者；项目列表是组织成员 | 目标毛利、成本、镜像的我方报价 | CHAIN-2b / FIX-25 |
 
-核对后不是出口的：项目 AI 上下文只带报价标题、状态、总额（`src/lib/projects/project-ai-context.ts:84-88`，卖价）；问青砚 `project_get_project_inquiries` 只给轮次与条数（`enterprise-readonly.ts:478-514`）；AI 记忆只记供应商名与状态（`src/lib/ai/memory.ts:117-127`）；旧报价单路由不写审计、不发通知；项目动态只拼固定字段（`src/lib/activity/formatter.ts:232-247`）；审计列表不返回 `afterData`（`src/lib/audit/query.ts:23-27`）；模板推荐 `quotes/ai/recommend-template` 只给项目资料。
+核对后不是出口的：项目 AI 上下文只带报价标题、状态、总额（`src/lib/projects/project-ai-context.ts:84-88`，卖价）；问青砚 `project_get_project_inquiries` 只给轮次与条数（`enterprise-readonly.ts:478-514`）；AI 记忆只记供应商名与状态（`src/lib/ai/memory.ts:117-127`）；旧报价单路由不写审计、不发通知；项目动态只拼固定字段（`src/lib/activity/formatter.ts:232-247`）；审计列表不返回 `afterData`（`src/lib/audit/query.ts:23-27`；审计详情见 #11）；模板推荐 `quotes/ai/recommend-template` 只给项目资料。
 
 ## Goals / Non-Goals
 
-**Goals**：出口表 #1–#10 里，没有财务查看权的人拿不到内部成本、成本价、利润率（含引擎写进同表的毛利率）；没有资格的人不能改旧报价单、不能触发报价 AI、不能经旧接口动报价引擎的报价；界面写一句为什么、找谁，不停在空白或转圈；有财务查看权且能编辑的人看到、改到、导出的一切与改动前相同。
+**Goals**：出口表 #1–#11 里，没有财务查看权的人拿不到内部成本、成本价、利润率（含引擎写进同表的毛利率）；没有资格的人不能改旧报价单、不能触发报价 AI、不能经旧接口动报价引擎的报价；界面写一句为什么、找谁，不停在空白或转圈；有财务查看权且能编辑的人看到、改到、导出的一切与改动前相同。
 
 **Non-Goals**：
 - `src/lib/quote/export-pdf.ts`（FIX-26a）。
 - 询价：`src/app/api/projects/[id]/inquiries/**`、`src/lib/inquiry/**`、`src/components/inquiry/**`、`src/app/api/suppliers/**`、`src/lib/supplier/**`、`src/app/api/org/**`、`src/lib/projects/supplier-performance.ts`（FIX-26b）。
 - `src/lib/muse-bridge/**`（决定 A；间接影响见 proposal）。
-- CHAIN-2e 的文件：`src/lib/tender-rfq/**`、`src/app/api/projects/[id]/inquiries/[inquiryId]/compare/**`、`src/components/bids/rfq-tracker.tsx`、`src/app/api/projects/[id]/quote-engine/**`、`src/components/quote-engine/**`、`src/lib/quote-engine/**`（只 import `access.ts` 的 `resolveQuoteCapabilities` 与 `finance-hint.ts` 的句子，不改）；`src/lib/project-finance/access.ts`、`src/lib/project-finance/view-hint.ts`（只 import）。
+- CHAIN-2e 的文件：`src/lib/tender-rfq/**`、`src/app/api/projects/[id]/inquiries/[inquiryId]/compare/**`、`src/components/bids/rfq-tracker.tsx`、`src/app/api/projects/[id]/quote-engine/**`、`src/components/quote-engine/**`、`src/lib/quote-engine/**`（只 import `access.ts` 的 `resolveQuoteCapabilities` 与 `finance-hint.ts` 的句子，不改；唯一例外是 `service.ts:351` 另起新版那条审计的写入内容，留给 GATE ④ 选 B 或 C 时才改）；`src/lib/project-finance/access.ts`、`src/lib/project-finance/view-hint.ts`（只 import）。
 - FIX-25 的文件：`src/lib/tender-pricing/**`、`src/app/api/projects/[id]/pricing-helper/route.ts`、`src/components/tender/pricing-helper-card.tsx`、`src/app/api/projects/route.ts`、`src/app/api/projects/[id]/bid-intelligence/route.ts`。
 - BIDPAGE 的文件：`src/lib/bid-page-v2/**`、`src/app/api/projects/[id]/bid-page/**`、`src/app/api/projects/[id]/bid-page-summary/route.ts`、`src/components/bid-page-v2/**`、`src/components/quote-engine/bid-quote-area.tsx`。
 - `src/components/project-detail/version-history-drawer.tsx`、`src/components/project-detail/tabs/bid-tab.tsx`（链接与挂载不改；GATE ⑨ 登记「待定」）。
@@ -161,22 +162,47 @@
 - 备选 C：保留内部行语义——PDF / Excel 排除内部行、按印出的行重算客户小计，合计与编辑器分开算内部行。否决：旧报价单的总额（`totalAmount`）今天是全部行之和，改算法会让已存的总额与 PDF 对不上；编辑器要加内部行的开关与显示；要改 `calculate.ts`、编辑器、两种导出与接口，范围比收口大，且旧编辑器没人用这个功能。
 - 备选 D：不改，只在报告里提示。否决：内部行印给客户是 FIX-26a 审查点名的口子，接口写得进去就是口子。
 
+### D11：审计日志详情按财务查看权裁剪成本与毛利（留给 GATE ④ 推荐 C）
+
+审计详情接口今天对组织管理员与项目管理员原样返回 `beforeData` / `afterData`，不看财务查看权；报价引擎另起新版的审计把估算成本与毛利率写在里面（出口 #11）。
+
+**读取侧（必做）**：`GET /api/audit-logs/{id}` 在原有权限检查之后判财务查看权——审计带项目时按项目（`resolveFinanceViewSafe(user, log.orgId, 项目负责人)`），不带项目时只按组织键（负责人位为空）。没有的人：新纯函数 `src/lib/audit/redact-finance.ts` 递归扫 `beforeData` / `afterData`（对象与数组），命中的键值置 `null`，响应加 `costHidden: true` 与 `redactedPaths`（如 `beforeData.sourceCost`）；其余键、动作、操作人、时间、目标照旧。有财务查看权的人返回与改动前逐字节相同。
+
+键名判定 = **写死的清单 + 兜底规则**：
+- 清单（2026-11-23 全仓扫 `logAudit` / `writeAuditLog` 调用与它们可能带进去的对象）：`sourceCost`、`sourceMargin`、`estimatedCost`、`grossProfit`、`grossMarginPct`、`markupPct`、`pricingRate`、`calculatedCost`、`calculatedMargin`、`unitCost`、`internalCost`、`profitMargin`、`costPrice`、`costLines`、`breakdown`、`scenarios`、`ourCostCad`、`ourCostSource`、`targetMarginPct`、`marginPct`、`landedCad`、`landedCadTotal`、`landedCadUnit`、`landedCost`、`expectedRemainingCostCad`。
+- 兜底：键名（不分大小写）含 `cost`、`margin`、`markup`、`profit`、`landed` 的也置空——以后新加的 `xxxCost` 一类键不登记也藏住；`costHidden` 一类布尔键被一起置空无害。
+- 不藏：卖价类 `sellingPrice`、`sourceSellingPrice`、`ourBidPrice`、`total`（我方报价对项目读者可见，FIX-25 D6）；供应商原价 `unitPrice` / `totalPrice` 跟 FIX-26b（GATE ① 现在是 C，维持可见；Lucas 选 A 时 FIX-26b 把它们加进清单）。
+
+**防以后漏**：新增不连库的守卫测试 `src/lib/audit/__tests__/audit-detail-redaction.test.ts`——用 TypeScript 语法树扫 `src/**` 里每个 `logAudit(` / `writeAuditLog(` 调用，取 `beforeData` / `afterData` 对象字面量里的全部键；键名像钱（含 `price`、`amount`、`total`、`cost`、`margin`、`markup`、`profit`、`landed`、`rate`、`budget`、`fee`）的，必须要么被上面的清单或兜底规则藏住，要么在测试里写明理由的「可见」名单里（如 `sellingPrice`：卖价）；新加一个两边都不在的键，测试失败、逼着写的人决定。传变量而不是字面量的调用（如 `src/lib/quote-engine/import/import-service.ts:78`、`tender-bid.ts:270` 的 `before`）列成名单，测试核对名单与实际一致，名单变了也失败。
+
+**写入侧（推荐一并做）**：`src/lib/quote-engine/service.ts:351` 另起新版的审计 `beforeData` 只留 `sourceQuoteId`、`sourceVersion`、`sourceSellingPrice`，不再写 `sourceCost` 与 `sourceMargin`。理由：原版报价不删（只改成 superseded），它的估算成本与毛利率在原版的 `summaryJson` 里随时能按 `sourceQuoteId` 查到，审计里这两个数是重复的；少写一份，以后别的读审计的地方（Muse 证据、活动流、导出）就不必每处都记得裁剪。已写进去的历史行靠读取侧藏。
+
+对审计功能本身的影响：组织管理员看审计是查「谁在什么时候对哪份报价做了什么」——动作、操作人、时间、目标、版本号、状态变化、改价原因、卖价都照旧看得到；看不到的只是那份报价当时的估算成本与毛利率，这本来就只给有财务查看权的人（组织管理员要看，组织给他组织范围的「查看项目结算」）。有财务查看权的人（含平台超级管理员）看到的审计详情与今天相同（写入侧改动之后新写的行少两个重复的数）。
+
+- 备选 A：只做读取侧。可行（GATE ④ 可选），代价是审计里继续存一份重复的成本，其它读审计的地方要各自记得裁剪。
+- 备选 B：只做写入侧。否决：已经写进去的历史行照样能读；Muse 账本行、财务预测等其它写入方不受影响。
+- 备选 D：审计详情对没有财务查看权的人整条 403。否决：组织管理员审计的是动作，不是成本；整条拿走会让他看不到谁批准、谁另起新版。
+- 备选 E：只按清单、不加兜底规则。否决：清单要靠人记得更新，漏一个就是泄露；兜底规则加守卫测试两道防线。
+
+与 CHAIN-2e 的关系：写入这条审计的报价引擎属 CHAIN-2e 范围，但审计详情接口 `src/app/api/audit-logs/[id]/route.ts` 不在 CHAIN-2e 的改动里（`git -C /home/user/wt/chain-2e diff origin/main...HEAD --stat` 没有它），所以归本 change；写入侧那一行在 CHAIN-2e 的文件里，本 change 叠在 CHAIN-2e 上做、CHAIN-2e 合并后才合，不会撞车。与 FIX-25 的关系：FIX-25 安全审查 S1 发现、FIX-25 不改审计接口，归本 change。
+
 ## 八条硬纪律
 
 1. 零 schema：遵守。不改 `prisma/`；`capabilities`、`costHidden`、`hintReason`、`href` 只是响应里的键。
 2. 出站先审批：不涉及。不新增任何出站；Excel 是浏览器里生成、由人自己发的文件，本 change 让没有财务查看权的人导出的文件不带成本。
 3. 禁止第三套队列：不涉及。
-4. 脱敏：触碰，本 change 就是收口。网页旧报价单、Excel、报价 AI、智能体报价技能、问青砚两个工具对没有财务查看权的人不出内部成本、成本价、利润率（规格「没有财务查看权时旧报价单不带出的内容」的 SHALL NOT）。Muse 通道不改，决定 A 不变。
+4. 脱敏：触碰，本 change 就是收口。网页旧报价单、Excel、报价 AI、智能体报价技能、问青砚两个工具、审计日志详情对没有财务查看权的人不出内部成本、成本价、利润率（规格「没有财务查看权时旧报价单不带出的内容」「审计详情不给没有财务查看权的人看成本与毛利」的 SHALL NOT）。Muse 通道不改，决定 A 不变。
 5. 不爬登录页：不涉及。
 6. 邮箱分离：不涉及。
 7. 确定性优先：触碰。裁剪、白名单、判定都是代码；不新增模型调用——AI 审查、AI 起草、智能体报价技能的审查与起草对没有资格的人不调模型（比今天少），有资格的人仍是原来那一次调用、输入逐字不变；测试里的模型是本机假服务。
-8. 测试注册：触碰。`src/lib/quote/__tests__/legacy-quote-finance-view.test.ts` 进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；`src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts` 进 `scripts/test-all.sh`；`bash scripts/check-test-registry.sh` 通过，基线文件不加行。
+8. 测试注册：触碰。`src/lib/quote/__tests__/legacy-quote-finance-view.test.ts`、`src/lib/audit/__tests__/audit-detail-redaction.test.ts` 进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；`src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts` 进 `scripts/test-all.sh`；`bash scripts/check-test-registry.sh` 通过，基线文件不加行。
 
 ## 验证方式
 
 - 纯函数与界面：`npx tsx src/lib/quote/__tests__/legacy-quote-finance-view.test.ts`——有权限时列表行、详情视图与输入逐字段相同；没有时置空项逐个为 `null`；详情白名单不含任何引擎字段与 `sourceJson`；兜底两条（出错、没有组织）；规则检查默认调用与改动前 `JSON.stringify` 相同、「看不到成本」时没有 `low_margin` / `margin_warning` / `high_margin`；Excel 两种内容；编辑器、合计条、行项表、AI 面板、报价管理区块的静态渲染与源码断言（看不到成本 / 不能编辑 / 读取失败 / 409 四种）。
 - 隔离库 + HTTP：`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`——八种身份（只读成员、不是负责人的项目管理员、operator、不是成员没有财务键的组织管理员、只在分配范围持 `project.finance.read` 的投标同事、持组织范围 `project.finance.read` 且项目角色 viewer 的成员、项目负责人、平台超级管理员）+ 不是项目成员的普通组织成员（工具）；授权查询出错用注入的判定测；旧报价单与引擎报价各一份（成本价 17.31、内部成本 91,234.56、利润率 23.45、`summaryJson.estimatedCost` 87,654.32）；列表、详情、写（403 / 409 后库不变）、AI 两个接口（本机假模型服务：被拒 0 次、有资格 1 次且请求正文与改动前相同）、报价技能 review / draft（跨项目 `quoteId` 被拒）、两个问青砚工具；列表里没有引擎报价与逐行报价；PATCH 时请求里标 `isInternal: true` 的行库里与返回都是 `false`；没有财务查看权的每个响应 JSON 里搜不到这几个数。改动前的代码上跑一次，记下失败条数。
 - 守卫：`npx tsx src/lib/projects/__tests__/project-routes-guard.test.ts` 全过（改的路由第一步仍是项目读权限）。
+- 审计：`npx tsx src/lib/audit/__tests__/audit-detail-redaction.test.ts`——清单与兜底规则逐个键、嵌套对象与数组、有权限时原样；扫全仓审计写入调用，像钱的键都已分到「藏」或「可见」名单。隔离库测试里补：报价引擎另起新版后，不是负责人的项目管理员与组织管理员读这条审计 200、`sourceCost` / `sourceMargin` 为 `null`、带 `costHidden`，项目负责人与持组织范围财务键的人读到原值；只读成员仍 403；写入侧改动后新写的那条没有这两个键。
 - 既有：`quote-engine-contract.test.ts`、`finance-access.test.ts`、`m2c-tool-policy.test.ts`、`bid-page-v2.test.tsx`、FIX-26a 的 `export-customer-pdf.test.ts` 原样通过。
 - 全量：`npm test`（失败清单与 CHAIN-2e 分支基线逐条相同）、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`bash scripts/check-test-registry.sh`、`bash scripts/test-runtime-architecture.sh`、`npx openspec validate legacy-quote-finance-gate --strict`、`git diff <CHAIN-2e 分支> -- prisma/ vercel.json package.json` 为空。
 
@@ -185,20 +211,21 @@
 - **合并当天就收紧，没有开关**：不是负责人的投标同事（项目管理员、operator）、没有财务键的组织管理员看不到旧报价单的成本与利润率，不能再建 / 改 / 确认 / 删旧报价单、不能用报价 AI。影响面看生产数据（tasks 6.1 的只读查询：近 90 天旧报价单由谁建、谁改；带成本价的行数；`orgId` 不为空的报价份数）。
 - 没有派发负责人的项目（负责人是导入用的系统账号）只有平台超级管理员与持组织范围财务键的人能看、能改；提示改为找组织管理员（CHAIN-2e D9 的同一句），合并前按 CHAIN-2e 的 `docs/acceptance/chain-2e/prod-check.sql` 补负责人。
 - 没有组织的老项目：只有负责人与平台超级管理员能看能改（与 CHAIN-2e 同规则）。
-- 本 change 合并后、FIX-26b 之前，供应商原价仍从询价接口、比价矩阵、AI 报价分析、追踪页、供应商履历出去（出口表 #12–#16）；「项目读者拿不到成本」要等 FIX-26b 才成立（原价 ≈ 成本时）。
+- 本 change 合并后、FIX-26b 之前，供应商原价仍从询价接口、比价矩阵、AI 报价分析、追踪页、供应商履历出去（出口表 #13–#17）；「项目读者拿不到成本」要等 FIX-26b 才成立（原价 ≈ 成本时）。
 - 每次旧报价单请求多 2 次 `authorize`（与成本核算接口同代价），看不到时多一次查负责人账号（选句子）。
 - 有财务查看权的人在问青砚里拿到的利润率会留在他自己的会话记录里；工具结果写进智能体运行记录后还有谁能读，没核实（见报告）。
 - 行项「备注」是自由文本，AI 草稿可能写进「按供应商报价加价 30%」一类的话，裁剪不了；本 change 之后只有能编辑的人能应用 AI 草稿，已存的备注照旧显示。
 - 旧报价单列表只列旧报价单（D3，留给 GATE ③ 推荐 A）：报价管理区块与版本历史抽屉（老页面的「版本历史」、新页面「更多 → 版本历史」）不再显示报价引擎与逐行报价建的报价；它们在报价引擎区块与新页面的报价列表里照常有。
 - 旧报价单里已有 `isInternal = true` 的行（只能是有人直接调接口写的）下次保存后变成客户行（D10）；今天它们在编辑器、PDF、合计里本来就当客户行，生产里有多少先查（tasks 6.1）。
+- 审计详情（D11）：不是负责人、没有财务键的组织管理员与项目管理员在审计详情里看不到成本、毛利、落地价类的值（显示为空并写一句为什么）；这些审计行的动作、操作人、时间、卖价照旧。兜底规则按键名藏，键名碰巧含 cost / margin 的非金额值也会被藏（如布尔标记），不影响审计用途。
 - 叠在未合并的 CHAIN-2e 上：CHAIN-2e 合并前若再改 `resolveFinanceViewSafe` / `resolveQuoteCapabilities` 的签名或句子，本 change 要跟着变基改。
 
 ## 与在审 / 并行 change 的关系
 
-- **CHAIN-2e `finance-view-compare-quote-gate`（#556，`35e9ae91`）**：本 change 的实现基线。它管出口表 #18、比价与追踪页的落地价，以及新增的判定入口、句子与 `resolveQuoteCapabilities` 新签名——本 change 只 import，不改它的任何文件；它报告 §5 写的「legacy 报价接口……打开 `TENDER_QUOTE_ENGINE_ENABLED` 之前必须修」与「问青砚 `project_get_project_quotes`」就是本 change 的 #1–#10。顺序：CHAIN-2e 先合，本 change 变基到 main 再合。
+- **CHAIN-2e `finance-view-compare-quote-gate`（#556，`35e9ae91`）**：本 change 的实现基线。它管出口表 #19、比价与追踪页的落地价，以及新增的判定入口、句子与 `resolveQuoteCapabilities` 新签名——本 change 只 import，不改它的文件——唯一例外是 `src/lib/quote-engine/service.ts:351` 另起新版那条审计的内容（D11，留给 GATE ④ 选 B 或 C 时改；本 change 叠在 CHAIN-2e 上、它合并后才合，不撞车）；审计详情接口不在 CHAIN-2e 的改动里，归本 change；它报告 §5 写的「legacy 报价接口……打开 `TENDER_QUOTE_ENGINE_ENABLED` 之前必须修」与「问青砚 `project_get_project_quotes`」就是本 change 的 #1–#10（#11 审计详情是 FIX-25 安全审查补的）。顺序：CHAIN-2e 先合，本 change 变基到 main 再合。
 - **FIX-26a `quote-pdf-no-margin`（分支 `claude/zen-turing-azudvx-fix26a`）**：只改 `src/lib/quote/export-pdf.ts` 与一个新测试；本 change 不碰这两个文件，只改导出菜单的文字（`quote-summary-bar.tsx`）。两者谁先合都行，没有文本冲突（只有 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 各加行）。
-- **FIX-26b（待 Lucas 答 GATE ①）**：询价与供应商原价的全部出口（#12–#16）。本 change 不碰 `src/lib/inquiry/**`、`src/components/inquiry/**` 与询价路由；初稿里的询价规格与设计在本分支提交 `180eeda9` 里，FIX-26b 开工时可以从那里取。
-- **FIX-25 `target-margin-finance-gate`（`/home/user/wt/fix25`，实现中，基于 main）**：边界——FIX-25 管报价表助手（`src/lib/tender-pricing/finance-view.ts`、`pricing-helper` 路由与卡）的目标毛利与两个房间 JSON 接口（`GET /api/projects`、`GET …/bid-intelligence`）的 `pricingInputs` / `bidDraft`；本 change 管旧报价单与报价工具（`ProjectQuote` / `QuoteLineItem` 的读写）。FIX-25 出口表 #7 / #8 就是本 change 的 #1–#10，写明「归 FIX-26」；它的 Out of scope 里写的报价单 PDF 现归 FIX-26a、询价现归 FIX-26b（FIX-25 报告写到时按此更正）。两者没有共同源文件；`view-hint.ts`（CHAIN-2e）从 `tender-pricing/finance-view.ts` 取 `COST_ACCESS_HINT_ZH`，FIX-25 改那个文件但不改这条常量的文字（已核对它的 diff）——本 change 变基后要再核一次。共同改动只有两个测试脚本各加行。
+- **FIX-26b（待 Lucas 答 GATE ①）**：询价与供应商原价的全部出口（#13–#17）。本 change 不碰 `src/lib/inquiry/**`、`src/components/inquiry/**` 与询价路由；初稿里的询价规格与设计在本分支提交 `180eeda9` 里，FIX-26b 开工时可以从那里取。
+- **FIX-25 `target-margin-finance-gate`（`/home/user/wt/fix25`，实现中，基于 main）**：边界——FIX-25 管报价表助手（`src/lib/tender-pricing/finance-view.ts`、`pricing-helper` 路由与卡）的目标毛利与两个房间 JSON 接口（`GET /api/projects`、`GET …/bid-intelligence`）的 `pricingInputs` / `bidDraft`；本 change 管旧报价单与报价工具（`ProjectQuote` / `QuoteLineItem` 的读写）。FIX-25 出口表 #7 / #8 就是本 change 的 #1–#10（#11 审计详情是 FIX-25 安全审查补的），写明「归 FIX-26」；它的 Out of scope 里写的报价单 PDF 现归 FIX-26a、询价现归 FIX-26b（FIX-25 报告写到时按此更正）。两者没有共同源文件；`view-hint.ts`（CHAIN-2e）从 `tender-pricing/finance-view.ts` 取 `COST_ACCESS_HINT_ZH`，FIX-25 改那个文件但不改这条常量的文字（已核对它的 diff）——本 change 变基后要再核一次。共同改动只有两个测试脚本各加行。
 - **BIDPAGE（另一个会话）**：BIDPAGE-3（#564，已合并）的逐行报价存在 `ProjectQuote`（`orgId` 不为空），今天经旧报价单 `PATCH` 能被只读成员删客户行、覆盖成本列、改状态——本 change 的 D3 把它们挡在旧接口之外，不改 BIDPAGE 的任何文件。BIDPAGE-8（判断点 4「旧版报价单收进『更多』、名字去掉 legacy」与中文化）可能改 `src/components/quote/project-quote-section.tsx`：GATE ⑥ 已定本 change 先合，BIDPAGE 变基时保留「不能编辑时不出新建报价、写那句话」的判断（协调会话通知 BIDPAGE 会话）。询价相关的交叠（BIDPAGE-2）随 FIX-26b 走。
 
 ## GATE（协调会话 2026-11-23 定，Lucas 2026-11-22 授权按推荐；① 例外）
@@ -213,13 +240,15 @@
 8. 开关：**不设**，合并即生效。
 9. 顺手的小问题：**登记「待定」**（tasks 6.1 写进 TASKFLOW）——版本历史抽屉与报价管理区块把引擎报价链到旧编辑器（留给 GATE ③ 选 A 时随列表过滤一并消失，不再登记）；旧报价单 `PATCH` 接受任意 `status`；AI 面板「输出版本」三个按钮没有接线。
 10. FIX-26a 审查（2026-11-23）后补的两条：`isInternal` 与旧报价单列表的口径，见下「留给 GATE」② ③（四件套按推荐写）。
+11. FIX-25 安全审查 S1（2026-11-23）后补的一条：审计日志详情，见下「留给 GATE」④（四件套按推荐写）。
 
 ## 留给 GATE
 
 1. **FIX-26b：询价里的供应商原价给谁（待 Lucas 答）**。与 CHAIN-2e design D3（Lucas 已批的 CHAIN-2e GATE ③）冲突：CHAIN-2e D3 明确否决过「连原价一起藏」，理由是询价同事要据原价追问供应商，且原价已经经询价明细与旧比价两个接口对项目读者返回。三个选项的后果：
-   - **A 只给有财务查看权的人看和录**：原价与对项目读者可见的我方报价（FIX-25 D6）相减就是毛利，A 堵住这种两价反推，与 BIDPAGE-2 已定的「新页面『报价』列只给有成本与财务查看权的人」一致。代价：推翻 CHAIN-2e D3；不是负责人的询价同事（项目管理员、组织管理员）看不到、也录不了供应商报价，只能交给负责人；要同时改 CHAIN-2e 改过的比价矩阵 `quoted`、AI 报价分析输入与追踪页（出口 #13 / #14），以及供应商履历、组织汇总（#15 / #16）；录入改由负责人做后，回信自动入表照常。
+   - **A 只给有财务查看权的人看和录**：原价与对项目读者可见的我方报价（FIX-25 D6）相减就是毛利，A 堵住这种两价反推，与 BIDPAGE-2 已定的「新页面『报价』列只给有成本与财务查看权的人」一致。代价：推翻 CHAIN-2e D3；不是负责人的询价同事（项目管理员、组织管理员）看不到、也录不了供应商报价，只能交给负责人；要同时改 CHAIN-2e 改过的比价矩阵 `quoted`、AI 报价分析输入与追踪页（出口 #14 / #15），以及供应商履历、组织汇总（#16 / #17）；录入改由负责人做后，回信自动入表照常。
    - **B 有财务查看权或项目写权限可看**：询价同事里有编辑权的照常看和录；只读成员、tester、operator 看不到。代价：不是项目成员的组织管理员仍能看（FIX-21 后续 8 点名要收的人）；两价反推对有编辑权的人照旧成立；口径与报价表助手、报价引擎都不同，要新写一份判定。
    - **C 维持现状（当前状态）**：不改任何东西，CHAIN-2e D3 照旧。代价：所有项目读者（含只读成员与不是成员的组织管理员）都能看到每家供应商原价；供应商报 DDP 加元时原价就是落地价，CHAIN-2e 对落地价的收口对这类报价等于没收；本 change 与 FIX-25 之后「项目读者拿不到我方成本」仍不成立。
    - 初稿（本分支提交 `180eeda9` 的 `specs/tender/inquiry-supplier-price-view/spec.md` 与 design D8）按 A 写过一版，FIX-26b 选 A 或 B 时可从那里改起。
 2. **旧报价单的「是否内部行」（D10；FIX-26a 两位审查员都提）**：A PATCH 一律存 `false`、不看请求（推荐）／B 请求里有 `true` 就 400／C 保留内部行语义，PDF / Excel 排除内部行并按印出的行重算客户小计。推荐 A：旧编辑器没有内部行功能，合计、PDF、Excel 本来就把全部行当客户行；真正用内部行的报价引擎经旧接口一律 409、有自己的客户 PDF；B 会让已有内部行的旧报价单存不进去；C 要改算法、编辑器、两种导出与接口，且会让已存总额与 PDF 对不上。选 A 时 PDF / Excel 不需要排除内部行（D10 写明理由），新增一条「请求里标内部行，库里与返回都是否」的隔离库用例。
 3. **旧报价单列表要不要列报价引擎的报价（D3；FIX-26a 审查提）**：A 只列 `orgId` 为空的旧报价单（推荐）／B 照旧列出、每行标 `engineQuote: true` 与 `href`，报价管理区块与版本历史抽屉把这些行链到报价页。推荐 A：与旧接口对引擎报价 409 同一口径，一处 `where` 改动；老页面开着报价引擎时不再在两处重复列；BIDPAGE-8 判断点 4 按旧报价单数才准；GATE ⑨ 第一条小问题随之消失。代价：版本历史抽屉里不再有引擎报价那几行（引擎区块与新页面报价列表里有）。选 B 要多改 `src/components/project-detail/version-history-drawer.tsx` 与报价管理区块，并通知 BIDPAGE 会话（新页面「更多 → 版本历史」用同一个抽屉）。
+4. **审计日志详情里的成本与毛利（D11；FIX-25 安全审查 S1）**：A 只在读取侧裁剪／B 只在写入侧不写／C 两者都做（推荐）。推荐 C：读取侧是必须的（历史行、Muse 账本行、财务预测都靠它），写入侧只动 `src/lib/quote-engine/service.ts:351` 一处、去掉的两个数在原版报价里查得到；裁剪按写死清单加键名兜底规则，并用扫全仓审计写入调用的守卫测试防以后漏。对审计功能的影响：组织管理员照样看得到动作、操作人、时间、版本、状态、原因与卖价，看不到当时的估算成本与毛利率；要看就给组织范围的「查看项目结算」。选 A 时不改 CHAIN-2e 的文件。

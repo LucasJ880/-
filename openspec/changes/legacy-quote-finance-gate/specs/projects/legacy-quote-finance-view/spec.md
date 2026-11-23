@@ -2,7 +2,7 @@
 
 ## Purpose
 
-旧报价单（列表、详情、新建 / 修改 / 删除、AI 审查与起草、编辑器、Excel 导出）、智能体报价技能与问青砚两个报价工具：谁能看内部成本、成本价与利润率，谁能改，被拒时返回什么，不输出什么，界面写什么。判定与成本核算、报价引擎同一个财务查看权。报价单 PDF 不在本能力内（FIX-26a 的 `projects/legacy-quote-pdf`）。
+旧报价单（列表、详情、新建 / 修改 / 删除、AI 审查与起草、编辑器、Excel 导出）、智能体报价技能、问青砚两个报价工具与审计日志详情：谁能看内部成本、成本价与利润率，谁能改，被拒时返回什么，不输出什么，界面写什么。判定与成本核算、报价引擎同一个财务查看权。报价单 PDF 不在本能力内（FIX-26a 的 `projects/legacy-quote-pdf`）。
 
 ## ADDED Requirements
 
@@ -97,3 +97,21 @@
 #### Scenario: 普通组织成员与只读成员查报价
 - **WHEN** 不是项目成员的普通组织成员、只读成员、项目负责人分别调 `project_get_project_quotes`
 - **THEN** 第一人得到「项目不存在或不属于当前组织」；只读成员拿到总额、`profitMargin` 为 `null`、带 `costHidden`；负责人拿到利润率 23.45（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
+
+### Requirement: 审计详情不给没有财务查看权的人看成本与毛利
+`GET /api/audit-logs/{id}` SHALL 在原有权限检查之后按财务查看权判定（审计带项目时按该项目，不带项目时只认平台超级管理员与持组织范围财务键的人）。没有的人：`beforeData` / `afterData` 里（含嵌套对象与数组）成本、毛利、落地价类的键 SHALL 置为 `null`，响应 SHALL 带 `costHidden: true` 与被置空的键路径；这类键 SHALL 包括写死清单里的键，以及键名含 cost、margin、markup、profit、landed（不分大小写）的键。动作、操作人、时间、目标与其余键 SHALL 照旧，卖价 SHALL 照旧。有财务查看权的人 SHALL 与改动前相同。
+
+#### Scenario: 另起新版的审计
+- **WHEN** 报价引擎的一份报价另起新版后，不是负责人也没有财务键的项目管理员、组织管理员、项目负责人、持组织范围 `project.finance.read` 的成员、只读成员分别读这条审计详情
+- **THEN** 前两人 200、`beforeData` 里原版估算成本与毛利率为 `null`、卖价照旧、带 `costHidden: true`；负责人与持财务键的人读到原值、没有 `costHidden`；只读成员仍 403（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
+
+#### Scenario: 新加的审计键不会漏
+- **WHEN** 扫描全仓写审计的调用里 `beforeData` / `afterData` 的键
+- **THEN** 每个像金额的键要么会被置空，要么在写明理由的可见名单里；嵌套与数组里的键同样置空（`npx tsx src/lib/audit/__tests__/audit-detail-redaction.test.ts`）
+
+### Requirement: 另起新版的审计不再记原版成本与毛利
+报价另起新版时写的审计 SHALL 记原版报价的 id、版本号与卖价，SHALL NOT 记原版的估算成本与毛利率（原版报价不删，数在原版里查得到）。
+
+#### Scenario: 新写的审计
+- **WHEN** 项目负责人把一份已批准的报价另起新版
+- **THEN** 新写的那条审计 `beforeData` 只有原版 id、版本号与卖价，没有估算成本与毛利率（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
