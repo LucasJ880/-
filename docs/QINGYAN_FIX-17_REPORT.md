@@ -7,6 +7,7 @@
 | change | `project-files-access-guard`（新能力 `projects/files-access`，8 条要求） |
 | TASKFLOW | FIX-17（Phase F（续）— 情报串联表，FIX-12 之后；FIX-12 已由 #540 合并，FIX-13 为 #546，FIX-14 / 15 / 16 已预留） |
 | 来源 | 2026-11-21 做 FIX-13（`document-parse-nul-and-reason`）的安全审查时发现，不在 FIX-13 范围，另开；级别由 Evan 2026-11-21「按照你推荐的做」定为读权限 |
+| PR | #548，2026-11-23 合并（合并提交 `68bc4133`）；归档 `openspec/changes/archive/2026-11-23-project-files-access-guard/`，主规格 `projects/files-access` |
 | 分支 | `claude/zen-turing-azudvx-fix17`（2026-11-22 接手：以 `claude/blissful-mendel-o8h9yr` 的四个提交为正本，合入 main 后续做；原分支停在 `3253ca3a`，不再更新） |
 | 性质 | 修既有的越权。零 schema、零新模型调用、没有新增出站、没有新队列。**没有开关——合并即生效** |
 
