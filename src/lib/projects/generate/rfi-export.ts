@@ -12,6 +12,7 @@ import {
   createUnifiedRuntimeInvoker,
   type LlmInvoker,
 } from "@/lib/tender-understanding/llm";
+import { legacyRfiWithheldNoteZh } from "@/lib/tender-intel/memo-pricing";
 
 export type RfiSource = "memo" | "analysis";
 
@@ -125,7 +126,10 @@ export function renderRfiHtml(input: {
   submitChannel: string | null;
   items: RfiItem[];
   generatedAt: string;
+  /** CHAIN-2d：旧版策略备忘里因可能涉及我方成本而没有列入的问题条数（写在提交表之外） */
+  withheldMemoRfis?: number;
 }): string {
+  const withheld = input.withheldMemoRfis && input.withheldMemoRfis > 0 ? input.withheldMemoRfis : 0;
   const rows = input.items
     .map(
       (it) => `<tr>
@@ -161,8 +165,8 @@ th{background:#f3f4f6}.n{width:28px}.en{width:42%}.zh{width:40%}.src{width:70px;
 <h2>Questions for submission (EN) / 问题（中文对照）</h2>
 <table><thead><tr><th>#</th><th>Question (EN)</th><th>问题（中文）</th><th>来源</th></tr></thead>
 <tbody>
-${rows || '<tr><td colspan="4">暂无问题——备忘录与分析均未产出 RFI。</td></tr>'}
+${rows || (withheld ? '<tr><td colspan="4">暂无可提交的问题。</td></tr>' : '<tr><td colspan="4">暂无问题——备忘录与分析均未产出 RFI。</td></tr>')}
 </tbody></table>
-<h2>Internal checklist（内部）</h2>
+<h2>Internal checklist（内部）</h2>${withheld ? `\n<div class="note" data-internal="withheld-memo-rfis">${esc(legacyRfiWithheldNoteZh(withheld))}</div>` : ""}
 <ul><li>逐条核对英文措辞与数字/条款号</li><li>合并同类问题，删除文件已回答的</li><li>在门户「Submit a Question」逐条提交并留存截图</li></ul>`;
 }

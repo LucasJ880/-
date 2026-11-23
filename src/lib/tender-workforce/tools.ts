@@ -38,6 +38,12 @@ import { buildClarifications } from "@/lib/tender-auto-analysis/clarifications";
 import { buildGroundedDeliverables } from "@/lib/tender-auto-analysis/deliverables";
 import { advanceV2ForWorkforce } from "./v2-resumable-workforce";
 import {
+  researchBranchDescriptor,
+  researchBranchHandler,
+  researchTrunkDescriptor,
+  researchTrunkHandler,
+} from "@/lib/tender-research-tree/tools-entry";
+import {
   createOrReuseWorkforceTenderAnalysisRun,
   failWorkforceTenderAnalysisRun,
   finalizeWorkforceTenderAnalysisRun,
@@ -70,6 +76,9 @@ export const TENDER_WORKFORCE_TOOL_NAMES = [
   "tender_finalize_analysis",
   // T5-P1 Segment 2：canonical V2 能力（**可执行但当前 planner 不可见**，见下）
   "tender_analyze_package_v2",
+  // TREE-2 情报调研树：只给调研 Job 的服务端计划用（不进 LLM 规划面、不进一键分析的确定性面）
+  "tender_research_branch",
+  "tender_research_trunk",
 ] as const;
 
 export type TenderWorkforceToolName =
@@ -207,6 +216,9 @@ export const TENDER_WORKFORCE_TOOL_DESCRIPTORS: ToolDescriptor[] = [
     requiresApproval: false,
     supportedChannels: ["web"],
   },
+  // TREE-2：描述与处理函数在 src/lib/tender-research-tree/tools-entry.ts
+  researchBranchDescriptor,
+  researchTrunkDescriptor,
 ];
 
 const PLANNER_VISIBLE = new Set<string>(TENDER_WORKFORCE_PLANNER_TOOL_NAMES);
@@ -1413,6 +1425,8 @@ export const TENDER_WORKFORCE_TOOL_HANDLERS: Record<
   tender_build_deliverables: handleBuildDeliverables,
   tender_finalize_analysis: handleFinalizeAnalysis,
   tender_analyze_package_v2: handleAnalyzePackageV2,
+  tender_research_branch: researchBranchHandler,
+  tender_research_trunk: researchTrunkHandler,
 };
 
 /** Job 失败/取消时的域侧兜底（trigger 层调用；工具层不管 Run 级状态） */

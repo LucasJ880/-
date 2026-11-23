@@ -25,6 +25,7 @@ import {
   parseAttachmentsInput,
   readStoredAttachments,
   renderTurnsForModel,
+  storableTitle,
   summarizeAttachments,
   type ModelTurnInput,
 } from "@/lib/trade/chat-attachments";
@@ -120,7 +121,7 @@ export async function POST(
   const isFirstMessage = history.length <= 1;
   if (isFirstMessage) {
     const titleSource = attachmentsTitleSource(content, attachments);
-    const title = titleSource.slice(0, 30) + (titleSource.length > 30 ? "..." : "");
+    const title = storableTitle(titleSource, 30) + (titleSource.length > 30 ? "..." : "");
     await db.tradeChatSession.update({
       where: { id: sessionId },
       data: { title, updatedAt: new Date() },

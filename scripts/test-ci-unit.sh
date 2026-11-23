@@ -37,6 +37,7 @@ npx tsx src/lib/tender-understanding/__tests__/extract-prompt-locator.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/worker-budget-guards.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts
 npx tsx src/lib/files/__tests__/extracted-text.test.ts
+npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/page-parse.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/tender-identity.test.ts
 npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts
@@ -77,11 +78,14 @@ npx tsx src/lib/tender-intel/__tests__/org-profiles-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/award-dedupe-db.isolated.test.ts
 # P2-0d：授标记录人工处理（DB e2e 无隔离库自动跳过）
 npx tsx src/lib/tender-intel/__tests__/award-review-db.isolated.test.ts
+npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
 npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/obs-p2p3-single-pipeline.test.ts
 npx tsx src/lib/tender-intel/__tests__/bid-strategy-memo.test.ts
+npx tsx src/lib/tender-intel/__tests__/memo-pricing.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-ops.test.ts
 npx tsx src/lib/tender-understanding/__tests__/taxonomy-p2.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts
@@ -136,6 +140,9 @@ npx tsx scripts/check-swc-nullish-logical.test.ts
 npx tsx src/lib/navigation/__tests__/nav-active-matcher.test.ts
 npx tsx src/lib/navigation/__tests__/navigation-ia.test.ts
 npx tsx src/lib/tenancy/__tests__/tenant-context.test.ts
+npx tsx src/lib/agent-tasks/__tests__/dto.test.ts
+npx tsx src/app/api/agent/tasks/__tests__/authz-contract.test.ts
+npx tsx src/lib/agent-tasks/__tests__/recent-route-args.test.ts
 npx tsx src/lib/trade/__tests__/outreach-sequence.test.ts
 npx tsx src/lib/trade/__tests__/product-sample.test.ts
 npx tsx src/lib/trade/__tests__/website-inquiry.test.ts
@@ -383,6 +390,9 @@ npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts
 npx tsx src/lib/accounting/__tests__/accounting.test.ts
 # PERM-4c1：项目财务 / 报价引擎按岗位（决策表 + 源码断言）
 npx tsx src/lib/project-finance/__tests__/finance-access.test.ts
+# CHAIN-2c：更换项目负责人（纯判定 + 四个入口与卡片的源码断言；DB 用例无隔离库时跳过）
+npx tsx src/lib/projects/__tests__/owner-change.test.ts
+NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts
 # CHAIN-2e：比价落地价与报价引擎按财务查看权（隔离库执行，CI 无隔离库时跳过）
 NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-view-compare-quote-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
@@ -495,8 +505,11 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.te
 npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts
 npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-orchestrate-db.isolated.test.ts
 npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/alias-decisions-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/readiness-count-db.isolated.test.ts
 npx tsx src/lib/__tests__/google-email-mime.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts
@@ -509,6 +522,20 @@ npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts
 npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts
+npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts
+NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts
+# 情报调研树（TREE-1）
+npx tsx src/lib/text/__tests__/html-to-text.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-pure.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader.test.ts
+NODE_ENV=test npx tsx src/lib/web-reader/__tests__/web-reader-context-db.isolated.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-edges.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-transport.test.ts
+# 情报调研树（TREE-2）
+npx tsx src/lib/tender-research-tree/__tests__/research-tree-pure.test.ts
+npx tsx src/lib/web-reader/__tests__/tree2-research-branch.test.ts
+NODE_ENV=test npx tsx src/lib/tender-research-tree/__tests__/research-tree-start-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/web-reader/__tests__/tree2-research-tree-job-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx
@@ -563,6 +590,14 @@ npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx
 npx tsx src/lib/bid-page-v2/__tests__/next-step.test.ts
 npx tsx src/components/bid-page-v2/__tests__/bid-page-v2.test.tsx
 NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/bid-page-summary-db.isolated.test.ts
+npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts
+npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx
+NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts
+npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts
+npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx
+NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts
+# FIX-26a（openspec change quote-pdf-no-margin）：报价单 PDF 永远不印利润率
+npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

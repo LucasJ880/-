@@ -46,6 +46,7 @@ import {
 import type { IntentRouteResult } from "@/lib/assistant/intent-router";
 import {
   attachmentsTitleSource,
+  storableTitle,
   type ChatAttachment,
 } from "@/lib/chat-attachments/core";
 import { getRuntimeV2Tool } from "@/lib/agent-runtime-v2/tool-catalog";
@@ -232,8 +233,8 @@ async function persistTurn(input: {
       lastMessageAt: new Date(),
       ...(input.threadTitle === "新对话"
         ? {
-            title: attachmentsTitleSource(input.userContent, input.attachments).slice(
-              0,
+            title: storableTitle(
+              attachmentsTitleSource(input.userContent, input.attachments),
               60,
             ),
           }

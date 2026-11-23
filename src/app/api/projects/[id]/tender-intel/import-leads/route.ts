@@ -17,7 +17,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   const { id: projectId } = await params;
   const gate = await requireImportLeadsRead(request, projectId);
   if (gate instanceof NextResponse) return gate;
-  const view = await loadImportLeadsView({ orgId: gate.orgId, projectId, canEdit: gate.canEdit });
+  const view = await loadImportLeadsView({ orgId: gate.orgId, projectId, canEdit: gate.canEdit, canDecideAliases: gate.canDecideAliases });
   return NextResponse.json(view, { headers: NO_STORE });
 }
 
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!body || typeof body.text !== "string") return NextResponse.json({ error: BATCH_TEXT.empty, code: "EMPTY" }, { status: 400, headers: NO_STORE });
   const dateOrder = typeof body.dateOrder === "string" && (DATE_ORDERS as readonly string[]).includes(body.dateOrder) ? (body.dateOrder as DateOrder) : null;
   const sourceLabel = typeof body.sourceLabel === "string" ? body.sourceLabel : null;
-  const out = await importLeads({ orgId: gate.orgId, projectId, userId: gate.access.user.id, text: body.text, sourceLabel, dateOrder });
+  const out = await importLeads({ orgId: gate.orgId, projectId, userId: gate.access.user.id, text: body.text, sourceLabel, dateOrder, canDecideAliases: gate.canDecideAliases });
   if (!out.ok) return NextResponse.json({ error: out.messageZh, code: out.code }, { status: out.status, headers: NO_STORE });
   return NextResponse.json({ result: out.result, view: out.view }, { headers: NO_STORE });
 }

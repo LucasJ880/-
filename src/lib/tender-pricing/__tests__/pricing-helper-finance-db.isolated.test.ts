@@ -5,6 +5,8 @@
  *   DATABASE_URL=… DIRECT_URL=… NODE_ENV=test DATABASE_ENVIRONMENT=isolated JWT_SECRET=… \
  *   npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts
  * 无隔离库时自动跳过。全部数据为 fixture（虚构组织 / 用户 / 项目）。不发任何邮件，不调任何外部接口，不调模型。
+ * FIX-25 起目标毛利与成本同一个门、两个房间 JSON 接口去掉整个 pricingInputs：这里只改随行为变的几条，
+ * 夹具目标毛利用少见数 17.3（15 会撞情景标签「让价 15%」），并加进响应里的搜索。目标毛利的专门用例在 target-margin-finance-db.isolated.test.ts。
  */
 import { assertSafeTestDatabase } from "@/lib/testing/assert-safe-test-database";
 
@@ -30,7 +32,9 @@ const rec = (v: unknown): Rec => (v && typeof v === "object" && !Array.isArray(v
 /** 成本与落地价用不常见的数字，便于在响应 JSON 里搜 */
 const COST = 91234.56;
 const LANDED = 87654.32;
-const COST_STRINGS = ["91234", "91,234", "87654", "87,654"];
+/** FIX-25：目标毛利也用少见数，一并搜 */
+const MARGIN = 17.3;
+const COST_STRINGS = ["91234", "91,234", "87654", "87,654", "17.3"];
 const DAY = 24 * 3600 * 1000;
 
 async function main() {
@@ -39,7 +43,9 @@ async function main() {
   const { createSession } = await import("@/lib/auth/session");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
   const { PRICING_MODEL_VERSION } = await import("@/lib/tender-pricing/calc");
-  const { COST_HIDDEN_NOTE_ZH, COST_WRITE_FORBIDDEN_ZH, NO_COST_ASSUMPTION_ZH } = await import("@/lib/tender-pricing/finance-view");
+  const { COST_HIDDEN_NOTE_ZH, NO_COST_ASSUMPTION_ZH } = await import("@/lib/tender-pricing/finance-view");
+  // 403 那句写字面量，不从源码取（多审：去掉自证）
+  const COST_WRITE_FORBIDDEN_ZH = "没有保存：页面已更新，目标毛利现在和我方成本一样，只给有财务查看权的人改。请刷新页面，重新填写后再保存。";
   const route = await import("@/app/api/projects/[id]/pricing-helper/route");
   const roomRoute = await import("@/app/api/projects/[id]/bid-intelligence/route");
   const listRoute = await import("@/app/api/projects/route");
@@ -106,13 +112,14 @@ async function main() {
     return { status: res.status, text, body: rec(JSON.parse(text || "null")) };
   };
   const roomSj = async (projectId: string) => rec((await db.bidIntelligenceRoom.findUniqueOrThrow({ where: { projectId }, select: { summaryJson: true } })).summaryJson);
-  const noCostIn = (text: string) => COST_STRINGS.every((s) => !text.includes(s));
+  // FIX-25：先去掉时间戳再搜（「17.3」会撞上时间戳里的「秒.毫秒」）
+  const noCostIn = (text: string) => { const t = text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, ""); return COST_STRINGS.every((s) => !t.includes(s)); };
   const scenarios = (b: Rec) => ((rec(b.result).scenarios as Rec[] | undefined) ?? []);
   const assumptions = (b: Rec) => ((rec(b.result).assumptionsZh as string[] | undefined) ?? []);
 
   const prevFlag = process.env.TENDER_PRICING_COMPARE_SOURCE_ENABLED;
   try {
-    const baseInputs = { competitorPriceCad: 100000, ourCostCad: COST, targetMarginPct: 15, ourCostSource: costSource, ourPriceCad: 99000, ourPriceStatus: "AUTHORITATIVE" };
+    const baseInputs = { competitorPriceCad: 100000, ourCostCad: COST, targetMarginPct: MARGIN, ourCostSource: costSource, ourPriceCad: 99000, ourPriceStatus: "AUTHORITATIVE" };
     const P = await mkProject(baseInputs);
     await db.organization.update({ where: { id: ORG }, data: { settingsJson: { tenderRfq: { landedCost: { fxRates: { CNY: 0.19 }, fxAsOf: new Date(Date.now() - 2 * DAY).toISOString().slice(0, 10), fxSource: "MANUAL", freightEstimate: { mode: "per_unit", value: 6 }, insurancePct: 1, clearanceFlatCad: 150, projects: { [P]: { dutyRatePct: 6.5 } } } } } as never } });
     await mkSelectedRound(P, 313.37);
@@ -131,9 +138,9 @@ async function main() {
       const g = await get(P, u);
       const inputs = rec(g.body.inputs);
       ok(
-        g.status === 200 && inputs.ourCostCad === null && inputs.competitorPriceCad === 100000 && inputs.targetMarginPct === 15 &&
+        g.status === 200 && inputs.ourCostCad === null && inputs.competitorPriceCad === 100000 && inputs.targetMarginPct === null &&
           g.body.costHidden === true && g.body.compareCostHidden === true && !("compareCost" in g.body),
-        `${label}读取：成本为 null、costHidden、compareCostHidden、没有 compareCost`,
+        `${label}读取：成本与目标毛利为 null、costHidden、compareCostHidden、没有 compareCost`,
         g.body,
       );
       ok(
@@ -142,7 +149,7 @@ async function main() {
         `${label}读取：情景没有毛利、没有成本底价情景，假设说明换句`,
         g.body.result,
       );
-      ok(noCostIn(g.text), `${label}读取：响应 JSON 里搜不到成本与落地价的数字`, g.text.slice(0, 600));
+      ok(noCostIn(g.text), `${label}读取：响应 JSON 里搜不到成本、落地价与目标毛利的数字`, g.text.slice(0, 600));
     }
 
     /* ---------- 2. 有财务查看权的三种人：结果一致、带成本与建议 ---------- */
@@ -169,23 +176,30 @@ async function main() {
 
     /* ---------- 4. 没有财务查看权的编辑者保存 ---------- */
     const snap = JSON.stringify(await roomSj(P));
-    const w1 = await post(P, { action: "save", inputs: { competitorPriceCad: 100000, ourCostCad: 1, targetMarginPct: 15 } }, EDITOR);
+    const w1 = await post(P, { action: "save", inputs: { competitorPriceCad: 100000, ourCostCad: 1, targetMarginPct: MARGIN } }, EDITOR);
     ok(w1.status === 403 && w1.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snap, "编辑者带 ourCostCad 保存：403、库不变", w1.body);
     const w2 = await post(P, { action: "save", inputs: { competitorPriceCad: 100000 }, ourCostSource: null }, EDITOR);
     ok(w2.status === 403 && w2.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snap, "编辑者带 ourCostSource: null 保存：403、库不变", w2.body);
     const w3 = await post(P, { action: "save", inputs: { competitorPriceCad: 100000, ourCostCad: null }, ourCostSource: { kind: "rfq_compare", inquiryItemId: "x" } }, ADMIN);
     ok(w3.status === 403 && w3.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snap, "org_admin（无财务键）带成本保存：403、库不变", w3.body);
+    // FIX-25：带目标毛利也是碰了受限的键（原来 200）
     const w4 = await post(P, { action: "save", inputs: { competitorPriceCad: 105000, targetMarginPct: 12 } }, EDITOR);
+    ok(w4.status === 403 && w4.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snap, "编辑者带对手价与目标毛利保存：403、库不变（FIX-25）", w4.body);
+    const w4b = await post(P, { action: "save", inputs: { competitorPriceCad: 105000 } }, EDITOR);
     const afterPi = rec((await roomSj(P)).pricingInputs);
     ok(
-      w4.status === 200 && afterPi.competitorPriceCad === 105000 && afterPi.targetMarginPct === 12 && afterPi.ourCostCad === COST &&
+      w4b.status === 200 && afterPi.competitorPriceCad === 105000 && afterPi.targetMarginPct === MARGIN && afterPi.ourCostCad === COST &&
         rec(afterPi.ourCostSource).landedCadTotal === LANDED && afterPi.ourPriceCad === 99000,
-      "编辑者只带对手价与目标毛利保存：成功；成本、来源与报价镜像保留",
+      "编辑者只带对手价保存：成功；成本、来源、目标毛利与报价镜像保留",
       afterPi,
     );
-    ok(rec(w4.body.inputs).ourCostCad === null && w4.body.costHidden === true && !("ourCostSource" in w4.body) && noCostIn(w4.text), "编辑者保存的返回：成本为 null、costHidden、没有 ourCostSource、搜不到成本数字", w4.body);
+    ok(rec(w4b.body.inputs).ourCostCad === null && rec(w4b.body.inputs).targetMarginPct === null && w4b.body.costHidden === true && !("ourCostSource" in w4b.body) && noCostIn(w4b.text), "编辑者保存的返回：成本与目标毛利为 null、costHidden、没有 ourCostSource、搜不到成本与目标毛利数字", w4b.body);
+    // FIX-25：编辑者带目标毛利 100 先撞财务 403（原来 400）；400 由能改目标毛利的人触发
+    const snapW5 = JSON.stringify(await roomSj(P));
     const w5 = await post(P, { action: "save", inputs: { competitorPriceCad: 105000, targetMarginPct: 100 } }, EDITOR);
-    ok(w5.status === 400, "编辑者不碰成本但目标毛利 100：400（财务判定之后才是目标毛利）", w5.body);
+    ok(w5.status === 403 && w5.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snapW5 && rec((await roomSj(P)).pricingInputs).targetMarginPct === MARGIN, "编辑者带目标毛利 100：403（FIX-25，财务判定先于目标毛利校验）、库不变", w5.body);
+    const f5 = await post(P, { action: "save", inputs: { competitorPriceCad: 105000, targetMarginPct: 100 } }, FINREAD);
+    ok(f5.status === 400, "能编辑项目、持 ORG 范围 finance.read 的成员带目标毛利 100：400", f5.body);
     const w6 = await post(P, { action: "save", inputs: { targetMarginPct: 100, ourCostCad: 5 } }, EDITOR);
     ok(w6.status === 403 && w6.body.error === COST_WRITE_FORBIDDEN_ZH, "编辑者带成本且目标毛利 100：403 先于 400", w6.body);
 
@@ -209,7 +223,7 @@ async function main() {
     const roomBody = rec(await rr.json());
     const roomPi = rec(rec(rec(roomBody.room).summaryJson).pricingInputs);
     const roomSjOut = rec(rec(roomBody.room).summaryJson);
-    ok(rr.status === 200 && !("ourCostCad" in roomPi) && !("ourCostSource" in roomPi) && roomPi.ourPriceCad === 99000 && roomPi.competitorPriceCad === 105000 && rec(roomSjOut.otherFeature).keep === true && !("bidStrategyMemo" in roomSjOut) && Array.isArray(roomSjOut.majorBlockers), "调查室读取（负责人）：pricingInputs 没有成本与来源、没有投标策略备忘，其它键还在", roomPi);
+    ok(rr.status === 200 && !("pricingInputs" in roomSjOut) && Object.keys(roomPi).length === 0 && rec(roomSjOut.otherFeature).keep === true && !("bidStrategyMemo" in roomSjOut) && Array.isArray(roomSjOut.majorBlockers), "调查室读取（负责人）：没有 pricingInputs（FIX-25 整个去掉）、没有投标策略备忘，其它键还在", roomSjOut);
     let mine: Rec | undefined;
     for (const [u, label] of [[VIEWER, "只读成员"], [OWNER, "项目负责人"]] as const) {
       const lr = await listRoute.GET(new NextRequest(`http://localhost/api/projects?orgId=${ORG}`, { headers: { cookie: await cookieOf(u) } }), { params: Promise.resolve({}) } as never);
@@ -217,7 +231,8 @@ async function main() {
       mine = Array.isArray(list) ? list.find((p) => p.id === P) : undefined;
       const listSj = rec(rec(mine?.intelligenceRoom).summaryJson);
       const listPi = rec(listSj.pricingInputs);
-      ok(lr.status === 200 && !!mine && !("ourCostCad" in listPi) && !("ourCostSource" in listPi) && listPi.ourPriceCad === 99000 && !("bidStrategyMemo" in listSj) && Array.isArray(listSj.majorBlockers), `项目列表（${label}）：pricingInputs 没有成本与来源、没有投标策略备忘，其它键还在`, mine ? listSj : list);
+      ok(lr.status === 200 && !!mine && !("pricingInputs" in listSj) && Object.keys(listPi).length === 0 && !("bidStrategyMemo" in listSj) && Array.isArray(listSj.majorBlockers), `项目列表（${label}）：没有 pricingInputs（FIX-25 整个去掉）、没有投标策略备忘，其它键还在`, mine ? listSj : list);
+      ok(noCostIn(JSON.stringify(mine ?? {})), `项目列表（${label}）：该项目那一项里搜不到成本、落地价与目标毛利的数字`);
     }
     ok(noCostIn(JSON.stringify(mine ?? {})) && noCostIn(JSON.stringify(roomBody)), "两个接口的 JSON 里都搜不到成本与落地价的数字");
     ok(JSON.stringify(await roomSj(P)) === before, "两个接口都不改库");

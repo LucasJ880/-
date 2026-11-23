@@ -380,8 +380,11 @@ ok(
 }
 ok(
   typeof TENDER_WORKFORCE_TOOL_HANDLERS.tender_analyze_package_v2 === "function" &&
-    Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).length === 9,
-  "P11-BUDGET-06b: 工具集合不变（9 个），未新增第二套工具",
+    Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).filter(
+      (n) => n !== "tender_research_branch" && n !== "tender_research_trunk",
+    ).length === 9 &&
+    Object.keys(TENDER_WORKFORCE_TOOL_HANDLERS).length === 11,
+  "P11-BUDGET-06b: 分析工具集合不变（9 个），未新增第二套分析工具（另有 TREE-2 的 2 个调研工具）",
 );
 {
   const crons = execSync(

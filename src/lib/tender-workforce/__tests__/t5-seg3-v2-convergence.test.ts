@@ -188,8 +188,9 @@ ok(
   "V2-CONV-13: 全局 planner 投影的 tender 工具数 = 0",
 );
 ok(
-  TENDER_WORKFORCE_TOOL_NAMES.length === 9,
-  "V2-CONV-13b: 可执行集合 9（EXECUTABLE ⊋ 两个投影面）",
+  TENDER_WORKFORCE_TOOL_NAMES.filter((n) => n !== "tender_research_branch" && n !== "tender_research_trunk").length === 9 &&
+    TENDER_WORKFORCE_TOOL_NAMES.length === 11,
+  "V2-CONV-13b: 可执行集合 = 9 个分析工具 + 2 个调研工具（EXECUTABLE ⊋ 两个投影面）",
 );
 
 /* ── V2-CONV-14：finalize 直接依赖 canonical V2 证据 ── */

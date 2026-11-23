@@ -8,6 +8,7 @@
  * LLM 调用通过 deps.complete 注入（测试用假实现）。
  */
 
+import { toStorableText } from "@/lib/files/extracted-text";
 import { extractDatesYmd } from "@/lib/tender-understanding/normalize";
 import {
   INBOUND_CONTRACT_VERSION,
@@ -57,8 +58,16 @@ export type ParseInboundDeps = {
 
 export type RejectedField = { field: string; reason: "EVIDENCE_NOT_IN_TEXT" | "VALUE_NOT_IN_EVIDENCE" | "NOT_DERIVABLE" | "UNKNOWN_CODE" };
 
+/**
+ * 代码实际处理的附件（覆盖模型自报的 attachmentsSeen）。
+ * nulCount（FIX-14）：该附件抽出的文字里被换成空格的 U+0000 个数，只在大于 0 时出现；
+ * 写进报价备注附件一栏的提示与这封回信的审计，不进模型提示。
+ */
+export type AttachmentSeen = InboundQuote["attachmentsSeen"][number] & { nulCount?: number };
+
 /** 校验后的报价：InboundQuote 的字段都已过证据闸；missingFields 留给 planInquiryItemUpdate 按规则重算 */
-export type ParsedQuote = InboundQuote & {
+export type ParsedQuote = Omit<InboundQuote, "attachmentsSeen"> & {
+  attachmentsSeen: AttachmentSeen[];
   /** 由"N 天有效"按邮件日期推算出的 validUntil */
   validUntilInferred: boolean;
   /** 被证据闸作废的字段（写进 AuditLog 便于复核） */
@@ -122,9 +131,26 @@ async function defaultExtractPdfText(buffer: Buffer): Promise<string> {
   return Array.isArray(raw) ? raw.join("\n") : String(raw || "");
 }
 
-export type AttachmentText = { filename: string; parsed: boolean; text: string; note: string | null };
+export type AttachmentText = {
+  filename: string;
+  parsed: boolean;
+  text: string;
+  note: string | null;
+  /** FIX-14：抽出的文字里被换成空格的 U+0000 个数（只在已解析且大于 0 时出现） */
+  nulCount?: number;
+};
 
-/** 附件 → 纯文本。任何单个附件失败都不抛：parsed=false + 说明，其它内容照常解析。 */
+function countNul(text: string): number {
+  let n = 0;
+  for (let i = text.indexOf("\u0000"); i >= 0; i = text.indexOf("\u0000", i + 1)) n++;
+  return n;
+}
+
+/**
+ * 附件 → 纯文本。任何单个附件失败都不抛：parsed=false + 说明，其它内容照常解析。
+ * FIX-14：文件名与抽出的文字先清掉写不进库的字符（U+0000 → 空格、落单代理字符 → U+FFFD），
+ * 再判断有没有可提取的文字——只有 U+0000 的附件（勾选框之类的字形）记为无可提取文本。
+ */
 export async function extractAttachmentTexts(
   attachments: InboundAttachmentInput[],
   deps: Pick<ParseInboundDeps, "extractPdfText"> = {},
@@ -132,16 +158,17 @@ export async function extractAttachmentTexts(
   const out: AttachmentText[] = [];
   for (const a of attachments) {
     const kind = attachmentKind(a);
+    const filename = toStorableText(a.filename);
     if (kind === "image") {
-      out.push({ filename: a.filename, parsed: false, text: "", note: "图片附件未解析" });
+      out.push({ filename, parsed: false, text: "", note: "图片附件未解析" });
       continue;
     }
     if (kind === "other") {
-      out.push({ filename: a.filename, parsed: false, text: "", note: "附件格式不支持，未解析" });
+      out.push({ filename, parsed: false, text: "", note: "附件格式不支持，未解析" });
       continue;
     }
     if (!a.data) {
-      out.push({ filename: a.filename, parsed: false, text: "", note: "附件过大，未下载" });
+      out.push({ filename, parsed: false, text: "", note: "附件过大，未下载" });
       continue;
     }
     try {
@@ -161,24 +188,29 @@ export async function extractAttachmentTexts(
       } else {
         text = a.data.toString("utf-8");
       }
-      text = text.trim();
+      const nulCount = countNul(text);
+      text = toStorableText(text).trim();
       out.push(text
-        ? { filename: a.filename, parsed: true, text, note: null }
-        : { filename: a.filename, parsed: false, text: "", note: "附件无可提取文本（可能是扫描件）" });
+        ? { filename, parsed: true, text, note: null, ...(nulCount > 0 ? { nulCount } : {}) }
+        : { filename, parsed: false, text: "", note: "附件无可提取文本（可能是扫描件）" });
     } catch {
-      out.push({ filename: a.filename, parsed: false, text: "", note: "附件无法解析（可能已损坏）" });
+      out.push({ filename, parsed: false, text: "", note: "附件无法解析（可能已损坏）" });
     }
   }
   return out;
 }
 
-/** LLM 实际看到、证据也在其中校验的文本 */
+/**
+ * LLM 实际看到、证据也在其中校验的文本。
+ * FIX-14：截到上限之后再清理一遍——正文没清理过，截断也可能劈开一对代理字符；
+ * 模型看到的与核对证据、币种、起订量用的始终是这同一份。
+ */
 export function buildInboundText(body: string, attachments: AttachmentText[]): string {
   const parts = [`【邮件正文】\n${body || "（空）"}`];
   for (const a of attachments) {
     if (a.parsed) parts.push(`【附件 ${a.filename}】\n${a.text}`);
   }
-  return parts.join("\n\n").slice(0, MAX_LLM_TEXT_CHARS);
+  return toStorableText(parts.join("\n\n").slice(0, MAX_LLM_TEXT_CHARS));
 }
 
 /* ---------------------------------- 确定性推导（代码说了算） ---------------------------------- */
@@ -282,6 +314,7 @@ JSON 结构（字段名、类型必须完全一致）：
 - 不要换算币种，不要推算总价，不要猜交期或有效期。
 - mandatoryAnswers 只针对给出的强制要求编号；供应商没逐条回应的写 "未答"。`;
 
+/** 附件清单只给文件名与是否解析（被换掉的 U+0000 个数不进提示） */
 function buildUserPrompt(text: string, input: ParseInboundQuoteInput, attachmentsSeen: Array<{ filename: string; parsed: boolean }>): string {
   const lines = [
     `邮件日期：${input.emailDate.toISOString().slice(0, 10)}`,
@@ -427,7 +460,7 @@ export async function parseInboundQuote(
 ): Promise<ParsedQuote & { attachmentNotes: string[] }> {
   const body = stripQuotedReply(input.bodyText);
   const attachments = await extractAttachmentTexts(input.attachments, deps);
-  const attachmentsSeen = attachments.map((a) => ({ filename: a.filename, parsed: a.parsed }));
+  const attachmentsSeen: AttachmentSeen[] = attachments.map((a) => ({ filename: a.filename, parsed: a.parsed, ...(a.nulCount ? { nulCount: a.nulCount } : {}) }));
   const attachmentNotes = attachments.filter((a) => a.note).map((a) => `${a.filename}：${a.note}`);
   const text = buildInboundText(body, attachments);
 

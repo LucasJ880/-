@@ -23,6 +23,7 @@ import {
   withBidWorkflowSchemaFallback,
 } from "@/lib/bid-workflow/schema-drift";
 import { LEGACY_PROJECT_DETAIL_SELECT } from "@/lib/bid-workflow/legacy-project-select";
+import { guardOwnerChange, OwnerChangeConflict, ownerConflictResponse, writeOwnerIfUnchanged } from "@/lib/projects/owner-change-access";
 
 const detailInclude = {
   owner: { select: { id: true, name: true, email: true } },
@@ -201,10 +202,6 @@ export async function PATCH(
         : String(body.purchaserId);
   }
 
-  if (body.ownerId !== undefined) {
-    data.ownerId = String(body.ownerId);
-  }
-
   if (body.orgId !== undefined) {
     return NextResponse.json(
       { error: "不允许通过此接口修改组织归属" },
@@ -212,7 +209,19 @@ export async function PATCH(
     );
   }
 
-  const project = await db.$transaction(async (tx) => {
+  // CHAIN-2c：换负责人先判权限（403）再判新负责人（400）；被拒则整个请求不写。写入只在负责人没被别人改过时生效（否则 409）
+  let newOwnerId: string | null = null;
+  if (body.ownerId !== undefined) {
+    const target = String(body.ownerId ?? "").trim();
+    const guard = await guardOwnerChange({ user, orgId: beforeProject.orgId ?? null, currentOwnerId: beforeProject.ownerId, targetUserId: target });
+    if (guard instanceof NextResponse) return guard;
+    if (guard.changed) newOwnerId = target;
+  }
+
+  let project;
+  try {
+  project = await db.$transaction(async (tx) => {
+    if (newOwnerId) await writeOwnerIfUnchanged(tx, id, beforeProject.ownerId, newOwnerId);
     const updated = await tx.project.update({
       where: { id },
       data,
@@ -243,7 +252,7 @@ export async function PATCH(
         }
         return a !== b;
       };
-      const changedFields = Object.keys(data).filter((k) =>
+      const changedFields = [...Object.keys(data), ...(newOwnerId ? ["ownerId"] : [])].filter((k) =>
         valueChanged(beforeRec[k], afterRec[k])
       );
       if (changedFields.length > 0) {
@@ -281,6 +290,10 @@ export async function PATCH(
 
     return updated;
   });
+  } catch (err) {
+    if (err instanceof OwnerChangeConflict) return ownerConflictResponse();
+    throw err;
+  }
 
   await logAudit({
     userId: user.id,
@@ -294,12 +307,14 @@ export async function PATCH(
       description: beforeProject.description,
       color: beforeProject.color,
       status: beforeProject.status,
+      ...(newOwnerId ? { ownerId: beforeProject.ownerId } : {}),
     },
     afterData: {
       name: project.name,
       description: project.description,
       color: project.color,
       status: project.status,
+      ...(newOwnerId ? { ownerId: project.ownerId } : {}),
     },
     request,
   });

@@ -7,8 +7,9 @@ import path from "node:path";
 import { isImportLeadsEnabledForOrgWithEnv } from "../flags";
 import { BATCH_TEXT, IMPORT_COLUMNS_HINT_ZH, IMPORT_HEADER_NAMES_ZH, groupProblems, importDedupeKey, isHttpUrl, parseDelimited, parseImportText, parseShipmentDate } from "../parse";
 import { MANUAL_SOURCE_NOTE_ZH, importLeadSourceNotesZh, manualPasteProvider } from "../provider";
-import { candidatePairKeys, createImporterMatcher, matchImporter, preparedPairKey, prepareName, relatePrepared, uniqueWinnerNames } from "../match-pure";
-import { IMPORT_LEADS_TEXT, aggregateByExporter, importResultZh, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
+import { candidatePairKeys, createCandidatePairFinder, createImporterMatcher, matchImporter, preparedPairKey, prepareName, relatePrepared, uniqueWinnerNames } from "../match-pure";
+import { IMPORT_LEAD_ALIAS_AUDIT_ACTION, IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, effectiveDecisions } from "../alias-decisions";
+import { IMPORT_LEADS_TEXT, IMPORT_LEAD_REVOKE_REASON_MAX, normalizeRevokeReason, rejectedPairsSummaryZh, decidedCountsZh, countRecordsTouchingRejected, aggregateByExporter, importResultZh, keywordsOf, sharedKeywords, slotSummaryZh, winnersStateMessage, type ImportLeadsView } from "../aggregate-pure";
 import { aliasPairKey, compareCompanyNames, decideAlias } from "@/lib/tender-competition/company-identity";
 import { createImportLead } from "@/lib/tender-competition/import-leads";
 import { platformDisplay, sourceOriginDisplay } from "@/lib/supplier-intel/workspace-labels";
@@ -170,7 +171,7 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
     caveatZh: IMPORT_LEADS_TEXT.caveat, leadStatusZh: IMPORT_LEADS_TEXT.leadStatus, sourceNotesZh: notes, winners: { status: "ok", names: ["W"] },
     suggestions: [{ pairKey: "k", importerName: "I", winnerName: "W", basisZh: "只差公司后缀", recordCount: 1 }],
     exporters: aggregateByExporter([{ exporterName: "E", shipmentDate: "2026-01-01", goods: "tent", winners: ["W"], linkedSupplier: { id: "s", name: "E", hasEmail: false, active: true } }], { now: NOW, requirementTexts: ["Tents"] }),
-    leadCount: 1, storedLeadCount: 2, canEdit: true,
+    leadCount: 1, storedLeadCount: 2, pendingLeadCount: 1, canDecideAliases: false, decidedPairs: [], rejectedPairRecordCount: 0, canEdit: true,
   };
   const keys = new Set<string>();
   const walk = (v: unknown) => { if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { keys.add(k); walk(x); } };
@@ -200,16 +201,25 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(sharedKeywords(["Sleeping Bags 3-season", "Tent poles"], ["Sleeping bag rated to -20C", "Tents shall be 4-person"]).join() === "bags,sleeping,tent", "品名与要求共有的词：按去词尾 s 比，显示品名里的原词，按字母序");
   ok(sharedKeywords(["Lithium batteries"], ["Battery pack"]).join() === "batteries" || sharedKeywords(["Lithium batteries"], ["Batteries pack"]).join() === "batteries", "不显示截出来的「batterie」");
   const okW = { status: "ok" as const, names: ["W1"] };
-  const pend = [{ pairKey: "k", importerName: "I", winnerName: "W", basisZh: "只差公司后缀", recordCount: 3 }];
-  ok(slotSummaryZh({ exporters: s, leadCount: 11, storedLeadCount: 11, winners: okW, suggestions: [] }) === "3 家出口商（11 条线索）" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 0, winners: okW, suggestions: [] }) === "还没有导入进口记录。", "槽里的摘要：有线索 / 一条都没有");
-  ok(slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW, suggestions: pend }) === "已导入 3 条进口记录，都在等你确认是不是同一家（打开进口线索去确认）。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: { status: "unavailable", messageZh: "x" }, suggestions: [] }) === "已导入 3 条进口记录；历史中标者现在读不出来，先不显示。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW, suggestions: [] }) === "已导入 3 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。", "存着线索但在等确认 / 中标者读不出来 / 都对不上：照实说，不说成没导入");
-  ok(slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 0, winners: { status: "no_buyer", messageZh: "项目没有采购方名称，没法找历史中标者。" }, suggestions: [] }) === "暂时不能导入：项目没有采购方名称，没法找历史中标者。", "第一次来、没有可比对的中标者：槽里直接说为什么不能导入");
+  ok(slotSummaryZh({ exporters: s, leadCount: 11, storedLeadCount: 11, winners: okW, pendingLeadCount: 0 }) === "3 家出口商（11 条线索）" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 0, winners: okW, pendingLeadCount: 0 }) === "还没有导入进口记录。", "槽里的摘要：有线索 / 一条都没有");
+  ok(slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW, pendingLeadCount: 3 }) === "已导入 3 条进口记录，都在等组织管理员确认是不是同一家（打开进口线索查看）。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: { status: "unavailable", messageZh: "x" }, pendingLeadCount: 0 }) === "已导入 3 条进口记录；历史中标者现在读不出来，先不显示。" && slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 3, winners: okW, pendingLeadCount: 0 }) === "已导入 3 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。", "存着线索但在等确认 / 中标者读不出来 / 都对不上：照实说，不说成没导入");
+  ok(slotSummaryZh({ exporters: [], leadCount: 0, storedLeadCount: 0, winners: { status: "no_buyer", messageZh: "项目没有采购方名称，没法找历史中标者。" }, pendingLeadCount: 0 }) === "暂时不能导入：项目没有采购方名称，没法找历史中标者。", "第一次来、没有可比对的中标者：槽里直接说为什么不能导入");
+  {
+    // 交叉验证 F1：3 条记录，其中 1 条涉及两对且两对都已标为不是同一家，另 2 条涉及的一对还在待确认——摘要按实际待确认的条数说，与「另有 N 对」「已标为不是同一家」两行不矛盾
+    const combo = { exporters: [], leadCount: 0, storedLeadCount: 3, pendingLeadCount: 2, winners: okW };
+    const rejectedLine = rejectedPairsSummaryZh({ decidedPairs: [{ decision: "REJECTED" }, { decision: "REJECTED" }], rejectedPairRecordCount: 1 });
+    ok(slotSummaryZh(combo) === "已导入 3 条进口记录，其中 2 条在等组织管理员确认是不是同一家（打开进口线索查看）。" && rejectedLine === "已标为不是同一家 2 对（涉及 1 条进口记录）" && !slotSummaryZh(combo).includes("都在等"), "槽里：只有一部分在等确认时写「其中 K 条在等」，不说「都在等」");
+    ok(slotSummaryZh({ ...combo, pendingLeadCount: 3 }) === "已导入 3 条进口记录，都在等组织管理员确认是不是同一家（打开进口线索查看）。" && slotSummaryZh({ ...combo, pendingLeadCount: 0 }) === "已导入 3 条进口记录，但都对不上本采购方现在的历史中标者（或已标为不是同一家），不显示。", "槽里：全部在等写「都在等」；没有待确认的写「都对不上」");
+    ok(IMPORT_LEADS_TEXT.storedPartlyPending(5, 1) === "已导入 5 条进口记录，其中 1 条在等组织管理员确认是不是同一家（打开进口线索查看）。", "「其中 K 条在等」那一句逐字");
+    const svcSrc = readFileSync(path.join(process.cwd(), "src/lib/tender-import-leads/service.ts"), "utf8");
+    ok(/else if \(m\.status === "SUGGESTED"\) \{\n      pendingRecordCount \+= 1;/.test(svcSrc) && svcSrc.includes("pendingLeadCount: state.classified.pendingRecordCount,"), "待确认条数按记录数（每条记录只加一次），不按各对条数相加");
+  }
   const linkable = aggregateByExporter([
     { exporterName: "E", shipmentDate: null, goods: null, winners: ["W"], linkedSupplier: { id: "s", name: "E", hasEmail: true, active: true } },
     { exporterName: "E", shipmentDate: null, goods: null, winners: ["W"], linkedSupplier: null, linkable: true },
   ], { now: NOW, requirementTexts: [] });
   ok(linkable[0].supplier?.id === "s" && linkable[0].unlinkedLeads === 1, "已在供应商库、又新导入了一条：还有 1 条没关联", linkable);
-  ok(importResultZh({ totalRecords: 20, imported: 5, matched: 3, suggested: 2, duplicates: 1, unrelated: 4, unrelatedImporters: ["甲", "乙"], problemRecords: 10 }) === "共 20 条：导入 5 条（3 条已对应中标者，2 条要你确认是不是同一家）；重复跳过 1 条；4 条的进口商不是这个采购方的中标者，没有保存（甲、乙）；10 条有问题没有导入，见下。", "导入结果那一句");
+  ok(importResultZh({ totalRecords: 20, imported: 5, matched: 3, suggested: 2, duplicates: 1, unrelated: 4, unrelatedImporters: ["甲", "乙"], problemRecords: 10 }) === "共 20 条：导入 5 条（3 条已对应中标者，2 条要等组织管理员确认是不是同一家）；重复跳过 1 条；4 条的进口商不是这个采购方的中标者，没有保存（甲、乙）；10 条有问题没有导入，见下。", "导入结果那一句");
   ok(importResultZh({ totalRecords: 4, imported: 0, matched: 0, suggested: 0, duplicates: 4, unrelated: 0, unrelatedImporters: [], problemRecords: 0 }) === "共 4 条：没有新导入；重复跳过 4 条。" && importResultZh({ totalRecords: 2, imported: 2, matched: 2, suggested: 0, duplicates: 0, unrelated: 0, unrelatedImporters: [], problemRecords: 0 }) === "共 2 条：导入 2 条（2 条已对应中标者）。", "为 0 的那半句不写");
 }
 
@@ -231,7 +241,7 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   const strip = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   const dir = "src/lib/tender-import-leads";
   const files = readdirSync(path.join(root, dir)).filter((f) => f.endsWith(".ts")).map((f) => `${dir}/${f}`);
-  const routes = ["src/app/api/projects/[id]/tender-intel/import-leads/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/aliases/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/suppliers/route.ts"];
+  const routes = ["src/app/api/projects/[id]/tender-intel/import-leads/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/aliases/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/aliases/revoke/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/suppliers/route.ts"];
   for (const f of [...files, ...routes, "src/components/tender-intel/import-leads-panel.tsx"]) {
     let code = "";
     try { code = strip(read(f)); } catch { ok(false, `${f} 存在`); continue; }
@@ -240,7 +250,10 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(readdirSync(path.join(root, "src/lib/tender-competition")).filter((f) => f.endsWith(".ts")).length === 5, "tender-competition/ 仍是 5 个文件（线索层不碰库的守卫不动）");
   const access = read("src/lib/tender-import-leads/api-access.ts");
   ok(/access\.status === 401 \? access : notFound\(\)/.test(access) && /!isSuperAdmin\(access\.user\.role\) && !access\.orgRole/.test(access) && access.indexOf("isImportLeadsEnabledForOrg(orgId)") > access.indexOf("access.orgRole") && /status: 403/.test(access), "接口判定顺序：401 → 不能读或非有效成员 404 → 开关 404 → 写不了 403");
-  for (const r of routes) ok(/requireImportLeads(Read|Write)\(request, projectId\)/.test(read(r)), `${r}：走统一的权限判定`);
+  for (const r of routes) ok(/requireImportLeads(Read|Write|AliasDecide)\(request, projectId\)/.test(read(r)), `${r}：走统一的权限判定`);
+  // CHAIN-3c：裁决与撤回只限组织管理员
+  for (const r of ["src/app/api/projects/[id]/tender-intel/import-leads/aliases/route.ts", "src/app/api/projects/[id]/tender-intel/import-leads/aliases/revoke/route.ts"]) ok(/requireImportLeadsAliasDecide\(request, projectId\)/.test(read(r)) && !/requireImportLeadsWrite\(/.test(read(r)), `${r}：裁决与撤回走组织管理员判定`);
+  ok(/isSuperAdmin\(access\.user\.role\) \|\| \(!!access\.orgRole && hasOrgRole\(access\.orgRole, "org_admin"\)\)/.test(access) && /IMPORT_LEADS_TEXT\.notOrgAdmin, code: "NOT_ORG_ADMIN" \}, \{ status: 403/.test(access), "组织管理员 = 平台超级管理员或组织角色不低于 org_admin 的有效成员；其他人 403");
   const svc = read("src/lib/tender-import-leads/service.ts");
   ok(/linkSignalToSupplier\(/.test(svc) && /sourceOrigin: "MANUAL_ENTRY"/.test(svc) && /pg_advisory_xact_lock/.test(svc) && !/supplierDiscoverySignal\.update(Many)?\(/.test(svc), "服务：线索走既有关联流程、不直接改信号；来源人工录入；写操作加锁");
   ok(/export const MAX_PROJECT_LEADS = 5000;/.test(svc) && /stored \+ fresh\.length > MAX_PROJECT_LEADS/.test(svc) && /= ANY\(\$\{keys\}::text\[\]\)/.test(svc), "每个项目最多 5000 条，到了上限拒绝；查重在库里按这一批的去重键查（不受读视图条数限制）");
@@ -275,6 +288,75 @@ const parse = (text: string, o: { sourceLabel?: string | null; dateOrder?: "YMD"
   ok(!/^export [^;]* from /m.test(rc) && !/\bimport\(/.test(rc) && !/\brequire\(/.test(rc), "投标准备度：没有 export…from、动态 import、require");
   const store = readFileSync(path.join(root, "src/lib/tender-bid-workspace/store.ts"), "utf8");
   ok(store.includes('from "@/lib/tender-import-leads/readiness-count"') && !store.includes("tender-import-leads/service") && store.includes("hasImportLeadsForReadiness({ orgId, projectId }),") && /\n    hasImportLeads,\n  \};/.test(store), "投标工作区读取：接上 hasImportLeadsForReadiness、返回 hasImportLeads，不 import service.ts");
+}
+
+{
+  // CHAIN-3c：有效裁决由撤回行指向决定，不靠时间先后
+  const tgt = new Map([["t1", "p1"], ["t2", "p2"]]);
+  const dec = (id: string, targetId: string, pairKey: string, decision: string, at: number) => ({ id, action: IMPORT_LEAD_ALIAS_AUDIT_ACTION, targetId, createdAt: new Date(at), afterData: JSON.stringify({ pairKey, nameA: "A", nameB: "B", decision, decidedBy: "u", decidedAt: new Date(at).toISOString() }) });
+  const rev = (id: string, targetId: string, revokedAuditId: string, at: number) => ({ id, action: IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, targetId, createdAt: new Date(at), afterData: JSON.stringify({ pairKey: "p1", revokedAuditId, revokedBy: "u", revokedAt: "x" }) });
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000)], tgt)[0]?.auditId === "a1", "只有一条裁决：有效，带审计行 id");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "a1", 500)], tgt).length === 0, "撤回行时间比裁决早（时钟偏差）：照样撤回");
+  const again = effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "a1", 2000), dec("a2", "t1", "p1", "REJECTED", 1500)], tgt);
+  ok(again.length === 1 && again[0].auditId === "a2" && again[0].decision === "REJECTED", "撤回后重新裁决（新裁决的时间甚至早于撤回行）：新裁决有效");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "other", 2000)], tgt)[0]?.auditId === "a1", "撤回行指向别的裁决：这条仍有效");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), { ...rev("r1", "t1", "a1", 2000), afterData: "not json" }], tgt).length === 1, "形状不对的撤回行不算");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), dec("a2", "t2", "p2", "REJECTED", 1000), rev("r1", "t1", "a1", 2000)], tgt).map((d) => d.pairKey).join() === "p2", "撤回只影响它指向的那一对");
+  const two = effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), dec("a2", "t1", "p1", "REJECTED", 2000)], tgt);
+  ok(two.length === 1 && two[0].auditId === "a2" && two[0].recordedAt === new Date(2000).toISOString(), "两条都没撤回（只可能来自手工改库）：取最新的一条，带写入时间");
+  ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), { ...dec("a2", "t1", "p1", "REJECTED", 2000), afterData: "{}" }], tgt)[0]?.auditId === "a1", "最新一行形状不对：退回更早的有效裁决");
+  {
+    // 交叉验证的对抗用例（纯函数）：重复撤回、指向不存在或撤回行、多轮乱序、同一毫秒、坏形状
+    const revU = (id: string, targetId: string, revokedAuditId: unknown, at: number) => ({ id, action: IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION, targetId, createdAt: new Date(at), afterData: JSON.stringify({ pairKey: "p1", revokedAuditId, revokedBy: "u", revokedAt: "x" }) });
+    ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "a1", 2000), rev("r2", "t1", "a1", 3000)], tgt).length === 0, "重复撤回同一条：仍无效、不报错");
+    ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "nope", 2000)], tgt)[0]?.auditId === "a1", "撤回指向不存在的标识：原裁决仍有效");
+    ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), rev("r1", "t1", "r0", 2000), rev("r0", "t1", "zz", 1500)], tgt)[0]?.auditId === "a1", "撤回指向另一条撤回行：没有作用（不会「撤回撤回」）");
+    const chain = effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 5000), rev("r1", "t1", "a1", 1000), dec("a2", "t1", "p1", "REJECTED", 2000), rev("r2", "t1", "a2", 1500), dec("a3", "t1", "p1", "CONFIRMED", 100)], tgt);
+    ok(chain.length === 1 && chain[0].auditId === "a3", "三轮裁决 / 撤回、时间全部乱序：只认没有被指向的那条", chain);
+    const tie = effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), dec("a2", "t1", "p1", "REJECTED", 1000)], tgt);
+    const tie2 = effectiveDecisions([dec("a2", "t1", "p1", "REJECTED", 1000), dec("a1", "t1", "p1", "CONFIRMED", 1000)], tgt);
+    ok(tie[0]?.auditId === tie2[0]?.auditId && tie[0]?.auditId === "a2", "同一毫秒两条没撤回的裁决：结果与输入顺序无关", [tie[0]?.auditId, tie2[0]?.auditId]);
+    ok(effectiveDecisions([dec("a1", "t1", "p1", "CONFIRMED", 1000), revU("r1", "t1", 123, 2000)], tgt).length === 1, "撤回行的被撤回标识不是字符串：不算");
+    ok(effectiveDecisions([dec("a1", "t1", "pX", "CONFIRMED", 1000)], tgt).length === 0, "裁决行的 pairKey 与目标对不上：不算");
+  }
+  {
+    const r = (v: unknown) => normalizeRevokeReason(v);
+    const a = r("  判断   错了\n"), b = r("   "), c = r(undefined), d = r("x".repeat(201)), e = r("x".repeat(200));
+    ok(a.ok && a.reason === "判断 错了" && !b.ok && b.code === "REASON_REQUIRED" && b.messageZh === "请填写撤回原因。" && !c.ok && !d.ok && d.code === "REASON_TOO_LONG" && d.messageZh === "撤回原因最多 200 字，请删减后再提交。" && e.ok && IMPORT_LEAD_REVOKE_REASON_MAX === 200, "撤回原因：空白折叠、去首尾空白、必填、最多 200 字（与授标记录撤回同一口径）");
+    const route = readFileSync(path.join(process.cwd(), "src/app/api/projects/[id]/tender-intel/import-leads/aliases/revoke/route.ts"), "utf8");
+    ok(route.indexOf("normalizeRevokeReason(") > route.indexOf('"请求不完整"') && route.indexOf("normalizeRevokeReason(") < route.indexOf("revokeImportLeadAlias({") && route.includes("reason: reason.reason"), "撤回接口：先查请求完整、再查原因、再调服务");
+  }
+  {
+    // CHAIN-3c（Lucas 2026-11-20「需要单独计数」）：已标为不是同一家的对单独计数
+    const pairs = [{ decision: "CONFIRMED" as const }, { decision: "REJECTED" as const }, { decision: "REJECTED" as const }];
+    ok(rejectedPairsSummaryZh({ decidedPairs: pairs, rejectedPairRecordCount: 5 }) === "已标为不是同一家 2 对（涉及 5 条进口记录）" && rejectedPairsSummaryZh({ decidedPairs: [{ decision: "CONFIRMED" }], rejectedPairRecordCount: 0 }) === null && rejectedPairsSummaryZh({ decidedPairs: [], rejectedPairRecordCount: 0 }) === null, "已标为不是同一家：对数与涉及的记录条数（不说「不显示」），没有就不写");
+    const rej = new Set(["r1", "r2"]);
+    ok(countRecordsTouchingRejected([["r1", "r2"], ["r1", "c1"], ["c1"], [], ["p1"]], rej) === 2 && countRecordsTouchingRejected([], rej) === 0, "涉及的记录条数去重：一条记录涉及两对否决只算一次；同时涉及确认的也算；不涉及否决的不算");
+    ok(decidedCountsZh(pairs) === "本项目涉及：已确认是同一家 1 对，已标为不是同一家 2 对" && decidedCountsZh([{ decision: "REJECTED" }]) === "本项目涉及：已标为不是同一家 1 对" && decidedCountsZh([]) === "", "已裁决的一节标题后面：本项目涉及的两种结论各几对，为 0 的不写");
+    const panelSrc = readFileSync(path.join(process.cwd(), "src/components/tender-intel/import-leads-panel.tsx"), "utf8");
+    ok(panelSrc.includes("const rejectedLine = rejectedPairsSummaryZh(v);") && panelSrc.includes("{rejectedLine ? <p>{rejectedLine}</p> : null}") && /\{IMPORT_LEADS_UI\.decidedTitle\}\s*<span[^>]*>\{decidedCountsZh\(view\.decidedPairs\)\}<\/span>/.test(panelSrc), "槽里写单独计数一行；已裁决的一节标题后面紧跟两种结论各几对");
+  }
+  ok(IMPORT_LEAD_ALIAS_REVOKE_AUDIT_ACTION === "tender.import_lead_alias_revoked" && IMPORT_LEAD_ALIAS_AUDIT_ACTION === "tender.import_lead_alias_decided", "两种审计 action");
+  const finder = createCandidatePairFinder(["Northfield Pest Supply Inc.", "Boreal Outfitters"]);
+  const pairs = finder("NORTHFIELD PEST SUPPLY");
+  ok(pairs.length === 1 && pairs[0].winnerName === "Northfield Pest Supply Inc." && pairs[0].pairKey === candidatePairKeys(["NORTHFIELD PEST SUPPLY"], ["Northfield Pest Supply Inc.", "Boreal Outfitters"])[0] && finder("Northfield Pest Supply Inc.").length === 0 && finder("").length === 0, "候选的对：只列疑似同一家（同名不算），与 candidatePairKeys 同一把键");
+  ok(IMPORT_LEADS_TEXT.notOrgAdmin === "只有组织管理员能确认、否决或撤回「是不是同一家」（对本组织所有项目生效）。" && IMPORT_LEADS_TEXT.revokeConflict === "同事已经撤回或改过这一对的裁决，页面已更新；请看清现在的结论再操作。" && IMPORT_LEADS_TEXT.pairNotInProject === "本项目已没有涉及这一对的记录（可能刚在供应链页标为不采用，或历史中标者有变），页面已更新。" && IMPORT_LEADS_TEXT.formerMember === "本组织以外的人" && IMPORT_LEADS_TEXT.unnamedMember === "本组织成员（未填姓名）" && IMPORT_LEADS_TEXT.revokedNotPendingHere === "本项目里这家进口商已和别的中标者对上，这一对不会显示为待确认。", "撤回与权限的固定说法");
+  ok(IMPORT_LEADS_TEXT.revokedConfirmed("A", "B") === "已撤回「A」和「B」的确认，这一对回到待确认；靠它对上的记录已移出出口商汇总（已加入供应商库的不受影响）。" && IMPORT_LEADS_TEXT.revokedRejected("A", "B") === "已撤回「A」和「B」的否决，这一对回到待确认。否决期间导入时被当作「不是这个采购方的中标者」跳过的记录没有保存，需要的话请重新导入原表（已导入的不会重复）。", "撤回后按结论写出结果");
+  const panel = readFileSync(path.join(process.cwd(), "src/components/tender-intel/import-leads-panel.tsx"), "utf8");
+  ok(["只有组织管理员能确认或否决（对本组织所有项目生效）；在那之前，这些记录不进出口商汇总，也不能加入供应商库。请组织管理员打开本项目的进口线索处理。", "哪一对判断错了，请组织管理员在这里撤回。", "已裁决的（对本组织所有项目生效）", "已确认是同一家", "已标为不是同一家", "裁决人：", "正在撤回…", "确定是同一家吗？确认后本组织所有项目都会把这两个名称当成同一家；组织管理员可以撤回。", "确定不是同一家吗？否决后本组织所有项目都不再把这两个名称当成同一家，也不再提示；之后各项目再导入这家进口商的记录会被跳过、不保存（撤回后也要重新导入）。组织管理员可以撤回。", "你只有查看权限；导入和加入供应商库需要能修改本项目。"].every((t) => panel.includes(t)) && !panel.includes("不能撤回"), "面板：撤回与权限的固定说法；不再写「不能撤回」");
+  ok(panel.includes("撤回「${importer}」和中标者「${winner}」是同一家的确认？撤回后这一对回到「要确认是不是同一家」，本组织所有项目里靠它对上的进口记录会移出出口商汇总，等重新确认；已加入供应商库的供应商和关联不变。") && panel.includes("撤回「${importer}」和中标者「${winner}」不是同一家的否决？撤回后这一对回到「要确认是不是同一家」，本组织所有项目里否决前存着的记录会重新显示为待确认；否决期间导入时被跳过的记录不会自动回来，要重新导入。"), "撤回前按结论分别确认、写出两个名称");
+  ok(/canDecide=\{view\.canDecideAliases\}/.test(panel) && /\{view\.canDecideAliases \? null : <p className="mt-1 text-muted">\{IMPORT_LEADS_UI\.notAdminNote\}<\/p>\}/.test(panel) && /\{view\.canDecideAliases \? null : <p className="mt-1 text-muted">\{IMPORT_LEADS_UI\.notAdminDecidedNote\}<\/p>\}/.test(panel) && panel.includes("onClick={() => revoke(d, revokeReason)}") && panel.includes("disabled={busy !== null || !revokeReason.trim()}") && panel.includes("{ pairKey: d.pairKey, decisionId: d.decisionId, reason }") && panel.includes("{IMPORT_LEADS_UI.revokeReasonLabel}") && /\{view\.canDecideAliases && revokingDecision === d\.decisionId \? \(/.test(panel) && panel.includes('revokeReasonLabel: `撤回原因（必填，最多 ${IMPORT_LEAD_REVOKE_REASON_MAX} 字，会记入审计日志；请不要写联系方式）`') && panel.includes('revokeSubmit: "确认撤回"') && panel.includes('revokeCancel: "取消"') && panel.includes("disabled={busy !== null || openRevoke !== null}") && panel.includes("autoFocus") && (() => { const f = panel.slice(panel.indexOf('data-testid="il-revoke-form"')); return f.indexOf("IMPORT_LEADS_UI.confirmRevokeConfirmed(d.importerName, d.winnerName)") > 0 && f.indexOf("IMPORT_LEADS_UI.confirmRevokeConfirmed(d.importerName, d.winnerName)") < f.indexOf("<textarea"); })(), "面板：裁决与撤回按钮只给组织管理员；撤回先写明后果、填原因（没填不能点）、带裁决标识");
+  {
+    // 交叉验证 F3：撤回失败（409 / 404）后，那条裁决已不在视图里——收起表单、清掉原因，别的「撤回」恢复可点，原因写在状态区；裁决还在（如网络出错）时表单留着
+    const fn = panel.slice(panel.indexOf("const revoke = (d: DecidedPairView"), panel.indexOf("const addSupplier ="));
+    const failure = fn.slice(fn.indexOf("if (!out.ok) {"), fn.indexOf("const next = out.json.view"));
+    ok(failure.includes("setError(out.error);") && failure.includes("const fresh = await refresh();") && /if \(fresh && !fresh\.decidedPairs\.some\(\(x\) => x\.decisionId === d\.decisionId\)\) \{\s*(\/\/[^\n]*\n\s*)?setRevokingDecision\(null\);\s*setRevokeReason\(""\);\s*setRevokeError\(null\);\s*\} else \{\s*(\/\/[^\n]*\n\s*)?setRevokeError\(out\.error\);\s*\}/.test(failure) && failure.indexOf("const fresh = await refresh();") < failure.indexOf("setRevokingDecision(null);"), "撤回失败：先刷新，裁决已不在时收起表单并清掉原因（错误写在状态区），还在时表单里写明错误", failure);
+    ok(panel.includes("const refresh = async (): Promise<ImportLeadsView | null> => {") && panel.includes("return fresh;") && panel.includes("const openRevoke = revokingDecision !== null && view.decidedPairs.some((x) => x.decisionId === revokingDecision) ? revokingDecision : null;") && !panel.includes("revokingDecision !== null}"), "别的「撤回」只在那条裁决还在视图里、表单开着时才灰（不会一直灰着）");
+  }
+  ok(panel.includes("另有 {v.suggestions.length} 对等组织管理员确认是不是同一家") && !panel.includes("对要确认是不是同一家"), "槽里：另有 N 对等组织管理员确认是不是同一家");
+  ok(/\{view\.canDecideAliases && revokingDecision !== d\.decisionId \? \(\s*<button/.test(panel) && /\{canDecide \? \(\s*<span className="flex gap-1">\s*<button/.test(panel.slice(panel.indexOf("function SuggestionRow"))), "面板：撤回按钮与两个裁决按钮都包在组织管理员判断里");
+  ok(/「\{d\.importerName\}」和中标者「\{d\.winnerName\}」：\{d\.decision === "CONFIRMED" \? IMPORT_LEADS_UI\.decidedConfirmed : IMPORT_LEADS_UI\.decidedRejected\}（\{IMPORT_LEADS_UI\.decidedBy\}\{d\.deciderName\}，\{d\.decidedOn\}），涉及 \{d\.recordCount\} 条记录。/.test(panel) && /next\.suggestions\.some\(\(x\) => x\.pairKey === d\.pairKey\) \? base0 : `\$\{base0\}\$\{IMPORT_LEADS_TEXT\.revokedNotPendingHere\}`/.test(panel), "面板：已裁决的每一对那一句；撤回后这一对不会待确认时另说明");
+
 }
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
