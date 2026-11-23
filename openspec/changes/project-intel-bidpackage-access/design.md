@@ -64,7 +64,7 @@
 
 - 不改 `src/lib/projects/access.ts`、`src/lib/projects/diagnostic-access.ts`（守卫本身、文案、放行名单）。
 - 不改 `src/lib/common/api-helpers.ts`（`withAuth`）。
-- 不改 `src/lib/agent-tasks/dto.ts`、`src/lib/rbac/platform-admin.ts`（只复用其中的固定提示、报错脱敏与平台管理员判断）。
+- 不改 `src/lib/agent-tasks/dto.ts`、`src/lib/rbac/platform-admin.ts`。复用 `platform-admin.ts` 的平台管理员判断；`dto.ts` 的固定提示与报错脱敏照同一口径写进两个路由，不导入（`src/lib/agent-tasks` 是 runtime-architecture 冻结面，见 D12）。
 - 不改 `src/lib/agent-core/skills/static-bridge.ts`、`src/lib/agent-core/skills/bid-package.ts`、`src/lib/agent/skills/**`（技能与它们的模型调用）。
 - 不改 `src/lib/files/intelligence-extractor.ts`、`src/lib/files/ai-intelligence.ts`、`src/lib/projects/structured-summary.ts`、`src/lib/projects/similarity.ts`（重算时重置审核结论、按调用者可见范围重建相似项目都照旧）。
 - 不改 `src/lib/notifications/**`。
@@ -354,7 +354,7 @@
   - super_admin 以岗位预览身份访问时角色视同普通用户，同样只拿安全视图，与 `/api/agent/tasks` 一致。
 - `GET …/ai-bid-package`，非平台管理员时：
   - 每一步的 `data` 为空对象；
-  - `error` 照 `sanitizeListStepError`（`dto.ts:203-212`）：这一步失败或有报错时是固定提示，否则为 `null`；
+  - `error` 与 `sanitizeListStepError`（`dto.ts:203-212`）同一口径：这一步失败或有报错时是固定提示，否则为 `null`；
   - 其余字段不变：步骤 ID、序号、技能、标题、动作标签、状态、是否成功、摘要、起止时间、耗时，以及任务级的状态、步骤数、完成数、时间。
   - 动作标签来自模板里的固定字面量（`bid-package.ts:46`），不是用户输入，保留。
   - 摘要保留：通用接口的业务视图也保留它（`dto.ts:114`）；四个技能写进摘要的只有条数、模板名、推荐结论与匹配度，没有价格（`quote.ts:153`、`email-draft.ts:135`、`intelligence-report.ts:37`、`document-summary.ts:45`）。
@@ -368,7 +368,8 @@
 - 被否决：不裁（GATE 1 选项 A）。与 `dto.ts:1-9` 的约定不一致，且这两个接口是同一张表上唯一的例外。
 - 被否决：按财务查看权只裁报价草稿那一步（选项 B）。新规则只在这一处生效，原始报错照样外露。
 - 被否决：在前端删字段。`dto.ts` 头注释明令禁止「先返回完整对象再由前端删字段」。
-- 被否决：新写一套投影函数。直接复用 `dto.ts` 的固定提示与报错脱敏，少一处会漂移的地方。
+- 被否决：新写一套投影函数。只在路由里照 `dto.ts` 的口径写两行（同一句固定提示、同一条「失败或带报错」判断），不另起投影模块。
+- 实现时改：起草时写的是「直接导入 `dto.ts` 的固定提示与报错脱敏」。`src/lib/agent-tasks` 是 runtime-architecture 冻结面（`src/lib/runtime-architecture/guards.ts` 的 `FROZEN_IMPORT_TARGETS["agent-tasks-legacy"]`），新文件导入它会让 `bash scripts/test-runtime-architecture.sh` 以 `NEW_FROZEN_MODULE_IMPORTER_FORBIDDEN` 失败；改 baseline 等于给冻结面加消费者。所以两个路由各照抄一句固定提示（注释写明出处），对外行为不变；与 `dto.ts` 的 `SAFE_STEP_ERROR_MESSAGE` 一字不差由隔离库测试断言（测试文件导入 `dto.ts` 做比较，测试不在冻结面普查范围内）。
 
 ## 与八条硬纪律的关系
 

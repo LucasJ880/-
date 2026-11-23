@@ -5,7 +5,7 @@
  * 前端逐步调用直到所有步骤完成。
  *
  * 权限（FIX-21）：第一步要项目写权限，在读请求体之前。
- * 响应对不是平台管理员的调用者只给安全视图（src/lib/agent-tasks/dto.ts 的约定）：data 为空对象，
+ * 响应对不是平台管理员的调用者只给安全视图（src/lib/agent-tasks/dto.ts 头注释的约定）：data 为空对象，
  * 这一步失败或带报错时 error 换成固定提示；库里照旧写入完整输出与原始报错，平台管理员看得到。
  * 调技能时不传组织：守卫之后项目的组织就是它自己的组织，static-bridge 的组织比较不会起作用（design D8）。
  */
@@ -19,7 +19,13 @@ import type { SkillResult } from "@/lib/agent/types";
 import { notifyProjectMembers } from "@/lib/notifications/create";
 import { requireProjectWriteAccess } from "@/lib/projects/access";
 import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
-import { SAFE_STEP_ERROR_MESSAGE } from "@/lib/agent-tasks/dto";
+
+/**
+ * 与 src/lib/agent-tasks/dto.ts 的 SAFE_STEP_ERROR_MESSAGE 一字不差。src/lib/agent-tasks 是 runtime-architecture
+ * 冻结面，新文件不能导入它（scripts/test-runtime-architecture.sh 的 NEW_FROZEN_MODULE_IMPORTER_FORBIDDEN），
+ * 所以在这里照抄；两处一致由 src/lib/projects/__tests__/intel-bidpackage-access-db.isolated.test.ts 断言。
+ */
+const SAFE_STEP_ERROR_MESSAGE = "处理失败，请稍后重试或联系管理员";
 
 export const POST = withAuth(async (request, routeCtx, user) => {
   const { id: projectId } = await routeCtx.params;

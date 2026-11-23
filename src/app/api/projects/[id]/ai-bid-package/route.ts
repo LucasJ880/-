@@ -3,7 +3,7 @@
  * GET  — 查询任务完整状态 + 所有步骤结果
  *
  * 权限（FIX-21）：POST 要项目写权限，GET 要项目读权限，都是处理函数的第一步。
- * GET 对不是平台管理员的调用者只给安全视图（与 /api/agent/tasks 同一约定，src/lib/agent-tasks/dto.ts）：
+ * GET 对不是平台管理员的调用者只给安全视图（与 /api/agent/tasks 同一约定，src/lib/agent-tasks/dto.ts 头注释）：
  * 每一步的 data 为空对象，失败或带报错的步骤 error 换成固定提示；平台管理员照旧拿到原始输出与原始报错。
  */
 
@@ -13,7 +13,13 @@ import { db } from "@/lib/db";
 import { createBidPackageTask } from "@/lib/agent-core/skills/bid-package";
 import { requireProjectReadAccess, requireProjectWriteAccess } from "@/lib/projects/access";
 import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
-import { sanitizeListStepError } from "@/lib/agent-tasks/dto";
+
+/**
+ * 与 src/lib/agent-tasks/dto.ts 的 SAFE_STEP_ERROR_MESSAGE 一字不差。src/lib/agent-tasks 是 runtime-architecture
+ * 冻结面，新文件不能导入它（scripts/test-runtime-architecture.sh 的 NEW_FROZEN_MODULE_IMPORTER_FORBIDDEN），
+ * 所以在这里照抄；两处一致由 src/lib/projects/__tests__/intel-bidpackage-access-db.isolated.test.ts 断言。
+ */
+const SAFE_STEP_ERROR_MESSAGE = "处理失败，请稍后重试或联系管理员";
 
 export const POST = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
@@ -123,7 +129,12 @@ export const GET = withAuth(async (request, ctx) => {
       success: s.status === "completed",
       summary: s.outputSummary ?? "",
       data,
-      error: sanitizeListStepError(s, diagnostic).error,
+      // 与 dto.ts 的 sanitizeListStepError 同一口径：失败或带报错给固定提示，否则 null；平台管理员给原文
+      error: diagnostic
+        ? s.error
+        : s.status === "error" || s.status === "failed" || s.error
+          ? SAFE_STEP_ERROR_MESSAGE
+          : null,
       startedAt: s.startedAt,
       completedAt: s.completedAt,
       durationMs:

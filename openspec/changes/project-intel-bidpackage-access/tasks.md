@@ -12,8 +12,8 @@
 
 ## 2. 加守卫与安全视图
 
-- [x] 2.1 `src/app/api/projects/[id]/ai-bid-package/route.ts`：`GET` 第一步调 `requireProjectReadAccess`，`POST` 第一步调 `requireProjectWriteAccess`，返回的是响应就原样返回；`POST` 原有的项目查询保留。`GET` 对不是平台管理员的调用者（按守卫返回的用户判断）每一步 `data` 给空对象、`error` 走 `src/lib/agent-tasks/dto.ts` 的报错脱敏（design D12，GATE 1 已定 C），平台管理员照旧。verify：守卫测试对这个文件通过；隔离库测试里 `GET` / `POST …/ai-bid-package` 的用例（含安全视图与平台管理员全看）全部通过
-- [x] 2.2 `src/app/api/projects/[id]/ai-bid-package/run-step/route.ts`：`POST` 第一步调 `requireProjectWriteAccess`，在读请求体之前；调技能时不传组织（design D8）。不是平台管理员时，正常执行分支的响应 `data` 给空对象；三处返回步骤结果的响应（未知技能、技能抛错、正常执行）失败时 `error` 给 `dto.ts` 的固定提示，成功时不带 `error`；写库照旧（design D12）。verify：守卫测试对这个文件通过；隔离库测试里 `run-step` 的用例全部通过：被拒时假模型服务 0 次请求、没有新通知；项目管理员执行后响应 `data` 为空对象，super_admin 随后看到这一步的原始输出
+- [x] 2.1 `src/app/api/projects/[id]/ai-bid-package/route.ts`：`GET` 第一步调 `requireProjectReadAccess`，`POST` 第一步调 `requireProjectWriteAccess`，返回的是响应就原样返回；`POST` 原有的项目查询保留。`GET` 对不是平台管理员的调用者（按守卫返回的用户判断）每一步 `data` 给空对象、`error` 与 `src/lib/agent-tasks/dto.ts` 的报错脱敏同一口径（design D12，GATE 1 已定 C；`src/lib/agent-tasks` 是冻结面，不导入，固定提示在路由里照抄），平台管理员照旧。verify：守卫测试对这个文件通过；隔离库测试里 `GET` / `POST …/ai-bid-package` 的用例（含安全视图与平台管理员全看）全部通过
+- [x] 2.2 `src/app/api/projects/[id]/ai-bid-package/run-step/route.ts`：`POST` 第一步调 `requireProjectWriteAccess`，在读请求体之前；调技能时不传组织（design D8）。不是平台管理员时，正常执行分支的响应 `data` 给空对象；三处返回步骤结果的响应（未知技能、技能抛错、正常执行）失败时 `error` 给与 `dto.ts` 一字不差的固定提示，成功时不带 `error`；写库照旧（design D12）。verify：守卫测试对这个文件通过；隔离库测试里 `run-step` 的用例全部通过：被拒时假模型服务 0 次请求、没有新通知；项目管理员执行后响应 `data` 为空对象，super_admin 随后看到这一步的原始输出
 - [x] 2.3 `src/app/api/projects/[id]/intelligence/regenerate/route.ts` 的 `POST`（守卫在 `try` 之外）、`src/app/api/projects/[id]/intelligence/review/route.ts` 的 `GET` / `PATCH`（`PATCH` 的守卫在读请求体之前），第一步调 `requireProjectReadAccess`（GATE 2、GATE 3 已定 A；界面不改）。verify：守卫测试退出码 0；隔离库测试全部通过，连跑 3 次结果一致，输出存进报告
 
 ## 3. 验收
