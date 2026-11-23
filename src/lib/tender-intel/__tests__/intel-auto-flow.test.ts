@@ -100,7 +100,7 @@ const sample = bidStrategyAutoSchema.safeParse({
 ok(sample.success, "AF-STR-03: 策略 schema 真实校验通过（样例）");
 ok(
   orch.includes("synthesizeBidStrategyMemo") && orch.includes("bidStrategyMemo"),
-  "AF-STR-04: 编排在检索后自动合成策略备忘录并落 room.summaryJson.bidStrategyMemo（批次一 v2）",
+  "AF-STR-04: 编排在检索后自动合成策略备忘录并落 room.summaryJson.bidStrategyMemo（批次一；CHAIN-2d 起为 v3）",
 );
 
 // ── 槽位渲染 ─────────────────────────────────────────────

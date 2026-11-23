@@ -84,6 +84,7 @@ npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/obs-p2p3-single-pipeline.test.ts
 npx tsx src/lib/tender-intel/__tests__/bid-strategy-memo.test.ts
+npx tsx src/lib/tender-intel/__tests__/memo-pricing.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-ops.test.ts
 npx tsx src/lib/tender-understanding/__tests__/taxonomy-p2.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts
@@ -499,6 +500,8 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.te
 npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts
 npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-orchestrate-db.isolated.test.ts
 npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/alias-decisions-db.isolated.test.ts
