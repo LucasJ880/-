@@ -105,7 +105,7 @@
 
 ### D13 发起服务与接口
 
-`POST /api/projects/[id]/research-tree`：`const { id } = await params` → `const access = await requireProjectWriteAccess(request, id)` → `if (access instanceof NextResponse) return access` → 开关关 → 404 → 读 body（坏的 → 400）→ `action` 只认 `start` → 项目 `workDomain !== "tender"` → 409 → 组织为空 → 409 → `startResearchTree({ orgId, projectId, userId, role, trigger: "human_start", requestId })`。
+`POST /api/projects/[id]/research-tree`：`const { id } = await params` → `const access = await requireProjectWriteAccess(request, id)` → `if (access instanceof NextResponse) return access` → 项目没有组织或开关对该组织关 → 404 → 读 body（坏的 → 400）→ `action` 只认 `start`（别的 → 400）→ 项目 `workDomain !== "tender"` → 409 → `startResearchTree({ orgId, projectId, userId, role, trigger: "human_start", requestId })`。
 - 服务：`requestId` 重放查同一项目同一 requestId 的调研 Job → 复用；事务里 `pg_advisory_xact_lock(hashtext('tender-research-start:' || org || ':' || project))`，查同项目没结束的调研 Job（状态在 `WORKFORCE_ACTIVE_STATUSES` 里、`researchTree = true`、`researchProjectId = 项目`）→ 复用；否则 `createWorkforceJob`。`WORKFORCE_RUNTIME_DISABLED` → 503「任务运行时未开启」；配额错误 → 429（同一键分析的文案口径）。
 - 发起方式只收 `HUMAN_RESEARCH_TRIGGERS`（TREE-1 定义）；接口本批只用 `human_start`。
 - 写权限（不是读权限）：发起会花模型与搜索的钱。否决「读权限」：与一键分析的发起口径（写权限）不一致。
