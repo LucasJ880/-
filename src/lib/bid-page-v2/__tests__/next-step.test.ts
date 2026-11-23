@@ -306,7 +306,7 @@ console.log("BIDPAGE-1 下一步查表");
   ok(/^export async function GET\([^)]*\)[^{]*\{\s*const \{ id: projectId \} = await params;\s*const access = await requireProjectReadAccess\(request, projectId\);\s*if \(access instanceof NextResponse\) return access;/.test(body), "汇总接口第一步不带条件地做项目读权限检查、紧接着检查结果（与 projects/[id] 下其它接口同一写法）");
   const oIdx = body.indexOf("!isBidPageV2EnabledForOrg(orgId)");
   ok(oIdx > 0 && oIdx < body.indexOf("resolveFinancePrivilege(") && oIdx < body.indexOf("loadBidPageView("), "开关 / 白名单 / 招投标项目在取财务权限、读报价与取数之前判");
-  ok(/resolveQuoteCapabilities\(access, \{ financeManage: finance\.privileged \}\)/.test(body) && !/requireQuoteAccess/.test(body) && /isQuoteEngineEnabled\(\)/.test(body), "内部成本权限用 resolveQuoteCapabilities（与 requireQuoteAccess 同一个判定，不经报价引擎开关）；报价功能只看引擎开关");
+  ok(/resolveQuoteCapabilities\(access, \{ finance \}\)/.test(body) && !/requireQuoteAccess/.test(body) && /isQuoteEngineEnabled\(\)/.test(body), "内部成本权限用 resolveQuoteCapabilities（与 requireQuoteAccess 同一个判定，不经报价引擎开关）；报价功能只看引擎开关");
 }
 
 console.log(`\n${pass} 通过，${fail} 失败`);
