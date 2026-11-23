@@ -1,6 +1,6 @@
 # TREE-1 报告 — 读公开网页（`public-page-reader`，含 TREE-0 登记例外）
 
-任务书：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md`（Evan 2026-11-22）。四件套：`openspec/changes/public-page-reader/`。交接：`docs/QINGYAN_TREE_HANDOFF.md`。
+PR：[LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559)（2026-11-23 合并，合并提交 `99bd7e18`）。任务书：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md`（Evan 2026-11-22）。四件套：`openspec/changes/archive/2026-11-23-public-page-reader/`（主规格 `openspec/specs/tender/public-page-reader/spec.md`）。交接：`docs/QINGYAN_TREE_HANDOFF.md`。
 
 ## 1. 做了什么
 
@@ -40,23 +40,23 @@
 
 在干净的 worktree 里跑（`gate.sh`：`npx prisma migrate deploy` 到隔离库后依次跑下面各项），对照同一台机器上 main 的全量基线。
 
-| 项 | 本分支最终提交 `ffaf629b`（基于 main `b717427f`，新库） | main `2c695ebe` 基线（新库） |
+| 项 | 本分支最终提交 `ea777e2e`（基于 main `d94e4323`，含 FIX-23，新库） | main `d94e4323` 基线（新库） |
 |---|---|---|
-| `npm test` | 724/734 通过，10 失败 | 718/728 通过，10 失败 |
+| `npm test` | 726/736 通过，10 失败 | 720/730 通过，10 失败 |
 | 失败列表 | 与基线逐条相同（Autopilot A2-P0、Phase3A-3 / 3A-4 ×2 / 3A-5、Quote Operations PDF 分页、Sunny 工艺单 DB、T4 授标矩阵、RFQ-AUTO-2 自动起草 DB、MAIL-2 来信观察 DB） | — |
 | `npm run test:ci`（不连库，同 CI） | CI unit subset PASS | — |
 | `npm run typecheck` | 通过 | — |
 | `npm run lint:baseline` | PASS（无新增 error；相对基线少 15 处） | — |
-| `bash scripts/check-test-registry.sh` | 通过（已注册 700） | — |
+| `bash scripts/check-test-registry.sh` | 通过（已注册 702） | — |
 | `bash scripts/test-runtime-architecture.sh` | 通过 | — |
 | `openspec validate public-page-reader --strict` | 通过 | — |
 | `openspec validate --specs --strict` | 152/152 | — |
 | `git diff origin/main -- prisma/ vercel.json src/lib/workforce-runtime/ .claude/launch.json` | 空 | — |
-| GitHub CI（validate-lint-typecheck-test-build） | `ffaf629b` 通过 | — |
+| GitHub CI（validate-lint-typecheck-test-build） | `ea777e2e` 通过 | — |
 
-`b717427f` 相对 `2c695ebe` 只改了文档与 openspec 归档（#561），不影响测试，所以基线用 `2c695ebe` 的新库全量。本分支多出的 6 项（734 − 728）就是本 PR 新增的 6 份测试，都通过。
+合并时 main 已到 `5a4d2760`（#566），相对 `d94e4323` 只改了文档与 openspec，不影响测试。本分支多出的 6 项（736 − 730）就是本 PR 新增的 6 份测试，都通过。
 
-前几轮（都与当时的 main 基线逐条相同）：`6e135414`（基于 `f9c73ba2`）722/733、11 项失败（多的 1 项是复用隔离库的脏数据，新库单跑两边都过）；`5c455f13`（基于 `f332dd91`）718/729、11 项失败（同一项脏库失败）；审查前的 `70b4e162`（基于 `451bb0d3`）713/723、10 项失败；多维审查修订后的 `01206fae`（基于 `22a87fb7`）717/728、11 项失败——每轮都与当时的 main 基线逐条相同。GitHub CI（validate-lint-typecheck-test-build）在 `5c455f13` 上通过；Vercel 预发预览构建成功。「Mention Gateway M2-A Identity DB」在新基线里也失败（旧基线里没有）：挑错交叉验证员查明是同一个隔离库被上一轮留下了数据（`Unique constraint (orgId, channel)`），换干净库就过；与本 PR 无关（本 PR 不碰 mention-gateway）。
+前几轮（都与当时的 main 基线逐条相同）：`ffaf629b`（基于 `b717427f`）724/734、10 项失败；`6e135414`（基于 `f9c73ba2`）722/733、11 项失败（多的 1 项是复用隔离库的脏数据，新库单跑两边都过）；`5c455f13`（基于 `f332dd91`）718/729、11 项失败（同一项脏库失败）；审查前的 `70b4e162`（基于 `451bb0d3`）713/723、10 项失败；多维审查修订后的 `01206fae`（基于 `22a87fb7`）717/728、11 项失败——每轮都与当时的 main 基线逐条相同。GitHub CI（validate-lint-typecheck-test-build）在 `5c455f13` 上通过；Vercel 预发预览构建成功。「Mention Gateway M2-A Identity DB」在新基线里也失败（旧基线里没有）：挑错交叉验证员查明是同一个隔离库被上一轮留下了数据（`Unique constraint (orgId, channel)`），换干净库就过；与本 PR 无关（本 PR 不碰 mention-gateway）。
 
 零变化（没有调用方）：全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `src/lib/trade/email-forward-parse.ts` 外为空；审查员⑥另用引用图可达性证明新模块从 1072 个应用入口 0 可达。
 

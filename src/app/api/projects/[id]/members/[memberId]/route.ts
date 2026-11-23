@@ -19,6 +19,7 @@ import {
 } from "@/lib/projects/duty";
 import { onMemberRemoved } from "@/lib/project-discussion/system-events";
 import { syncProjectMilestoneCalendars } from "@/lib/projects/sync-milestone-calendar";
+import { guardOwnerChange, OwnerChangeConflict, ownerConflictResponse, writeOwnerIfUnchanged } from "@/lib/projects/owner-change-access";
 
 type Ctx = { params: Promise<{ id: string; memberId: string }> };
 
@@ -102,6 +103,14 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     );
   }
 
+  // CHAIN-2c：把一位成员设为主负责人 = 换负责人：先判权限（403）再判新负责人（400），被拒整个请求不写
+  let ownerChanged = false;
+  if (duty === "owner") {
+    const guard = await guardOwnerChange({ user, orgId: project.orgId ?? null, currentOwnerId: project.ownerId, targetUserId: member.userId });
+    if (guard instanceof NextResponse) return guard;
+    ownerChanged = guard.changed;
+  }
+
   const before = {
     role: member.role,
     status: member.status,
@@ -109,7 +118,9 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     purchaserId: project.purchaserId,
   };
 
-  const updated = await db.$transaction(async (tx) => {
+  let updated;
+  try {
+  updated = await db.$transaction(async (tx) => {
     const m = await tx.projectMember.update({
       where: { id: memberId },
       data,
@@ -128,10 +139,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     });
 
     if (duty === "owner") {
-      await tx.project.update({
-        where: { id: projectId },
-        data: { ownerId: member.userId },
-      });
+      if (ownerChanged) await writeOwnerIfUnchanged(tx, projectId, project.ownerId, member.userId);
       // 确保新负责人具备 project_admin
       await tx.projectMember.update({
         where: { id: memberId },
@@ -153,6 +161,10 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
     return m;
   });
+  } catch (err) {
+    if (err instanceof OwnerChangeConflict) return ownerConflictResponse();
+    throw err;
+  }
 
   const refreshed = await db.project.findUnique({
     where: { id: projectId },
