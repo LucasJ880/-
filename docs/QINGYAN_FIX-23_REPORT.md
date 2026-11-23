@@ -8,6 +8,7 @@
 | TASKFLOW | FIX-23（Phase F（续）— 情报串联表，FIX-21 后续 9；FIX-21 登记的那一行已改写并挪到 FIX-21 后续各行之后），另登记 5 条「编号待定」后续任务 |
 | 来源 | 2026-11-23 审查 FIX-21（`project-intel-bidpackage-access`）时两位审查员各自核实：同一张任务表上最后一个不按项目权限筛、也不经安全投影的读接口 |
 | GATE | 「留给 GATE」两条，Lucas 2026-11-22 授权按推荐定：第 1 条 **A**（不是平台管理员时 `checkReportJson` 为 `null`）、第 2 条 **A**（与项目读权限守卫同口径） |
+| PR | #562，2026-11-23 合并（合并提交 `d94e4323`）；归档 `openspec/changes/archive/2026-11-23-agent-tasks-recent-safe-view/`；归档后 `openspec validate --specs --strict` 153 / 153 |
 | 分支 | `claude/zen-turing-azudvx-fix23`；四件套提交 `857c9427`（main `22a87fb7` 上写），开工时合入 main `212613ec`（含 FIX-21 #554），审查后修订前又合入 main `a8caa985`（没有冲突，本 change 引用的文件都没变，只有 TASKFLOW 与两个测试脚本多了别人的行） |
 | 性质 | 修既有的越权与信息外泄。零 schema、零新模型调用、没有新增出站、没有新队列。**没有开关——合并即在生产生效** |
 
