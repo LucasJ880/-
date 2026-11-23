@@ -3,6 +3,11 @@
  *
  * 每次调用只执行 1 步，确保单次 HTTP 不超 Vercel 60s 限制。
  * 前端逐步调用直到所有步骤完成。
+ *
+ * 权限（FIX-21）：第一步要项目写权限，在读请求体之前。
+ * 响应对不是平台管理员的调用者只给安全视图（src/lib/agent-tasks/dto.ts 头注释的约定）：data 为空对象，
+ * 这一步失败或带报错时 error 换成固定提示；库里照旧写入完整输出与原始报错，平台管理员看得到。
+ * 调技能时不传组织：守卫之后项目的组织就是它自己的组织，static-bridge 的组织比较不会起作用（design D8）。
  */
 
 import { NextResponse } from "next/server";
@@ -12,9 +17,25 @@ import { runStaticSkill, STATIC_SKILL_TOOL_NAMES } from "@/lib/agent-core/skills
 import { runStepCheck } from "@/lib/agent/checker";
 import type { SkillResult } from "@/lib/agent/types";
 import { notifyProjectMembers } from "@/lib/notifications/create";
+import { requireProjectWriteAccess } from "@/lib/projects/access";
+import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
+
+/**
+ * 与 src/lib/agent-tasks/dto.ts 的 SAFE_STEP_ERROR_MESSAGE 一字不差。src/lib/agent-tasks 是 runtime-architecture
+ * 冻结面，新文件不能导入它（scripts/test-runtime-architecture.sh 的 NEW_FROZEN_MODULE_IMPORTER_FORBIDDEN），
+ * 所以在这里照抄；两处一字不差由 src/lib/projects/__tests__/project-routes-guard.test.ts 按源码文本比较（CI 子集里跑）。
+ */
+const SAFE_STEP_ERROR_MESSAGE = "处理失败，请稍后重试或联系管理员";
 
 export const POST = withAuth(async (request, routeCtx, user) => {
   const { id: projectId } = await routeCtx.params;
+  const access = await requireProjectWriteAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
+  // 平台管理员保留原始输出与原始报错；其余人（含以岗位预览身份访问的 super_admin）只拿安全视图
+  const diagnostic = isPlatformAdmin(access.user);
+  const stepError = (raw: string | undefined, failed: boolean) =>
+    diagnostic ? raw : failed || raw ? SAFE_STEP_ERROR_MESSAGE : undefined;
+
   const body = await request.json();
   const taskId = body.taskId as string | undefined;
 
@@ -22,8 +43,9 @@ export const POST = withAuth(async (request, routeCtx, user) => {
     return NextResponse.json({ error: "缺少 taskId" }, { status: 400 });
   }
 
+  // 只认本项目的一键投标方案任务：同项目里别的类型的 AgentTask（如 custom_flow）按「任务不存在」处理，不执行
   const task = await db.agentTask.findUnique({
-    where: { id: taskId, projectId },
+    where: { id: taskId, projectId, taskType: "ai_bid_package" },
     include: { steps: { orderBy: { stepIndex: "asc" } } },
   });
 
@@ -71,7 +93,7 @@ export const POST = withAuth(async (request, routeCtx, user) => {
       skillId: nextStep.skillId,
       title: nextStep.title,
       success: false,
-      error: `未知技能: ${nextStep.skillId}`,
+      error: stepError(`未知技能: ${nextStep.skillId}`, true),
     });
   }
 
@@ -110,7 +132,7 @@ export const POST = withAuth(async (request, routeCtx, user) => {
       skillId: nextStep.skillId,
       title: nextStep.title,
       success: false,
-      error: errMsg,
+      error: stepError(errMsg, true),
       durationMs: Date.now() - t0,
     });
   }
@@ -182,8 +204,8 @@ export const POST = withAuth(async (request, routeCtx, user) => {
     title: nextStep.title,
     success: result.success,
     summary: result.summary,
-    data: result.data,
-    error: result.error,
+    data: diagnostic ? result.data : {},
+    error: stepError(result.error, !result.success),
     durationMs,
   });
 });

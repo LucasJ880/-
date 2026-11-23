@@ -93,6 +93,7 @@ NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-merge-db.isolat
 npx tsx src/lib/tender-room/__tests__/summary-write-guard.test.ts
 NODE_ENV=test npx tsx src/lib/tender-room/__tests__/room-summary-writers-db.isolated.test.ts
 npx tsx src/lib/projects/__tests__/files-route-guard.test.ts
+npx tsx src/lib/projects/__tests__/project-routes-guard.test.ts
 npx tsx src/lib/projects/generate/__tests__/rfi-export.test.ts
 npx tsx src/lib/tender-bid-draft/__tests__/bid-draft.test.ts
 npx tsx src/lib/tender-decision-gates/__tests__/decision-gates.test.tsx
@@ -492,6 +493,7 @@ npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts
 npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/readiness-count-db.isolated.test.ts
 npx tsx src/lib/__tests__/google-email-mime.test.ts
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/auto-draft-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/auto-followup-optin.test.ts
