@@ -77,6 +77,8 @@ npx tsx src/lib/tender-intel/__tests__/org-profiles-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/award-dedupe-db.isolated.test.ts
 # P2-0d：授标记录人工处理（DB e2e 无隔离库自动跳过）
 npx tsx src/lib/tender-intel/__tests__/award-review-db.isolated.test.ts
+npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
 npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts

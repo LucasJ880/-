@@ -299,6 +299,10 @@ export async function createOrObserveAwardRecord(
       },
     });
   }
+  // 按编号没找到时退到「中标方 + 授标日期 + 金额」；两条都有招标编号且规范化后不同 → 不挂上
+  // （CHAIN-1b，Lucas 2026-11-20 定「收紧」）。但同一笔授标常有两套编号（开放数据的参考号 / 项目自己的招标编号），
+  // 中标方、日期、金额都相同时不能悄悄当成另一次招标：记下这条，新记录标为疑似重复，留给组织管理员裁决。
+  let sameAwardOtherNumber: AwardRecordRow | null = null;
   if (!target && input.award.awardDate && input.award.contractAmount != null) {
     const sameKey = await c.awardRecord.findMany({
       where: {
@@ -307,12 +311,13 @@ export async function createOrObserveAwardRecord(
         awardDate: input.award.awardDate,
         status: { not: "RETRACTED" },
       },
+      // 授标日期已在条件里取等（日期差都是 0）：按建档先后、再按 id，让「疑似原记录」总指向同一条
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       take: 10,
     });
-    target =
-      sameKey.find(
-        (r) => toAmountNumber(r.contractAmount) === toAmountNumber(input.award.contractAmount),
-      ) ?? null;
+    const sameAmount = sameKey.filter((r) => toAmountNumber(r.contractAmount) === toAmountNumber(input.award.contractAmount));
+    target = sameAmount.find((r) => !isDistinctSolicitation(solicitation, r.solicitationNumber)) ?? null;
+    if (!target) sameAwardOtherNumber = sameAmount[0] ?? null;
   }
 
   const sourceData = {
@@ -331,13 +336,16 @@ export async function createOrObserveAwardRecord(
     const src = await c.awardRecordSource.create({
       data: { ...sourceData, awardRecordId: target.id },
     });
+    // 疑似重复（NEEDS_REVIEW 且指向疑似原记录）被人工确认的写入挂上时只升信任级、不改状态：
+    // 「是不是同一笔授标」只由组织管理员在「历史中标」页裁决（CHAIN-1b 交叉验证 F1；GATE Evan 2026-11-22）
+    const pendingDuplicate = target.status === "NEEDS_REVIEW" && !!target.possibleDuplicateOfId;
     const promote =
       input.verificationStatus === "HUMAN_CONFIRMED" && target.verificationStatus !== "HUMAN_CONFIRMED"
         ? {
             verificationStatus: "HUMAN_CONFIRMED",
             confirmedById: input.actor.userId,
             confirmedAt: new Date(),
-            status: "ACTIVE",
+            ...(pendingDuplicate ? {} : { status: "ACTIVE" }),
           }
         : input.verificationStatus === "SYSTEM_VERIFIED" &&
             target.verificationStatus === "AI_EXTRACTED"
@@ -367,6 +375,8 @@ export async function createOrObserveAwardRecord(
     });
     weak = sameWinnerBuyer.find((r) => !isDistinctSolicitation(solicitation, r.solicitationNumber)) ?? null;
   }
+  // 中标方、授标日期、金额都相同但编号不同（见上）：不挂上，标为疑似重复
+  if (!weak && sameAwardOtherNumber) weak = sameAwardOtherNumber;
 
   const record = await c.awardRecord.create({
     data: {
