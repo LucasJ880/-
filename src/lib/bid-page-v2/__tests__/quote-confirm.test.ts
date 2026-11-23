@@ -92,6 +92,8 @@ console.log("BIDPAGE-6 定报价只点一次——纯逻辑与源码断言");
   const l3 = confirmPromptZh({ label: "报价合计", amount: 1, currency: "CAD", alreadyApproved: true, current: null });
   ok(l3[0] === "报价合计 1.00 加元，这份已批准、内容已锁定；定为我方报价后，要改需另起新版。", "已批准没选上的：写本来就锁着", l3);
   ok(confirmedNoteZh({ name: "合成逐行报价 A", version: 1 }) === "已定为我方报价；原来的「合成逐行报价 A」第 1 版仍是已批准，需要时可以再定回去" && confirmedNoteZh(null) === null, "定好以后：改选了写原来那份还在，没改选不再多一句");
+  const lp = confirmPromptZh({ label: "税前报价", amount: 1, currency: "CAD", current: null, revisionPending: { version: 1 } });
+  ok(lp[1] === "现在的我方报价第 1 版正在另起新版（新版还没定），定了以后我方报价换成这一份。" && confirmedNoteZh({ superseded: true, version: 1 }) === "已定为我方报价；原来的我方报价第 1 版已另起新版，不再是我方报价", "我方报价正在另起新版时定另一份：确认框写明会换走，定好以后写原来那份已另起新版");
   const l2 = confirmPromptZh({ label: "税前报价", amount: 1037322.68, currency: "CAD", current: null });
   ok(l2.length === 1 && l2[0] === "税前报价 1,037,322.68 加元，定了以后内容锁定，要改需另起新版。", "总价报价、没有别的我方报价：只一句、写「税前报价」", l2);
 }
@@ -102,7 +104,7 @@ console.log("BIDPAGE-6 定报价只点一次——纯逻辑与源码断言");
   ok(submitRequestSchema.safeParse({ baseUpdatedAt: "x" }).success && !submitRequestSchema.safeParse({}).success, "提交要修改时间");
   ok(returnRequestSchema.safeParse({ baseUpdatedAt: "x" }).success && returnRequestSchema.safeParse({ baseUpdatedAt: "x", note: null }).success, "退回原因可不填");
   ok(!reviseRequestSchema.safeParse({}).success && reviseRequestSchema.safeParse({ reason: "x" }).success, "另起新版要原因");
-  ok(cleanNoteText("  海运费\u0007要‮重新问 \n ", 500) === "海运费要重新问" && cleanNoteText("   ", 500) === null && cleanNoteText("a".repeat(600), 500)?.length === 500 && cleanNoteText("一\n二\t三", 500) === "一\n二\t三", "原因去掉控制字符与方向字符、保留换行与制表符、截到上限、空的当没写");
+  ok(cleanNoteText("  海运费\u0007要\u202E重新问 \n ", 500) === "海运费要重新问" && cleanNoteText("   ", 500) === null && cleanNoteText("a".repeat(600), 500)?.length === 500 && cleanNoteText("一\n二\t三", 500) === "一\n二\t三", "原因去掉控制字符与方向字符、保留换行与制表符、截到上限、空的当没写");
 }
 
 // —— 5. 通知（spec「给负责人的站内通知」「通知与审计不带金额与成本」） ——
@@ -190,7 +192,7 @@ console.log("BIDPAGE-6 定报价只点一次——纯逻辑与源码断言");
 
 // —— 10. 源码里没有不可见的方向 / 零宽字符（看不见的字会让审查看错代码） ——
 {
-  const files = ["src/lib/bid-page-v2/quote-confirm/contract.ts", "src/lib/bid-page-v2/quote-confirm/service.ts", "src/components/bid-page-v2/quote-actions.tsx", "src/lib/bid-page-v2/__tests__/quote-confirm-db.isolated.test.ts"];
+  const files = ["src/lib/bid-page-v2/quote-confirm/contract.ts", "src/lib/bid-page-v2/quote-confirm/service.ts", "src/components/bid-page-v2/quote-actions.tsx", "src/lib/bid-page-v2/__tests__/quote-confirm-db.isolated.test.ts", "src/lib/bid-page-v2/__tests__/quote-confirm.test.ts", "src/components/bid-page-v2/__tests__/quote-actions.test.tsx"];
   const bad = files.filter((f) => /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/.test(read(f)));
   ok(bad.length === 0, "BIDPAGE-6 的源码里没有不可见的方向 / 零宽字符", bad);
 }

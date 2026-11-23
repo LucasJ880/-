@@ -77,6 +77,8 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
   const { projectId, quote, capabilities, ourBid } = props;
   const isOurBid = ourBid?.status === "AUTHORITATIVE" && ourBid.quoteId === quote.id;
   const other = otherOurBidOf(ourBid, quote.id);
+  // 我方报价正在另起新版、这一份不是那份新版：定了以后同样会换走（确认框里写明）
+  const pendingOther = ourBid?.status === "QUOTE_REVISION_PENDING" && ourBid.quoteId !== quote.id && ourBid.pending?.id !== quote.id ? { version: ourBid.version } : null;
   const bar = actionBarOf({ status: quote.status, isOurBid, canEdit: capabilities.canEdit, canApprove: capabilities.canApprove, otherOurBidAwarded: !!other?.awarded, otherOurBidVersion: other?.version ?? null });
   const valueButton = bar.buttons.find((b) => b === "confirm" || b === "approve" || b === "submit");
   const block = blockReasonZh({ dirty: props.dirty, computedOk: props.sellingPrice != null, hasUnpriced: props.hasUnpriced, actionZh: valueButton ? QUOTE_ACTION_LABELS_ZH[valueButton] : "提交、批准" });
@@ -108,9 +110,10 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
   const confirm = () => {
     // 改选时写原来那份还在（名称取点「确定」那一刻的我方报价）；没改选不再多一句
     const previousName = other?.name ?? null;
+    const previousPending = pendingOther;
     return run("confirm", { baseUpdatedAt: quote.updatedAt, expectedSellingPrice: props.sellingPrice }, (data) => {
       const r = data as unknown as ConfirmResult;
-      const note2 = confirmedNoteZh(r.reselectedFrom && previousName ? { name: previousName, version: r.reselectedFrom.version } : null);
+      const note2 = confirmedNoteZh(r.reselectedFrom ? (previousName ? { name: previousName, version: r.reselectedFrom.version } : previousPending ? { superseded: true, version: r.reselectedFrom.version } : null) : null);
       props.onDone({ kind: "confirmed", quoteId: quote.id, result: r, notice: note2 ? { text: note2, tone: "muted" } : null });
     });
   };
@@ -135,14 +138,14 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
   const canRevise = quote.status === "approved" && capabilities.canEdit;
   const prompt =
     props.sellingPrice != null
-      ? confirmPromptZh({ label: props.label, amount: props.sellingPrice, currency: quote.currency, alreadyApproved: quote.status === "approved", current: other && !other.awarded ? { name: other.name, version: other.version, amount: other.amount, currency: other.currency } : null })
+      ? confirmPromptZh({ label: props.label, amount: props.sellingPrice, currency: quote.currency, alreadyApproved: quote.status === "approved", current: other && !other.awarded ? { name: other.name, version: other.version, amount: other.amount, currency: other.currency } : null, revisionPending: pendingOther })
       : [];
 
   return (
     <div className="flex flex-col gap-2" data-testid="quote-action-bar">
       <div className="flex flex-wrap items-center gap-2">
         {bar.buttons.map((b) => (
-          <button key={b} type="button" className={b === "return" ? btnPlain : btnPrimary} disabled={busy || mode !== "idle" || (needsValue(b) && !!block)} onClick={() => onClick(b)} data-testid={`quote-action-${b}`}>
+          <button key={b} type="button" className={b === "return" ? btnPlain : btnPrimary} disabled={busy || mode !== "idle" || (needsValue(b) && !!block) || (b === "return" && props.dirty)} onClick={() => onClick(b)} data-testid={`quote-action-${b}`}>
             {busy && (b === "confirm" || b === "approve") ? QUOTE_ACTION_TEXT.confirming : busy && b === "submit" ? QUOTE_ACTION_TEXT.submitting : QUOTE_ACTION_LABELS_ZH[b]}
           </button>
         ))}
@@ -152,7 +155,7 @@ export function QuoteActionBar(props: QuoteActionBarProps) {
           </button>
         ) : null}
         {bar.statusZh ? <span className="text-xs text-muted" data-testid="quote-action-status">{bar.statusZh}</span> : null}
-        {block && bar.buttons.some(needsValue) ? <span className="text-xs text-amber-700" data-testid="quote-action-block">{block}</span> : null}
+        {block && (bar.buttons.some(needsValue) || (props.dirty && bar.buttons.includes("return"))) ? <span className="text-xs text-amber-700" data-testid="quote-action-block">{block}</span> : null}
       </div>
       {quote.status === "review" && capabilities.canEdit ? <div className="text-xs text-muted">{capabilities.canApprove ? QUOTE_ACTION_TEXT.reviewEditableApprover : QUOTE_ACTION_TEXT.reviewEditableEditor}</div> : null}
       {mode === "confirm" ? (

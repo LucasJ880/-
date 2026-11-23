@@ -40,6 +40,7 @@ async function main() {
   const { EXPORT_NOT_DECIDED_ZH } = await import("@/lib/bid-page-v2/quote-line/service");
   const listRoute = await import("@/app/api/projects/[id]/bid-page/quotes/route");
   const lumpRoute = await import("@/app/api/projects/[id]/bid-page/quotes/[quoteId]/lump/route");
+  const lineRoute = await import("@/app/api/projects/[id]/bid-page/quotes/[quoteId]/line/route");
   const confirmRoute = await import("@/app/api/projects/[id]/bid-page/quotes/[quoteId]/confirm/route");
   const submitRoute = await import("@/app/api/projects/[id]/bid-page/quotes/[quoteId]/submit/route");
   const returnRoute = await import("@/app/api/projects/[id]/bid-page/quotes/[quoteId]/return/route");
@@ -48,12 +49,13 @@ async function main() {
   type LumpView = import("@/lib/bid-page-v2/lump-sum/contract").LumpView;
   type LumpState = import("@/lib/bid-page-v2/lump-sum/contract").LumpState;
   type ListView = import("@/lib/bid-page-v2/quote-line/contract").QuoteListView;
+  type LineView = import("@/lib/bid-page-v2/quote-line/contract").LineModeView;
 
   console.log("BIDPAGE-6 定报价只点一次——隔离库");
   const stamp = Date.now().toString(36);
-  const OWNER = `qcowner_${stamp}`, FINEDIT = `qcfinedit_${stamp}`, FINVIEW = `qcfinview_${stamp}`, OPERATOR = `qcop_${stamp}`, GHOST = `qcghost_${stamp}`, PADMIN = `qcpadmin_${stamp}`;
+  const OWNER = `qcowner_${stamp}`, FINEDIT = `qcfinedit_${stamp}`, FINVIEW = `qcfinview_${stamp}`, OPERATOR = `qcop_${stamp}`, GHOST = `qcghost_${stamp}`, PADMIN = `qcpadmin_${stamp}`, APPROVER = `qcappr_${stamp}`;
   const ORG = `qcorg_${stamp}`;
-  const users = [OWNER, FINEDIT, FINVIEW, OPERATOR, GHOST, PADMIN];
+  const users = [OWNER, FINEDIT, FINVIEW, OPERATOR, GHOST, PADMIN, APPROVER];
   const email = (id: string) => `${id}@fixture.test`;
   const nameOf = (id: string) => `Fixture ${id}`;
   const ENV_KEYS = ["TENDER_BID_PAGE_V2_ENABLED", "TENDER_BID_PAGE_V2_ORG_ALLOWLIST", "TENDER_QUOTE_ENGINE_ENABLED", "T2_LEDGER_SCHEMA_READY", "T2_LEDGER_PRODUCERS_ENABLED"];
@@ -65,13 +67,14 @@ async function main() {
   for (const id of users) await db.user.create({ data: { id, email: email(id), name: nameOf(id), role: "user" } });
   await db.organization.create({ data: { id: ORG, name: "Fixture Bidder Inc.", code: `qc-${stamp}`, ownerId: OWNER, industryPackId: "window_covering_services_v1" } });
   // GHOST 不是组织成员（导入用的系统账号、离开组织的人）
-  for (const [u, role] of [[OWNER, "org_admin"], [FINEDIT, "org_member"], [FINVIEW, "org_member"], [OPERATOR, "org_member"], [PADMIN, "org_member"]] as const) {
+  for (const [u, role] of [[OWNER, "org_admin"], [FINEDIT, "org_member"], [FINVIEW, "org_member"], [OPERATOR, "org_member"], [PADMIN, "org_member"], [APPROVER, "org_member"]] as const) {
     await db.organizationMember.create({ data: { orgId: ORG, userId: u, role, status: "active" } });
   }
   await seedOrgAuthorizationProfiles(ORG);
   const accounting = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "accounting" } } });
   if (!accounting) throw new Error("缺少岗位模板 accounting");
-  for (const u of [FINEDIT, FINVIEW]) await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: u, roleProfileId: accounting.id, status: "active" } });
+  // APPROVER：项目管理员（有批准权限）+ 组织范围财务查看权，不是负责人
+  for (const u of [FINEDIT, FINVIEW, APPROVER]) await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: u, roleProfileId: accounting.id, status: "active" } });
 
   const projectIds: string[] = [];
   let seq = 0;
@@ -82,7 +85,7 @@ async function main() {
     await db.project.create({ data: { id, name: `Fixture Tender ${stamp}-${seq}`, orgId: ORG, ownerId, workDomain: "tender", intakeStatus: "dispatched" } });
     // FINEDIT：编辑权限、没有批准权限、有财务查看权（提交的人）；FINVIEW：只读 + 财务查看权；OPERATOR：编辑权限、没有财务查看权
     // PADMIN：项目管理员（有批准权限 project:cost:review），没有财务查看权
-    for (const [u, role] of [[FINEDIT, "operator"], [FINVIEW, "viewer"], [OPERATOR, "operator"], [PADMIN, "project_admin"]] as const) await db.projectMember.create({ data: { projectId: id, userId: u, role, status: "active" } });
+    for (const [u, role] of [[FINEDIT, "operator"], [FINVIEW, "viewer"], [OPERATOR, "operator"], [PADMIN, "project_admin"], [APPROVER, "project_admin"]] as const) await db.projectMember.create({ data: { projectId: id, userId: u, role, status: "active" } });
     return id;
   }
   const cookieOf = async (userId: string) => `qy_session=${await createSession({ sub: userId, email: email(userId), role: "user" })}`;
@@ -284,6 +287,40 @@ async function main() {
     const cr2 = await confirm(P3, R2, body(vr2));
     ok(cr2.status === 200 && (await pointer(P3))?.bidQuoteId === R2 && JSON.stringify(await auditTriple(R2)) === "[1,1,1]" && (await audits(R2, "tender_bid_pointer_synced")) === 1, "定新版：第 2 版是我方报价；提交、批准、选定各一条（另有一条跟随新版的同步记录）", [await auditTriple(R2), cr2.body]);
 
+    // 我方报价正在另起新版时定另一份（同步先写「新版待定」）：改选成这一份；不写同步的中间结果审计；选定审计的「之前」是操作前的指针
+    {
+      const Pq = await mkProject();
+      const { Q: R1q, view: vr1q } = await pricedLump(Pq, 25, "R1");
+      await confirm(Pq, R1q, body(vr1q));
+      await revise(Pq, R1q, { reason: "合成：改价" });
+      const { Q: Dq, view: vdq } = await pricedLump(Pq, 20, "D");
+      const auditsBefore = await db.auditLog.count({ where: { projectId: Pq, action: { in: ["tender_bid_mirrors_cleared", "tender_bid_pointer_synced"] } } });
+      const cd = await confirm(Pq, Dq, body(vdq));
+      const selD = await db.auditLog.findFirst({ where: { targetId: Dq, action: "quote_selected_as_tender_bid" } });
+      ok(cd.status === 200 && (cd.body.reselectedFrom as { id?: string } | null)?.id === R1q && (await pointer(Pq))?.bidQuoteId === Dq && (await pointer(Pq))?.ourBidPrice === 1125000 && JSON.parse(selD?.beforeData ?? "{}").bidQuoteId === R1q && (await db.auditLog.count({ where: { projectId: Pq, action: { in: ["tender_bid_mirrors_cleared", "tender_bid_pointer_synced"] } } })) === auditsBefore, "新版待定时定另一份：改选成这一份、金额 1,125,000；选定审计的「之前」是原来那份；同步的中间结果不另写审计", cd.body);
+    }
+
+    // 逐行报价：一次定价、我方报价一行、另起新版后做法仍是逐行
+    {
+      const Pl = await mkProject();
+      const cl = await create(Pl, { entryMode: "LINE", businessType: "SUPPLY_ONLY", name: "合成逐行报价" });
+      const QL = String(cl.body.id);
+      const getLine = async (Q: string) => json(await lineRoute.GET(await req(`/api/projects/${Pl}/bid-page/quotes/${Q}/line`, OWNER), pq(Pl, Q)));
+      const putLine = async (Q: string, b: unknown) => json(await lineRoute.PUT(await req(`/api/projects/${Pl}/bid-page/quotes/${Q}/line`, OWNER, { method: "PUT", body: b }), pq(Pl, Q)));
+      const lv0 = (await getLine(QL)).body as unknown as LineView;
+      const row = { costLineId: null, description: "合成卷帘", quantity: 100, uom: "Each", packCount: null, basis: "PER_TENDER_UOM", unitPrice: 750, currency: "CAD", evidenceKind: "ESTIMATE", inquiryItemId: null, supplierId: null, supplierName: null, rowSource: "manual" };
+      const pl = await putLine(QL, { baseUpdatedAt: lv0.quote.updatedAt, state: { ...lv0.state, rows: [row], targetMarginPct: 25, presets: { financing: { ...lv0.state.presets.financing, included: false }, admin: { ...lv0.state.presets.admin, included: false }, cashAllowance: { ...lv0.state.presets.cashAllowance, included: false }, commission: { ...lv0.state.presets.commission, included: false } } } });
+      const lv1 = pl.body as unknown as LineView;
+      const lsp = lv1.computed?.ok ? lv1.computed.totals.sellingPrice : Number.NaN;
+      ok(pl.status === 200 && lsp === 100000, "逐行报价填好：报价合计 100,000（75,000 ÷ 0.75）", pl.body);
+      const lc = await confirm(Pl, QL, { baseUpdatedAt: lv1.quote.updatedAt, expectedSellingPrice: lsp });
+      const llist = (await list(Pl)).body as unknown as ListView;
+      ok(lc.status === 200 && (await status(QL)) === "approved" && (await pointer(Pl))?.ourBidPrice === 100000 && JSON.stringify(await auditTriple(QL)) === "[1,1,1]" && llist.ourBid.status === "AUTHORITATIVE" && llist.ourBid.entryMode === "LINE" && llist.ourBid.name === "合成逐行报价" && llist.export.available === true, "逐行报价一次定价：已批准、我方报价 100,000、审计各一条；我方报价一行写名称与做法；按价格表导出可用", [lc.body, llist.export]);
+      const lr = await revise(Pl, QL, { reason: "合成：招标方要求降价" });
+      const QL2 = String(lr.body.id);
+      ok(lr.status === 200 && lr.body.entryMode === "LINE" && (await getLine(QL2)).status === 200 && (await db.quoteCostLine.count({ where: { quoteId: QL2 } })) === (await db.quoteCostLine.count({ where: { quoteId: QL } })), "逐行报价另起新版：新草稿仍是逐行报价、成本行条数相同、能在页内打开", lr.body);
+    }
+
     // —— 7. 现在的我方报价已中标：不改选 ——
     const P4 = await mkProject();
     const { Q: W, view: vw } = await pricedLump(P4);
@@ -292,7 +329,7 @@ async function main() {
     const { Q: W2, view: vw2 } = await pricedLump(P4, 20, "W2");
     const before4 = await snapshot(P4);
     const cw = await confirm(P4, W2, body(vw2));
-    ok(cw.status === 409 && cw.body.code === "OUR_BID_AWARDED" && String(cw.body.error).includes("第 1 版已中标") && (await status(W2)) === "draft" && (await snapshot(P4)) === before4, "我方报价已中标：409，第二份仍是草稿、指针与金额不变、没有新审计与台账", cw.body);
+    ok(cw.status === 409 && cw.body.code === "OUR_BID_AWARDED" && cw.body.error === "现在的我方报价第 1 版已中标，这里不能把我方报价换成别的报价；确实要换，请在专业模式里做" && (await status(W2)) === "draft" && (await snapshot(P4)) === before4, "我方报价已中标：409，第二份仍是草稿、指针与金额不变、没有新审计与台账", cw.body);
 
     // —— 8. 有计入但没填数的行 ——
     const P5 = await mkProject();
@@ -388,6 +425,33 @@ async function main() {
     ok((await ret(P8, QS, { baseUpdatedAt: (await fresh(P8, QS)).quote.updatedAt })).status === 409, "草稿不能退回：409");
     const s2 = await submit(P8, QS, { baseUpdatedAt: (await fresh(P8, QS)).quote.updatedAt }, FINEDIT);
     ok(s2.status === 200 && (await db.notification.count({ where: { userId: OWNER, entityId: QS } })) === 2, "退回后再提交：另发一条通知");
+    // 提交、退回用旧的修改时间：409，库里不变
+    {
+      const { Q: QT, view: vqt } = await pricedLump(P8, 21, "T");
+      const bT = await snapshot(P8);
+      const staleAt = new Date(Date.parse(vqt.quote.updatedAt) - 1000).toISOString();
+      const sStale = await submit(P8, QT, { baseUpdatedAt: staleAt }, FINEDIT);
+      ok(sStale.status === 409 && String(sStale.body.error).includes("这次没有提交") && (await snapshot(P8)) === bT, "提交用旧的修改时间：409，库里不变（也没有通知）", sStale.body);
+      await submit(P8, QT, { baseUpdatedAt: vqt.quote.updatedAt }, FINEDIT);
+      const vqt2 = await fresh(P8, QT);
+      const bT2 = await snapshot(P8);
+      const rStale = await ret(P8, QT, { baseUpdatedAt: staleAt });
+      ok(rStale.status === 409 && String(rStale.body.error).includes("这次没有退回") && (await snapshot(P8)) === bT2, "退回用旧的修改时间：409，库里不变", rStale.body);
+      // 两人同时退回：只成一个
+      const two = await Promise.all([ret(P8, QT, { baseUpdatedAt: vqt2.quote.updatedAt }), ret(P8, QT, { baseUpdatedAt: vqt2.quote.updatedAt }, APPROVER)]);
+      ok(JSON.stringify(two.map((r) => r.status).sort()) === "[200,409]" && (await status(QT)) === "draft" && (await audits(QT, "quote_updated")) >= 1, "两人同时退回：一个 200、一个 409", two.map((r) => r.status));
+      // 两人同时提交：只成一个，只发一条通知
+      const vqt3 = await fresh(P8, QT);
+      const nBefore = await db.notification.count({ where: { entityId: QT } });
+      const twoS = await Promise.all([submit(P8, QT, { baseUpdatedAt: vqt3.quote.updatedAt }, FINEDIT), submit(P8, QT, { baseUpdatedAt: vqt3.quote.updatedAt }, FINEDIT)]);
+      ok(JSON.stringify(twoS.map((r) => r.status).sort()) === "[200,409]" && (await status(QT)) === "review" && (await db.notification.count({ where: { entityId: QT } })) === nBefore + 1, "两人同时提交：一个 200、一个 409，只多一条通知", twoS.map((r) => r.status));
+      // 不是负责人的批准人退回：不发任何通知
+      const vqt4 = await fresh(P8, QT);
+      const nAll = await db.notification.count({ where: { projectId: P8 } });
+      const rA = await ret(P8, QT, { baseUpdatedAt: vqt4.quote.updatedAt, note: "改一下海运费" }, APPROVER);
+      ok(rA.status === 200 && (await status(QT)) === "draft" && (await db.notification.count({ where: { projectId: P8 } })) === nAll, "不是负责人的批准人退回：回到草稿，谁都没收到通知", rA.body);
+    }
+
     // 负责人在待批准时批准并定为
     const vqs2 = await fresh(P8, QS);
     const ap = await confirm(P8, QS, body(vqs2));

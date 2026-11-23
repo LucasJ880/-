@@ -92,7 +92,10 @@ const disabled = (h: string, k: string) => new RegExp(`<button[^>]*disabled=""[^
   ok(/if \(b === "confirm" \|\| b === "approve"\) return setMode\("confirm"\);/.test(onClick) && /if \(b === "return"\) return setMode\("return"\);/.test(onClick) && !/run\("confirm"/.test(onClick), "点「定为我方报价」「批准并定为」只打开确认，不发请求；退回先写原因");
   ok(/disabled=\{busy \|\| !!block\} onClick=\{\(\) => void confirm\(\)\} data-testid="quote-action-confirm-ok"/.test(src) && /onClick=\{\(\) => setMode\("idle"\)\} data-testid="quote-action-confirm-cancel"/.test(src) && /data-testid="quote-action-confirm-block"/.test(src), "确认框里点「确定」才发请求，点「取消」只关掉；框打开以后又改了数（没保存）或算不出，「确定」也不可点并写明原因");
   ok(/notice: \{ text: r\.messageZh, tone: notifyNeedsFollowUp\(r\.notify\) \? "warn" : "muted" \}/.test(src) && /warn: "text-xs font-medium text-amber-700"/.test(src), "提交后负责人没收到通知：结果醒目显示（要提交的人自己去说）");
-  ok(/confirmedNoteZh\(r\.reselectedFrom && previousName/.test(src) && /notice: note2 \? \{ text: note2, tone: "muted" \} : null/.test(src), "定好以后：改选了写原来那份还在，没改选不再多说一句");
+  ok(/confirmedNoteZh\(r\.reselectedFrom \? \(previousName \? \{ name: previousName, version: r\.reselectedFrom\.version \} : previousPending \? \{ superseded: true/.test(src) && /notice: note2 \? \{ text: note2, tone: "muted" \} : null/.test(src), "定好以后：改选了写原来那份还在（或已被新版替代），没改选不再多说一句");
+  ok(/revisionPending: pendingOther/.test(src) && /ourBid\?\.status === "QUOTE_REVISION_PENDING" && ourBid\.quoteId !== quote\.id && ourBid\.pending\?\.id !== quote\.id/.test(src), "我方报价正在另起新版、这一份不是那份新版：确认框写明定了以后换成这一份");
+  const dirtyReview = bar({ dirty: true, quote: { ...props().quote, status: "review" } });
+  ok(disabled(dirtyReview, "return") && disabled(dirtyReview, "approve") && dirtyReview.includes("有修改还没保存"), "有没保存的修改时退回也不可点（退回后编辑器换新视图，没保存的修改会丢）");
   const withNotice = bar({ notice: { text: "已提交，已通知负责人 张三", tone: "muted" } });
   ok(withNotice.includes('data-testid="quote-action-message"') && withNotice.includes("已提交，已通知负责人 张三"), "上一次操作的提示由外面传回来显示（编辑器随新视图重挂后不丢）");
   ok(/run\("confirm", \{ baseUpdatedAt: quote\.updatedAt, expectedSellingPrice: props\.sellingPrice \}/.test(src) && /run\("submit", \{ baseUpdatedAt: quote\.updatedAt \}/.test(src) && /run\("return", \{ baseUpdatedAt: quote\.updatedAt, note:/.test(src), "请求带读取时的修改时间；一次定价另带页面上的报价合计");
