@@ -2,12 +2,12 @@
 
 ## Purpose
 
-旧报价单（列表、详情、新建 / 修改 / 删除、AI 审查与起草、编辑器、PDF 与 Excel 导出）、智能体报价技能与问青砚两个报价工具：谁能看内部成本、成本价与利润率，谁能改，被拒时返回什么，不输出什么，界面写什么。判定与成本核算、报价引擎同一个财务查看权。
+旧报价单（列表、详情、新建 / 修改 / 删除、AI 审查与起草、编辑器、Excel 导出）、智能体报价技能与问青砚两个报价工具：谁能看内部成本、成本价与利润率，谁能改，被拒时返回什么，不输出什么，界面写什么。判定与成本核算、报价引擎同一个财务查看权。报价单 PDF 不在本能力内（FIX-26a 的 `projects/legacy-quote-pdf`）。
 
 ## ADDED Requirements
 
 ### Requirement: 旧报价单的查看与编辑口径
-旧报价单的接口、编辑器、导出与报价 AI SHALL 先过项目读权限，再按与成本核算、报价引擎相同的财务查看权判定能不能看内部数字：平台超级管理员、持组织范围 `project.finance.manage` 或 `project.finance.read` 的人、项目负责人。项目没有组织、或授权查询出错时 SHALL 只认负责人与平台超级管理员，出错时响应 SHALL 带 `hintReason: "unconfirmed"`。能编辑 SHALL 是能看且（是上述特权之一，或项目角色带成本写权限）。
+旧报价单的接口、编辑器、Excel 导出与报价 AI SHALL 先过项目读权限，再按与成本核算、报价引擎相同的财务查看权判定能不能看内部数字：平台超级管理员、持组织范围 `project.finance.manage` 或 `project.finance.read` 的人、项目负责人。项目没有组织、或授权查询出错时 SHALL 只认负责人与平台超级管理员，出错时响应 SHALL 带 `hintReason: "unconfirmed"`。能编辑 SHALL 是能看且（是上述特权之一，或项目角色带成本写权限）。
 
 #### Scenario: 八种身份
 - **WHEN** 只读成员（viewer）、不是负责人的项目管理员、operator、不是项目成员也没有财务键的组织管理员、只在分配范围持 `project.finance.read` 的投标同事、持组织范围 `project.finance.read` 且项目角色为 viewer 的成员、项目负责人、平台超级管理员分别读同一份旧报价单
@@ -63,15 +63,8 @@
 - **WHEN** 旧报价单成本价 17.31、内部成本 91,234.56、利润率 23.45，引擎报价快照里估算成本 87,654.32；只读成员与不是成员的组织管理员读列表、读详情，并调两个 AI 接口
 - **THEN** 每个响应的 JSON 里都搜不到 17.31、91234.56、23.45、87654.32；负责人读这份引擎报价的旧接口详情得到 409，任何人的旧接口详情里都没有 `summaryJson`、`engineJson`、`pricingRate`（`NODE_ENV=test npx tsx src/lib/quote/__tests__/legacy-quote-finance-db.isolated.test.ts`）
 
-### Requirement: 报价单 PDF 只有给客户的内容
-旧报价单编辑器导出的 PDF 对任何人 SHALL 只含：「QUOTATION」、报价标题、项目名与版本、报价头（Template、Currency、Trade Terms、Payment Terms、Delivery、Valid Until、MOQ、Origin）、行项表（#、Category、Item、Spec、Unit、Qty、Unit Price、Total）、Subtotal 与 Total Amount、生成日期页脚。PDF SHALL NOT 含利润率（「Profit Margin」或任何利润百分比）、内部成本、成本价与内部备注；系统 SHALL NOT 提供带利润率的 PDF。导出菜单 SHALL 写「导出客户报价单（PDF）」。
-
-#### Scenario: 负责人导出 PDF
-- **WHEN** 负责人对利润率 23.45、每行成本价 17.31 的报价单导出 PDF；再对利润率为空的报价单导出
-- **THEN** 两份 PDF 的内容里都没有「Margin」「利润」「23.45」「17.31」与内部成本，合计只有 Subtotal 与 Total Amount 两行（`npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts`）
-
 ### Requirement: Excel 导出按财务查看权分两种
-有财务查看权的人导出的 Excel SHALL 是内部成本表：第一张表首行 SHALL 写「内部成本表（含成本和利润率，不要发给客户）」，含内部成本、利润率两行与「成本价（内部）」一列，其余与改动前相同；导出菜单 SHALL 写「导出内部成本表（Excel）」。没有财务查看权的人导出的 Excel SHALL NOT 含内部成本、利润率与成本价，首行 SHALL 写「报价单信息」，菜单 SHALL 写「导出 Excel」。
+有财务查看权的人导出的 Excel SHALL 是内部成本表：第一张表首行 SHALL 写「内部成本表（含成本和利润率，不要发给客户）」，含内部成本、利润率两行与「成本价（内部）」一列，其余与改动前相同；导出菜单 SHALL 写「导出内部成本表（Excel）」。没有财务查看权的人导出的 Excel SHALL NOT 含内部成本、利润率与成本价，首行 SHALL 写「报价单信息」，菜单 SHALL 写「导出 Excel」。导出菜单的 PDF 项 SHALL 写「导出客户报价单（PDF）」。
 
 #### Scenario: 两种 Excel
 - **WHEN** 同一份报价单分别按能看成本与不能看成本生成 Excel 内容
