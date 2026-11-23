@@ -40,20 +40,22 @@
 
 在干净的 worktree 里跑（`gate.sh`：`npx prisma migrate deploy` 到隔离库后依次跑下面各项），对照同一台机器上 main 的全量基线。
 
-| 项 | 本分支最终提交 `5c455f13`（基于 main `f332dd91`） | main `f332dd91` 基线 |
+| 项 | 本分支最终提交 `6e135414`（基于 main `f9c73ba2`） | main `d1b0d3e2` 基线（新库） |
 |---|---|---|
-| `npm test` | 718/729 通过，11 失败 | 711/722 通过，11 失败 |
-| 失败列表 | 与基线逐条相同（Autopilot A2-P0、Mention Gateway M2-A Identity DB、Phase3A-3 / 3A-4 ×2 / 3A-5、Quote Operations PDF 分页、Sunny 工艺单 DB、T4 授标矩阵、RFQ-AUTO-2 自动起草 DB、MAIL-2 来信观察 DB） | — |
+| `npm test` | 722/733 通过，11 失败 | 717/727 通过，10 失败 |
+| 失败列表 | 10 项与基线逐条相同（Autopilot A2-P0、Phase3A-3 / 3A-4 ×2 / 3A-5、Quote Operations PDF 分页、Sunny 工艺单 DB、T4 授标矩阵、RFQ-AUTO-2 自动起草 DB、MAIL-2 来信观察 DB）；多 1 项「Mention Gateway M2-A Identity DB」——门禁复用的隔离库里留着上几轮的数据（`WeChatGateway` 15 行，`Unique constraint (orgId, channel)`），在新库里单跑本分支与 main 都是 93/93 通过 | — |
 | `npm run test:ci`（不连库，同 CI） | CI unit subset PASS | — |
 | `npm run typecheck` | 通过 | — |
-| `npm run lint:baseline` | PASS（无新增 error） | — |
-| `bash scripts/check-test-registry.sh` | 通过（已注册 695） | — |
+| `npm run lint:baseline` | PASS（无新增 error；相对基线少 15 处） | — |
+| `bash scripts/check-test-registry.sh` | 通过（已注册 699） | — |
 | `bash scripts/test-runtime-architecture.sh` | 通过 | — |
 | `openspec validate public-page-reader --strict` | 通过 | — |
-| `openspec validate --specs --strict` | 149/149 | — |
+| `openspec validate --specs --strict` | 151/151 | — |
 | `git diff origin/main -- prisma/ vercel.json src/lib/workforce-runtime/ .claude/launch.json` | 空 | — |
 
-多出的 7 个通过就是本 PR 新增的 7 份测试。前几轮：审查前的 `70b4e162`（基于 `451bb0d3`）713/723、10 项失败；多维审查修订后的 `01206fae`（基于 `22a87fb7`）717/728、11 项失败——每轮都与当时的 main 基线逐条相同。GitHub CI（validate-lint-typecheck-test-build）在 `5c455f13` 上通过；Vercel 预发预览构建成功。「Mention Gateway M2-A Identity DB」在新基线里也失败（旧基线里没有）：挑错交叉验证员查明是同一个隔离库被上一轮留下了数据（`Unique constraint (orgId, channel)`），换干净库就过；与本 PR 无关（本 PR 不碰 mention-gateway）。
+`f9c73ba2` 相对 `d1b0d3e2` 只改了文档与 openspec 归档（#560），不影响测试，所以基线用 `d1b0d3e2` 的新库全量。本分支多出的 6 项（733 − 727）就是本 PR 新增的 6 份测试，都通过；通过数只多 5，是因为那 1 项脏库失败。
+
+前几轮（都与当时的 main 基线逐条相同）：`5c455f13`（基于 `f332dd91`）718/729、11 项失败（同一项脏库失败）；审查前的 `70b4e162`（基于 `451bb0d3`）713/723、10 项失败；多维审查修订后的 `01206fae`（基于 `22a87fb7`）717/728、11 项失败——每轮都与当时的 main 基线逐条相同。GitHub CI（validate-lint-typecheck-test-build）在 `5c455f13` 上通过；Vercel 预发预览构建成功。「Mention Gateway M2-A Identity DB」在新基线里也失败（旧基线里没有）：挑错交叉验证员查明是同一个隔离库被上一轮留下了数据（`Unique constraint (orgId, channel)`），换干净库就过；与本 PR 无关（本 PR 不碰 mention-gateway）。
 
 零变化（没有调用方）：全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts` 除本模块、测试、注册行与 `src/lib/trade/email-forward-parse.ts` 外为空；审查员⑥另用引用图可达性证明新模块从 1072 个应用入口 0 可达。
 
