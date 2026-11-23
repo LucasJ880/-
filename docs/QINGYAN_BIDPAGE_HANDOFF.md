@@ -12,18 +12,19 @@
 
 | 项 | 值 |
 |---|---|
-| 当前 main | `1c590b1f`（#579 FIX-26a 归档合并后；2026-11-23 核对，已合进 BIDPAGE-4 分支） |
+| 当前 main | `4b6c3dd4`（#581 BIDPAGE-4 合并后；2026-11-23 13:50 UTC 核对） |
 | 工作分支 | `claude/laughing-curie-2b9s1v`（每个 PR 合并后从最新 main 重开同名分支做下一个） |
 | BIDPAGE-1 | **已合并**（#557，`d1b0d3e2`，2026-11-23）；开关默认关，合并后页面无变化；生产部署：**已部署**——2026-11-23 04:41 UTC `release-drift`（workflow_dispatch，run 45113342662）读到线上 `deployedCommit = f9c73ba`，即 main 当时的最新提交，`d1b0d3e` 是它的祖先（中间只多了 FIX-21 的归档 #560）。合并后约 1.5 分钟那次查时线上还是 `212613e`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-bid-page-v2-shell`（主规格 `tender/bid-page` 13 条），归档 PR 见下表 |
 | BIDPAGE-3 | **已合并**（#564，`c376be86`，2026-11-23 09:31）；开关默认关；生产部署：**已部署**——2026-11-23 09:47 UTC `release-drift`（workflow_dispatch，run 45150109772）读到线上 `deployedCommit = c376be8`，与 main 一致；合并后约 1 分钟那次（run 45147965079）线上还是 `2a0eb96`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-line-mode-persist`（主规格 `tender/quote-line-mode` 15 条、`tender/bid-page` 改 3 条），归档 PR 见下表 |
-| 正在做 | BIDPAGE-4 `quote-lump-sum-mode`：实现、六维审查、交叉验证、浏览器抽检、报告都已完成（tasks 6/6）；最终代码 `2934304e` 全量门禁 742/752（10 项与 main 既有失败相同）、CI 子集 PASS；开 PR |
-| 下一步 | PR 的 GitHub CI 绿 → 合并 → 部署核对 → 归档小 PR → BIDPAGE-6 `quote-one-step-confirm` |
+| BIDPAGE-4 | **已合并**（#581，`4b6c3dd4`，2026-11-23）；开关默认关；生产部署：**已部署**——2026-11-23 13:50 UTC `release-drift`（workflow_dispatch，run 45187960729）读到线上 `deployedCommit = 4b6c3dd`，与 main 一致。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-lump-sum-mode`（主规格新增 `tender/quote-lump-sum-mode` 19 条、`tender/quote-line-mode` 改 6 条；1 个子代理逐字核对主规格与增量一致），归档 PR 见下表 |
+| 正在做 | BIDPAGE-4 归档小 PR；之后 BIDPAGE-6 `quote-one-step-confirm` |
+| 下一步 | 归档 PR 合并 → BIDPAGE-6 四件套 → 开工前审查 → 实现 → 门禁 → 六维审查 + 交叉验证 → PR → 合并 |
 
 | change | ID | 状态 | PR | 分支 |
 |---|---|---|---|---|
 | `bid-page-v2-shell` | BIDPAGE-1 | 已合并、已归档 | #557（合并 `d1b0d3e2`）；归档 #561（合并 `b717427f`） | `claude/laughing-curie-2b9s1v` |
 | `quote-line-mode-persist` | BIDPAGE-3 | 已合并、已归档 | #564（合并 `c376be86`）；归档 #572（合并 `325cbdc0`） | `claude/laughing-curie-2b9s1v` |
-| `quote-lump-sum-mode` | BIDPAGE-4 | 待合并 | #581 | `claude/laughing-curie-2b9s1v` |
+| `quote-lump-sum-mode` | BIDPAGE-4 | 已合并、归档中 | #581（合并 `4b6c3dd4`）；归档小 PR（本次） | `claude/laughing-curie-2b9s1v` |
 | `quote-one-step-confirm` | BIDPAGE-6 | 未开始 | — | — |
 | `quote-margin-advice-market` | BIDPAGE-5 | 未开始 | — | — |
 | `bid-page-sourcing-step` | BIDPAGE-2 | 未开始 | — | — |
