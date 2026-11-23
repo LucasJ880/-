@@ -1,11 +1,11 @@
 # 询价单 PDF（RFQ-PDF-1 / RFQ-PDF-2）· 交接（HANDOFF）
 
 > 新会话做这条线从这里进。先读本文件，再读任务书 `docs/QINGYAN_RFQ-PDF_TASKBRIEF.md`，按「下一步」执行，不凭记忆重写。只记核对过的事实；没核对的写明。每完成一个节点更新本文件并提交。
-> 招投标主线的总交接是 `docs/QINGYAN_TENDER_FLOW_HANDOFF.md`（另有会话的 PR #537、#541 正在改它，本线不动它，避免冲突）。
+> 招投标主线的总交接是 `docs/QINGYAN_TENDER_FLOW_HANDOFF.md`（由另一条会话线维护，本线不动它，避免冲突）。
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-23 第二次（RFQ-PDF-1 已合并 #544 并归档；RFQ-PDF-2 还没开工，从 §0 第 1 条进） |
+| 最后更新 | 2026-11-23 第二次（RFQ-PDF-1 已合并 #544 并归档；RFQ-PDF-2 还没开工，从 §0 第 2 条进） |
 | 任务来源 | Evan，2026-11-20：「国内供应商询价 PDF 很差」；任务书由产品侧会话写，§4 七项已拍板 |
 | 授权 | Evan 2026-11-21 在 Coding 会话原话：「现在你来全权负责，需要做多轮交叉验证，如果需要合并你来做，如果有问题，按照你推荐的做，需要多个子AGENT 从多方面来审计PR……这个是个长任务，做好hand off」。任务书 §1 的其余边界照旧：不开 `TENDER_RFQ_ATTACHMENT_ENABLED`、不在真实供应商的询价卡上点批准、不改生产环境变量、不发对外邮件 |
 | 主线状态 | `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` → Phase F（续）— 询价单 PDF：RFQ-PDF-1、RFQ-PDF-2 两行 |
@@ -20,6 +20,7 @@
      a. 回复截止不再落在截标当天（`build.ts` `computeReplyBy` 的下限是「今天 + 2 天」，截标前 2 天正好等于截标日，模板文字过禁出清单就命中「截标日期·询价附件」，起草询价与菜单询价单都生成不了；提前量设成 0 时每次都这样）。建议规则：回复截止不晚于截标前一天，算不出来就写「请尽快」。同时把 `attachment-db.isolated.test.ts` 等走真实时钟、截标日 2026-12-05 的夹具改成注入 `now`（否则 2026-12-03 当天会红）。
      b. 内部字段词表扩充（`build.ts` `INTERNAL_FIELD_PATTERNS` 现在只有 estimatedValue / ourBidPrice / winningBidPrice / 毛利 / 利润率 / 底价 / 我方预算 / 中标概率），要求编号与数量也过检查。安全审查实跑：「我方报价 98.7 万」「target margin 31%」、数量事实带金额、编号「底价-987654」之外的写法都会照印。
      c. 两句说明给出出路：身份命中的「供应商侧文件含招标身份信息（命中：…），未生成。」与「没有已确认且属于供应商侧的要求……」（后者在「都确认了但没有一条属于供应商侧」时指错路）。
+     d. 归档核对带出的两处规格措辞，用 RFQ-PDF-2 的增量补回（主规格不手写）：`tender/supplier-identity-guard`「供应商侧生成文件」归档时为了不超过 500 字压短，丢了「内容只取自询价单本身」与「我方撰写的部分 SHALL NOT 含项目名称」两句（改这一条时注意正文仍要 ≤ 500 字，否则 `openspec validate --specs --strict` 不过）；`tender/rfq-sheet-download`「菜单入口与说明」里那句提示的引文与界面差一个标点（界面是「项目文件可能已更新，此前生成的 PDF 可能过期。建议重新生成。」）。
 3. **不在这条线里做、但要有人知道的**（都不是本线引入，报告 §6 有出处）：CI 不跑隔离库测试（`ci.yml` 没设 `DATABASE_ENVIRONMENT=isolated`）；地点事实缺失时交付事实里的门牌地址、换了写法的截标日期绕得过禁出清单；生成接口兜底的 500 会回显异常原文；内容安全策略挡不住 meta refresh；同一项目并发生成会出重复版本号；询价入口等既有说明把「招标要求」页签叫成「需求」（12 处）；菜单生成新版后立刻提示「可能过期」。
 
 ## 1. 进度
@@ -28,7 +29,7 @@
 |---|---|
 | 任务书入库 | 完成（`docs/QINGYAN_RFQ-PDF_TASKBRIEF.md`） |
 | RFQ-PDF-1 四件套 | 完成，经开工前一轮独立审查修订 |
-| RFQ-PDF-1 实现 | 完成（tasks 1.1–4.1 已勾） |
+| RFQ-PDF-1 实现 | 完成（tasks 8 条全勾） |
 | RFQ-PDF-1 多维审查 | 两轮做完（第一轮五个维度、第二轮三个子 agent），无阻断，逐条处理见报告 §5a |
 | RFQ-PDF-1 PR | [#544](https://github.com/LucasJ880/-/pull/544)，2026-11-22 由 Lucas 合并 |
 | RFQ-PDF-1 归档 | 完成（`2026-11-23-supplier-docs-converge`；`openspec validate --specs --strict` 149 / 149） |
