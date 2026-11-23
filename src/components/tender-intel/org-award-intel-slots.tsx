@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { Radar } from "lucide-react";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import { ImportLeadsPanel, ImportLeadsSlotSummary, useImportLeads } from "@/components/tender-intel/import-leads-panel";
+import { LEGACY_MEMO_CARD_NOTE_ZH, LEGACY_MEMO_PRICING_LINE_ZH, LEGACY_MEMO_REDACTED_ZH, MEMO_COST_POINTER_ZH } from "@/lib/tender-intel/memo-pricing";
 
 type DomainStatus = "CONFIRMED" | "SUPPORTED" | "INFERRED" | "UNKNOWN";
 
@@ -147,6 +148,8 @@ type BidStrategyMemo = {
   teamingAdviceZh: string;
   dataGapsZh: string;
   label: string;
+  /** CHAIN-2d：旧版备忘（输入里有我方成本）已被接口裁剪 */
+  legacyCostRedacted?: boolean;
 };
 
 /** 与 corporate-memory/normalize 同源的轻量归一（客户端相关性分层用） */
@@ -384,8 +387,10 @@ export function OrgAwardIntelSlots({
         >
           {memo ? (
             <>
-              <p className="text-foreground/70">{memo.summaryZh}</p>
-              {memo.riskGates.slice(0, 4).map((g, i) => (
+              {memo.legacyCostRedacted ? <p className="text-amber-700" data-testid="memo-legacy-note">{LEGACY_MEMO_CARD_NOTE_ZH}</p> : null}
+              {memo.summaryZh && memo.summaryZh !== LEGACY_MEMO_REDACTED_ZH ? <p className="text-foreground/70">{memo.summaryZh}</p> : null}
+              {/* CHAIN-2d：旧版备忘的风险门名称已隐藏，不列 */}
+              {memo.riskGates.filter((g) => g.gateZh !== LEGACY_MEMO_REDACTED_ZH).slice(0, 4).map((g, i) => (
                 <p key={i} className="truncate">
                   · {g.gateZh}
                   <span
@@ -401,8 +406,9 @@ export function OrgAwardIntelSlots({
                   </span>
                 </p>
               ))}
-              <p className="text-muted/80">报价策略：{memo.pricingStrategyZh.slice(0, 160)}</p>
-              {memo.dataGapsZh ? (
+              <p className="text-muted/80">{memo.legacyCostRedacted ? LEGACY_MEMO_PRICING_LINE_ZH : `报价策略：${memo.pricingStrategyZh.slice(0, 160)}`}</p>
+              {memo.legacyCostRedacted ? null : <p className="text-[11px] text-muted/70">{MEMO_COST_POINTER_ZH}</p>}
+              {memo.dataGapsZh && memo.dataGapsZh !== LEGACY_MEMO_REDACTED_ZH ? (
                 <p className="text-muted/80">数据缺口：{memo.dataGapsZh.slice(0, 120)}</p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">

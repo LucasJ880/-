@@ -83,6 +83,7 @@ import {
   parseAttachmentsInput,
   readStoredAttachments,
   renderTurnsForModel,
+  storableTitle,
   summarizeAttachments,
   turnsHaveAttachments,
   type ModelTurnInput,
@@ -428,7 +429,7 @@ export const POST = withAuth(async (request, ctx, user) => {
         where: { id: threadId },
         data: {
           lastMessageAt: new Date(),
-          ...(thread.title === "新对话" ? { title: titleSource.slice(0, 60) } : {}),
+          ...(thread.title === "新对话" ? { title: storableTitle(titleSource, 60) } : {}),
         },
       }),
     ]);
@@ -717,7 +718,7 @@ export const POST = withAuth(async (request, ctx, user) => {
             data: {
               lastMessageAt: new Date(),
               ...(isFirstMessage && thread.title === "新对话"
-                ? { title: titleSource.slice(0, 60) }
+                ? { title: storableTitle(titleSource, 60) }
                 : {}),
             },
           }),
@@ -1238,7 +1239,7 @@ async function handleOperatorBranch(input: OperatorBranchInput): Promise<NextRes
           data: {
             lastMessageAt: new Date(),
             ...(isFirstMessage && threadTitle === "新对话"
-              ? { title: titleSource.slice(0, 60) }
+              ? { title: storableTitle(titleSource, 60) }
               : {}),
           },
         });

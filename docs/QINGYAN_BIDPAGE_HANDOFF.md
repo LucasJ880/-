@@ -12,16 +12,17 @@
 
 | 项 | 值 |
 |---|---|
-| 当前 main | `d1b0d3e2`（#557 BIDPAGE-1 合并后；2026-11-23 核对） |
+| 当前 main | `c376be86`（#564 BIDPAGE-3 合并后；2026-11-23 09:31 核对） |
 | 工作分支 | `claude/laughing-curie-2b9s1v`（每个 PR 合并后从最新 main 重开同名分支做下一个） |
 | BIDPAGE-1 | **已合并**（#557，`d1b0d3e2`，2026-11-23）；开关默认关，合并后页面无变化；生产部署：**已部署**——2026-11-23 04:41 UTC `release-drift`（workflow_dispatch，run 45113342662）读到线上 `deployedCommit = f9c73ba`，即 main 当时的最新提交，`d1b0d3e` 是它的祖先（中间只多了 FIX-21 的归档 #560）。合并后约 1.5 分钟那次查时线上还是 `212613e`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-bid-page-v2-shell`（主规格 `tender/bid-page` 13 条），归档 PR 见下表 |
-| 正在做 | BIDPAGE-3 `quote-line-mode-persist`：四件套与实现在本地另开的工作区（`/home/user/bp3-wt`，本地分支 `bp3-local`）里，**还没推送**——容器回收就没了；归档 PR 合并后变基到 main、推到工作分支 |
-| 下一步 | 归档 PR 合并 → BIDPAGE-3 变基、开工前审查四件套 → 补完 → 全量门禁 → 多维审查 + 交叉验证 → 开 PR → 合并 |
+| BIDPAGE-3 | **已合并**（#564，`c376be86`，2026-11-23 09:31）；开关默认关；生产部署：**已部署**——2026-11-23 09:47 UTC `release-drift`（workflow_dispatch，run 45150109772）读到线上 `deployedCommit = c376be8`，与 main 一致；合并后约 1 分钟那次（run 45147965079）线上还是 `2a0eb96`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-line-mode-persist`（主规格 `tender/quote-line-mode` 15 条、`tender/bid-page` 改 3 条），归档 PR 见下表 |
+| 正在做 | BIDPAGE-3 归档小 PR；之后 BIDPAGE-4 `quote-lump-sum-mode`（代码地图在会话草稿 `bp4-codemap.md`，会话结束后不在；要点见 §4「BIDPAGE-4 开工前」） |
+| 下一步 | 归档 PR 合并 → BIDPAGE-4 四件套 → 开工前审查 → 实现 → 门禁 → 六维审查 + 交叉验证 → PR → 合并 |
 
 | change | ID | 状态 | PR | 分支 |
 |---|---|---|---|---|
-| `bid-page-v2-shell` | BIDPAGE-1 | 已合并、已归档 | #557（合并）；归档小 PR（本次） | `claude/laughing-curie-2b9s1v` |
-| `quote-line-mode-persist` | BIDPAGE-3 | 实现中（未推送） | — | 本地 `bp3-local` |
+| `bid-page-v2-shell` | BIDPAGE-1 | 已合并、已归档 | #557（合并 `d1b0d3e2`）；归档 #561（合并 `b717427f`） | `claude/laughing-curie-2b9s1v` |
+| `quote-line-mode-persist` | BIDPAGE-3 | 已合并、归档中 | #564（合并 `c376be86`）；归档小 PR（本次） | `claude/laughing-curie-2b9s1v` |
 | `quote-lump-sum-mode` | BIDPAGE-4 | 未开始 | — | — |
 | `quote-one-step-confirm` | BIDPAGE-6 | 未开始 | — | — |
 | `quote-margin-advice-market` | BIDPAGE-5 | 未开始 | — | — |
@@ -45,8 +46,9 @@
 | 判断点 1 ～ 6 | 按任务书默认 | 各 change 的 design |
 | 附录 C 的 A / B / C | 拍板按推荐（共用代码按开关分流 / 入口改 `page.tsx` / 金额门 = 内部成本 ∧ 财务查看权） | 任务书附录 C |
 | 附录 C 的 D ～ K | 按默认 | 任务书附录 C |
-| 不确定处 2 | `engineConfigSchema` 非严格、`engineOf` 用 `safeParse`，加可选字段不会让旧数据失败 | 任务书附录 C；BIDPAGE-3 design（待写） |
-| 不确定处 1 / 4 | 逐行只用引擎一套算法，四个数取引擎；Σ行合计与引擎合计差 ≤ Σ(数量 × 0.005) | 任务书附录 C；BIDPAGE-3 design（待写） |
+| 不确定处 2 | `engineConfigSchema` 非严格、`engineOf` 用 `safeParse`，加可选字段不会让旧数据失败；不认识的做法值只丢自己（`.catch`）；专业模式保存的表头不收做法字段 | 任务书附录 C；BIDPAGE-3 design D1 |
+| 不确定处 1 / 4 | 逐行只用引擎一套算法，四个数取引擎；Σ行合计与引擎合计差 ≤ Σ(数量 × 0.005)（数量带小数的行再各加 0.005），数量大时可达上百加元；行毛利率接近整体但不总相同 | 任务书附录 C；BIDPAGE-3 design D4；报告 §6 第 4 条请 Evan 确认 |
+| BIDPAGE-3 出入 | 七条（proposal）：没有财务查看权的人看不到报价合计；不恢复编辑；逐行只配只供货；提交批准仍在专业模式；行实际从招标分析带入；差额上限；类别与说明细节 | `openspec/changes/archive/2026-11-23-quote-line-mode-persist/proposal.md`；报告 §6 |
 | 不确定处 3 | 未核实（BIDPAGE-2 时复现） | — |
 | 不确定处 5 | 实现会话连不上生产库，未核实；用合成数据回归，只读查询留给 Lucas / Evan | BIDPAGE-6 时写出查询 |
 | BIDPAGE-1「下一步」规则 | 「已定」「有未定的报价」挪到找供应商之前；招标分析那条只在没往下走时命中；新增「看供应商回复，把报价录入」；询价按每家供应商最近一次算（共 8 条出入） | `openspec/changes/archive/2026-11-23-bid-page-v2-shell/design.md` D3；主规格 `tender/bid-page` |
@@ -63,7 +65,23 @@
 - 跑 `npm run test:ci` 要用 CI 同款环境变量（`DATABASE_URL=postgresql://ci:ci@127.0.0.1:5432/ci?schema=public`、`NODE_ENV=test`、**不设** `DATABASE_ENVIRONMENT`）：带着隔离库的变量跑，会把子集里的隔离库端到端测试也跑起来，停在 main 上既有失败的 RFQ-AUTO-2（2026-11-23 踩过）。
 - 合并后怎么看生产部署：工具里查不到单个提交的部署状态，容器也连不上生产（出站代理拒绝）。用仓库自带的 `release-drift` 工作流（`workflow_dispatch`）：它读 `https://qingyan.ca/api/health` 的 `checks.deployedCommit` 与 main 比对，日志里有「生产与 main 一致（<短 sha>）」或「生产部署落后于 main」。部署要几分钟，合并后过一会儿再触发。
 - main 动得很勤（别的轨道的归档 / 交接文档 PR）：合并前每次 `git fetch` 发现 main 动了都要变基、重跑门禁（全量约 35 分钟 + CI 约 15 分钟）。
-- 本地隔离库：容器里 Postgres 16 已起、`vector` 扩展可用（`postgresql-16-pgvector` 装不上但扩展已在），库 `qingyan_test` 已 `prisma migrate deploy`。容器重启后要 `service postgresql start`。
+- **CHAIN-2e（#556）合并后**：报价的内部成本权限改成等于财务查看权，BIDPAGE-1 汇总接口与 BIDPAGE-3 逐行接口的金额门随之实际等于财务查看权（持组织范围财务查看权、不是项目成员的组织管理员 / 企业负责人会新看到金额；已回复 CHAIN-2e 按新口径走）。合并后：变基、重跑 `bid-page-summary-db.isolated.test.ts` 与 `quote-line-db.isolated.test.ts`，核对两份规格里的身份表；CHAIN-2e 改了 `resolveQuoteCapabilities` 的签名（`{ finance }`），BIDPAGE-1 的汇总接口在它的改动清单里，由 CHAIN-2e 改。
+- BIDPAGE-3 留给后续的：
+  - BIDPAGE-6：我方报价卡（`TenderOurBidCard`）里的英文、`quote-engine/access.ts` 的两句报错（「报价引擎未启用」「无权执行该报价操作」）在 CHAIN-2e 改动中；没有财务查看权的人要不要看报价合计（报告 §6 第 1 条）。
+  - BIDPAGE-7：我方报价不是逐行报价时「已定」标题仍写「导出价格表 / 生成投标文件」，③ 里没有价格表导出；供货加安装 / 长期供货协议的我方报价要不要按价格表导出（报告 §6 第 3 条）。
+  - BIDPAGE-8：价格表单位（Each、Box、sqft…）、GST / HST / PST、币种代码、导出文件名 `price-schedule-…csv` 与 CSV 英文列名要列为英文守卫的例外（附录 A 已补）；判断点 4「旧版报价单收进『更多』」——现在在 ② 报价区下面折叠着；`paste-import.ts` 的「缺少说明」在逐行报价里已换成「缺少品名」显示，共用文件没改。
+  - 共用的 `official-export.ts` 没有防公式：逐行报价的导出在调用前自己加了前缀（`csvSafeText`），其它调用方以后各自处理。
+  - 专业模式保存与逐行保存之间有一个很窄的丢更新窗口（BIDPAGE-3 design Risks），要改专业模式的服务才能堵上。
+  - 报价建好后才存的价格表没有带入入口（`seed` 只在表空时给）；生产上新页面开着时本来就存不了价格表。
+- **main 动得很勤时怎么合**（BIDPAGE-3 #564 的做法，2026-11-23）：开 PR 后 main 约每 10–30 分钟动一次（06:41 开 PR 到 09:31 合并之间动了 8 次）。碰到代码的就把 main 合进分支（用合并，不变基、不强推），重跑全量门禁；只进文档 / 规格的（各轨道的归档、交接）合并后核对与上一次跑门禁的提交比 `git diff <gated> HEAD -- . ':(exclude)docs' ':(exclude)openspec'` 为空，补跑 `openspec validate --specs --strict` 与注册校验；最后一次只进文档时可以在本地合并核对（不推送），直接以 PR 头合并，免得再等一轮 CI。挂一个每 2 分钟 `git ls-remote origin refs/heads/main` 的监视器，main 一动就停掉作废的门禁、马上重来。
+- **BIDPAGE-4 开工前**（代码地图要点，开工时按最新 main 复核）：
+  - 总价表的每一项要有自己的行身份（新的 role / key），**不能借用 BIDPAGE-3 的「共用参数」身份**——否则逐行模式一保存，FIXED 的海运 / 关税会被改回原算法并设成不计入，金额从合计里掉出去。
+  - 销售税存 `engineJson.tax`（`computeTax`，不是成本行）；专业模式没有改税的界面，税只能经 PUT 的 `header.engine.tax` 写；我方报价（`ourBidPrice`）一律记税前售价。验收 3 的「税 7%」写进 gst / hst / pst 哪一项要定。
+  - `QUOTE_ENTRY_MODES` 加 `LUMP_SUM` 后要改 BIDPAGE-3 的纯测试「不认识的做法值 LUMP_SUM 只丢自己」。新建接口的校验是单独写死的 `z.enum(["LINE"])`（`quote-line/contract.ts` 的 `createQuoteRequestSchema`），不引用 `QUOTE_ENTRY_MODES`——放宽新建接口时，隔离库「新建传 LUMP_SUM 返回 400」那条才要改。`quoteHeaderSchema` 的 omit 别动（专业模式 PUT 唯一校验、也是税唯一写入口）。
+  - 同组合冲突：海运（填金额时）与加拿大境内运费都是 FREIGHT/FIXED、国内运费与包装都是 LOGISTICS/FIXED，行身份只能靠 metadata 的 key 区分。
+  - 货品明细：展开成多条 PROCUREMENT/PER_UNIT 行（转逐行几乎只改做法字段，明细没单位要给默认）或一条货品行 + metadata 明细（成本行少，专业模式改单价会对不上）——四件套里定。
+  - 与 CHAIN-2e（#556）重叠的是 `pricing-control-center.tsx`、`quote-engine/access.ts`、`quote-engine/[quoteId]/route.ts` 等；BIDPAGE-4 不碰它们。
+- 本地隔离库：容器里 Postgres 16 已起、`vector` 扩展可用（`postgresql-16-pgvector` 装不上但扩展已在），库 `qingyan_test` 已 `prisma migrate deploy`。**容器会重启**（2026-11-23 07:17 左右重启过一次，Postgres 随之停了，紧接着跑的全量门禁 161 项连库失败、作废）：跑门禁前先 `service postgresql status`，停了就 `service postgresql start`；`uptime -s` 能看出什么时候重启的。
 
 ## 5. 上线时要设的环境变量（八个都合并、预发验收通过后，由 Evan / Lucas 设）
 
