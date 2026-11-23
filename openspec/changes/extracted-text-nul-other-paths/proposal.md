@@ -37,7 +37,7 @@ FIX-13（#546）只修了项目文件的两条解析路径；询价回信、采�
 
 ## Impact
 
-- 开工：顺序是 FIX-17 → FIX-21 → FIX-19 → FIX-14；FIX-19 合并后把 main 合入本分支再开工（tasks 开工前提、design「相邻改动」）。
+- 开工：原定 FIX-19 合并后再开工；FIX-19 未合并（等生产只读查询结果），按交接文档 §0.5k 第 9 条的例外先开工——两者没有共同文件，FIX-19 后合并时由它合入 main（tasks 开工前提、design「相邻改动」）。
 - 依赖：FIX-13（#546）已于 2026-11-22 合并（main `13c7ed33`，FIX-13 最终提交 `f8cc2bdb`）；复用它的 `toStorableText` 与 `toStorableParseError`，以及测试夹具 `src/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf.ts`。
 - 代码：`src/lib/tender-rfq/inbound-parse.ts`、`src/lib/tender-rfq/inbound-apply.ts`；`src/lib/procurement-records/attachments.ts`；`src/lib/chat-attachments/core.ts`、`src/app/api/ai/threads/[threadId]/messages/route.ts`、`src/app/api/trade/chat/[sessionId]/messages/route.ts`、`src/lib/assistant/followup-task.ts`、`src/lib/market-intelligence/research-runtime.ts`；`src/lib/product-content/intake/analyze.ts`；`src/lib/quote-engine/import/import-service.ts`；`src/lib/files/extracted-text.ts`（加一个遍历函数）。
 - 文档（实现 PR 里改）：`docs/QINGYAN_CHAIN-0_ENV_CHECK.md`（「填写顺序」与第 7 行建议值）；`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`（CHAIN-0 行的开关前提、新增 FIX-14 行）；新增 `docs/QINGYAN_FIX-14_REPORT.md`。

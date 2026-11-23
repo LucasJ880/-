@@ -1,0 +1,231 @@
+/**
+ * FIX-14 其它文字抽取入口入库前清理 U+0000 / 落单代理字符（不用数据库）
+ *
+ * 运行：env -u DATABASE_URL -u DIRECT_URL npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts
+ *
+ * 夹具全部现拼：PDF 用 FIX-13 的 buildPdf（Identity-H、没有 ToUnicode 的字形被 unpdf 抽成 U+0000），
+ * xlsx 用 SheetJS 现写（单元格里的 _x0000_ 读回来就是 U+0000），表情符号劈开的场景用字符串现拼。
+ * 不连数据库、不调真实模型；询价回信用两个假模型（勾选框处写空格 / 原样照抄收到的那一行）。
+ */
+import { buildPdf } from "@/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf";
+import { hasUnstorableChars } from "../extracted-text";
+import { INBOUND_CONTRACT_VERSION, type InboundQuote } from "@/lib/tender-rfq/inbound-contract";
+import { buildInboundText, parseInboundQuote, type ParseCompleteFn, type ParsedQuote } from "@/lib/tender-rfq/inbound-parse";
+import { planInquiryItemUpdate, type ExistingInquiryItem } from "@/lib/tender-rfq/inbound-apply";
+import { parseAutoNotes } from "@/lib/tender-rfq/notes-parse";
+
+let pass = 0;
+let fail = 0;
+function ok(cond: boolean, name: string, detail?: unknown) {
+  if (cond) { pass++; console.log(`  ✓ ${name}`); }
+  else { fail++; console.error(`  ✗ ${name}`, detail !== undefined ? JSON.stringify(detail).slice(0, 1500) : ""); }
+}
+
+const NUL = "\u0000";
+const FFFD = String.fromCharCode(0xfffd);
+const HIGH = "\uD83D"; // 😀 的高位代理
+const EMAIL_DATE = new Date("2026-11-20T09:00:00Z");
+const NOW = new Date("2026-11-20T10:00:00Z");
+const CHECKBOX_NOTE = "（有 1 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）";
+
+/** 同一行「Unit price CAD 12.50 per flag」+ 一个被抽成 U+0000 的字形 +「Delivery 30 days」 */
+export function buildPriceLinePdf(): Buffer {
+  return buildPdf([
+    "BT /F1 12 Tf 72 720 Td (Unit price CAD 12.50 per flag) Tj ET\nBT /F2 12 Tf 250 720 Td <0000> Tj ET\nBT /F1 12 Tf 262 720 Td ( Delivery 30 days) Tj ET",
+  ]);
+}
+
+const sentItem: ExistingInquiryItem = { status: "sent", unitPrice: null, totalPrice: null, currency: "CAD", deliveryDays: null, validUntil: null, quoteNotes: null };
+
+function modelJson(partial: Partial<InboundQuote>): string {
+  return JSON.stringify({
+    contractVersion: INBOUND_CONTRACT_VERSION, isQuote: false, declined: false, currency: null, prices: [],
+    deliveryDays: null, deliveryEvidence: null, validUntil: null, validUntilEvidence: null, moq: null,
+    incoterm: null, incotermEvidence: null, mandatoryAnswers: [], missingFields: [], attachmentsSeen: [], ...partial,
+  });
+}
+
+/** 送进模型的回信纯文本（buildUserPrompt 里两行 --- 之间） */
+function promptText(userPrompt: string): string {
+  const start = userPrompt.indexOf("\n---\n");
+  const end = userPrompt.lastIndexOf("\n---");
+  return start >= 0 && end > start ? userPrompt.slice(start + 5, end) : "";
+}
+
+/** 假模型：记下收到的提示，按 build 给出输出 */
+function fakeModel(build: (userPrompt: string) => Partial<InboundQuote>) {
+  const prompts: Array<{ systemPrompt: string; userPrompt: string }> = [];
+  const complete: ParseCompleteFn = async (opts) => {
+    prompts.push({ systemPrompt: opts.systemPrompt, userPrompt: opts.userPrompt });
+    return modelJson(build(opts.userPrompt));
+  };
+  return { complete, prompts };
+}
+
+/** 勾选框处写成空格的模型（真实模型最可能这样） */
+const spacedModel = () => fakeModel(() => ({
+  isQuote: true, currency: "CAD",
+  prices: [{ quantity: null, unitPrice: 12.5, totalPrice: null, evidence: "Unit price CAD 12.50 per flag Delivery 30 days" }],
+  deliveryDays: 30, deliveryEvidence: "Delivery 30 days",
+}));
+
+/** 原样照抄它收到的那一行的模型 */
+export function copyingModel() {
+  return fakeModel((userPrompt) => {
+    const line = promptText(userPrompt).split("\n").find((l) => l.includes("Unit price")) ?? "";
+    const evidence = line.trim().slice(0, 200);
+    return {
+      isQuote: true, currency: "CAD",
+      prices: [{ quantity: null, unitPrice: 12.5, totalPrice: null, evidence }],
+      deliveryDays: 30, deliveryEvidence: evidence,
+    };
+  });
+}
+
+const parseWith = (bodyText: string, complete: ParseCompleteFn, attachments: Parameters<typeof parseInboundQuote>[0]["attachments"] = []) =>
+  parseInboundQuote({ bodyText, attachments, emailDate: EMAIL_DATE, mandatoryCodes: [] }, { complete });
+
+const plan = (parsed: ParsedQuote & { attachmentNotes?: string[] }) =>
+  planInquiryItemUpdate(sentItem, parsed, null, EMAIL_DATE, { messageId: "m-fix14", now: NOW, attachmentNotes: parsed.attachmentNotes });
+
+async function inquirySection() {
+  console.log("\n— 询价回信 —");
+  const pdf = buildPriceLinePdf();
+  const att = [{ filename: "q.pdf", mimeType: "application/pdf", data: pdf }];
+
+  // 1. 模型在勾选框处写空格：价格证据通过核对
+  {
+    const m = spacedModel();
+    const parsed = await parseWith("Please see the attached quotation.", m.complete, att);
+    ok(parsed.prices.length === 1 && parsed.prices[0].unitPrice === 12.5 && !parsed.rejected.some((r) => r.field === "prices[0]"),
+      "跨过勾选框的价格证据（勾选框处写空格）通过核对，单价 12.5 不被作废", { prices: parsed.prices, rejected: parsed.rejected });
+    ok(parsed.deliveryDays === 30, "同一行的交期 30 天照常通过", parsed.deliveryDays);
+    const p = plan(parsed);
+    ok(p.data.unitPrice === 12.5 && p.transition === "quoted", "写入计划：单价 12.5、条目变为已报价", p);
+  }
+
+  // 2. 模型原样照抄它收到的那一行
+  {
+    const m = copyingModel();
+    const parsed = await parseWith("Please see the attached quotation.", m.complete, att);
+    const userPrompt = m.prompts[0]?.userPrompt ?? "";
+    ok(!!userPrompt && !userPrompt.includes(NUL) && !hasUnstorableChars(userPrompt) && !hasUnstorableChars(m.prompts[0].systemPrompt),
+      "送进模型的整段提示里没有 U+0000 与落单代理字符", JSON.stringify(userPrompt.slice(0, 400)));
+    ok(parsed.prices.length === 1 && parsed.prices[0].unitPrice === 12.5 && !parsed.prices[0].evidence.includes(NUL),
+      "照抄的证据通过核对，证据里没有 U+0000", parsed.prices);
+    const p = plan(parsed);
+    ok(!p.notesAppend.includes(NUL) && !hasUnstorableChars(p.notesAppend) && p.transition === "quoted" && p.data.unitPrice === 12.5,
+      "照抄时报价备注不含 U+0000，条目变为已报价（改动前备注带 U+0000，写库报 22021）", JSON.stringify(p.notesAppend));
+  }
+
+  // 3. 拼好的回信文字恰好在 16000 字处劈开表情符号
+  {
+    const prefix = "【邮件正文】\n";
+    const body = "a".repeat(16_000 - prefix.length - 1) + "😀 tail";
+    const m = fakeModel(() => ({}));
+    await parseWith(body, m.complete);
+    const text = promptText(m.prompts[0]?.userPrompt ?? "");
+    ok(text.length === 16_000 && text.endsWith(`a${FFFD}`) && !hasUnstorableChars(text),
+      "16000 字截断劈开表情符号：送进模型的回信文字以 U+FFFD 结尾，没有落单代理字符", { length: text.length, tail: JSON.stringify(text.slice(-3)) });
+    const direct = buildInboundText(body, []);
+    ok(direct.endsWith(FFFD) && direct.length === 16_000, "核对证据用的同一份文字也以 U+FFFD 结尾", JSON.stringify(direct.slice(-3)));
+  }
+
+  // 4. 只有 U+0000 的附件 → 无可提取文本
+  {
+    const onlyNul = buildPdf(["BT /F2 12 Tf 72 720 Td <00000000000000000000> Tj ET"]);
+    const m = fakeModel(() => ({}));
+    const parsed = await parseWith("See attached.", m.complete, [{ filename: "scan.pdf", mimeType: "application/pdf", data: onlyNul }]);
+    ok(parsed.attachmentsSeen[0]?.parsed === false, "只有 U+0000 的 PDF 附件记为未解析", parsed.attachmentsSeen);
+    const p = plan(parsed);
+    ok(p.notesAppend.includes("附件：scan.pdf 附件无可提取文本（可能是扫描件）"), "报价备注写「scan.pdf 附件无可提取文本（可能是扫描件）」", p.notesAppend);
+    ok(!(m.prompts[0]?.userPrompt ?? "").includes("【附件 scan.pdf】"), "这个附件的文字不进模型提示", m.prompts[0]?.userPrompt);
+  }
+
+  // 5. 附件文件名带 U+0000
+  {
+    const m = spacedModel();
+    const parsed = await parseWith("See attached.", m.complete, [{ filename: `quote${NUL}1.pdf`, mimeType: "application/pdf", data: pdf }]);
+    const userPrompt = m.prompts[0]?.userPrompt ?? "";
+    ok(userPrompt.includes("附件：quote 1.pdf") && userPrompt.includes("【附件 quote 1.pdf】") && !userPrompt.includes(NUL),
+      "文件名带 U+0000：送进模型的附件清单与正文标题里该处为空格", JSON.stringify(userPrompt.slice(0, 300)));
+    const p = plan(parsed);
+    ok(p.notesAppend.includes("附件：quote 1.pdf 已解析") && !p.notesAppend.includes(NUL), "报价备注里文件名该处为空格", JSON.stringify(p.notesAppend));
+  }
+
+  // 6. 证据以半个表情符号结尾
+  {
+    const m = fakeModel(() => ({
+      isQuote: true, currency: "CAD",
+      prices: [{ quantity: null, unitPrice: 12.5, totalPrice: null, evidence: `Unit price CAD 12.50 ${HIGH}` }],
+    }));
+    const parsed = await parseWith("Unit price CAD 12.50 😀 thanks", m.complete);
+    ok(parsed.prices.length === 1, "以落单高位代理字符结尾的证据按码元仍能在原文里找到（通过核对）", parsed.prices);
+    const p = plan(parsed);
+    ok(p.notesAppend.includes(`（证据："Unit price CAD 12.50 ${FFFD}"）`) && !hasUnstorableChars(p.notesAppend),
+      "报价备注里落单的高位代理字符为 U+FFFD", JSON.stringify(p.notesAppend));
+  }
+
+  // 7. 附件里一个勾选框：附件一栏注明，送进模型的提示里没有这句话
+  {
+    const m = spacedModel();
+    const parsed = await parseWith("Please see the attached quotation.", m.complete, att);
+    const p = plan(parsed);
+    ok(p.notesAppend.includes(`附件：q.pdf 已解析${CHECKBOX_NOTE}`), "附件一栏为「附件：q.pdf 已解析（有 1 处无法识别的符号…请对照原件核对）」", JSON.stringify(p.notesAppend));
+    ok(p.data.unitPrice === 12.5 && p.data.deliveryDays === 30, "价格与交期照常入表", p.data);
+    const prompt = m.prompts.map((x) => x.systemPrompt + x.userPrompt).join("\n");
+    ok(!prompt.includes("无法识别的符号") && !/有 \d+ 处/.test(prompt), "送进模型的提示里没有这句话与个数", null);
+  }
+
+  // 8. 附件没有 U+0000：只写「已解析」
+  {
+    const plain = buildPdf(["BT /F1 12 Tf 72 720 Td (Unit price CAD 12.50 per flag) Tj ET"]);
+    const m = fakeModel(() => ({ isQuote: true, currency: "CAD", prices: [{ quantity: null, unitPrice: 12.5, totalPrice: null, evidence: "Unit price CAD 12.50 per flag" }] }));
+    const parsed = await parseWith("See attached.", m.complete, [{ filename: "plain.pdf", mimeType: "application/pdf", data: plain }]);
+    const p = plan(parsed);
+    ok(p.notesAppend.endsWith("附件：plain.pdf 已解析") && !p.notesAppend.includes("无法识别"), "附件没有 U+0000：附件一栏与改动前相同，只写「plain.pdf 已解析」", JSON.stringify(p.notesAppend));
+    ok(JSON.stringify(parsed.attachmentsSeen) === JSON.stringify([{ filename: "plain.pdf", parsed: true }]), "没有 U+0000 的附件，审计里的 attachmentsSeen 与改动前相同（不多字段）", parsed.attachmentsSeen);
+  }
+
+  // 9. 比价回读不受这句话影响
+  {
+    const base: ParsedQuote = {
+      contractVersion: INBOUND_CONTRACT_VERSION, isQuote: true, declined: false, currency: "CAD",
+      prices: [
+        { quantity: 1500, unitPrice: 12.5, totalPrice: null, evidence: "1,500 pcs 单价 CAD 12.50；含包装" },
+        { quantity: 3000, unitPrice: 11, totalPrice: null, evidence: "3,000 pcs CAD 11.00" },
+      ],
+      deliveryDays: 30, deliveryEvidence: "Delivery 30 days", validUntil: null, validUntilEvidence: null, moq: 500,
+      incoterm: "FOB", incotermEvidence: "FOB Ningbo", mandatoryAnswers: [{ requirementCode: "R-01", answer: "满足", evidence: "R-01 满足，面料 1000D" }, { requirementCode: "R-02", answer: "未答", evidence: null }],
+      missingFields: [], attachmentsSeen: [{ filename: "q.pdf", parsed: true }], validUntilInferred: false, rejected: [],
+    };
+    const withNote: ParsedQuote = { ...base, attachmentsSeen: [{ filename: "q.pdf", parsed: true, nulCount: 3 } as ParsedQuote["attachmentsSeen"][number]] };
+    const a = planInquiryItemUpdate(sentItem, base, 1500, EMAIL_DATE, { messageId: "m-a", now: NOW });
+    const b = planInquiryItemUpdate(sentItem, withNote, 1500, EMAIL_DATE, { messageId: "m-a", now: NOW });
+    ok(b.notesAppend.includes("附件：q.pdf 已解析（有 3 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）") && !a.notesAppend.includes("无法识别"),
+      "带与不带这句话的两份备注只在附件一栏不同", { a: a.notesAppend, b: b.notesAppend });
+    const ra = parseAutoNotes(a.notesAppend);
+    const rb = parseAutoNotes(b.notesAppend);
+    ok(JSON.stringify(ra) === JSON.stringify(rb) && ra.moq === 500 && ra.incoterm === "FOB" && ra.tiers.length === 2 && ra.mandatoryAnswers.length === 2 && ra.lastMissingFields.includes("validUntil"),
+      "比价回读出的起订量、贸易条款、多档价、强制项与缺字段两份相同", { ra, rb });
+  }
+
+  // 10. 普通文字逐字不变
+  {
+    const body = "单价 CAD 42.50 😀\t含税\n交期 30 天";
+    const text = buildInboundText(body, [{ filename: "报价.pdf", parsed: true, text: "中文 English 😀𠮷\t制表", note: null }]);
+    ok(text === `【邮件正文】\n${body}\n\n【附件 报价.pdf】\n中文 English 😀𠮷\t制表`, "不含这两类字符的回信文字与改动前逐字相同", JSON.stringify(text));
+  }
+}
+
+async function main() {
+  console.log("FIX-14 extracted-text other paths（不用数据库）");
+  await inquirySection();
+  console.log(`\nFIX-14 extracted-text other paths: ${pass} passed, ${fail} failed`);
+  if (fail > 0) process.exit(1);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

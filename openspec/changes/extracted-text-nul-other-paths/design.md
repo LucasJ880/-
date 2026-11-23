@@ -4,7 +4,7 @@
 
 动机见 proposal.md「Why」。FIX-13（#546）已于 2026-11-22 合并（main `13c7ed33`，FIX-13 最终提交 `f8cc2bdb`），新增 `src/lib/files/extracted-text.ts`：`toStorableText`（`:48`，U+0000 → 空格、落单代理字符 → U+FFFD，没有这两类字符时原样返回）、`toStorableParseError`（`:64`，先截 500 字再清理）；并让 `extractPdfPagesFromBuffer` 返回清理过的页面文字（`page-parse.ts:124`），项目文件 Excel 的工作表名与单元标签也已清理（`page-parse.ts:166`、`:198`）。本 change 复用这两个函数，不另立字符规则。
 
-下面的行号以 main `13c7ed33` 为准。FIX-13 不碰本 change 要改或引用的文件：`git diff --stat 2ef4f9c8 13c7ed33` 对 `src/app`、`src/lib/tender-rfq`、`procurement-records`、`chat-attachments`、`market-intelligence`、`product-content`、`quote-engine`、`assistant`、`inquiry`、`audit`、`vercel.json` 与 `docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 为空。FIX-13 报告 §7.1 的行号是旧 main `91d928e4` 的，§7.1 涉及的文件在 `91d928e4` 与 `13c7ed33` 之间也没有改动（`git diff --stat` 为空），行号仍对；任务书里「`attachments.ts:186-190` 写单元」实际是 `:188–193`。开工前 FIX-17、FIX-21、FIX-19 先合并（见「相邻改动」），把 main 合入本分支后按新的 main 复核本文的行号。
+下面的行号以 main `13c7ed33` 为准。FIX-13 不碰本 change 要改或引用的文件：`git diff --stat 2ef4f9c8 13c7ed33` 对 `src/app`、`src/lib/tender-rfq`、`procurement-records`、`chat-attachments`、`market-intelligence`、`product-content`、`quote-engine`、`assistant`、`inquiry`、`audit`、`vercel.json` 与 `docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 为空。FIX-13 报告 §7.1 的行号是旧 main `91d928e4` 的，§7.1 涉及的文件在 `91d928e4` 与 `13c7ed33` 之间也没有改动（`git diff --stat` 为空），行号仍对；任务书里「`attachments.ts:186-190` 写单元」实际是 `:188–193`。开工时（2026-11-23）已把 main `d94e4323` 合入本分支并复核：本 change 要改或引用的代码文件在 `13c7ed33..d94e4323` 之间没有改动（`git diff --stat` 只有 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`），本文行号仍对；开工顺序见「相邻改动」。
 
 ### 数据库与 Prisma 实际怎么报错（2026-11-22 本机实测）
 
@@ -203,7 +203,7 @@ PDF 每页先清理再调 `pageNeedsOcr`（与 FIX-13 D2 相同）；工作表�
 
 ## 相邻改动
 
-- 开工顺序 FIX-17 → FIX-21 → FIX-19 → FIX-14。这三个 change 的四件套都不改本 change 要改的代码文件：FIX-17 只改 `src/app/api/projects/[id]/files/**` 的两个路由并加守卫测试；FIX-21 只改 `src/app/api/projects/[id]/intelligence/**` 与 `ai-bid-package/**`，另加覆盖整个 `src/app/api/projects/[id]/` 的目录守卫测试（本 change 不碰这个目录）；FIX-19 的 Non-Goals 写明 `src/lib/quote-engine/import/import-service.ts` 不动。但三者都改 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 与 TASKFLOW，所以 **FIX-19 合并后把 main 合入本分支再开工**（tasks 开工前提）；合入后按新的 main 复核本文行号、TASKFLOW 里 CHAIN-0 与 FIX-13 两行的位置和「| 待定 |」的原有条数。
+- 开工顺序（2026-11-23 按事实改）：原定 FIX-17 → FIX-21 → FIX-19 → FIX-14、FIX-19 合并后再开工。实际 FIX-17、FIX-21 已合并（另有 FIX-23、CHAIN-4c / 2b / 3b / 3c、BIDPAGE-1 等），**FIX-19 未合并**（卡在等生产只读查询结果）；协调会话按交接文档 §0.5k 第 9 条的例外（不碰 FIX-19 文件的 change 可以先走）让 FIX-14 先开工。FIX-19 改 `src/lib/files/document-source.ts`（新）、`src/app/api/projects/[id]/files/route.ts`、`src/lib/tender-auto-analysis/{package,package-ready,package-coverage,reply-resolution,display-labels}.ts`、`src/lib/tender-understanding/package-input.ts`、`src/lib/files/intelligence-extractor.ts`、`src/lib/tender-analyst-memo/v2/pipeline.ts`，与本 change 没有共同文件（FIX-17 只改 `src/app/api/projects/[id]/files/**` 的两个路由；FIX-21 只改 `src/app/api/projects/[id]/intelligence/**` 与 `ai-bid-package/**`，另加覆盖整个 `src/app/api/projects/[id]/` 的目录守卫测试，本 change 不碰这个目录）。两边都改 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 与 TASKFLOW，FIX-19 后合并时由它合入 main。开工前已 `git merge origin/main`（`d94e4323`，不 rebase），复核了本文行号、TASKFLOW 里 CHAIN-0（`:284`）与 FIX-13（`:296`）两行的位置和「| 待定 |」的原有条数（17）。
 - 另一个并行会话（BIDPAGE）只读 `src/lib/quote-engine/import/import-service.ts` 与 `src/lib/tender-rfq/inbound-apply.ts` 的结果、不会改这两个文件，两边不会在这两个文件上冲突。本 change 合并后它读到的结果有两处不同：成本表导入记录里的 U+0000 变成空格、落单代理字符变成 U+FFFD，其余逐字不变；询价条目报价备注的附件一栏可能多一句「（有 N 处无法识别的符号，可能是勾选框或无法识别的字形，请对照原件核对）」（G5-B）。它若要从报价备注里取字段，应经 `notes-parse.ts`（附件一栏不进任何回读字段，D3 第 5 点）。
 
 ## Risks / Trade-offs

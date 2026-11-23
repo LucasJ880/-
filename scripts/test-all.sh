@@ -571,6 +571,8 @@ run_test "招标自动分析多文档包指纹" "npx tsx src/lib/tender-auto-ana
 run_test "招标自动分析页级解析" "npx tsx src/lib/tender-auto-analysis/__tests__/page-parse.test.ts"
 run_test "解析出的文字入库前清理 U+0000 / 落单代理字符（FIX-13）" "npx tsx src/lib/files/__tests__/extracted-text.test.ts"
 run_test "带 U+0000 的文件经两条解析路径入库 DB（FIX-13；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-auto-analysis/__tests__/page-parse-nul-db.isolated.test.ts"
+run_test "其它文字抽取入口入库前清理 U+0000 / 落单代理字符（FIX-14：询价回信 / 采购附件 / AI 对话附件与标题 / 产品资料 / 成本表导入）" "npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts"
+run_test "其它文字抽取入口真实写库 DB（FIX-14；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts"
 run_test "观察期包4 页数上限 400（解析/包分析/t2 口径）" "npx tsx src/lib/tender-auto-analysis/__tests__/obs-p4-page-limit.test.ts"
 run_test "招标自动分析来源核验" "npx tsx src/lib/tender-auto-analysis/__tests__/source-verify.test.ts"
 run_test "观察期包5 外部情报自动化闭环" "npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts"
