@@ -46,7 +46,7 @@
   - `npm run lint:baseline` PASS；`bash scripts/test-runtime-architecture.sh` 末行 `runtime-architecture guards PASS`；
   - `openspec validate tender-job-synthesis-degrade --strict` valid；
   - `git diff origin/main -- prisma/ vercel.json src/lib/runtime-architecture/runtime-architecture-baseline.json src/lib/workforce-runtime/synthesis.ts src/components/tender-analysis/analysis-panel.tsx` 为空；`git diff origin/main --stat -- src/lib/agent-runtime-v2/` 只列出 `executor.ts`。
-- [ ] 3.2 写 `docs/QINGYAN_FIX-20_REPORT.md`，并更新 TASKFLOW 状态列（新增 FIX-20 一行，`[~]`）。
+- [x] 3.2 写 `docs/QINGYAN_FIX-20_REPORT.md`，并更新 TASKFLOW 状态列（新增 FIX-20 一行，`[~]`）。
   - 报告 §1 写生产事实：来源是 Evan 2026-11-22 实测与 `[tender-alert]` 16:44:29 `code=blocked_graph`；抄入 design 附录的两条 SQL 与 G1 跑出的结果，按 design「四种结果」写明结论。
   - 报告还要写：改前 / 改后的测试输出；与 FIX-15、FIX-18、FIX-20b 的合并顺序与让出分支的协调；契约损坏时原因改为「执行出错」；多维审查结论。
   - verify：报告存在；`grep -n "FIX-20" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行。
