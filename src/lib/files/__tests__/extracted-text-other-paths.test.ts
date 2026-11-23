@@ -7,7 +7,10 @@
  * xlsx 用 SheetJS 现写（单元格里的 _x0000_ 读回来就是 U+0000），表情符号劈开的场景用字符串现拼。
  * 不连数据库、不调真实模型；询价回信用两个假模型（勾选框处写空格 / 原样照抄收到的那一行）。
  */
-import { buildPdf } from "@/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import * as XLSX from "xlsx";
+import { LINE_A, LINE_B, buildCheckboxPdf, buildPdf } from "@/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf";
 import { hasUnstorableChars } from "../extracted-text";
 import { INBOUND_CONTRACT_VERSION, type InboundQuote } from "@/lib/tender-rfq/inbound-contract";
 import { buildInboundText, parseInboundQuote, type ParseCompleteFn, type ParsedQuote } from "@/lib/tender-rfq/inbound-parse";
@@ -22,6 +25,15 @@ function ok(cond: boolean, name: string, detail?: unknown) {
 }
 
 const NUL = "\u0000";
+const ROOT = join(__dirname, "..", "..", "..", "..");
+const src = (rel: string) => readFileSync(join(ROOT, rel), "utf-8");
+
+/** SheetJS 现写一份 xlsx（单元格里的 U+0000 写出去是 _x0000_，读回来还是 U+0000） */
+export function buildXlsx(sheets: Array<{ name: string; rows: unknown[][] }>): Buffer {
+  const wb = XLSX.utils.book_new();
+  for (const sh of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sh.rows), sh.name);
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
 const FFFD = String.fromCharCode(0xfffd);
 const HIGH = "\uD83D"; // 😀 的高位代理
 const EMAIL_DATE = new Date("2026-11-20T09:00:00Z");
@@ -218,9 +230,53 @@ async function inquirySection() {
   }
 }
 
+
+async function procurementSection() {
+  console.log("\n— 采购记录附件 —");
+  const { parseAttachmentBuffer } = await import("@/lib/procurement-records/attachments");
+
+  // 1. 勾选框被抽成 U+0000 的披露文件
+  {
+    const r = await parseAttachmentBuffer(buildCheckboxPdf(), "disclosure.pdf");
+    ok(r.status === "PARSED" && r.units.length === 2, "勾选框式 PDF：附件状态为「已解析」", { status: r.status, units: r.units.length });
+    ok(r.units[1]?.text === `${LINE_A}\n  ${LINE_B}` && r.units[1]?.parseStatus === "done", "该页文字里的 U+0000 换成空格（「…check the box.\\n  The Bidder declares…」），其余逐字不变", r.units[1]);
+    ok(r.units.every((u) => !hasUnstorableChars(u.text)), "每页文字都不含 U+0000");
+  }
+
+  // 2. 一页只有 30 个 U+0000 → 需要 OCR，附件不因此失败
+  {
+    const pdf = buildPdf([`BT /F2 12 Tf 72 720 Td <${"0000".repeat(30)}> Tj ET`, `BT /F1 12 Tf 72 720 Td (${LINE_B}) Tj ET`]);
+    const r = await parseAttachmentBuffer(pdf, "thirty.pdf");
+    ok(r.units[0]?.parseStatus === "OCR_REQUIRED" && r.units[0]?.text.trim() === "" && r.status === "PARSED",
+      "一页抽出 30 个 U+0000：该页标为需要 OCR，附件仍为「已解析」（改动前 U+0000 算有效文字，判为可读）", { status: r.status, unit: r.units[0] });
+  }
+
+  // 3. xlsx 单元格里的 U+0000、工作表名带 U+0000
+  {
+    const buf = buildXlsx([{ name: `Sheet${NUL}A`, rows: [["Description", "Qty", "Order Value"], [`Flag${NUL} nylon`, 2, 20]] }]);
+    const r = await parseAttachmentBuffer(buf, "disclosure.xlsx");
+    ok(r.status === "PARSED" && r.units[0]?.text.includes("Flag  nylon") && !hasUnstorableChars(r.units[0]?.text ?? ""), "xlsx 单元格「Flag\\u0000 nylon」→ 工作表文字里为「Flag  nylon」", r.units[0]);
+    ok(r.units[0]?.unitLabel === "Sheet A · 2 行" && JSON.stringify(r.sheets) === JSON.stringify([{ sheet: "Sheet A", rows: 2 }]), "单元标签与记进工作表范围的工作表名里 U+0000 换成空格", { label: r.units[0]?.unitLabel, sheets: r.sheets });
+  }
+
+  // 4. CSV 含 U+0000：判断不变
+  {
+    const r = await parseAttachmentBuffer(Buffer.from(`Description,Qty\nFlag${NUL},2\n`, "utf-8"), "disclosure.csv");
+    ok(r.status === "CORRUPT" && r.error === "文本文件含二进制内容" && r.units.length === 0, "CSV 含 U+0000：仍为「文件损坏」，原因「文本文件含二进制内容」，与改动前相同", r);
+  }
+
+  // 5. 接线：明细写库前整条清理
+  {
+    const code = src("src/lib/procurement-records/attachments.ts");
+    ok(/toStorableJson\(extractLinesFromUnits\(/.test(code), "接线：抽出的明细经 toStorableJson 整条清理后才写库（截断在 extract-pure.ts，清理在写库边界）");
+    ok(code.includes('if (text.includes("\\u0000")) return { status: "CORRUPT", error: "文本文件含二进制内容"'), "接线：CSV / 纯文本仍按 UTF-8 读、含 U+0000 即「文件损坏」（G3-A）");
+  }
+}
+
 async function main() {
   console.log("FIX-14 extracted-text other paths（不用数据库）");
   await inquirySection();
+  await procurementSection();
   console.log(`\nFIX-14 extracted-text other paths: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

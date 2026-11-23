@@ -45,7 +45,13 @@ const errText = (e: unknown) => (e instanceof Error ? `${e.name}: ${e.message}` 
 
 async function main() {
   const { db } = await import("@/lib/db");
-  const { buildPdf } = await import("@/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf");
+  const { LINE_A, LINE_B, buildCheckboxPdf, buildPdf } = await import("@/lib/tender-auto-analysis/__tests__/fixtures/nul-pdf");
+  const XLSX = await import("xlsx");
+  const buildXlsx = (sheets: Array<{ name: string; rows: unknown[][] }>): Buffer => {
+    const wb = XLSX.utils.book_new();
+    for (const sh of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sh.rows), sh.name);
+    return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  };
   const { defaultInboundSyncDeps, syncOrgInbound } = await import("@/lib/tender-rfq/inbound-sync");
   const { parseInboundQuote } = await import("@/lib/tender-rfq/inbound-parse");
   const { INBOUND_CONTRACT_VERSION } = await import("@/lib/tender-rfq/inbound-contract");
@@ -59,6 +65,18 @@ async function main() {
   const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "fix14-blobs-"));
   process.env.PRODUCT_CONTENT_LOCAL_STORE = "1";
   process.env.PRODUCT_CONTENT_LOCAL_STORE_DIR = storeDir;
+
+  const reqIds: string[] = [];
+  const attIds: string[] = [];
+  async function section(name: string, fn: () => Promise<void>) {
+    console.log(`\n— ${name} —`);
+    try {
+      await fn();
+    } catch (e) {
+      fail++;
+      console.error(`  ✗ ${name}：中途抛错`, errText(e));
+    }
+  }
 
   let seq = 0;
   async function mkProject(): Promise<string> {
@@ -75,8 +93,7 @@ async function main() {
     await db.organizationMember.create({ data: { orgId: ORG, userId: OWNER, role: "org_admin", status: "active" } });
 
     /* ============================ 1. 询价回信 ============================ */
-    {
-      console.log("\n— 询价回信 —");
+    await section("询价回信", async () => {
       const P = await mkProject();
       const supplier = await db.supplier.create({ data: { orgId: ORG, name: `Fixture Flag Supplier ${stamp}`, createdById: OWNER } });
       const inquiry = await db.projectInquiry.create({ data: { projectId: P, createdById: OWNER, status: "in_progress", roundNumber: 1 } });
@@ -136,13 +153,70 @@ async function main() {
       const r2 = await syncOrgInbound({ orgId: ORG, settingsJson: { tenderRfq: { mailboxEmail: MAILBOX } }, items: [{ ...row, status: "quoted" }] }, deps);
       const after2 = await db.inquiryItem.findUniqueOrThrow({ where: { id: item.id }, select: { quoteNotes: true } });
       ok(r2.duplicates === 1 && r2.quoted === 0 && after2.quoteNotes === after.quoteNotes && prompts.length === 1, "同一封回信再跑一次入站检查：按已处理跳过，不重复处理", r2);
-    }
+    });
+
+    /* ============================ 2. 采购记录附件 ============================ */
+    await section("采购记录附件", async () => {
+      process.env.PROCUREMENT_RECORDS_SCHEMA_READY = "1";
+      const { saveAttachment, processAttachment } = await import("@/lib/procurement-records/attachments");
+      const req = await db.recordsRequest.create({ data: { orgId: ORG, title: "Fixture disclosure request", jurisdiction: "FEDERAL", pathType: "NEW_FORMAL_REQUEST", channel: "ATIP_ONLINE", createdById: OWNER } });
+      reqIds.push(req.id);
+      const files = new Map<string, Buffer>();
+      const readBuffer = async (pathname: string) => files.get(pathname) ?? null;
+      async function upload(filename: string, buffer: Buffer) {
+        const r = await saveAttachment({ requestId: req.id, userId: OWNER, kind: "DISCLOSURE_FILE", filename, buffer });
+        if (!r.ok) throw new Error(`上传失败 ${r.code}`);
+        attIds.push(r.attachmentId);
+        const row = await db.recordsAttachment.findUniqueOrThrow({ where: { id: r.attachmentId }, select: { storagePathname: true } });
+        files.set(row.storagePathname, buffer);
+        let error: string | null = null;
+        try {
+          await processAttachment(r.attachmentId, { readBuffer });
+        } catch (e) {
+          error = errText(e);
+        }
+        const att = await db.recordsAttachment.findUniqueOrThrow({ where: { id: r.attachmentId }, select: { parseStatus: true, parseError: true, sheetRangesJson: true } });
+        const units = await db.recordsAttachmentUnit.findMany({ where: { attachmentId: r.attachmentId }, orderBy: { unitIndex: "asc" }, select: { unitIndex: true, unitLabel: true, text: true, parseStatus: true } });
+        const lines = await db.procurementLineItem.findMany({ where: { attachmentId: r.attachmentId }, select: { productDescription: true, rawSnippet: true, reviewStatus: true, sourceSheet: true } });
+        return { error, att, units, lines };
+      }
+
+      // (a) 勾选框被抽成 U+0000 的披露文件
+      const a = await upload("disclosure-checkbox.pdf", buildCheckboxPdf());
+      ok(a.error === null && a.att.parseStatus === "PARSED", "勾选框式 PDF：解析不报错，附件状态为「已解析」（改动前写解析单元报 22021，附件停在「解析中」）", { error: a.error, status: a.att.parseStatus });
+      ok(a.units.length === 2 && a.units[1].text === `${LINE_A}\n  ${LINE_B}` && a.units[0].parseStatus === "OCR_REQUIRED", "该页入库文字为「…check the box.\\n  The Bidder declares…」；只有 U+0000 的第 1 页标为需要 OCR", a.units);
+
+      // (b) xlsx 单元格里的 U+0000（工作表名也带一个）
+      const b = await upload("disclosure-cells.xlsx", buildXlsx([{ name: `Orders${NUL}2024`, rows: [["Description", "Qty", "Order Value"], [`Flag${NUL} nylon`, 2, 20]] }]));
+      ok(b.error === null && b.att.parseStatus === "PARSED", "xlsx 单元格「Flag\\u0000 nylon」：附件状态为「已解析」", { error: b.error, status: b.att.parseStatus });
+      ok(b.units[0]?.text.includes("Flag  nylon") && b.units[0]?.unitLabel === "Orders 2024 · 2 行" && JSON.stringify((b.att.sheetRangesJson as Array<{ sheet: string; rows: number }> | null)?.map((x) => [x.sheet, x.rows])) === JSON.stringify([["Orders 2024", 2]]),
+        "该工作表的单元文字里这一格为「Flag  nylon」，单元标签与工作表范围里的工作表名该处为空格", { units: b.units, sheets: b.att.sheetRangesJson });
+      ok(b.lines.length === 1 && b.lines[0].productDescription === "Flag  nylon" && b.lines[0].sourceSheet === "Orders 2024", "抽出的明细入库，产品描述与工作表名不含 U+0000", b.lines);
+
+      // (c) 一行明细拼起来超过 1000 字，第 1000 字处劈开表情符号
+      const longDesc = `${"a".repeat(999)}😀 nylon flag 3x5`;
+      const analysesBefore = await db.procurementAnalysis.count({ where: { requestId: req.id } });
+      const c = await upload("disclosure-long.xlsx", buildXlsx([{ name: "Orders", rows: [["Description", "Qty", "Order Value"], [longDesc, 2, 20]] }]));
+      const analysesAfter = await db.procurementAnalysis.count({ where: { requestId: req.id } });
+      ok(c.error === null && c.att.parseStatus === "PARSED" && c.lines.length === 1, "第 1000 字处劈开表情符号的明细入库（改动前附件「已解析」、明细为零，写库报 InvalidArg）", { error: c.error, status: c.att.parseStatus, lines: c.lines.length });
+      ok(c.lines[0]?.rawSnippet.length === 1000 && c.lines[0]?.rawSnippet.endsWith(`a${FFFD}`) && c.lines[0]?.reviewStatus === "NEEDS_REVIEW" && c.lines[0]?.productDescription === longDesc,
+        "原文片段为前 1000 字、以 U+FFFD 结尾，状态为待复核；产品描述（没截断）里成对的表情符号原样", c.lines[0] ? { len: c.lines[0].rawSnippet.length, tail: JSON.stringify(c.lines[0].rawSnippet.slice(-2)), review: c.lines[0].reviewStatus } : null);
+      ok(analysesAfter === analysesBefore + 1, "申请的按口径分析照常运行（多一个分析版本；改动前没有运行）", { analysesBefore, analysesAfter });
+    });
   } catch (e) {
     fail++;
     console.error("  ✗ 测试中途抛错", errText(e));
   } finally {
     const { db: d } = await import("@/lib/db");
     await new Promise((r) => setTimeout(r, 300));
+    await d.procurementLineItem.deleteMany({ where: { requestId: { in: reqIds } } });
+    await d.procurementAnalysis.deleteMany({ where: { requestId: { in: reqIds } } });
+    await d.recordsAttachmentUnit.deleteMany({ where: { attachmentId: { in: attIds } } });
+    await d.recordsAttachment.deleteMany({ where: { requestId: { in: reqIds } } });
+    await d.recordsRequestEvent.deleteMany({ where: { requestId: { in: reqIds } } });
+    await d.recordsRequestVersion.deleteMany({ where: { requestId: { in: reqIds } } });
+    await d.recordsRequest.deleteMany({ where: { id: { in: reqIds } } });
+    await d.task.deleteMany({ where: { OR: [{ sourceId: { in: reqIds } }, { projectId: { in: projectIds } }] } });
     await d.notification.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { orgId: ORG }] } });
     await d.inquiryItem.deleteMany({ where: { inquiry: { projectId: { in: projectIds } } } });
     await d.projectInquiry.deleteMany({ where: { projectId: { in: projectIds } } });

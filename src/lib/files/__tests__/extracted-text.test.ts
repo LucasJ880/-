@@ -8,6 +8,7 @@ import {
   TEXT_FILE_MAX_NUL_RATIO,
   decodeTextFile,
   hasUnstorableChars,
+  toStorableJson,
   toStorableParseError,
   toStorableText,
 } from "../extracted-text";
@@ -24,7 +25,7 @@ const HIGH = "\uD83D"; // 😀 的高位代理
 const LOW = "\uDE00"; // 😀 的低位代理
 const FFFD = String.fromCharCode(0xfffd);
 
-console.log("files extracted-text（FIX-13）");
+console.log("files extracted-text（FIX-13；FIX-14 补 toStorableJson）");
 
 // —— U+0000 → 空格 ——
 ok(toStorableText(`check the box.\n${NUL} The Bidder declare`) === "check the box.\n  The Bidder declare", "勾选框式：U+0000 换成一个空格，前后文字逐字不变");
@@ -138,6 +139,39 @@ ok(textOf(decodeTextFile(Buffer.alloc(0))) === "" && textOf(decodeTextFile(Buffe
   const interior = Array.from({ length: 1000 }, (_, i) => (i % 20 < 3 ? NUL : "a")).join("");
   ok("error" in decodeTextFile(Buffer.concat([Buffer.from(interior, "utf-8"), Buffer.alloc(10_000)])), "decodeTextFile：比例按去掉尾部 U+0000 之后的长度算（中间 15% 是 U+0000 → 不可读，不被尾部稀释）");
   ok("error" in decodeTextFile(Buffer.alloc(64)), "decodeTextFile：全是 U+0000 → 不可读");
+}
+
+// —— FIX-14：JSON 形状的数据按结构遍历清理（每个字符串含键名，结构与非字符串的值不变） ——
+{
+  const when = new Date("2026-11-20T00:00:00Z");
+  class Money { constructor(public readonly cents: number) {} }
+  const money = new Money(1250);
+  const input = {
+    [`key${NUL}a`]: [`v${NUL}1`, 12.5, true, null, { [`k${HIGH}`]: [`deep${HIGH}`, false, 0] }],
+    plain: "中文 English 😀\t制表",
+    n: -3,
+    b: false,
+    z: null,
+    when,
+    money,
+  };
+  const before = JSON.stringify(input);
+  const out = toStorableJson(input) as Record<string, unknown>;
+  ok(Object.keys(out).join("|") === ["key a", "plain", "n", "b", "z", "when", "money"].join("|"), "toStorableJson：键名里的 U+0000 换成空格，键的顺序不变", Object.keys(out));
+  const arr = out["key a"] as unknown[];
+  ok(Array.isArray(arr) && arr.length === 5 && arr[0] === "v 1" && arr[1] === 12.5 && arr[2] === true && arr[3] === null, "toStorableJson：数组里的字符串清理，数字、布尔、null 原样", arr);
+  const inner = arr[4] as Record<string, unknown[]>;
+  ok(JSON.stringify(Object.keys(inner)) === JSON.stringify([`k${FFFD}`]) && inner[`k${FFFD}`][0] === `deep${FFFD}` && inner[`k${FFFD}`][1] === false && inner[`k${FFFD}`][2] === 0, "toStorableJson：嵌套对象的键名与值里落单的高位代理字符 → U+FFFD，层级不变", inner);
+  ok(out.plain === "中文 English 😀\t制表" && out.n === -3 && out.b === false && out.z === null, "toStorableJson：普通文字、数字、布尔、null 不变");
+  ok(out.when === when && out.money === money, "toStorableJson：Date 与其它类的实例原样返回（不往里递归）");
+  ok(JSON.stringify(input) === before, "toStorableJson：不改传进来的值");
+  ok(!hasUnstorableChars(JSON.stringify(out)) && !/\\u0000|\\ud[89ab]/i.test(JSON.stringify(out)), "toStorableJson：结果序列化后不含 U+0000 与落单代理字符");
+  const clean = { rows: [{ a: "x", b: [1, 2, { c: "😀" }] }], s: "y" };
+  ok(JSON.stringify(toStorableJson(clean)) === JSON.stringify(clean), "toStorableJson：不含这两类字符的数据逐字不变");
+  ok(toStorableJson(`a${NUL}`) === "a " && toStorableJson(7) === 7 && toStorableJson(null) === null && toStorableJson(undefined) === undefined, "toStorableJson：直接传字符串 / 数字 / null / undefined");
+  const proto = JSON.parse('{"__proto__": {"polluted": "x\\u0000"}}') as Record<string, unknown>;
+  const protoOut = toStorableJson(proto) as Record<string, unknown>;
+  ok(Object.getPrototypeOf(protoOut) === Object.prototype && Object.prototype.hasOwnProperty.call(protoOut, "__proto__") && ({} as Record<string, unknown>).polluted === undefined, "toStorableJson：键名 __proto__ 仍是自有属性，不改原型");
 }
 
 console.log(`\nfiles extracted-text: ${pass} passed, ${fail} failed`);

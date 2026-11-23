@@ -13,7 +13,7 @@
 
 ## 2. 采购记录附件
 
-- [ ] 2.1 在 `src/lib/files/extracted-text.ts` 加按结构遍历的清理函数（每个字符串含键名调 `toStorableText`，只往数组与普通对象里递归），用例补进 `src/lib/files/__tests__/extracted-text.test.ts`；`src/lib/procurement-records/attachments.ts` 里 PDF 每页文字在判断要不要 OCR 之前清理，工作表文字、单元标签、`sheetRangesJson` 的工作表名写之前清理，明细在写库前整条过遍历函数；CSV / TXT 不改；两个测试文件补用例（勾选框 PDF、30 个 U+0000 的页 → 需要 OCR、xlsx 单元格 `_x0000_`、CSV 含 U+0000 仍「文件损坏」、xlsx 一行明细在第 1000 字处劈开表情符号；隔离库经 `processAttachment(id, { readBuffer })`，先在改动前看到附件停在 `PARSING` / 明细为零）；verify：两个新测试与 `npx tsx src/lib/files/__tests__/extracted-text.test.ts` 全过，`npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts` 与 `NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts` 照旧通过
+- [x] 2.1 在 `src/lib/files/extracted-text.ts` 加按结构遍历的清理函数（每个字符串含键名调 `toStorableText`，只往数组与普通对象里递归），用例补进 `src/lib/files/__tests__/extracted-text.test.ts`；`src/lib/procurement-records/attachments.ts` 里 PDF 每页文字在判断要不要 OCR 之前清理，工作表文字、单元标签、`sheetRangesJson` 的工作表名写之前清理，明细在写库前整条过遍历函数；CSV / TXT 不改；两个测试文件补用例（勾选框 PDF、30 个 U+0000 的页 → 需要 OCR、xlsx 单元格 `_x0000_`、CSV 含 U+0000 仍「文件损坏」、xlsx 一行明细在第 1000 字处劈开表情符号；隔离库经 `processAttachment(id, { readBuffer })`，先在改动前看到附件停在 `PARSING` / 明细为零）；verify：两个新测试与 `npx tsx src/lib/files/__tests__/extracted-text.test.ts` 全过，`npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts` 与 `NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/procurement-records-db.isolated.test.ts` 照旧通过
 
 ## 3. AI 对话附件、对话标题与市场调研
 

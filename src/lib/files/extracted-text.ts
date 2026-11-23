@@ -53,6 +53,29 @@ export function toStorableText(text: string): string {
     .replace(SURROGATE_PAIR_OR_LONE, (m) => (m.length === 2 ? m : REPLACEMENT));
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * JSON 形状的数据 → 每个字符串（含键名）都经 toStorableText 的同一份数据（FIX-14）。
+ * 用在把抽取结果整份写进 jsonb 的地方（报价成本表的抽取结果与复核数据、采购记录的明细）：
+ * 字段多、随抽取版本增减，逐字段清理会漏。不是第二条字符规则，规则仍是 toStorableText。
+ *
+ * 只往数组与普通对象里递归；数字、布尔、null、undefined 与其它对象（Date、Decimal、Buffer…）原样返回。
+ * 不改传进来的值：数组与普通对象都返回新的一份；键名 __proto__ 照样是自有属性（Object.fromEntries）。
+ */
+export function toStorableJson<T>(value: T): T {
+  if (typeof value === "string") return toStorableText(value) as T;
+  if (Array.isArray(value)) return value.map((v) => toStorableJson(v)) as T;
+  if (isPlainObject(value)) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [toStorableText(k), toStorableJson(v)])) as T;
+  }
+  return value;
+}
+
 /** 失败原因（parseError）的长度上限 */
 export const PARSE_ERROR_MAX_CHARS = 500;
 
