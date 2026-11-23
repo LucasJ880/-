@@ -37,12 +37,20 @@
 - **THEN** 三个响应里都搜不到该金额；列表没有 `estimatedCost`、`grossMarginPct` 键，「我方报价」这两项为 null（`NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-view-compare-quote-db.isolated.test.ts`）
 
 ### Requirement: 报价引擎无权时的提示
-「报价与成本」卡、投标页报价区列表、「我方报价」卡在没有财务查看权时 SHALL 不显示估算成本与毛利率，并 SHALL 显示一句：「估算成本和毛利率只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。」单个报价页在没有财务查看权时 SHALL 显示同一句提示与客户视图（只含公开字段），SHALL NOT 停在「加载报价引擎…」。有财务查看权时 SHALL 与改动前相同。
+「报价与成本」卡、投标页报价区列表、「我方报价」卡在没有财务查看权时 SHALL 不显示估算成本与毛利率，并 SHALL 显示一句：「估算成本和毛利率只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。」投标页报价区在不能新建报价时 SHALL 不显示新建按钮，并 SHALL 显示一句：「你不是本项目负责人，不能新建、修改或批准报价；需要的话请找项目负责人。」单个报价页在没有财务查看权时 SHALL 显示第一句提示与客户视图（只含公开字段），SHALL NOT 显示成本行、情景表与任何编辑 / 批准按钮；读取失败时 SHALL 显示「打不开这个报价：」加接口给的原因；这两种情况 SHALL NOT 停在「加载报价引擎…」。能看内部数字的人看到的数字与按钮 SHALL 与改动前相同。
 
 #### Scenario: 卡片提示
 - **WHEN** 只读成员打开项目工作台
-- **THEN** 「报价与成本」卡只显示 Bid、版本与状态，下面是那一句提示；`npm run typecheck` 与 `npm run lint:baseline` 通过
+- **THEN** 「报价与成本」卡只显示 Bid、版本与状态，下面是第一句提示（`npx tsx src/lib/quote-engine/__tests__/quote-engine-contract.test.ts` 的源码断言；`npm run typecheck` 与 `npm run lint:baseline` 通过）
+
+#### Scenario: 投标同事打开投标页报价区
+- **WHEN** 持 `bids` 岗位、项目角色为 `operator`、不是负责人的成员打开投标页报价区
+- **THEN** 没有新建按钮、没有估算成本与毛利率两列，显示上面两句提示（同一源码断言；接口侧 `NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-view-compare-quote-db.isolated.test.ts` 核对列表的 `canEdit`、`canViewInternal` 都为 false）
 
 #### Scenario: 单个报价页
 - **WHEN** 只读成员从卡片点进一个报价
-- **THEN** 页面显示那一句提示和客户视图表格，没有成本行、情景表与编辑按钮（`npx tsx src/lib/quote-engine/__tests__/quote-engine-contract.test.ts` 的源码断言；`npm run typecheck`）
+- **THEN** 页面显示第一句提示和客户视图表格，没有成本行、情景表与编辑按钮（同一源码断言；`npm run typecheck`）
+
+#### Scenario: 单个报价页读取失败
+- **WHEN** 单个报价接口返回 403 或 404（报价引擎未启用、报价不存在、不是项目读者）
+- **THEN** 页面显示「打不开这个报价：」加接口给的原因，不再显示「加载报价引擎…」（同一源码断言）

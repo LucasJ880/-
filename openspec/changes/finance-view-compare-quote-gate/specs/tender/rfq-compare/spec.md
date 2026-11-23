@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 比价落地价只给有财务查看权的人
-比价矩阵接口与 AI 报价分析接口 SHALL 按当前登录者对本项目有没有财务查看权（平台超级管理员、在项目所属企业持 `ORG` 范围 `project.finance.manage` 或 `project.finance.read`、项目负责人；授权查询出错时只剩平台超级管理员与项目负责人）返回落地价。有财务查看权时 SHALL 与改动前相同。没有时 SHALL 带 `costHidden: true`，排序、最低价与推荐标记、交期 / 有效期 / 强制项 / 起订量检查、缺字段与换算不出的原因 SHALL 照常。
+比价矩阵接口与 AI 报价分析接口 SHALL 按当前登录者对本项目有没有财务查看权（平台超级管理员、在项目所属企业持 `ORG` 范围 `project.finance.manage` 或 `project.finance.read`、项目负责人；授权查询出错时只剩平台超级管理员与项目负责人）返回落地价。有财务查看权时 SHALL 与改动前相同。没有时矩阵与响应顶层 SHALL 带 `costHidden: true`，排序、最低价与推荐标记、交期 / 有效期 / 强制项 / 起订量检查、缺字段与换算不出的原因 SHALL 照常。
 
 #### Scenario: 有财务查看权
 - **WHEN** 项目负责人、持 `accounting` 岗位的成员读比价矩阵
