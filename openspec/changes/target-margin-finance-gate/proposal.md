@@ -20,7 +20,7 @@ TASKFLOW：FIX-25（CHAIN-2d #538 交叉验证 F4，属 CHAIN-2b #532 范围，�
 - 我方报价（`Project.ourBidPrice`、报价引擎售价、投标文件草稿输入里的我方报价）照旧对项目读者可见：没有目标毛利与毛利率，单有报价算不出成本（design D6；GATE ① 已定不收，报告列出「与我方报价配对即可反推的字段」）。
 - 报价引擎的毛利率、定价比例、估算成本（`src/lib/quote-engine/**`、`src/app/api/projects/[id]/quote-engine/**`）：CHAIN-2e #556 改为只认财务查看权；报价引擎开关生产未设。
 - **FIX-26**（GATE ⑥ 已定，紧接本 change）：旧报价单直接给内部成本与利润率（`src/app/api/projects/[id]/quotes/**`、`src/components/quote/**`，含打印「Profit Margin」的报价单 PDF `src/lib/quote/export-pdf.ts:137-138`（优先）、Excel `src/lib/quote/export-excel.ts:45-46`、AI 审查 `src/app/api/projects/[id]/quotes/[quoteId]/ai/review/route.ts:11,53-54`、`src/lib/agent/skills/quote.ts:253-254`；原 TASKFLOW「待定」FIX-21 后续 8）；询价与旧比价接口给项目读者供应商报价（`src/lib/inquiry/service.ts:191-201`、`src/app/api/projects/[id]/inquiries/[inquiryId]/compare/route.ts:6-11`）；问青砚工具 `project_get_project_quotes` 给 `profitMargin` + `totalAmount`（`src/lib/agent-core/tools/enterprise-readonly.ts:517`）。
-- 投标策略备忘送进模型的目标毛利（`src/lib/tender-intel/orchestrate.ts:425-439`）与投标文件草稿读取接口 `GET …/bid-draft` 返回的 `internalNotesZh`（`src/app/api/projects/[id]/bid-draft/route.ts:50`）：CHAIN-2d #538 与它列的后续。
+- 投标策略备忘送进模型的目标毛利（四件套基线上 `src/lib/tender-intel/orchestrate.ts:425-439`，#538 已于 `fc321a7d` 合并、改为只取对手价）与投标文件草稿读取接口 `GET …/bid-draft` 返回的 `internalNotesZh`（`src/app/api/projects/[id]/bid-draft/route.ts:50`）：CHAIN-2d #538 与它列的后续。
 - 判定规则本身（`src/lib/project-finance/access.ts`）；CHAIN-2b 与 CHAIN-2e 两份兜底判定合成一份（CHAIN-2e 合并后另开整理）。
 - 负责人是导入系统账号时「需要的话请找项目负责人」没人可找（CHAIN-2b 已有的同一句；CHAIN-2e D9 只改了报价引擎与比价的提示），并入上一条的整理。
 - 已存的目标毛利不清、不迁移；有财务查看权的人在报价表助手看到、改到的一切不变；`derive`（重新推导评分模型）不变。

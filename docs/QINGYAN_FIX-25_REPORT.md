@@ -8,7 +8,7 @@
 | 起因 | 只读成员从 `GET /api/projects/:id/bid-intelligence` 拿到 `pricingInputs.targetMarginPct = 23.7` 与 `ourPriceCad = 114881.15`，114,881.15 × (1 − 0.237) = 87,654.32，正好是我方成本（报价按报价表助手「成本 + 目标毛利」底价定时精确反推，`src/lib/tender-pricing/calc.ts:213-215`） |
 | GATE | 七条由协调会话 2026-11-23 按推荐定（Lucas 2026-11-22 授权「都按照你的推荐来」），见 §7 |
 | OpenSpec change | `openspec/changes/target-margin-finance-gate/`（`tender/pricing-helper`：新增 1 条、改 6 条；`tender/pricing-compare-cost-source`：改 1 条） |
-| 基线 | 四件套 main `2a0eb964`；实施时合入 main `c376be86`（含 #564 BIDPAGE-3、#559 TREE-1） |
+| 基线 | 四件套 main `2a0eb964`；实施时合入 main `c376be86`（含 #564 BIDPAGE-3、#559 TREE-1），收尾时再合入 `fc321a7d`（含 #538 CHAIN-2d、#572 BIDPAGE-3 归档） |
 | 分支 | `claude/zen-turing-azudvx-fix25`（未开 PR） |
 | 开关 | 没有；合并即生效 |
 
@@ -54,7 +54,7 @@
 | 旧报价单 `GET …/quotes` / `GET …/quotes/:id` 直接给内部成本与利润率；报价单 PDF 打印「Profit Margin」（`src/lib/quote/export-pdf.ts:137-138`，最严重）、Excel（`export-excel.ts:45-46`）、AI 审查（`quotes/[quoteId]/ai/review/route.ts:11,53-54`）、`src/lib/agent/skills/quote.ts:253-254` | FIX-26（原 FIX-21 后续 8） |
 | 询价列表 / 明细 / 旧比价接口给项目读者供应商报价原价（`src/lib/inquiry/service.ts:191-201`、`…/compare/route.ts:6-11`） | FIX-26 |
 | 问青砚 `project_get_project_quotes` 给组织成员 `profitMargin` + `totalAmount` | FIX-26 |
-| 投标策略备忘送进模型的目标毛利（`orchestrate.ts:425-439`）；`GET …/bid-draft` 返回的 `internalNotesZh` | CHAIN-2d #538 及其后续 |
+| 投标策略备忘送进模型的目标毛利（`2a0eb964` 上 `orchestrate.ts:425-439`）；`GET …/bid-draft` 返回的 `internalNotesZh` | CHAIN-2d #538（已合并 `fc321a7d`，编排只取对手价）；`bid-draft` 那项是它列的后续 |
 | 项目财务的实际利润与预算利润百分比（`GET …/finance/budget`、`/api/org/tender-portfolio`；`TENDER_FINANCIAL_CONTROL_ENABLED` 生产关） | CHAIN-2e Out of scope「另开任务」 |
 
 核对后不是出口：Muse `price_scenario` 传 `targetMarginPct: null`；BIDPAGE 汇总接口规格写明不出毛利率；成本核算只给财务查看权、不落库；投标工作区成本草稿只在本人浏览器；官方价格表导出不含毛利；通知、项目动态、审计日志列表都不带毛利。逐条文件:行号见 design「出口清单」。
@@ -71,9 +71,9 @@
 | `ProjectQuote.profitMargin` / `internalCost` / `pricingRate` / `summaryJson` | 旧报价单接口、编辑器、PDF、Excel、AI 审查 | 拿得到（生产在用） | FIX-26 |
 | `profitMargin`（问青砚 `project_get_project_quotes`） | 问青砚 | 组织成员即可拿到 | FIX-26 |
 | 预算的利润百分比 | `GET …/finance/budget` | 项目角色带成本读即可（财务开关生产关） | 另开任务（CHAIN-2e Out of scope） |
-| 投标策略备忘里转述的毛利 / 底价 | 情报页签、工作台摘要等 | 旧版备忘照旧可能带（CHAIN-2d 合并前） | CHAIN-2d #538 |
+| 投标策略备忘里转述的毛利 / 底价 | 情报页签、工作台摘要等 | 新备忘不带；旧版备忘在每个读取处先裁剪（#538 已合并） | CHAIN-2d #538 |
 
-所以「项目读者拿不到我方成本」要等 CHAIN-2e、CHAIN-2d、FIX-26 都合并才成立。
+所以「项目读者拿不到我方成本」要等 CHAIN-2e 与 FIX-26 也合并才成立（CHAIN-2d 已合并）。
 
 ## 5. 怎么验证的
 
@@ -90,7 +90,21 @@
 
 ## 6. 门禁
 
-（合入 main `c376be86` 后，本机）
+（本机。第二轮是收尾时合入 main `fc321a7d`（含 #538 CHAIN-2d）之后重跑，以它为准；第一轮是合入 `c376be86` 后。）
+
+第二轮（`91d80797` + 文档修订，全新库 `qy_full_fix25`）：
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | **738/748 通过，10 失败，与 main 基线 10 项逐条相同**（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB）；typecheck 0 错误 |
+| CI 子集 `npm run test:ci` | PASS |
+| `npm run typecheck` / `npm run lint:baseline` / `bash scripts/test-runtime-architecture.sh` | 通过 / PASS（errors 38，基线 53） / PASS |
+| `bash scripts/check-test-registry.sh` | OK（已注册 713，基线剩余 66） |
+| `npx openspec validate target-margin-finance-gate --strict` | valid |
+| 不改的文件（`prisma/`、`vercel.json`、`package*.json`、`.claude/`、`openspec/specs/`、`openspec/config.yaml`） | 与 `origin/main` 无差异 |
+| CHAIN-2d 的三个测试（合入后） | `memo-pricing` 52 过、`memo-legacy-db` 11 过、`memo-orchestrate-db` 8 过 |
+
+第一轮（`ff602829`，合入 `c376be86` 后）：
 
 | 命令 | 结果 |
 |---|---|
@@ -134,7 +148,7 @@
 - 跑 design 里的只读 SQL，看生产里能精确反推成本的项目有多少。
 - 告诉投标同事：不是负责人的人在报价表助手里看不到、也改不了目标毛利（与成本同一批人、同一句找谁）。
 - **CHAIN-2e #556**：不等它（GATE ⑦）。两边没有共同业务文件，只共用 `scripts/test-all.sh`、`scripts/test-ci-unit.sh` 的登记行与 TASKFLOW；谁后合谁先把 main 合进来重跑门禁。约束：`src/lib/project-finance/view-hint.ts:9` 用的 `COST_ACCESS_HINT_ZH` 没改；`finance-view.ts` 不引用 `node:`、`@/lib/db`、`next/`，也不 import `project-finance/access`（新测试有源码断言）。
-- **CHAIN-2d #538**：先后不限。它的 `memo-pricing.test.ts:286-297` 只放行 `finance-view.ts` 这一个非测试文件出现 `bidStrategyMemo` 字样，本 change 没有新增别的文件出现它。它带进来的 TASKFLOW FIX-25 行与本分支的 FIX-25 行前三列相同：本 change 先合时，#538 合并会在 CHAIN-2c 行之后显式冲突，取本分支的行（后两列）；#538 先合时，本分支变基时改它那一行。
+- **CHAIN-2d #538**：已于 2026-11-23 先合并（`fc321a7d`）。本分支合入时 TASKFLOW 一处冲突，按 tasks 4.3「#538 先合时改它带进来的那一行」解决：只留一行 FIX-25，在它带进来的位置（CHAIN-2d 行之后），前三列不变、后两列取本 change，FIX-26 紧随其后。它的遍历测试只放行 `finance-view.ts` 出现 `bidStrategyMemo` 字样，本 change 没有新增别的文件出现它；合入后重跑它的三个测试：`memo-pricing.test.ts` 52 过、`memo-legacy-db` 11 过、`memo-orchestrate-db` 8 过（`qy_iso_c`）。
 - **BIDPAGE**：不碰 `bid-page-summary` 金额门与 `bid-page/**`。
 
 ## 12. 与四件套的出入
