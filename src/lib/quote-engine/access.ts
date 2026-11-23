@@ -13,11 +13,25 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireProjectReadAccess, type ProjectAccessContext } from "@/lib/projects/access";
 import { hasProjectPermission, PERMISSIONS } from "@/lib/rbac/permissions";
-import { resolveFinanceViewSafe, type FinancePrivilege } from "@/lib/project-finance/access";
+import { resolveFinanceHintReason, resolveFinanceViewSafe, type FinancePrivilege } from "@/lib/project-finance/access";
+import { hintReasonField } from "@/lib/project-finance/view-hint";
+import type { QuoteHintReason } from "./finance-hint";
 import { isQuoteEngineEnabled } from "./flags";
 
 export type QuoteAccessLevel = "read" | "internal_cost" | "edit" | "approve";
-export type QuoteAccessContext = ProjectAccessContext & { orgId: string; canViewInternal: boolean; canEdit: boolean; canApprove: boolean };
+export type QuoteAccessContext = ProjectAccessContext & {
+  orgId: string;
+  canViewInternal: boolean;
+  canEdit: boolean;
+  canApprove: boolean;
+  /** CHAIN-2e：不能编辑时提示用哪一句（没有真人负责人 / 暂时无法确认）；默认那句时不带 */
+  hintReason?: QuoteHintReason;
+};
+
+/** 给 capabilities 用：默认那句时不带键（有权限的人与改动前形状相同） */
+export function capabilityHint(access: Pick<QuoteAccessContext, "hintReason">): { hintReason?: QuoteHintReason } {
+  return access.hintReason ? { hintReason: access.hintReason } : {};
+}
 
 export function quoteEngineDisabledResponse(): NextResponse | null {
   if (isQuoteEngineEnabled()) return null;
@@ -51,5 +65,7 @@ export async function requireQuoteAccess(request: NextRequest, projectId: string
   const caps = resolveQuoteCapabilities(access, { finance });
   const allowed = level === "read" ? true : level === "internal_cost" ? caps.canViewInternal : level === "edit" ? caps.canEdit : caps.canApprove;
   if (!allowed) return NextResponse.json({ error: "无权执行该报价操作" }, { status: 403 });
-  return { ...access, orgId, canViewInternal: caps.canViewInternal, canEdit: caps.canEdit, canApprove: caps.canApprove };
+  // 不能编辑的人才需要提示；只在这时多查一次负责人账号
+  const hint = caps.canEdit ? {} : hintReasonField(await resolveFinanceHintReason(finance, access.project.ownerId));
+  return { ...access, orgId, canViewInternal: caps.canViewInternal, canEdit: caps.canEdit, canApprove: caps.canApprove, ...(hint as { hintReason?: QuoteHintReason }) };
 }

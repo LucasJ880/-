@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireQuoteAccess } from "@/lib/quote-engine/access";
+import { capabilityHint, requireQuoteAccess } from "@/lib/quote-engine/access";
 import { computeForQuote, engineOf, getQuote, QuoteEngineError, updateEngineQuote, type QuoteRecord } from "@/lib/quote-engine/service";
 import { quoteHeaderSchema, type CostLinePayload, type TierPayload } from "@/lib/quote-engine/contract";
 import { getCompanyIdentity } from "@/lib/quote-engine/quotation-identity";
@@ -26,9 +26,9 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     const q = await getQuote(quoteId, id);
     const computed = computeForQuote(q);
     if (!access.canViewInternal) {
-      return NextResponse.json({ customerView: buildCustomerView({ quote: q, calc: computed.calc.ok ? computed.calc : null, tiers: computed.standingOffer?.tiers ?? null, tax: engineOf(q).tax ?? null, company: await getCompanyIdentity(access.orgId) }), capabilities: { canViewInternal: false, canEdit: false, canApprove: false } });
+      return NextResponse.json({ customerView: buildCustomerView({ quote: q, calc: computed.calc.ok ? computed.calc : null, tiers: computed.standingOffer?.tiers ?? null, tax: engineOf(q).tax ?? null, company: await getCompanyIdentity(access.orgId) }), capabilities: { canViewInternal: false, canEdit: false, canApprove: false, ...capabilityHint(access) } });
     }
-    return NextResponse.json({ quote: serializeInternal(q), computed, capabilities: { canViewInternal: true, canEdit: access.canEdit, canApprove: access.canApprove } });
+    return NextResponse.json({ quote: serializeInternal(q), computed, capabilities: { canViewInternal: true, canEdit: access.canEdit, canApprove: access.canApprove, ...capabilityHint(access) } });
   } catch (e) {
     if (e instanceof QuoteEngineError) return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
     throw e;

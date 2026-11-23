@@ -7,7 +7,8 @@
  * - 待批催单卡：审批信息与正文复用 W-1 的 loadRfqApprovalInfo / loadRfqSendEmails。
  * - 价格：至少一家已报价的轮次调 loadCompareMatrix，按 itemId 对上；最多 50 轮。按白名单组装，不带估值、我方报价、毛利。
  * - CHAIN-2e：落地价只给对该行所在项目有财务查看权的人（与成本核算同一判定；组织级查一次，每个项目再并上「负责人是本人」）；
- *   没有的项目在组装前就把矩阵行的落地价置空，那一格写「落地价只给有财务查看权的人看」。
+ *   没有的项目在组装前就把矩阵行的落地价置空，那一格写「落地价只给有财务查看权的人看」；有行被隐藏时整页带 landedHidden
+ *   与提示原因（授权查询出错 unconfirmed；被隐藏的项目都没有真人负责人 no_owner；部分没有 mixed；默认不带）。
  */
 
 import type { NextRequest } from "next/server";
@@ -20,6 +21,8 @@ import { chaseDaysForRound, loadFollowUpRoundState, loadItems, type LoadedItem }
 import { currentMissingFields } from "./chase-pure";
 import { loadCompareMatrix } from "./compare-service";
 import { resolveFinanceViewSafe } from "@/lib/project-finance/access";
+import { hintReasonField, type FinanceHintReason, type FinanceHintReasonField } from "@/lib/project-finance/view-hint";
+import { projectHasAssignedOwner } from "@/lib/projects/system-owner";
 import type { CompareRow } from "./compare";
 import type { InboundMissingField } from "./inbound-contract";
 import { TENDER_SEND_CHASE_TYPE } from "./types";
@@ -76,7 +79,9 @@ export type TrackerPayload = {
   groups: TrackerGroup[];
   timeZone: string;
   truncated: boolean;
-};
+  /** CHAIN-2e：有报价行的落地价被隐藏（页面顶部写一次谁能看、找谁）；没有被隐藏的不带 */
+  landedHidden?: true;
+} & FinanceHintReasonField;
 
 type ExtraFields = { currency: string | null; repliedAt: Date | null };
 
@@ -328,6 +333,20 @@ export async function loadTracker(input: {
 
   const summary = trackerSummary(built, now);
   if (input.summaryOnly) return { summary, groups: [], timeZone, truncated };
+
+  // 有报价行的落地价被隐藏 → 页面顶部写一次谁能看、找谁（按被隐藏的项目有没有真人负责人换句）
+  const hiddenProjects = [...new Set(items.filter((it) => it.snapshot.status === "quoted" && !canViewCostOf(it.snapshot.projectId)).map((it) => it.snapshot.projectId))];
+  let landed: { landedHidden?: true } & FinanceHintReasonField = {};
+  if (hiddenProjects.length > 0) {
+    let reason: FinanceHintReason = "unconfirmed";
+    if (!orgFinance?.unconfirmed) {
+      const ownerIds = [...new Set(hiddenProjects.map((p) => ownerOf.get(p)).filter((x): x is string => !!x))];
+      const owners = new Map((await db.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, email: true } })).map((u) => [u.id, u]));
+      const withOwner = hiddenProjects.filter((p) => projectHasAssignedOwner(owners.get(ownerOf.get(p) ?? "") ?? null)).length;
+      reason = withOwner === hiddenProjects.length ? "no_access" : withOwner === 0 ? "no_owner" : "mixed";
+    }
+    landed = { landedHidden: true, ...hintReasonField(reason) };
+  }
   let rows = built;
   if (rows.length > rowLimit) {
     truncated = true;
@@ -360,5 +379,5 @@ export async function loadTracker(input: {
   const needCount = (g: TrackerGroup) => g.rounds.reduce((a, r) => a + r.rows.filter((x) => x.needsAction).length, 0);
   groups.sort((a, b) => needCount(b) - needCount(a));
 
-  return { summary, groups, timeZone, truncated };
+  return { summary, groups, timeZone, truncated, ...landed };
 }

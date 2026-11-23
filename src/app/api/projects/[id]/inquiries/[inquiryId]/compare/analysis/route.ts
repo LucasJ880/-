@@ -10,7 +10,8 @@
  * 找不到的就地标注「［矩阵中无此数］」，并在 numberCheck 里列出；界面据此提示以矩阵为准。
  *
  * CHAIN-2e：没有财务查看权的人（与成本核算同一判定）——矩阵先裁剪（落地价、换算说明、带金额的结论去掉），
- * 模型只拿裁剪后的矩阵（仍是这一次调用，提示词写明不提供落地价），数字校验用同一份输入；响应（含 502）只带裁剪后的矩阵与 costHidden。
+ * 模型只拿裁剪后的矩阵（仍是这一次调用，提示词写明不提供落地价），数字校验用同一份输入；响应（含 502）只带裁剪后的矩阵、costHidden
+ * 与提示原因 hintReason（没有真人负责人 / 授权查询出错；默认不带）。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -20,7 +21,8 @@ import { createCompletion } from "@/lib/ai/client";
 import { isAIConfigured } from "@/lib/ai/config";
 import { loadCompareMatrix } from "@/lib/tender-rfq/compare-service";
 import { buildInterpretationPayload, buildMatrixInterpretationPrompt, compareMatrixFinanceView } from "@/lib/tender-rfq/compare";
-import { resolveFinanceViewSafe } from "@/lib/project-finance/access";
+import { resolveFinanceHintReason, resolveFinanceViewSafe } from "@/lib/project-finance/access";
+import { hintReasonField } from "@/lib/project-finance/view-hint";
 import { checkInterpretationNumbers, collectAllowedNumbers } from "@/lib/tender-rfq/interpretation-guard";
 
 type Params = { params: Promise<{ id: string; inquiryId: string }> };
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const finance = await resolveFinanceViewSafe(access.user, access.project.orgId, access.project.ownerId);
     const matrix = compareMatrixFinanceView(r.matrix, { canView: finance.canReadAll, firstTierQty: r.firstTierQty });
-    const hidden = matrix.costHidden ? { costHidden: true as const } : {};
+    const hidden = { ...(matrix.costHidden ? { costHidden: true as const, ...hintReasonField(await resolveFinanceHintReason(finance, access.project.ownerId)) } : {}) };
     const ctx = { projectName: r.projectName, roundNumber: r.roundNumber, closeDate: r.closeDate };
     const prompt = buildMatrixInterpretationPrompt(matrix, ctx);
     const raw = await createCompletion({ ...prompt, mode: "normal", temperature: 0.2, workflow: "tender_rfq_compare_interpret" });

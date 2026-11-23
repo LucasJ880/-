@@ -7,7 +7,10 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { allowCostPermission, decideFinancePrivilege, resolveFinanceViewSafe, type FinancePrivilege } from "../access";
+import { allowCostPermission, decideFinancePrivilege, FINANCE_VIEW_FALLBACK_LOG, resolveFinanceViewSafe, type FinancePrivilege } from "../access";
+import { ASK_OWNER_ZH, financeHiddenHintZh, financeHintReason, hintReasonField, WHO_CAN_SEE_ZH } from "../view-hint";
+import { COST_ACCESS_HINT_ZH } from "@/lib/tender-pricing/finance-view";
+import { INTAKE_SYSTEM_USER_EMAIL, isIntakeSystemUserEmail, projectHasAssignedOwner } from "@/lib/projects/system-owner";
 import type { AuthUser } from "@/lib/auth";
 import { resolveQuoteCapabilities } from "@/lib/quote-engine/access";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -125,8 +128,13 @@ async function fallbackCases() {
   const throwing = async (): Promise<FinancePrivilege> => {
     throw new Error("authorize down");
   };
+  const errors: unknown[][] = [];
   const warns: unknown[][] = [];
+  const origError = console.error;
   const origWarn = console.warn;
+  console.error = (...a: unknown[]) => {
+    errors.push(a);
+  };
   console.warn = (...a: unknown[]) => {
     warns.push(a);
   };
@@ -134,17 +142,20 @@ async function fallbackCases() {
     const owner = await resolveFinanceViewSafe(user("u1"), "o1", "u1", throwing);
     ok(owner.privileged && owner.canReadAll, "授权查询抛错：项目负责人照旧有特权");
     const acc = await resolveFinanceViewSafe(user("u2"), "o1", "u1", throwing);
-    ok(!acc.privileged && !acc.canReadAll, "授权查询抛错：持组织键的人（会计）按不持键算 → 看不到");
+    ok(!acc.privileged && !acc.canReadAll && acc.unconfirmed === true, "授权查询抛错：持组织键的人（会计）按不持键算 → 看不到，并标「暂时无法确认」（不冒充没有权限）", acc);
     const sa = await resolveFinanceViewSafe(user("u3", "super_admin"), "o1", "u1", throwing);
     ok(sa.privileged && sa.canReadAll, "授权查询抛错：平台超级管理员照旧");
     const platAdmin = await resolveFinanceViewSafe(user("u4", "admin"), "o1", "u1", throwing);
     ok(!platAdmin.privileged && !platAdmin.canReadAll, "平台 admin（非 super_admin）→ 不直通");
-    ok(warns.length === 4 && warns.every((w) => String(w[0]).startsWith("[finance-view]") && w[1] === "authorize down" && w.length === 2), "每次抛错记一条警告，只含原因", warns);
+    ok(errors.length === 4 && warns.length === 0 && errors.every((w) => w[0] === FINANCE_VIEW_FALLBACK_LOG && w[1] === "authorize down" && w.length === 2), "每次抛错记一条 console.error（可识别的标签 + 只含原因），不是 warn", { errors, warns });
   } finally {
+    console.error = origError;
     console.warn = origWarn;
   }
   const passthrough = await resolveFinanceViewSafe(user("u2"), "o1", "u1", async () => ({ privileged: false, canReadAll: true }));
-  ok(!passthrough.privileged && passthrough.canReadAll, "不抛错时原样用判定结果（会计只读）");
+  ok(!passthrough.privileged && passthrough.canReadAll && passthrough.unconfirmed === undefined, "不抛错时原样用判定结果（会计只读），不带 unconfirmed");
+  const denied = await resolveFinanceViewSafe(user("u2"), "o1", "u1", async () => ({ privileged: false, canReadAll: false }));
+  ok(!denied.privileged && !denied.canReadAll && denied.unconfirmed === undefined, "判定返回没有权限：结果仍是没有权限，不带 unconfirmed（是真的没有权限）");
   let called = false;
   const noOrg = await resolveFinanceViewSafe(user("u1"), null, "u1", async () => {
     called = true;
@@ -152,7 +163,23 @@ async function fallbackCases() {
   });
   ok(noOrg.privileged && !called, "项目没有组织：不调判定，只剩超级管理员与负责人");
   const noOrgOther = await resolveFinanceViewSafe(user("u2"), null, "u1");
-  ok(!noOrgOther.canReadAll, "项目没有组织、不是负责人 → 看不到");
+  ok(!noOrgOther.canReadAll && noOrgOther.unconfirmed === undefined, "项目没有组织、不是负责人 → 看不到（这是规则，不是暂时无法确认）");
+}
+
+console.log("CHAIN-2e 提示句与系统负责人（纯函数）");
+{
+  ok(WHO_CAN_SEE_ZH + ASK_OWNER_ZH === COST_ACCESS_HINT_ZH, "「谁能看 + 找谁」与 CHAIN-2b 的 COST_ACCESS_HINT_ZH 逐字相同");
+  ok(financeHiddenHintZh("落地价") === "落地价只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。", "默认：谁能看、找项目负责人");
+  ok(financeHiddenHintZh("落地价", "no_owner") === "落地价只给项目负责人和有全企业「查看项目结算」权限的人看；这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人。", "没有真人负责人：改为找组织管理员把做报价的同事设为主负责人");
+  ok(financeHiddenHintZh("落地价", "unconfirmed") === "暂时无法确认你的查看权限，请稍后刷新。", "授权查询出错：只说暂时无法确认");
+  ok(financeHiddenHintZh("落地价", "mixed").startsWith("落地价只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人；还没有指定负责人的项目，请找组织管理员"), "追踪页几行混在一起：两种找谁都写");
+  ok(financeHintReason({ unconfirmed: true, ownerAssigned: false }) === "unconfirmed" && financeHintReason({ unconfirmed: false, ownerAssigned: false }) === "no_owner" && financeHintReason({ unconfirmed: false, ownerAssigned: true }) === "no_access", "原因：暂时无法确认 > 没有真人负责人 > 没有权限");
+  ok(JSON.stringify(hintReasonField("no_access")) === "{}" && JSON.stringify(hintReasonField("no_owner")) === '{"hintReason":"no_owner"}', "默认原因不进响应（与改动前形状相同）");
+  ok(INTAKE_SYSTEM_USER_EMAIL === "system@qingyan.internal" && /email: INTAKE_SYSTEM_USER_EMAIL/.test(code("src/app/api/v1/projects/route.ts")), "系统账号邮箱与导入建项目接口用同一个常量");
+  ok(isIntakeSystemUserEmail(" System@Qingyan.Internal ") && !isIntakeSystemUserEmail("someone@qingyan.internal") && !isIntakeSystemUserEmail(null), "系统账号按邮箱认（忽略大小写与空白）");
+  ok(!projectHasAssignedOwner({ email: "system@qingyan.internal" }) && !projectHasAssignedOwner(null) && projectHasAssignedOwner({ email: "lead@fixture.test" }) && projectHasAssignedOwner({ email: null }), "负责人是系统账号或账号不存在 → 没有真人负责人；其余都算有");
+  const lib = code("src/lib/project-finance/access.ts");
+  ok(/catch \(err\) \{\s*console\.error\(FINANCE_VIEW_FALLBACK_LOG, /.test(lib) && /unconfirmed: true/.test(lib), "兜底分支用 console.error 带固定标签，并标 unconfirmed");
 }
 
 fallbackCases()

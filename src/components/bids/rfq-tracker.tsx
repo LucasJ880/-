@@ -20,6 +20,7 @@ import type { TrackerCard, TrackerPayload, TrackerRow } from "@/lib/tender-rfq/t
 import { EMPTY_TRACKER_ZH, TRACKER_TABS, approvableCards, filterTrackerGroups, firstTabWithRows, type TrackerTab } from "@/lib/tender-rfq/tracker-view";
 import { chaseOutcomeFromMessage, chaseErrorText, friendlyExecutionError } from "@/lib/tender-rfq/web-entry-pure";
 import { cn } from "@/lib/utils";
+import { financeHiddenHintZh } from "@/lib/project-finance/view-hint";
 
 type ChaseNowResponse = {
   drafted?: Array<{ itemId: string; actionId: string; chaseKind: TrackerCard["chaseKind"]; chaseIndex: number; approval: TrackerCard["approval"] | null; emails: TrackerCard["emails"] }>;
@@ -160,6 +161,7 @@ export function RfqTracker() {
           </button>
         ))}
       </div>
+      {data.landedHidden ? <p className="text-[11px] text-muted" data-testid="landed-hidden-hint">{financeHiddenHintZh("落地价", data.hintReason ?? "no_access")}</p> : null}
       {data.truncated ? <p className="text-[11px] text-amber-700">在途询价太多，只列了一部分（需要我处理的优先）。可以从首页建议或项目里按项目查看。</p> : null}
 
       {groups.length === 0 ? (

@@ -303,6 +303,11 @@ console.log("接线");
   ok("tracker-view 不引用任何模块（尤其 chase-pure / node:）", !/^\s*import\s/m.test(view) && !/from\s+"/.test(view));
   ok("追踪页与汇总卡只从 tracker-view 取，不从 tracker-pure / chase-pure 取", page.includes('from "@/lib/tender-rfq/tracker-view"') && card.includes('from "@/lib/tender-rfq/tracker-view"') && !/from "@\/lib\/tender-rfq\/(tracker-pure|chase-pure)"/.test(page + card));
   ok("tracker-pure 原样转出 tracker-view 的名字", read("src/lib/tender-rfq/tracker-pure.ts").includes('} from "./tracker-view";'));
+  // CHAIN-2e：有行的落地价被隐藏时页面顶部写一次谁能看、找谁（按原因换句）；提示模块链上没有 node: 与读库模块
+  ok("CHAIN-2e 页面：landedHidden 时顶部写一次提示（按 hintReason 换句）", /\{data\.landedHidden \? <p[^>]*data-testid="landed-hidden-hint">\{financeHiddenHintZh\("落地价", data\.hintReason \?\? "no_access"\)\}<\/p> : null\}/.test(page) && page.includes('from "@/lib/project-finance/view-hint"'));
+  const hintChain = ["src/lib/project-finance/view-hint.ts", "src/lib/tender-pricing/finance-view.ts", "src/lib/tender-pricing/calc.ts"].map(read).join("\n");
+  ok("CHAIN-2e 提示模块链（view-hint → finance-view → calc）不引用 node: / 读库模块", !/from "node:|from "@\/lib\/db"|from "next\//.test(hintChain));
+  ok("CHAIN-2e 取数：有行被隐藏时整页带 landedHidden 与提示原因；汇总卡不算", /landed = \{ landedHidden: true, \.\.\.hintReasonField\(reason\) \};/.test(svc) && /return \{ summary, groups, timeZone, truncated, \.\.\.landed \};/.test(svc) && svc.indexOf("if (input.summaryOnly) return { summary, groups: [], timeZone, truncated };") < svc.indexOf("const hiddenProjects"));
 }
 
 console.log(`\ntracker-pure: ${passed} passed`);

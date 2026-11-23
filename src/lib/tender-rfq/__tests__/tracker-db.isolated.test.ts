@@ -300,8 +300,25 @@ async function main() {
     ok(String(rowBy(g9.body, "Uniform Hidden")?.quote?.landedText) === `落地价 CAD ${u3Tokens[0]}`, "CHAIN-2e P3 的负责人（普通组织成员）自己看：照常显示落地价", rowBy(g9.body, "Uniform Hidden")?.quote);
     const g10 = await getTracker(MEMBER1);
     ok(String(rowBy(g10.body, "Delta Quoted")?.quote?.landedText) === "落地价只给有财务查看权的人看" && !g10.text.includes(Math.round(dTotal).toLocaleString("en-US")) && String(rowBy(g10.body, "Epsilon CNY")?.quote?.landedText).startsWith("落地价未换算"), "CHAIN-2e P1 的只读成员：落地价不显示（搜不到），换算不出的原因照常", rowBy(g10.body, "Delta Quoted")?.quote);
+    ok(g8.body.landedHidden === true && !("hintReason" in g8.body), "CHAIN-2e 有行被隐藏：响应带 landedHidden（P3 有真人负责人 → 默认那句，不带 hintReason）", { landedHidden: g8.body.landedHidden, hintReason: g8.body.hintReason });
+    ok(g9.body.landedHidden === undefined, "CHAIN-2e 没有行被隐藏（P3 负责人自己看）：不带 landedHidden", g9.body.landedHidden);
+    ok(String(rec(rowBy(g10.body, "Epsilon CNY")?.quote).needsCompareLink) === "true" && rec(rowBy(g10.body, "Delta Quoted")?.quote).needsCompareLink === false, "CHAIN-2e 没有权限的格子没有「去比价」链接（换算不出的照旧有）");
+    // 负责人是导入用的系统账号的项目：提示改为找组织管理员
+    const sysExisting = await db.user.findFirst({ where: { email: "system@qingyan.internal" }, select: { id: true } });
+    const SYS = sysExisting?.id ?? (await db.user.create({ data: { email: "system@qingyan.internal", name: "System (API)", role: "user", status: "active", passwordHash: "" } })).id;
+    if (!sysExisting) users.push(SYS);
+    const P4 = await mkProject({ owner: SYS, name: "Fixture Tender Four" });
+    await db.projectMember.create({ data: { projectId: P4, userId: MEMBER1, role: "viewer", status: "active" } });
+    const r5 = await mkRound(P4, 1, ymdAfter(10));
+    await mkItem(r5, await mkSupplier("Whiskey System"), { status: "quoted", sentAt: ago(2), repliedAt: ago(1), unitPrice: 12.34, totalPrice: 2468, currency: "USD", deliveryDays: 18, validUntil: ymdAfter(40), contactNotes: "threadId=thrWS", quoteNotes: autoNotes("单价=12.34；贸易条款=DDP") });
+    const g11 = await getTracker(MEMBER1);
+    ok(g11.body.landedHidden === true && g11.body.hintReason === "mixed", "CHAIN-2e 只读成员看 P1（有负责人）+ P4（负责人是系统账号）：提示原因 mixed", { landedHidden: g11.body.landedHidden, hintReason: g11.body.hintReason });
+    await db.projectMember.deleteMany({ where: { projectId: P1, userId: MEMBER1 } });
+    const g12 = await getTracker(MEMBER1);
+    ok(g12.body.landedHidden === true && g12.body.hintReason === "no_owner" && String(rowBy(g12.body, "Whiskey System")?.quote?.landedText) === "落地价只给有财务查看权的人看", "CHAIN-2e 只看 P4（负责人是系统账号）：提示原因 no_owner，那一格照常写同一句", { hintReason: g12.body.hintReason, cell: rowBy(g12.body, "Whiskey System")?.quote });
+    await db.projectMember.create({ data: { projectId: P1, userId: MEMBER1, role: "viewer", status: "active" } });
     const gs8 = await getTracker(OWNER, "?summary=1");
-    ok(JSON.stringify(gs8.body.groups) === "[]" && rec(gs8.body.summary).quoted === rec(g8.body.summary).quoted, "CHAIN-2e 汇总卡照常（不取矩阵）");
+    ok(JSON.stringify(gs8.body.groups) === "[]" && gs8.body.landedHidden === undefined, "CHAIN-2e 汇总卡照常（不取矩阵、不带 landedHidden）");
 
     /* ---------- 9. 旧接口 ---------- */
     const old = await batchRoute.POST();

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
-import { COMPARE_LANDED_HIDDEN_HINT_ZH } from "@/lib/tender-rfq/compare";
+import { landedHiddenHintZh } from "@/lib/tender-rfq/compare";
 
 interface QuoteAnalysis {
   summary: string;
@@ -33,6 +33,8 @@ interface AnalysisResult {
   numberCheck?: { ok: boolean; unverified: Array<{ field: string; token: string }> };
   /** CHAIN-2e：看的人没有财务查看权，结论与解读里没有落地价 */
   costHidden?: boolean;
+  /** CHAIN-2e：提示用哪一句（没有真人负责人 / 暂时无法确认）；默认不带 */
+  hintReason?: "no_owner" | "unconfirmed";
 }
 
 interface Props {
@@ -161,7 +163,7 @@ export function QuoteAnalysisPanel({ projectId, inquiryId, quotedCount }: Props)
                 )}
                 {result.costHidden && (
                   <p className="mt-1 text-[11px] text-muted" data-testid="landed-hidden-hint">
-                    {COMPARE_LANDED_HIDDEN_HINT_ZH}
+                    {landedHiddenHintZh(result.hintReason)}
                   </p>
                 )}
               </div>

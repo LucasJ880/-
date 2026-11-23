@@ -6,8 +6,8 @@
  *   projectScenariosForMuse：buildScenarios 的结果投影成 Muse 可见字段——价格分、总分差、打平价、供应商落地价（决定 A），
  *                            丢掉 marginPct / noteZh / assumptionsZh
  *   buildMatrixInterpretationPrompt：/compare/analysis 的 LLM 只拿矩阵写解读，不碰原始行、不算数
- *   compareMatrixFinanceView：CHAIN-2e 没有财务查看权的人看到的矩阵——落地价、换算说明（逐项金额与汇率）、
- *                             带金额的结论都去掉，排序 / 标记 / 推荐 / 检查 / 换算不出的原因照常
+ *   compareMatrixFinanceView：CHAIN-2e 没有财务查看权的人看到的矩阵——落地价、换算说明里带金额 / 汇率的几条、
+ *                             带金额的结论都去掉，排序 / 标记 / 推荐 / 检查与检查说明 / 换算不出的原因 / 供应商原价照常
  */
 
 import {
@@ -17,7 +17,7 @@ import {
   type TenderTimeline,
 } from "./landed-cost";
 import { otherPoints, priceScore, type PricingResult, type ScoringModel } from "@/lib/tender-pricing/calc";
-import { COST_ACCESS_HINT_ZH } from "@/lib/tender-pricing/finance-view";
+import { financeHiddenHintZh, type FinanceHintReason } from "@/lib/project-finance/view-hint";
 
 /* ---------------------------------- 类型 ---------------------------------- */
 
@@ -191,7 +191,7 @@ export function summarizeMatrixZh(
   const rec = m.recommendedItemId ? byId.get(m.recommendedItemId)! : null;
   const parts: string[] = [
     hide
-      ? `共 ${m.rows.length} 家报价（按落地价从低到高排序，金额不显示）。`
+      ? `共 ${m.rows.length} 家报价（落地价金额不显示）。`
       : `共 ${m.rows.length} 家报价（落地价，CAD，到目的地，含关税，不含 GST/HST；DDP 以供应商报价为准）。`,
   ];
 
@@ -229,11 +229,22 @@ export function summarizeMatrixZh(
 
 /* ---------------------------------- CHAIN-2e 财务查看权 ---------------------------------- */
 
-/** 比价面板（AI 报价分析）在 costHidden 时显示：谁能看、找谁（与报价表助手同一句） */
-export const COMPARE_LANDED_HIDDEN_HINT_ZH = `落地价${COST_ACCESS_HINT_ZH}`;
+/** 比价面板（AI 报价分析）在 costHidden 时显示：谁能看、找谁（与报价表助手同一句）；没有真人负责人 / 暂时无法确认时换句 */
+export function landedHiddenHintZh(reason?: FinanceHintReason): string {
+  return financeHiddenHintZh("落地价", reason ?? "no_access");
+}
+export const COMPARE_LANDED_HIDDEN_HINT_ZH = landedHiddenHintZh();
 
 /**
- * 没有财务查看权的人看到的矩阵：每行落地单价 / 总价置 null、换算说明（运费 / 保险 / 关税 / 清关逐项金额与汇率）置空，
+ * 换算说明里带金额或汇率的几条（落地价换算 normalizeQuote 写的每一条都带「CAD」「汇率」或「%」；测试逐条核对）。
+ * 检查说明（如「未设交付截止，按截标日 +30 天……判断交期」）不带，照常给没有财务查看权的人。
+ */
+export function isLandedCostAssumption(a: string): boolean {
+  return /CAD|汇率|%/.test(a);
+}
+
+/**
+ * 没有财务查看权的人看到的矩阵：每行落地单价 / 总价置 null、换算说明里带金额 / 汇率的几条（运费 / 保险 / 关税 / 清关 / 汇率）去掉、检查说明照常，
  * 结论换成无金额版本（用裁剪前的行生成：「换算不出」要看原来的落地价），带 costHidden。
  * 供应商报价原价、排序、标记、推荐、检查、缺字段、warnings（汇率过期天数）、blockers（缺什么参数）照常。
  * 有权限时原样返回（同一对象）。不改入参。
@@ -241,7 +252,7 @@ export const COMPARE_LANDED_HIDDEN_HINT_ZH = `落地价${COST_ACCESS_HINT_ZH}`;
 export function compareMatrixFinanceView(matrix: CompareMatrix, opts: { canView: boolean; firstTierQty: number | null }): CompareMatrix {
   if (opts.canView) return matrix;
   return {
-    rows: matrix.rows.map((r) => ({ ...r, landedCad: { unit: null, total: null }, assumptions: [] })),
+    rows: matrix.rows.map((r) => ({ ...r, landedCad: { unit: null, total: null }, assumptions: r.assumptions.filter((a) => !isLandedCostAssumption(a)) })),
     cheapestItemId: matrix.cheapestItemId,
     recommendedItemId: matrix.recommendedItemId,
     summaryZh: summarizeMatrixZh({ rows: matrix.rows, cheapestItemId: matrix.cheapestItemId, recommendedItemId: matrix.recommendedItemId, firstTierQty: opts.firstTierQty }, { hideAmounts: true }),

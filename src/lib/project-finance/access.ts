@@ -19,6 +19,9 @@ import { isPlatformSuperAdmin } from "@/lib/rbac/roles";
 import { hasProjectPermission } from "@/lib/rbac/permissions";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { isFinancialControlEnabled } from "./flags";
+import { db } from "@/lib/db";
+import { projectHasAssignedOwner } from "@/lib/projects/system-owner";
+import { financeHintReason, type FinanceHintReason } from "./view-hint";
 
 export const PROJECT_FINANCE_MANAGE = "project.finance.manage";
 export const PROJECT_FINANCE_READ = "project.finance.read";
@@ -29,6 +32,8 @@ export type FinancePrivilege = {
   privileged: boolean;
   /** 看全部费用 / 应付 / 预算（含 privileged） */
   canReadAll: boolean;
+  /** CHAIN-2e：授权查询出错、按兜底收紧了（看不到不一定是没有权限；界面说「暂时无法确认」）。只由 resolveFinanceViewSafe 设 */
+  unconfirmed?: true;
 };
 
 async function holdsOrgKey(user: AuthUser, orgId: string, permission: string): Promise<boolean> {
@@ -64,10 +69,14 @@ export async function resolveFinancePrivilege(
   });
 }
 
+/** CHAIN-2e：兜底日志的固定标签（日志里按它搜授权查询失败） */
+export const FINANCE_VIEW_FALLBACK_LOG = "[finance-view] 授权查询失败，按不持组织键处理";
+
 /**
  * CHAIN-2e：对本项目的财务能力，带兜底（报价引擎、比价矩阵 / AI 报价分析、询价追踪页共用；与成本核算同一判定）。
- * 项目没有组织、或授权查询抛错时按「不持组织键」算：只剩平台超级管理员与项目负责人（他们的判定不依赖授权查询）；
- * 抛错时记一条只含原因的警告日志。第四个参数只给测试注入会抛错的判定。
+ * 项目没有组织时按「不持组织键」算（规则如此）；授权查询抛错时同样收紧到只剩平台超级管理员与项目负责人，
+ * 但结果带 unconfirmed（界面说「暂时无法确认」，不冒充「没有权限」），并记一条 console.error（固定标签 + 只含原因）。
+ * 第四个参数只给测试注入会抛错的判定。
  */
 export async function resolveFinanceViewSafe(
   user: AuthUser,
@@ -86,9 +95,25 @@ export async function resolveFinanceViewSafe(
   try {
     return await resolve(user, orgId, projectOwnerId);
   } catch (err) {
-    console.warn("[finance-view] finance privilege", err instanceof Error ? err.message : String(err));
-    return withoutOrgKeys();
+    console.error(FINANCE_VIEW_FALLBACK_LOG, err instanceof Error ? err.message : String(err));
+    return { ...withoutOrgKeys(), unconfirmed: true };
   }
+}
+
+/** CHAIN-2e：项目有没有真人负责人（负责人账号不存在或是导入用的系统账号 → 没有）。查询出错时按「有」算（只影响提示用哪一句） */
+export async function projectOwnerAssigned(ownerId: string | null): Promise<boolean> {
+  if (!ownerId) return false;
+  try {
+    return projectHasAssignedOwner(await db.user.findUnique({ where: { id: ownerId }, select: { email: true } }));
+  } catch {
+    return true;
+  }
+}
+
+/** CHAIN-2e：看不到时为什么（提示用哪一句）：授权查询出错 > 没有真人负责人 > 没有权限 */
+export async function resolveFinanceHintReason(finance: FinancePrivilege, ownerId: string | null): Promise<Exclude<FinanceHintReason, "mixed">> {
+  if (finance.unconfirmed) return "unconfirmed";
+  return financeHintReason({ unconfirmed: false, ownerAssigned: await projectOwnerAssigned(ownerId) });
 }
 
 /** 纯决策：请求的细粒度权限是否放行 */

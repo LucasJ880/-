@@ -4,6 +4,7 @@
  * 运行：npx tsx src/lib/tender-rfq/__tests__/compare.test.ts
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { buildScenarios, PRICING_MODEL_VERSION, type ScoringModel } from "@/lib/tender-pricing/calc";
 import { formatCompareResponse, formatNoQuotesResponse, formatPriceScenarioResponse, OUTBOUND_REDACTED, sanitizeOutbound } from "@/lib/muse-bridge/router-pure";
 import { museCommandResponseSchema } from "@/lib/muse-bridge/contract";
@@ -183,7 +184,7 @@ const AB = buildCompareMatrix([
   const hid = view!(M, { canView: false, firstTierQty: TENDER.firstTierQty });
   ok("CHAIN-2e 不改入参", JSON.stringify(M) === before);
   ok("CHAIN-2e 无权：costHidden: true", hid.costHidden === true);
-  ok("CHAIN-2e 无权：每行落地单价 / 总价为 null、换算说明为空", hid.rows.every((r) => r.landedCad.unit === null && r.landedCad.total === null && r.assumptions.length === 0), hid.rows);
+  ok("CHAIN-2e 无权：每行落地单价 / 总价为 null、换算说明里带金额 / 汇率的几条去掉（这一组没有检查说明 → 为空）", hid.rows.every((r) => r.landedCad.unit === null && r.landedCad.total === null && r.assumptions.length === 0), hid.rows);
   const keep = (m: CompareMatrix) => JSON.stringify(m.rows.map((r) => [r.itemId, r.supplierId, r.supplierName, r.quoted, r.flags, r.checks, r.blockers, r.warnings, r.missingFields, r.deliveryLateDays, r.validityShortDays]));
   ok("CHAIN-2e 无权：排序、标记、检查、缺字段、换算不出的原因、供应商原价照常", keep(hid) === keep(M) && hid.cheapestItemId === M.cheapestItemId && hid.recommendedItemId === M.recommendedItemId && hid.generatedAt === M.generatedAt);
   ok("CHAIN-2e 前提：C 有逐项金额的换算说明、D 换算不出", M.rows.find((r) => r.itemId === "C")!.assumptions.some((a) => /保险|关税/.test(a)) && M.rows.find((r) => r.itemId === "D")!.flags.includes("not_normalized"));
@@ -198,7 +199,7 @@ const AB = buildCompareMatrix([
   ok("CHAIN-2e 无权：响应里搜不到由系统算出的落地价与换算说明里的逐项金额", derivedLanded.every((t) => !hidJson.includes(t)) && assumptionTokens.length >= 4 && assumptionTokens.every((t) => !hidJson.includes(t)), { found: [...derivedLanded, ...assumptionTokens].filter((t) => hidJson.includes(t)) });
   ok("CHAIN-2e 前提：原结论里有金额与百分比", M.summaryZh.includes("54,322") && M.summaryZh.includes("%"), M.summaryZh);
   ok("CHAIN-2e 无金额结论：没有金额、没有「%」", !/\d{1,3}(?:,\d{3})+|\d+\.\d/.test(hid.summaryZh) && !hid.summaryZh.includes("%") && landedTokens.every((t) => !hid.summaryZh.includes(t)), hid.summaryZh);
-  ok("CHAIN-2e 无金额结论：写几家、推荐谁、最低价为什么没推荐、谁换算不出", hid.summaryZh.startsWith("共 4 家报价") && hid.summaryZh.includes("推荐 B 公司：交期、有效期、强制项、起订量检查均通过") && hid.summaryZh.includes("最低价 A 公司 未推荐：交期超出交付截止 10 天") && hid.summaryZh.includes("另有 D 公司 未能换算落地价（缺 CNY→CAD 汇率"), hid.summaryZh);
+  ok("CHAIN-2e 无金额结论：写几家、推荐谁、最低价为什么没推荐、谁换算不出", hid.summaryZh.startsWith("共 4 家报价（落地价金额不显示）。") && hid.summaryZh.includes("推荐 B 公司：交期、有效期、强制项、起订量检查均通过") && hid.summaryZh.includes("最低价 A 公司 未推荐：交期超出交付截止 10 天") && hid.summaryZh.includes("另有 D 公司 未能换算落地价（缺 CNY→CAD 汇率"), hid.summaryZh);
   ok("CHAIN-2e 不传 hideAmounts 时结论与原来相同", summarizeMatrixZh({ rows: M.rows, cheapestItemId: M.cheapestItemId, recommendedItemId: M.recommendedItemId, firstTierQty: TENDER.firstTierQty }) === M.summaryZh);
   const one = buildCompareMatrix([q({ id: "A", name: "A 公司", total: 50000, days: 30 })], TENDER);
   const oneH = view!(one, { canView: false, firstTierQty: TENDER.firstTierQty });
@@ -228,6 +229,35 @@ const AB = buildCompareMatrix([
   const echo = checkInterpretationNumbers({ priceAnalysis: `B 公司落地价 ${Math.round(M.rows.find((r) => r.itemId === "B")!.landedCad.total!).toLocaleString("en-US")}` }, allowedHid);
   ok("CHAIN-2e 无权：解读里出现落地价会被数字校验标出（出处是不含落地价的输入）", !echo.ok && echo.unverified.length === 1, echo);
   ok("CHAIN-2e 比价面板提示句", (compareModule as unknown as { COMPARE_LANDED_HIDDEN_HINT_ZH?: string }).COMPARE_LANDED_HIDDEN_HINT_ZH === "落地价只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。");
+  const hintFn = (compareModule as unknown as { landedHiddenHintZh?: (r?: string) => string }).landedHiddenHintZh;
+  ok("CHAIN-2e 比价面板提示句按原因换：没有真人负责人 / 暂时无法确认", !!hintFn && hintFn() === "落地价只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。" && hintFn("no_owner") === "落地价只给项目负责人和有全企业「查看项目结算」权限的人看；这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人。" && hintFn("unconfirmed") === "暂时无法确认你的查看权限，请稍后刷新。");
+
+  // 换算说明：只去掉带金额 / 汇率的几条，检查说明（未设交付截止，按截标日 +30 天判断交期）照常
+  const noDeadline = { closeDate: "2026-11-14", deliveryDeadline: null, firstTierQty: 1500, mandatoryCodes: ["R-01"], now: NOW };
+  const MD = buildCompareMatrix([q({ id: "C", name: "C 公司", unit: 280, currency: "CNY", incoterm: "FOB" }), q({ id: "E", name: "E 公司", total: 61000 })], noDeadline);
+  const MDh = view!(MD, { canView: false, firstTierQty: 1500 });
+  const deadlineNote = (r: { assumptions: string[] }) => r.assumptions.filter((a) => a.startsWith("未设交付截止"));
+  ok("CHAIN-2e 前提：没设交付截止时每行都有一条检查说明，C 还有带金额的换算说明", MD.rows.every((r) => deadlineNote(r).length === 1) && MD.rows.find((r) => r.itemId === "C")!.assumptions.length > 1);
+  ok("CHAIN-2e 无权：检查说明照常，带金额 / 汇率的换算说明去掉", MDh.rows.every((r) => JSON.stringify(r.assumptions) === JSON.stringify(deadlineNote(MD.rows.find((x) => x.itemId === r.itemId)!))) && !/CAD|汇率|%/.test(JSON.stringify(MDh.rows.map((r) => r.assumptions))), MDh.rows.map((r) => r.assumptions));
+  const isLanded = (compareModule as unknown as { isLandedCostAssumption?: (a: string) => boolean }).isLandedCostAssumption;
+  const allNormalized = ["FOB", "EXW", "CIF", "DAP", "DDP", "FCA"].flatMap((term) => normalizeQuote({ unitPrice: 280, totalPrice: null, currency: "CNY", incoterm: term }, { settings: { ...SETTINGS, exportInlandEstimate: { mode: "per_unit", value: 1 } }, dutyRatePct: 6.5, quantity: 1500, now: NOW }).assumptions);
+  ok("CHAIN-2e 落地价换算写的每一条说明都被认作带金额 / 汇率（以后加了新的一条不带 CAD 也会在这里失败）", !!isLanded && allNormalized.length >= 6 && allNormalized.every((a) => isLanded(a)) && !isLanded("未设交付截止，按截标日 +30 天（2026-12-14）判断交期"), allNormalized.filter((a) => !isLanded?.(a)));
+}
+
+/* CHAIN-2e：合并即在生产生效的三处接线（源码断言，进 CI） */
+{
+  const src = (f: string) => readFileSync(`${process.cwd()}/${f}`, "utf-8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const matrixRoute = src("src/app/api/projects/[id]/inquiries/[inquiryId]/compare/matrix/route.ts");
+  const analysisRoute = src("src/app/api/projects/[id]/inquiries/[inquiryId]/compare/analysis/route.ts");
+  const tracker = src("src/lib/tender-rfq/tracker.ts");
+  const panel = src("src/components/inquiry/quote-analysis-panel.tsx");
+  for (const [name, f] of [["比价矩阵接口", matrixRoute], ["AI 报价分析接口", analysisRoute]] as const) {
+    ok(`CHAIN-2e ${name}：先过项目读权限，再用带兜底的 resolveFinanceViewSafe（不是 resolveFinancePrivilege）裁剪`, /const access = await requireProjectReadAccess\(request, projectId\);\s*if \(access instanceof NextResponse\) return access;/.test(f) && /const finance = await resolveFinanceViewSafe\(access\.user, access\.project\.orgId, access\.project\.ownerId\);/.test(f) && /compareMatrixFinanceView\(r\.matrix, \{ canView: finance\.canReadAll, firstTierQty: r\.firstTierQty \}\)/.test(f) && !/resolveFinancePrivilege/.test(f));
+    ok(`CHAIN-2e ${name}：裁剪后带 costHidden 与提示原因`, /\.\.\.\(matrix\.costHidden \? \{ costHidden: true(?: as const)?, \.\.\.hintReasonField\(await resolveFinanceHintReason\(finance, access\.project\.ownerId\)\) \} : \{\}\)/.test(f));
+  }
+  ok("CHAIN-2e AI 报价分析：模型输入、数字校验、502 都用裁剪后的矩阵", /const prompt = buildMatrixInterpretationPrompt\(matrix, ctx\);/.test(analysisRoute) && /collectAllowedNumbers\(buildInterpretationPayload\(matrix, ctx\)\)/.test(analysisRoute) && /\{ error: "AI 解读返回格式异常", matrix, raw, \.\.\.hidden \}/.test(analysisRoute) && !/r\.matrix(?!, \{ canView)/.test(analysisRoute.replace(/compareMatrixFinanceView\(r\.matrix/, "")));
+  ok("CHAIN-2e 追踪页：组织级判定用 resolveFinanceViewSafe，组装前按项目裁掉，每格带 canViewCost", /await resolveFinanceViewSafe\(input\.user, input\.orgId, null\)/.test(tracker) && !/resolveFinancePrivilege/.test(tracker) && /landedCad: canView \? row\.landedCad : \{ unit: null, total: null \}/.test(tracker) && /canViewCost: canViewCostOf\(s\.projectId\)/.test(tracker));
+  ok("CHAIN-2e 分析面板：costHidden 时渲染提示（按原因换句）", /\{result\.costHidden && \(\s*<p[^>]*data-testid="landed-hidden-hint"[^>]*>\s*\{landedHiddenHintZh\(result\.hintReason\)\}\s*<\/p>\s*\)\}/.test(panel) && /COMPARE_LANDED_HIDDEN_HINT_ZH = landedHiddenHintZh\(\)/.test(src("src/lib/tender-rfq/compare.ts")));
 }
 
 console.log(`\ntender-rfq compare: ${passed} passed`);

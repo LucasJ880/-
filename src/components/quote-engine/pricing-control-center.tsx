@@ -4,7 +4,8 @@
  * Pricing Control Center（Quote & Cost Engine Phase 1）
  * Header → KPI Cards → Cost Builder（按类别展开）→ Pricing（口径显式）→ Scenario → Standing Offer Panel → Customer Preview
  * 不是 Excel clone：计算在服务端引擎，页面只做输入与展示；AI 分析仅 advisory。
- * CHAIN-2e：没有财务查看权时接口只给客户视图 → 整页只显示一句谁能看、找谁 + 客户视图表格；读取失败时写出原因，不停在加载中。
+ * CHAIN-2e：没有财务查看权时接口只给客户视图 → 整页只显示为什么看不到 / 不能改、找谁 + 客户视图表格；读取失败时写出原因，不停在加载中；
+ *           保存被拒（403）时不重新读取，填的内容留在页面上。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -15,7 +16,7 @@ import { computeQuote, unpricedReason, type QuoteCalcResult, type QuoteCalcFailu
 import type { TierResult, UnitEconomics } from "@/lib/quote-engine/standing-offer";
 import type { CustomerQuoteView } from "@/lib/quote-engine/customer-view";
 import type { QuoteAnalysis } from "@/lib/quote-engine/analyze";
-import { QUOTE_COST_HIDDEN_HINT_ZH, QUOTE_LOAD_FAILED_PREFIX_ZH } from "@/lib/quote-engine/finance-hint";
+import { QUOTE_LOAD_FAILED_PREFIX_ZH, QUOTE_SAVE_FORBIDDEN_ZH, quoteHintLinesZh, type QuoteHintReason } from "@/lib/quote-engine/finance-hint";
 import { CostImportPanel } from "./cost-import-panel";
 import { CustomerQuoteBuilder } from "./customer-quote-builder";
 import { TenderBidPanel } from "./tender-our-bid";
@@ -27,7 +28,7 @@ type Quote = { id: string; quoteNumber: string | null; name: string | null; quot
 type Computed = { calc: QuoteCalcResult | QuoteCalcFailure; standingOffer: { unit: UnitEconomics | null; tiers: TierResult[]; errors: Array<{ code: string; message: string }> } | null; drift: boolean };
 type Payload = { quote: Quote; computed: Computed; capabilities: { canViewInternal: boolean; canEdit: boolean; canApprove: boolean } };
 /** 没有财务查看权时 GET 的返回：只有客户视图（没有 quote / 成本行） */
-type CustomerOnlyPayload = { customerView: CustomerQuoteView; capabilities: { canViewInternal: false; canEdit: false; canApprove: false } };
+type CustomerOnlyPayload = { customerView: CustomerQuoteView; capabilities: { canViewInternal: false; canEdit: false; canApprove: false; hintReason?: QuoteHintReason } };
 
 const money = (n: number | null | undefined, ccy = "CAD") => (n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-CA", { style: "currency", currency: ccy, maximumFractionDigits: 2 }));
 const pct = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(1)}%`);
@@ -45,7 +46,7 @@ function CustomerPreviewTable({ customer }: { customer: CustomerQuoteView }) {
 
 export function PricingControlCenter({ projectId, quoteId }: { projectId: string; quoteId: string }) {
   const [data, setData] = useState<Payload | null>(null);
-  const [customerOnly, setCustomerOnly] = useState<CustomerQuoteView | null>(null);
+  const [customerOnly, setCustomerOnly] = useState<CustomerOnlyPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [tiers, setTiers] = useState<Tier[]>([]);
@@ -66,7 +67,7 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
       setLoadError(null);
       if ("customerView" in res) {
         setData(null);
-        setCustomerOnly(res.customerView);
+        setCustomerOnly(res);
         return;
       }
       setCustomerOnly(null);
@@ -90,6 +91,8 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
       const soPayload = data?.quote.quoteType === "STANDING_OFFER" ? { standingOffer: { supplierCostPerPiece: n(so.supplierCostPerPiece ?? ""), supplierCurrency: so.supplierCurrency || "CAD", fxRate: n(so.fxRate ?? ""), piecesPerBox: n(so.piecesPerBox ?? ""), boxesPerContainer: n(so.boxesPerContainer ?? ""), moq: n(so.moq ?? ""), annualQuantity: n(so.annualQuantity ?? ""), freightPerContainer: n(so.freightPerContainer ?? ""), customsPerContainer: n(so.customsPerContainer ?? ""), dutyPct: n(so.dutyPct ?? ""), warehousePerContainer: n(so.warehousePerContainer ?? ""), otherPerContainer: n(so.otherPerContainer ?? ""), inventoryCarryingPct: n(so.inventoryCarryingPct ?? "") } } : {};
       const res = await apiFetch(`/api/projects/${projectId}/quote-engine/${quoteId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ header: { name: header.name || null, pricingMethod: header.pricingMethod, pricingRate: n(header.pricingRate), currency: header.currency, engine: soPayload }, lines: lines.map((l) => ({ ...l, id: l.id.startsWith("new-") ? undefined : l.id })), tiers: (extra?.tiers ?? tiers).map((t) => ({ ...t, id: t.id.startsWith("new-") ? undefined : t.id })) }) });
       const json = (await res.json()) as { error?: string; details?: unknown };
+      // 保存被拒（权限变了或暂时无法确认）：不重新读取——否则整页切成客户视图，没保存的成本行就没了
+      if (res.status === 403) { setMsg(QUOTE_SAVE_FORBIDDEN_ZH); return; }
       if (!res.ok) setMsg(`${json.error ?? "保存失败"}${json.details ? "：" + JSON.stringify(json.details).slice(0, 300) : ""}`);
       else setMsg("已保存并重算");
       await load();
@@ -168,12 +171,12 @@ export function PricingControlCenter({ projectId, quoteId }: { projectId: string
       return (
         <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6" data-testid="customer-only-view">
           <div className="rounded-xl border border-border bg-card-bg px-4 py-3">
-            <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-foreground">{customerOnly.title}</span><span className="rounded-full border border-border px-2 text-[10px] text-muted">{customerOnly.status}</span><span className="text-[10px] text-muted">v{customerOnly.version} · {customerOnly.quoteNumber ?? "—"} · {customerOnly.currency}</span></div>
-            <p className="mt-1 text-[11px] text-muted" data-testid="quote-cost-hidden-hint">{QUOTE_COST_HIDDEN_HINT_ZH}</p>
+            <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-foreground">{customerOnly.customerView.title}</span><span className="rounded-full border border-border px-2 text-[10px] text-muted">{customerOnly.customerView.status}</span><span className="text-[10px] text-muted">v{customerOnly.customerView.version} · {customerOnly.customerView.quoteNumber ?? "—"} · {customerOnly.customerView.currency}</span></div>
+            {quoteHintLinesZh(customerOnly.capabilities, { edit: true, cost: true }).map((l) => <p key={l.kind} className="mt-1 text-[11px] text-muted" data-testid={`quote-${l.kind}-hidden-hint`}>{l.text}</p>)}
           </div>
           <div className="rounded-xl border border-border bg-card-bg p-4" data-testid="customer-preview">
             <h3 className="text-sm font-semibold">Customer Quote Preview（仅公开字段；无成本/佣金/利润）</h3>
-            <CustomerPreviewTable customer={customerOnly} />
+            <CustomerPreviewTable customer={customerOnly.customerView} />
           </div>
         </div>
       );

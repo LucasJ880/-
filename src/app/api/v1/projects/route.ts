@@ -7,6 +7,7 @@ import {
   resolveTaskDueDate,
 } from "@/lib/workflow/templates";
 import type { ApiTokenPayload } from "@/lib/auth/api-token";
+import { INTAKE_SYSTEM_USER_EMAIL } from "@/lib/projects/system-owner";
 
 const VALID_PRIORITIES = ["high", "medium", "low"];
 const VALID_RECOMMENDATIONS = [
@@ -101,12 +102,12 @@ export async function POST(request: NextRequest) {
 
   // --- Find or create system user for API operations ---
   let systemUser = await db.user.findFirst({
-    where: { email: "system@qingyan.internal" },
+    where: { email: INTAKE_SYSTEM_USER_EMAIL },
   });
   if (!systemUser) {
     systemUser = await db.user.create({
       data: {
-        email: "system@qingyan.internal",
+        email: INTAKE_SYSTEM_USER_EMAIL,
         name: "System (API)",
         role: "user",
         status: "active",

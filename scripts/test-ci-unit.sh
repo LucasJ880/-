@@ -473,6 +473,8 @@ NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolat
 npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
 
 # P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
+# CHAIN-2e：比价矩阵财务查看权裁剪、无金额结论、模型输入，以及两条比价接口与追踪页的接线（源码断言）
+npx tsx src/lib/tender-rfq/__tests__/compare.test.ts
 npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts
 
 # W-1：询价 Web 入口（纯逻辑，无 DB / 无 AI）
