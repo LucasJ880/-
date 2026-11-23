@@ -176,7 +176,8 @@ async function entryFlow() {
   ok(!html.includes("国内供应商简报"), "新页面不显示国内供应商简报面板");
   const pageSrc = stripComments(read("src/components/bid-page-v2/bid-page-v2.tsx"));
   ok(!/china-supplier-brief|ChinaSupplierBriefPanel/.test(pageSrc), "新页面不引入国内供应商简报面板");
-  ok(["TenderSourcingEntry", "ProjectInquirySection", "ProjectSupplierLinks", "BidWorkspacePanel", "TenderOurBidCard", "BidQuoteArea", "ProjectGenerateMenu", "VersionHistoryDrawer"].every((c) => new RegExp(`<${c}\\b`).test(pageSrc)), "三个分区挂既有组件，版本历史用同一个抽屉");
+  ok(["TenderSourcingEntry", "ProjectInquirySection", "ProjectSupplierLinks", "TenderOurBidCard", "QuoteStep", "ProjectQuoteSection", "ProjectGenerateMenu", "VersionHistoryDrawer"].every((c) => new RegExp(`<${c}\\b`).test(pageSrc)), "三个分区挂的组件（② 是 BIDPAGE-3 的报价区），版本历史用同一个抽屉");
+  ok(!/BidWorkspacePanel|BidQuoteArea|bid-workspace-panel|bid-quote-area"/.test(pageSrc.replace(/id="bid-quote-area"/g, "")), "新页面不挂投标工作区面板与改版前的报价区（BIDPAGE-3 design D10；旧页面照挂）");
 
   const toReq = decideBidPageNextStep(facts({ analysisStatus: "REVIEW_REQUIRED", inquiry: { askedCount: 0, respondedCount: 0, quotedCount: 0, repliedNoQuoteCount: 0, waitingCount: 0, waitingSince: null } }));
   const reqHtml = render(<BidPageV2 projectId="p1" orgId="o1" canManage view={toReq} />);
@@ -213,9 +214,9 @@ async function entryFlow() {
   const qElse = pageSrc.indexOf(") : (", qStart);
   const qEnd = pageSrc.indexOf("documents:", qElse);
   const yes = pageSrc.slice(qStart, qElse), no = pageSrc.slice(qElse, qEnd);
-  ok(/<TenderOurBidCard\b/.test(yes) && /<BidWorkspacePanel\b/.test(yes) && /<BidQuoteArea\b/.test(yes), "② 看得到金额的一支：投标工作区、我方报价卡、报价区");
-  ok(!/<TenderOurBidCard\b|<BidWorkspacePanel\b|<BidQuoteArea\b/.test(no) && /QUOTE_AMOUNTS_HIDDEN_ZH/.test(no) && /id="bid-quote-area"/.test(no), "② 看不到金额的一支：只有说明和位置，没有这三个组件", no);
-  ok((pageSrc.match(/<TenderOurBidCard\b/g) ?? []).length === 1 && (pageSrc.match(/<BidWorkspacePanel\b/g) ?? []).length === 1 && (pageSrc.match(/<BidQuoteArea\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectInquirySection\b/g) ?? []).length === 1, "这几个组件在新页面里各只出现一次（没有别处绕过金额门）");
+  ok(/<TenderOurBidCard\b/.test(yes) && /<QuoteStep\b/.test(yes) && /<ProjectQuoteSection\b/.test(yes), "② 看得到金额的一支：我方报价卡、报价区、旧版报价单");
+  ok(!/<TenderOurBidCard\b|<QuoteStep\b|<ProjectQuoteSection\b/.test(no) && /QUOTE_AMOUNTS_HIDDEN_ZH/.test(no) && /id="bid-quote-area"/.test(no), "② 看不到金额的一支：只有说明和位置，没有这三个组件", no);
+  ok((pageSrc.match(/<TenderOurBidCard\b/g) ?? []).length === 1 && (pageSrc.match(/<QuoteStep\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectQuoteSection\b/g) ?? []).length === 1 && (pageSrc.match(/<ProjectInquirySection\b/g) ?? []).length === 1, "这几个组件在新页面里各只出现一次（没有别处绕过金额门）");
   ok(QUOTE_AMOUNTS_HIDDEN_ZH.length < 80 && /找/.test(QUOTE_AMOUNTS_HIDDEN_ZH) && /找/.test(SOURCING_AMOUNTS_HIDDEN_ZH) && !/[A-Za-z]{3,}/.test(QUOTE_AMOUNTS_HIDDEN_ZH + SOURCING_AMOUNTS_HIDDEN_ZH), "说明是中文、写了找谁");
   ok(SOURCING_AMOUNTS_HIDDEN_ZH === "询价里会有供应商报价，所以询价区只给项目负责人和有财务查看权的同事看。要起草或查看询价，请找他们。" && QUOTE_AMOUNTS_HIDDEN_ZH === "报价的金额与成本只给项目负责人和有财务查看权的同事看。要做报价或查看金额，请找他们。", "两句说明与规格逐字一致");
   // 「更多」里的版本历史会经旧接口带出金额：只给看得到金额的人

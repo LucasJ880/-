@@ -767,6 +767,9 @@ run_test "FLOW-H4b 交付前检查清单渲染" "npx tsx src/components/tender/_
 run_test "BIDPAGE-1 标书与报价页「下一步」查表与分区状态（纯逻辑）" "npx tsx src/lib/bid-page-v2/__tests__/next-step.test.ts"
 run_test "BIDPAGE-1 标书与报价页新页面渲染与开关关零变化" "npx tsx src/components/bid-page-v2/__tests__/bid-page-v2.test.tsx"
 run_test "BIDPAGE-1 标书与报价页汇总接口 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/bid-page-summary-db.isolated.test.ts"
+run_test "BIDPAGE-3 逐行报价：词表与模板对照、状态 ↔ 成本行往返、只动自己的行、四个数取引擎、分摊不变量与差额上限、校验、粘贴、旧草稿导入、接口写法（纯函数）" "npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts"
+run_test "BIDPAGE-3 ② 定报价新区块：列表与专业模式入口、新建两问、逐行表 7 列、四个数与差额说明、预置说明、导出（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx"
+run_test "BIDPAGE-3 逐行报价 DB+HTTP（开关 / 新建 / 存取 / 换人看到同样的数 / 金额门与各种身份 / 专业模式改过以后 / 并发 / 导出 / 另起新版 / 不写客户报价单与投标工作区；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"

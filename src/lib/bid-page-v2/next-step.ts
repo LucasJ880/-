@@ -47,6 +47,7 @@ export type BidPageRule =
 /** 每条规则指向哪里（规格「下一步指向哪里」的对应表） */
 export const BID_PAGE_RULE_TARGET: Record<BidPageRule, "requirements" | BidPageSection> = {
   requirements_unapproved: "requirements",
+  // 我方报价是逐行报价时改去 ②（按招标方价格表导出在 ② 底部），见 actionOf（BIDPAGE-3 design D10）
   bid_decided: "documents",
   quote_draft: "quote",
   no_suppliers: "sourcing",
@@ -93,7 +94,13 @@ export type BidPageFacts = {
   quote: {
     /** 报价功能是否开通（报价引擎开关） */
     available: boolean;
-    bid: { status: BidTenderStatus; version: number | null; amount: { value: number; currency: string } | null };
+    bid: {
+      status: BidTenderStatus;
+      version: number | null;
+      amount: { value: number; currency: string } | null;
+      /** 我方报价是逐行报价（BIDPAGE-3）：「已定」的按钮去 ②（导出在那里）；不知道 / 不是 → ③ */
+      lineMode?: boolean;
+    };
     /** 最新一份还没定的引擎报价（草稿 / 待批准）；没有为 null */
     openDraft: { status: "draft" | "review"; version: number } | null;
     /** 还没有我方报价时，已批准（或已中标）、可以选为我方报价的报价份数 */
@@ -187,7 +194,9 @@ function documentsStatusZh(f: BidPageFacts): string {
   return f.documents.generatedKinds > 0 ? `已生成 ${f.documents.generatedKinds} 种文件` : "还没有生成文件";
 }
 
-function actionOf(rule: BidPageRule): { labelZh: string; target: BidPageTarget } {
+function actionOf(rule: BidPageRule, f: BidPageFacts): { labelZh: string; target: BidPageTarget } {
+  // 我方报价是逐行报价时，「已定」去 ②（按招标方价格表导出在那里）；只对看得到金额的人（② 对其余人是锁着的，做法也不让他们推断出来）
+  if (rule === "bid_decided" && f.canViewAmounts && f.quote.bid.lineMode === true) return { labelZh: "去导出价格表", target: { kind: "section", section: "quote" } };
   const t = BID_PAGE_RULE_TARGET[rule];
   if (t === "requirements") return { labelZh: "去「招标要求」", target: { kind: "tab", tab: "requirements" } };
   return { labelZh: SECTION_GO_ZH[t], target: { kind: "section", section: t } };
@@ -201,7 +210,7 @@ export function decideBidPageNextStep(f: BidPageFacts): BidPageView {
   const movedOn = i.askedCount > 0 || hasQuoteActivity;
 
   const base = (rule: BidPageRule, headlineZh: string, reasonZh: string | null): BidPageView => {
-    const action = actionOf(rule);
+    const action = actionOf(rule, f);
     const decided = q.available && q.bid.status === "AUTHORITATIVE";
     const amount =
       decided && f.canViewAmounts && q.bid.amount && Number.isFinite(q.bid.amount.value) ? { value: q.bid.amount.value, currency: q.bid.amount.currency } : undefined;
