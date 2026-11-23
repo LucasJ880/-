@@ -142,6 +142,8 @@ function ProjectDetailContent() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [members, setMembers] = useState<MemberRow[]>([]);
+  // CHAIN-2c：调用人能不能把负责人换成别人 / 换成自己（成员接口给出）
+  const [ownerChange, setOwnerChange] = useState<{ canChange: boolean; canSelfAssign: boolean }>({ canChange: false, canSelfAssign: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -320,7 +322,7 @@ function ProjectDetailContent() {
         project?: ProjectDetail;
         canManage?: boolean;
       }>(`/api/projects/${id}`),
-      apiJson<{ members?: MemberRow[] }>(`/api/projects/${id}/members`),
+      apiJson<{ members?: MemberRow[]; ownerChange?: { canChange?: boolean; canSelfAssign?: boolean } }>(`/api/projects/${id}/members`),
       apiJson<{ progress?: ProjectProgress }>(
         `/api/projects/${id}/overview`
       ).catch(() => null),
@@ -343,6 +345,7 @@ function ProjectDetailContent() {
           setError("");
         }
         setMembers(m.members ?? []);
+        setOwnerChange({ canChange: m.ownerChange?.canChange === true, canSelfAssign: m.ownerChange?.canSelfAssign === true });
         if (ov?.progress) setProgress(ov.progress);
         setHandoffInfo(ho?.handoff ?? null);
         setAnalysisRunStatus(runRes?.run?.status ?? null);
@@ -710,6 +713,7 @@ function ProjectDetailContent() {
           onActivityFilterChange={setActivityFilter}
           highlightActivityId={highlightActivityId}
           members={members}
+          ownerChange={ownerChange}
           canManage={canManage}
           currentUserId={currentUser?.id ?? null}
           onNavigate={openProjectArea}
