@@ -11,7 +11,9 @@ import { isProxyUrl, toProxyUrl } from "@/lib/files/blob-access";
 import {
   isProjectPdfDocType,
   PROJECT_PDF_DOC_TYPES,
+  retiredDocTypeMessageZh,
 } from "@/lib/bid-workflow/pdf-doc-types";
+import { SupplierRfqSheetError } from "@/lib/tender-rfq/sheet-download";
 
 // CJK-PDF 包：Chromium 冷启动 + 渲染需要余量（生成文档为低频动作）
 // 备忘录 v2 全文多轮推理 + Chromium 渲染同函数；Fluid Compute 下 Pro 可到 800s——
@@ -58,8 +60,15 @@ export const POST = withAuth(async (request, ctx, user) => {
   const access = await requireProjectWriteAccess(request, projectId);
   if (access instanceof NextResponse) return access;
 
-  const body = await request.json().catch(() => ({}));
-  const docTypeRaw = String(body.docType || "");
+  // 请求体不是 JSON 对象（含 JSON 的 null）一律当空对象，落到「docType 无效」
+  const parsed: unknown = await request.json().catch(() => null);
+  const body = (parsed && typeof parsed === "object" ? parsed : {}) as { docType?: unknown };
+  const docTypeRaw = typeof body.docType === "string" ? body.docType : "";
+  // RFQ-PDF-1：已停用的两类供应商文件——不生成任何内容，说明写清改用哪一项、旧文件还在
+  const retiredMessage = retiredDocTypeMessageZh(docTypeRaw);
+  if (retiredMessage) {
+    return NextResponse.json({ error: retiredMessage, errorCode: "DOC_TYPE_RETIRED" }, { status: 400 });
+  }
   if (!isProjectPdfDocType(docTypeRaw) || !ALLOWED.includes(docTypeRaw)) {
     return NextResponse.json(
       { error: "docType 无效", allowed: ALLOWED },
@@ -67,11 +76,6 @@ export const POST = withAuth(async (request, ctx, user) => {
     );
   }
   const docType = docTypeRaw as GenerateDocType;
-  const previewOnly = body.previewOnly === true;
-  const includePublicHistoricalAmounts =
-    body.includePublicHistoricalAmounts === true;
-  const confirmNotes =
-    typeof body.confirmNotes === "string" ? body.confirmNotes : null;
 
   try {
     const doc = await generateProjectDocument({
@@ -79,23 +83,9 @@ export const POST = withAuth(async (request, ctx, user) => {
       orgId: access.project.orgId,
       userId: user.id,
       docType,
-      previewOnly,
-      includePublicHistoricalAmounts,
-      confirmNotes,
       // v2 断点续跑：给 PDF 渲染与落库留 ~2 分钟余量
       deadlineMs: Date.now() + ROUTE_BUDGET_MS - 120_000,
     });
-    if (previewOnly && "previewText" in doc) {
-      return NextResponse.json({
-        previewOnly: true,
-        previewText: doc.previewText,
-        includePublicHistoricalAmounts,
-        fontLimitation:
-          docType === "china_supplier_brief"
-            ? "Chinese text may render poorly under Helvetica; full CJK font embed deferred."
-            : null,
-      });
-    }
     if ("inProgress" in doc && doc.inProgress) {
       return NextResponse.json({ inProgress: true, statusZh: doc.statusZh, progress: doc.progress });
     }
@@ -114,15 +104,15 @@ export const POST = withAuth(async (request, ctx, user) => {
         fileUrl,
         blobUrl,
       },
-      fontLimitation:
-        docType === "china_supplier_brief"
-          ? "Chinese text may render poorly under Helvetica; full CJK font embed deferred."
-          : null,
     });
   } catch (e) {
     // CHAIN-4b：供应商侧文件含招标身份信息——是内容问题，不是服务器错误
     if (e instanceof SupplierIdentityLeakError) {
       return NextResponse.json({ error: e.message, errorCode: e.errorCode }, { status: 422 });
+    }
+    // RFQ-PDF-1：供应商询价单没有生成（没有已确认的要求 / 内部财务信息 / PDF 没生成出来或太大）；什么都没有保存
+    if (e instanceof SupplierRfqSheetError) {
+      return NextResponse.json({ error: e.message, errorCode: e.errorCode }, { status: e.status });
     }
     console.error("[generate-pdf]", e);
     return NextResponse.json(

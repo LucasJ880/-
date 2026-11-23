@@ -6,7 +6,7 @@ import {
   requireProjectManageAccess,
 } from "@/lib/projects/access";
 import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
-import { sanitizeListStepError } from "@/lib/agent-tasks/dto";
+import { PROJECT_TASKS_LIMIT, parseListLimit, sanitizeListStepError } from "@/lib/agent-tasks/dto";
 import { generateFlowPlan } from "@/lib/agent-core/skills/flow-runner";
 import { listTemplates } from "@/lib/agent/templates";
 import type { TriggerType } from "@/lib/agent/types";
@@ -26,7 +26,8 @@ export const GET = withAuth(async (request) => {
   if (access instanceof NextResponse) return access;
   const diagnostic = isPlatformAdmin(access.user);
 
-  const limit = Math.min(Number(request.nextUrl.searchParams.get("limit")) || 20, 100);
+  // FIX-23：limit 只认十进制正整数，否则按 20；再封顶 100（负数原来会让 Prisma 从最早的取起、绕过上限）
+  const limit = parseListLimit(request.nextUrl.searchParams.get("limit"), PROJECT_TASKS_LIMIT);
 
   const tasks = await db.agentTask.findMany({
     where: { projectId },
