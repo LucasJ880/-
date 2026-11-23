@@ -68,7 +68,7 @@ TREE-2（`research-tree-runtime`）已经有：六步两波的图、`tender_rese
 
 ### D5 授标记录：事实分组，由代码组装
 
-- 模型交事实时可带 `group`（组名）：同一页上属于同一笔授标的事实同组；没写组名的，同一页的事实算一组。组名先归一成组键（小写、空白换连字符、只留字母数字下划线连字符、最多 12 字，「Lot 1」→「lot-1」；清完是空的用原文的哈希），不同的组名不会被并成一组（并了会把两笔的金额与数量拼成一条、算出错的单价）。
+- 模型交事实时可带 `group`（组名）：同一页上属于同一笔授标的事实同组；没写组名的，同一页的事实算一组。组名先归一成组键（小写、空白换连字符、只留字母数字下划线连字符、最多 12 字，「Lot 1」→「lot-1」；清完是空的用原文的哈希；截短过或去掉过字符的，后面带哈希（按小写、空白归一后的写法算，先去掉不可见字符与末尾标点）——「Contract 2024-001」与「Contract 2024-002」、「Lot 1.1」与「Lot 11」不并，「CONTRACT 2024-001」与「Contract 2024-001」、「Lot 1.」与「Lot 1」照并），不同的组名不会被并成一组（并了会把两笔的金额与数量拼成一条、算出错的单价）。
 - 同一页没写组名的采购方与币种，补到这一页写了组名、却缺这一项的记录上（一页一个采购方、一句「金额都是美元」很常见）；金额、数量、中标方、年份不补（它们是每一笔各自的）。
 - 代码把同一网址、同一组的已核对事实组装成一条记录 `ResearchAwardRecordV1`：采购方、中标方、品项、往期标名、合同额、数量、年份、币种、口径，每个字段带原值与摘录；再由纯函数算解析后的金额 / 数量 / 年份、单价、口径、币种、可比度。
 - 事实类型：往期同标 `prior_tender`、`winner`、`buyer`、`item`、`award_amount`、`quantity`、`award_year`、`currency`、`scope_basis`；同类项目同上去掉 `prior_tender`。去掉 TREE-2 的 `comparable_award`（被记录取代）。
@@ -78,19 +78,19 @@ TREE-2（`research-tree-runtime`）已经有：六步两波的图、`tender_rese
 
 ### D6 单价：合同额 ÷ 数量，原币，精确到分
 
-`unitPriceOf(amount, quantity)`：两数都是从值里解析出的十进制（`BigInt` 运算，不用浮点），单价 = 合同额 × 10^小数位 ÷ 数量，四舍五入到分；不换汇、币种照合同额的。金额或数量缺、为 0、写成区间、一个值里有两个数、单价不到半分 → 不算（`null`）。金额写法认 `230,000`、`$230,000.00`、`230000 CAD`、`230 000,50 $`、`1,25 million $`、`1.25 million`、`$5M`、`230k`、`230 thousand`、`23万`；数量认 `10,000`、`10 000 units`、`1.5 million`、`20万`，数量里的 `m` / `mm` 可能是单位（米），认不清就不认；空格分组的最后一组紧跟字母或连字符时不当千分位（「500 240L carts」不会变成 500240）。验收合成数：10000 / 230000 → 23.00、8000 / 200000 → 25.00、12500 / 262500 → 21.00。
+`unitPriceOf(amount, quantity)`：两数都是从值里解析出的十进制（`BigInt` 运算，不用浮点），单价 = 合同额 × 10^小数位 ÷ 数量，四舍五入到分；不换汇、币种照合同额的。金额或数量缺、为 0、写成区间、一个值里有两个数、认不清的写法（点做千分位「1.000.000」、只有一个点且点后正好三位「10.000」——可能是一万也可能是十）、减项（开头的负号与各种横线「-$230,000」「– 230 000 $」、紧挨着数的负号「CAD -230,000」、括号「(230,000)」「(230 000 $)」、尾负号「230,000-」；「Total - $230,000」这种标签与值之间的横线不算）、单价不到半分 → 不算（`null`）。金额写法认 `230,000`、`$230,000.00`、`230000 CAD`、`230 000,50 $`、`1,25 million $`、`1.25 million`、`$5M`、`230k`、`230 thousand`、`23万`；数量认 `10,000`、`10 000 units`、`1.5 million`、`20万`，数量里的 `m` / `mm` 可能是单位（米），认不清就不认；空格分组的最后一组紧跟字母或连字符时不当千分位（「500 240L carts」不会变成 500240）。验收合成数：10000 / 230000 → 23.00、8000 / 200000 → 25.00、12500 / 262500 → 21.00。
 
 备选：用浮点算（`amount / quantity` 再 `toFixed(2)`）。不选：大数与小数位多时会差一分，单价是 TREE-5 区间的输入，要可复算。
 
 ### D7 口径：四个标签加「不明」，子代理判断，代码核摘录
 
-`scope_basis` 事实的值只能是 `installation`（含安装）/ `freight`（含运费）/ `multi_year`（多年期）/ `multi_item`（多品项），摘录逐字在页上，并且摘录里要有对应的提示词（install… / freight、delivery、shipping、FOB、DDP… / 写出年数（3 years、three-year、3 ans、3年）、起止年份、multi-year、pluriannuel… / 复数的 items、lots、articles 或 various、assorted、multiple、several…），对不上就丢。冠词 an、单写 term、单写年份（2024年）、单个批次（Lot 2）、including 都不算提示词。一条记录可有多个标签；一个都没有 → 「不明」。口径不影响单价怎么算，TREE-4 规则 ⑤「口径不明另标」据此判断。
+`scope_basis` 事实的值只能是 `installation`（含安装）/ `freight`（含运费）/ `multi_year`（多年期）/ `multi_item`（多品项），摘录逐字在页上，并且摘录里要有对应的提示词（install… / freight、shipping、FOB、DDP、FAB / franco destination、供货并送货（supply and delivery、fourniture et livraison）、含送货（prices include delivery、delivery: included、y compris la livraison、livraison comprise）、free delivery、delivered to the site / warehouse…（只写交货时间「delivered by March」「délai de livraison」不算） / 写出两年以上的合同期（3 years、three (3) years、36 months、3 ans、trois ans、3年；1-year、1 an、0.5 year 不算；保修年限「2-year warranty」「garantie de 5 ans」「质保 3 年」与财年「fiscal year 2024-2025」先去掉再判）、起止年份不同（2022–2025、2024年至2026年；2024 to 2024 不算）、multi-year、pluriannuel… / 复数的 items、lots、articles 或 various、assorted、multiple、several…），对不上就丢。冠词 an、单写 term、单写年份（2024年）、单个批次（Lot 2）、including 都不算提示词。一条记录可有多个标签；一个都没有 → 「不明」。口径不影响单价怎么算，TREE-4 规则 ⑤「口径不明另标」据此判断。
 
 备选：让代码按关键词自己判口径。不选：任务书写「口径由子代理从原文判断并附摘录」；代码只做提示词核对，防模型乱贴标签。
 
 ### D8 币种：写明的、按网站推断的、数据集的、不明
 
-联邦合同公开数据 → CAD（数据集口径）；否则先看合同额的值与摘录里的写法（`CAD`、`C$`、`CA$`、`CDN$`、`Canadian dollars` → CAD；`USD`、`US$`、`U.S. dollars` → USD）：两种都写了、或与同组的 `currency` 事实不一致 → 不明，不再往下推断（同一页别处的一句「All figures are CAD」不能盖过合同额自己写的 US$）；合同额没写明、只有 `currency` 事实（值 CAD / USD，摘录里要有对应写法）→ 照它；都没有时按网站推断（主机以 `.ca` 结尾 → CAD，以 `.gov`、`.mil`、`.us` 结尾 → USD），标「按网站推断」；其余 → 不明。币种分开列，不换汇（拍板第 6 项）。
+联邦合同公开数据 → CAD（数据集口径）；否则先看合同额的值与摘录里的写法（`CAD`、`C$`、`CA$`、`CDN$`、`$ CA`、`$CAN`、`Canadian dollars`、`dollars canadiens` → CAD；`USD`、`US$`、`$US`、`$ US`、`U.S. dollars`、`dollars américains` → USD）：合同额的值或摘录写的是别的币种（€、£、EUR、AU$ 等；币种事实只收 CAD / USD，页面别处写「All amounts in EUR」而金额不带符号的仍会按网站推断，另标「按网站推断」）、两种都写了、或与同组的 `currency` 事实不一致 → 不明，不再往下推断（同一页别处的一句「All figures are CAD」不能盖过合同额自己写的 US$）；合同额没写明、只有 `currency` 事实（值 CAD / USD，摘录里要有对应写法）→ 照它；都没有时按网站推断（主机以 `.ca` 结尾 → CAD，以 `.gov`、`.mil`、`.us` 结尾 → USD），标「按网站推断」；其余 → 不明。币种分开列，不换汇（拍板第 6 项）。
 
 备选：没写明一律「不明」。不选：加拿大政府页几乎都只写 `$`，会让多数记录币种不明、TREE-5 出不了区间；推断另标，TREE-4 / TREE-5 可以不认。
 

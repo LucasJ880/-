@@ -108,15 +108,19 @@
 
 ### Requirement: 授标记录由代码组装
 
-同一网址、同一组的已核对事实 SHALL 由代码组装成一条授标记录，字段带原值与摘录，金额、数量、年份由代码从值解析。组名 SHALL 先归一（小写、空白换连字符、只留字母数字下划线连字符，清完是空的用原文的哈希）；同一页没写组名的采购方与币种 SHALL 补到这一页各组缺这一项的记录上。往期同标记录 SHALL 有中标方、合同额或往期标名之一；同类记录 SHALL 有合同额或中标方之一；凑不成记录的事实留在事实列表里。每支 SHALL 最多 20 条记录，按记录号去重。
+同一网址、同一组的已核对事实 SHALL 由代码组装成一条授标记录，字段带原值与摘录，金额、数量、年份由代码从值解析。组名 SHALL 先归一（小写、空白换连字符、只留字母数字下划线连字符，清完是空的用原文的哈希；截短或去掉过字符的 SHALL 带按小写、空白归一后的写法算的哈希，不同的组名 SHALL NOT 并成一组）；同一页没写组名的采购方与币种 SHALL 补到这一页各组缺这一项的记录上。往期同标记录 SHALL 有中标方、合同额或往期标名之一；同类记录 SHALL 有合同额或中标方之一；凑不成记录的事实留在事实列表里。每支 SHALL 最多 20 条记录，按记录号去重。
 
 #### Scenario: 同一页两笔授标
 - **WHEN** 一页上两组事实分别是两笔授标（组名 Lot 1、Lot 2）
 - **THEN** 组装成两条记录，各自的金额与数量不混（`research-branches-pure.test.ts`、`tree3-research-branches.test.ts`）
 
+#### Scenario: 组名截短或去掉符号后相同
+- **WHEN** 两组的组名是「Contract 2024-001」与「Contract 2024-002」，或「Lot 1/2」与「Lot 12」
+- **THEN** 组键不同，不并成一条；「CONTRACT 2024-001」与「Contract 2024-001」照并（`research-branches-pure.test.ts`）
+
 ### Requirement: 单价由纯函数算
 
-单价 SHALL 是合同额 ÷ 数量（十进制精确运算、四舍五入到分），币种照合同额的，SHALL NOT 换汇；金额或数量缺、为 0、写成区间、一个值里有两个数、数量的单位认不清（m、mm）或单价不到半分时 SHALL 不算单价。金额与数量 SHALL 认千分位、空格千分位（最后一组紧跟字母时不算）、法文小数与 k / thousand / million / 万 / 亿 等倍数。
+单价 SHALL 是合同额 ÷ 数量（十进制精确运算、四舍五入到分），币种照合同额的，SHALL NOT 换汇；金额或数量缺、为 0、写成区间、一个值里有两个数、认不清的写法（点做千分位、只有一个点且点后三位）、减项（负号、括号）、数量的单位认不清（m、mm）或单价不到半分时 SHALL 不算单价。金额与数量 SHALL 认千分位、空格千分位（最后一组紧跟字母时不算）、法文小数与 k / thousand / million / 万 / 亿 等倍数。
 
 #### Scenario: 验收合成数
 - **WHEN** 三条记录分别是 10000 个 / 230000、8000 个 / 200000、12500 个 / 262500
@@ -126,17 +130,25 @@
 - **WHEN** 金额写「1,25 million $」、数量写「1.5 million bags」「500 240L carts」「5 m of fence」
 - **THEN** 依次认成 1250000、1500000、不认、不认（`research-branches-pure.test.ts`）
 
+#### Scenario: 认不清的写法与减项
+- **WHEN** 金额写「$1.000.000」「-$230,000」「– 230 000 $」「(230 000 $)」，数量写「10.000 units」
+- **THEN** 都不认，不算单价；「Total - $230,000」照认 230000（`research-branches-pure.test.ts`）
+
 ### Requirement: 口径由子代理判断、代码核摘录
 
-口径 SHALL 只取含安装、含运费、多年期、多品项四个标签：每个标签 SHALL 有逐字在页上的摘录、且摘录里有对应的提示词（多年期要写出年数、起止年份或 multi-year；多品项要写出复数的品项 / 批次或 various / assorted 一类），对不上 SHALL 丢弃；一条记录一个标签都没有时口径 SHALL 是「不明」。口径 SHALL NOT 改变单价的算法。
+口径 SHALL 只取含安装、含运费、多年期、多品项四个标签：每个标签 SHALL 有逐字在页上的摘录、且摘录里有对应的提示词（多年期要写出两年以上的合同期、起止不同的年份或 multi-year，保修年限与财年不算；含运费要写到运费、FOB / DDP、供货并送货或含送货，只写交货时间不算；多品项要写出复数的品项 / 批次或 various / assorted 一类），对不上 SHALL 丢弃；一条记录一个标签都没有时口径 SHALL 是「不明」。口径 SHALL NOT 改变单价的算法。
 
 #### Scenario: 口径
 - **WHEN** 一条记录的摘录写着 supply and installation，另一条没有任何口径摘录；还有一条标「多年期」的摘录只写着 an amount of
 - **THEN** 前者「含安装」，第二条「不明」，第三条的标签被丢弃（`research-branches-pure.test.ts`）
 
+#### Scenario: 一年与交货时间不算
+- **WHEN** 标「多年期」的摘录写着 1-year warranty、2-year warranty 或 2024 to 2024，标「含运费」的摘录只写着 delivered by March
+- **THEN** 这几个标签都被丢弃；摘录写 Supply and delivery of… 或 y compris la livraison 的「含运费」照收（`research-branches-pure.test.ts`）
+
 ### Requirement: 币种分写明、推断、数据集与不明
 
-币种 SHALL 按这个顺序定：联邦合同公开数据为 CAD；合同额的值与摘录里写明的（CAD / C$ / CA$ / CDN$ / Canadian dollars；USD / US$ / U.S. dollars）——两种都写了，或与币种事实不一致，SHALL 记为不明、不再推断；只有币种事实写明的照它；都没写明时按网站推断（.ca → CAD；.gov / .mil / .us → USD）并标「按网站推断」；其余为不明。
+币种 SHALL 按这个顺序定：联邦合同公开数据为 CAD；合同额的值与摘录里写明的（CAD / C$ / CA$ / CDN$ / $ CA / Canadian dollars；USD / US$ / $US / U.S. dollars / dollars américains）——写的是别的币种（€ / £ / EUR / AU$ 等）、两种都写了，或与币种事实不一致，SHALL 记为不明、不再推断；只有币种事实写明的照它；都没写明时按网站推断（.ca → CAD；.gov / .mil / .us → USD）并标「按网站推断」；其余为不明。
 
 #### Scenario: 只写了 $
 - **WHEN** 一条授标在某 .ca 政府网站上只写「$230,000」
@@ -145,6 +157,10 @@
 #### Scenario: 两处写的不一样
 - **WHEN** 合同额写「US$230,000」，同组的币种事实写 CAD
 - **THEN** 币种不明（`research-branches-pure.test.ts`）
+
+#### Scenario: .ca 网站上写的是欧元
+- **WHEN** 一条授标在 .ca 网站上写「€230,000」或「230 000 $ US」
+- **THEN** 前者币种不明、不按网站推断成 CAD，后者是写明的 USD；「230 000 $ CA」认成 CAD（`research-branches-pure.test.ts`）
 
 ### Requirement: 可比度四项由纯函数算
 

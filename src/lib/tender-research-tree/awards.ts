@@ -122,7 +122,20 @@ function multiplierAfter(text: string, tok: { dec: Dec; end: number }): Multipli
 }
 
 /** 减项写法：负号或括号（「-$230,000」「(230,000)」）——合同额与数量不收这种值 */
-const NEGATIVE_RE = /(?:^|[^\p{L}\p{N}])[-−]\s*(?:[A-Za-z]{1,3}\s*)?[$€£¥]?\s*\d|\(\s*(?:[A-Za-z]{1,3}\s*)?[$€£¥]?\s*\d[\d.,\s]*\)/u;
+//   - 开头的负号（各种横线，后面可以有空格）：「-$230,000」「– 230 000 $」「−500」
+//   - 中间的负号要紧挨着数或货币符号：「CAD -230,000」「$-230,000」；「Total - $230,000」「Lot A - $230,000」这种标签与值之间的横线不算
+//   - 括号括起来的值（货币符号、币种字母在前在后都行）：「(230,000)」「($230,000 CAD)」「(230 000 $)」
+//   - 数后面的负号（会计写法）：「230,000-」
+const DASH = "[-−‐‑‒–—]";
+const NEGATIVE_RE = new RegExp(
+  [
+    `^\\s*${DASH}\\s*(?:[A-Za-z]{1,3}\\s*)?[$€£¥]?\\s*\\d`,
+    `(?:[\\s(:=$€£¥]|\\b(?:CAD|CDN|USD|US))${DASH}(?:[A-Za-z]{1,3}\\s?)?[$€£¥]?\\d`,
+    `\\(\\s*(?:[A-Za-z]{1,3}\\s*)?[$€£¥]?\\s*\\d[\\d.,\\s]*[$€£¥]?\\s*(?:[A-Za-z]{1,3}\\s*)?\\)`,
+    `\\d\\s*${DASH}\\s*$`,
+  ].join("|"),
+  "u",
+);
 
 /**
  * 合同额的值 → 十进制（只有一个数才认；区间、两个数、0、认不清的写法、减项 → null）。货币符号与币种字母不影响；
@@ -188,13 +201,13 @@ export function unitPriceOf(amount: Dec | string | null, quantity: Dec | string 
 
 const CAD_RE = /(?:\bCAD\b|\bC\s?\$|\bCA\s?\$|\bCDN\s?\$|\bCDN\b|\$\s?CAN?\b|canadian\s+dollars?|dollars?\s+canadiens?)/i;
 /** 别的币种（欧元、英镑等）：写了就不按网站推断成加元 / 美元 */
-const OTHER_CURRENCY_RE = /€|£|¥|₹|\b(?:EUR|GBP|JPY|CNY|RMB|AUD|MXN|CHF|INR)\b|人民币|欧元|英镑|日元/i;
+const OTHER_CURRENCY_RE = /€|£|¥|₹|\b(?:EUR|GBP|JPY|CNY|RMB|AUD|MXN|CHF|INR)\b|(?<![A-Za-z])AU?\$|\beuros?\b|人民币|欧元|英镑|日元/i;
 
 /** 文字里写到别的币种（不是加元、美元） */
 export function otherCurrencyMentioned(...texts: Array<string | null | undefined>): boolean {
   return OTHER_CURRENCY_RE.test(texts.map((t) => String(t ?? "")).join("\n").normalize("NFKC"));
 }
-const USD_RE = /(?:\bUSD\b|\bUS\s?\$|\bU\.S\.\s?\$|\bU\.S\.\s+dollars?|\bUS\s+dollars?|american\s+dollars?)/i;
+const USD_RE = /(?:\bUSD\b|\bUS\s?\$|\bU\.S\.\s?\$|\bU\.S\.\s+dollars?|\bUS\s+dollars?|american\s+dollars?|\$\s?US\b|dollars?\s+am[ée]ricains?)/i;
 
 /** 文字里写到的币种：只有一种 → 它；两种都有 → "both"；都没有 → null */
 export function currencyMentionOf(...texts: Array<string | null | undefined>): "CAD" | "USD" | "both" | null {
@@ -242,12 +255,29 @@ export const SCOPE_BASIS_UNCLEAR_ZH = "不明";
  */
 const BASIS_HINTS: Record<ScopeBasisTag, RegExp> = {
   installation: /install|montage|mise en place|安装/i,
-  // 「delivered by March」只是交货时间，不算含运费；要写到运费 / 送达费用、FOB / DDP、含送货
-  freight:
-    /freight|shipping|shipped|transport|\bf\.?o\.?b\b|\bd\.?d\.?p\b|deliver(?:y|ed)?\s+(?:included|incl\b|incl\.|cost|costs|charges?|fees?|to\s+(?:site|destination|the\s+site))|(?:including|includes|incl\.?|with)\s+(?:delivery|shipping)|delivery\s+(?:is\s+)?(?:included|incl)|livraison\s+(?:incluse|comprise)|frais\s+de\s+livraison|运费|运输|送货/i,
+  // 「delivered by March」「délai de livraison」只是交货时间，不算含运费；要写到运费、FOB / DDP、供货并送货（supply and
+  // delivery / fourniture et livraison）、含送货（include(s) / including / inclusive of delivery、delivery included、
+  // y compris la livraison、livraison comprise）、免费送货、送到某处（delivered to the site / warehouse）
+  freight: new RegExp(
+    [
+      "freight|shipping|shipped|transport",
+      "\\bf\\.?o\\.?b\\b|\\bd\\.?d\\.?p\\b|delivered\\s+duty\\s+paid|\\bFAB\\s+destination|franco\\s+(?:de\\s+port|destination)",
+      "(?:supply|supplying|furnish|provide)\\s*(?:,|and|&)\\s*(?:the\\s+)?deliver",
+      "(?:include[sd]?|including|inclusive\\s+of|incl\\.?|with)\\s+(?:the\\s+)?(?:delivery|shipping)",
+      "deliver(?:y|ed)?(?:\\s+and\\s+installation)?\\s*(?:is\\s+|are\\s+|:\\s*)?(?:included|incl\\b|incl\\.|inclusive|cost|costs|charges?|fees?)",
+      "delivered\\s+to\\s+(?:the\\s+)?(?:[\\p{L}]+\\s+){0,2}(?:site|destination|warehouse|depot|facility|facilities|location|address|premises)",
+      "free\\s+(?:delivery|shipping)",
+      "fourniture\\s*(?:,|et)\\s*(?:la\\s+)?livraison",
+      "(?:y\\s+compris|incluant|avec)\\s+(?:la\\s+)?livraison",
+      "livraison(?:\\s+et\\s+installation)?\\s+(?:incluses?|comprises?|gratuite)",
+      "frais\\s+de\\s+(?:livraison|transport)",
+      "运费|运输|送货|配送",
+    ].join("|"),
+    "iu",
+  ),
   // 年数至少 2（「1-year warranty」不算）；起止年份的写法另由 multiYearRangeOk 判（同一年不算）
   multi_year:
-    /multi[\s-]?years?|\b(?:[2-9]|[1-9]\d|two|three|four|five|six|seven|eight|nine|ten)[\s-]+years?\b|\b(?:[2-9]|[1-9]\d)[\s-]*year\b|\bterm\s+of\s+(?:[2-9]|[1-9]\d)\b|\b(?:[2-9]|[1-9]\d)\s*ans\b|pluriannuel|\bpar\s+an\b|(?<!\d)(?:[2-9]|[1-9]\d)\s*年|[两三四五六七八九十]\s*年|多年/i,
+    /multi[\s-]?years?|(?<![\d.,])\b(?:[2-9]|[1-9]\d|two|three|four|five|six|seven|eight|nine|ten)(?:\s*\(\s*\d+\s*\))?[\s-]+years?\b|(?<![\d.,])\b(?:[2-9]|[1-9]\d)[\s-]*year\b|\bterm\s+of\s+(?:[2-9]|[1-9]\d)\b|(?<![\d.,])\b(?:2[4-9]|[3-9]\d|1\d{2})[\s-]*(?:months?|mois)\b|(?<![\d.,])\b(?:[2-9]|[1-9]\d)\s*ans\b|\b(?:deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\s+ans\b|pluriannuel|\bpar\s+an\b|(?<![\d.])(?:[2-9]|[1-9]\d)\s*年|[两三四五六七八九十]\s*年|多年/i,
   multi_item: /\b(?:items|lots|articles)\b|\b(?:various|assorted|multiple|several)\b|多种|多项|多个品项|多个品种/i,
 };
 
@@ -257,15 +287,31 @@ export function isScopeBasisTag(v: string): v is ScopeBasisTag {
 
 /** 口径事实：值是四个标签之一，且摘录里有对应的提示词 */
 /** 起止年份的写法（2022–2025、2022 to 2025）：两头年份不同才算多年期 */
-const YEAR_RANGE_RE = /((?:19|20)\d{2})\s*(?:[-–—~]|to|through|à|au)\s*((?:19|20)\d{2})/gi;
+const YEAR_RANGE_RE = /((?:19|20)\d{2})\s*年?\s*(?:[-–—~]|to|through|à|au|至|到)\s*((?:19|20)\d{2})/gi;
 function multiYearRangeOk(text: string): boolean {
   for (const m of text.matchAll(YEAR_RANGE_RE)) if (m[1] !== m[2]) return true;
   return false;
 }
+/**
+ * 多年期判断前先去掉不是合同期的年数：保修 / 质保年限（「2-year warranty」「garantie de 5 ans」「质保 3 年」）与财年
+ * （「fiscal year 2024-2025」「exercice 2024-2025」——加拿大的财年本身就是一年）
+ */
+const NOT_CONTRACT_TERM_RE = new RegExp(
+  [
+    "\\b(?:\\d+|two|three|four|five|six|seven|eight|nine|ten)[\\s-]*(?:years?|yr)\\s+(?:[\\p{L}'’-]+\\s+){0,2}(?:warrant(?:y|ies)|guarantee)",
+    "(?:warrant(?:y|ies)|guarantee)\\s+(?:of|for|period\\s+of)\\s+(?:\\d+|two|three|four|five|six|seven|eight|nine|ten)[\\s-]*years?",
+    "garantie\\s+(?:de\\s+)?(?:\\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\\s+ans",
+    "(?:质保|保修)(?:期)?\\s*(?:为|是)?\\s*(?:\\d+|[两三四五六七八九十])\\s*年",
+    "(?:fiscal|financial)\\s+year\\s+(?:19|20)\\d{2}\\s*[-–—/]\\s*(?:(?:19|20)?\\d{2})",
+    "exercice\\s+(?:financier\\s+)?(?:19|20)\\d{2}\\s*[-–—/]\\s*(?:(?:19|20)?\\d{2})",
+  ].join("|"),
+  "giu",
+);
 
 export function scopeBasisOk(tag: string, excerpt: string): boolean {
   if (!isScopeBasisTag(tag)) return false;
-  const text = String(excerpt ?? "").normalize("NFKC");
+  const raw = String(excerpt ?? "").normalize("NFKC");
+  const text = tag === "multi_year" ? raw.replace(NOT_CONTRACT_TERM_RE, " ") : raw;
   return BASIS_HINTS[tag].test(text) || (tag === "multi_year" && multiYearRangeOk(text));
 }
 
@@ -411,9 +457,8 @@ export function finishRecord(d: RecordDraft, ctx: ComparabilityContext): Researc
     ? (f.currency.value.trim().toUpperCase() as "CAD" | "USD")
     : null;
   const onAmount = f.amount ? currencyMentionOf(f.amount.value, f.amount.excerpt) : null;
-  const otherStated =
-    (f.amount ? otherCurrencyMentioned(f.amount.value, f.amount.excerpt) : false) ||
-    (f.currency && !fromFact ? otherCurrencyMentioned(f.currency.value, f.currency.excerpt) : false);
+  // 币种事实在事实核对时只收 CAD / USD（别的币种进不来），所以这里只看合同额自己的值与摘录
+  const otherStated = f.amount ? otherCurrencyMentioned(f.amount.value, f.amount.excerpt) : false;
   if (d.datasetCurrency) {
     currency = d.datasetCurrency;
     currencyBasis = "dataset";

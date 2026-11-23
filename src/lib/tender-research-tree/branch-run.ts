@@ -145,10 +145,13 @@ export function publicProjectFacts(p: ResearchProjectRow, req: RequirementFactsR
  */
 export function groupKeyOf(raw: unknown): string | undefined {
   if (typeof raw !== "string" || !raw.trim()) return undefined;
-  const norm = raw.normalize("NFKC").trim();
+  // 先去掉不可见的格式字符与末尾的标点（「Lot 1.」与「Lot 1」是同一组），哈希按小写、空白归一后的写法算
+  // （「CONTRACT 2024-001」与「Contract 2024-001」是同一组）
+  const norm = raw.normalize("NFKC").replace(/\p{Cf}/gu, "").trim().replace(/[.,;:]+$/u, "").trim();
+  if (!norm) return undefined;
   const full = norm.toLowerCase().replace(/\s+/g, "-");
   const stripped = full.replace(/[^a-z0-9_-]/g, "");
-  const hash = createHash("sha256").update(norm).digest("hex").slice(0, 8);
+  const hash = createHash("sha256").update(full).digest("hex").slice(0, 8);
   if (!stripped) return `g${hash}`;
   if (stripped === full && stripped.length <= 12) return stripped;
   return `${stripped.slice(0, 12)}~${hash}`;
