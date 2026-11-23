@@ -703,6 +703,7 @@ run_test "报价表助手 比价矩阵成本来源（FLOW-H2）" "npx tsx src/li
 run_test "报价表助手 比价矩阵成本来源 DB（隔离库执行，否则跳过，FLOW-H2）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts"
 run_test "报价表助手 我方成本只给有财务查看权的人：纯函数与接线（CHAIN-2b）" "npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts"
 run_test "报价表助手 我方成本只给有财务查看权的人 DB（隔离库执行，否则跳过，CHAIN-2b）" "NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts"
+run_test "报价表助手 目标毛利只给有财务查看权的人：纯函数与接线（FIX-25）" "npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts"
 # ── 情报调研树（TREE，docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md）──
 run_test "HTML 转纯文本公共实现（TREE-1）" "npx tsx src/lib/text/__tests__/html-to-text.test.ts"
 run_test "读公开网页 纯函数：开关、内网地址、站点名单、robots、登录页识别（TREE-1）" "npx tsx src/lib/web-reader/__tests__/web-reader-pure.test.ts"

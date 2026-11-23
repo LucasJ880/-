@@ -37,6 +37,7 @@ import {
   COST_WRITE_FORBIDDEN_ZH,
   buildPricingHelperView,
   buildSavedInputsView,
+  hasKey,
   resolvePricingCostVisibility,
   touchesCost,
 } from "@/lib/tender-pricing/finance-view";
@@ -52,6 +53,8 @@ import {
  * 已保存成本的来源、矩阵变了的提示）；POST save 可带 ourCostSource 声明，服务端重新取数核对，到分相同才记来源。
  * CHAIN-2b：我方成本、落地价只给有财务查看权的人（与成本核算接口、寻源建议卡同一个判定）。没有的人读取时成本为 null、
  * 带 costHidden、不带成本建议（开关开着时只带 compareCostHidden），情景按没有成本算；保存时带了成本或成本来源 → 403。
+ * FIX-25：目标毛利同一个门（与我方报价配对即可反推成本）：没有财务查看权的人读取与保存返回的目标毛利为 null，
+ * 保存时带了目标毛利 → 403。「请求里带了没有」只用 finance-view 的 hasKey，403 判定与下面的保存是同一个判断。
  */
 
 /**
@@ -160,16 +163,16 @@ function buildSave(
     typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : v === null ? null : undefined as never;
   const inputs: PricingInputs = {
     competitorPriceCad:
-      body.inputs && "competitorPriceCad" in body.inputs
-        ? num(body.inputs.competitorPriceCad) ?? null
+      hasKey(body.inputs, "competitorPriceCad")
+        ? num(body.inputs!.competitorPriceCad) ?? null
         : prevInputs.competitorPriceCad ?? null,
     ourCostCad:
-      body.inputs && "ourCostCad" in body.inputs
-        ? num(body.inputs.ourCostCad) ?? null
+      hasKey(body.inputs, "ourCostCad")
+        ? num(body.inputs!.ourCostCad) ?? null
         : prevInputs.ourCostCad ?? null,
     targetMarginPct:
-      body.inputs && "targetMarginPct" in body.inputs
-        ? num(body.inputs.targetMarginPct) ?? null
+      hasKey(body.inputs, "targetMarginPct")
+        ? num(body.inputs!.targetMarginPct) ?? null
         : prevInputs.targetMarginPct ?? null,
   };
   if (inputs.targetMarginPct != null && inputs.targetMarginPct >= 100) {
@@ -179,7 +182,7 @@ function buildSave(
   const prevSource = readCostSource((prevInputs as Record<string, unknown>).ourCostSource);
   const source = nextCostSource({
     enabled: ctx.compareEnabled,
-    costInBody: !!body.inputs && "ourCostCad" in body.inputs,
+    costInBody: hasKey(body.inputs, "ourCostCad"),
     ourCostCad: inputs.ourCostCad,
     prevCostCad: prevInputs.ourCostCad ?? null,
     prevSource,
@@ -294,7 +297,7 @@ export async function POST(
   // save：输入与/或人工模型覆盖
   // FLOW-H2：组织只用服务端鉴权得到的项目组织；比价建议是一次取数，在锁外取
   const orgId = access.project.orgId;
-  // CHAIN-2b：没有财务查看权的人不能改我方成本与来源（锁外判定；顺序：没有调查室 409 → 这里 403 → 锁内 400）
+  // CHAIN-2b / FIX-25：没有财务查看权的人不能改我方成本、来源与目标毛利（锁外判定；顺序：没有调查室 409 → 这里 403 → 锁内 400）
   const canSeeCost = await canSeePricingCost(access);
   if (!canSeeCost && touchesCost(body)) {
     return NextResponse.json({ error: COST_WRITE_FORBIDDEN_ZH }, { status: 403 });

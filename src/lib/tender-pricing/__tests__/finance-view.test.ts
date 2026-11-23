@@ -1,5 +1,6 @@
 /**
  * CHAIN-2b 报价表助手的我方成本只给有财务查看权的人：纯函数 + 接线（源码断言）
+ * FIX-25 起目标毛利同一个门；目标毛利的专门断言在 target-margin-finance-view.test.ts，这里只改随行为变的几条。
  *
  * 运行：npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts
  */
@@ -10,8 +11,8 @@ import {
   COST_ACCESS_HINT_ZH,
   COST_HIDDEN_FIELD_ZH,
   COST_HIDDEN_NOTE_ZH,
-  COST_TARGET_MARGIN_NOTE_ZH,
   COST_WRITE_FORBIDDEN_ZH,
+  TARGET_MARGIN_HIDDEN_FIELD_ZH,
   NO_COST_ASSUMPTION_ZH,
   buildPricingHelperView,
   buildSavedInputsView,
@@ -44,7 +45,7 @@ console.log("固定文字");
 {
   const calc = readFileSync(join(process.cwd(), "src/lib/tender-pricing/calc.ts"), "utf8");
   ok("calc.ts 里没有成本时写的那句与 NO_COST_ASSUMPTION_ZH 逐字相同", calc.includes(`"${NO_COST_ASSUMPTION_ZH}"`));
-  ok("固定文字", COST_HIDDEN_NOTE_ZH === "需要财务查看权才能看我方成本；毛利一栏和「成本 + 目标毛利」「成本价」两种情景也不显示。" && COST_HIDDEN_FIELD_ZH === "需要财务查看权才能看我方成本。" && COST_ACCESS_HINT_ZH === "只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。" && COST_TARGET_MARGIN_NOTE_ZH === "目标毛利只用于按成本算的底价情景；你这里改了，情景表不会变。" && COST_WRITE_FORBIDDEN_ZH === "没有保存：需要财务查看权才能修改我方成本。请刷新页面，重新填写后再保存。");
+  ok("固定文字", COST_HIDDEN_NOTE_ZH === "需要财务查看权才能看我方成本；毛利一栏和「成本 + 目标毛利」「成本价」两种情景也不显示。" && COST_HIDDEN_FIELD_ZH === "需要财务查看权才能看我方成本。" && COST_ACCESS_HINT_ZH === "只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。" && TARGET_MARGIN_HIDDEN_FIELD_ZH === "需要财务查看权才能看目标毛利。" && COST_WRITE_FORBIDDEN_ZH === "页面已更新，没有保存：需要财务查看权才能修改我方成本和目标毛利。请刷新页面，重新填写后再保存。");
   ok("两种情景的名字与 calc.ts 里的情景标签一致", calc.includes("成本 + 目标毛利") && calc.includes("成本价（零毛利）"));
 }
 
@@ -60,7 +61,7 @@ console.log("读取视图：有财务查看权");
 console.log("读取视图：没有财务查看权");
 {
   const v = buildPricingHelperView({ model, inputs: full, canSeeCost: false, compareEnabled: true, compareCost: cc });
-  ok("成本为 null、costHidden、compareCostHidden、没有 compareCost", v.inputs.ourCostCad === null && v.inputs.competitorPriceCad === 100000 && v.inputs.targetMarginPct === 15 && v.costHidden === true && v.compareCostHidden === true && !("compareCost" in v));
+  ok("成本与目标毛利为 null（FIX-25）、costHidden、compareCostHidden、没有 compareCost", v.inputs.ourCostCad === null && v.inputs.competitorPriceCad === 100000 && v.inputs.targetMarginPct === null && v.costHidden === true && v.compareCostHidden === true && !("compareCost" in v));
   const sc = v.result?.scenarios ?? [];
   ok("情景按没有成本算：没有毛利、没有成本底价情景", sc.length > 0 && sc.every((s) => s.marginPct === null) && !sc.some((s) => s.key === "floor" || s.key === "cost"), sc);
   ok("情景与「成本为 null」直接计算的价格与分数相同", JSON.stringify(sc) === JSON.stringify(buildScenarios(model, { ...full, ourCostCad: null }).scenarios));
@@ -91,7 +92,8 @@ console.log("这次保存是否碰了成本");
 {
   ok("inputs 带 ourCostCad（数字 / null）", touchesCost({ inputs: { ourCostCad: 5 } }) && touchesCost({ inputs: { ourCostCad: null } }));
   ok("顶层带 ourCostSource（含 null）", touchesCost({ ourCostSource: null }) && touchesCost({ ourCostSource: { kind: "rfq_compare" } }));
-  ok("只带对手价 / 目标毛利 / 模型：没碰", !touchesCost({ inputs: { competitorPriceCad: 1, targetMarginPct: 2 } }) && !touchesCost({ model: { priceWeightPct: 50 } }));
+  ok("只带对手价 / 模型：没碰", !touchesCost({ inputs: { competitorPriceCad: 1 } }) && !touchesCost({ model: { priceWeightPct: 50 } }));
+  ok("带目标毛利（数字 / null）：碰了（FIX-25）", touchesCost({ inputs: { competitorPriceCad: 1, targetMarginPct: 2 } }) && touchesCost({ inputs: { targetMarginPct: null } }));
   ok("inputs 不是对象、请求不是对象：没碰（不抛错）", !touchesCost({ inputs: "x" }) && !touchesCost(null) && !touchesCost("x") && !touchesCost({ inputs: ["ourCostCad"] }));
 }
 
@@ -108,13 +110,13 @@ console.log("房间 JSON");
 {
   const sj = { pricingModel: { a: 1 }, pricingInputs: { competitorPriceCad: 1, ourCostCad: 2, targetMarginPct: 3, ourCostSource: { landedCadTotal: 2 }, ourPriceCad: 4 }, other: { keep: true } };
   const r = redactRoomSummaryCost(sj) as typeof sj;
-  ok("去掉成本与来源，其它键原样", !("ourCostCad" in r.pricingInputs) && !("ourCostSource" in r.pricingInputs) && r.pricingInputs.ourPriceCad === 4 && r.pricingInputs.competitorPriceCad === 1 && r.other.keep === true && r.pricingModel.a === 1);
+  ok("去掉整个 pricingInputs（FIX-25：含目标毛利与镜像的我方报价），其它键原样", !("pricingInputs" in r) && r.other.keep === true && r.pricingModel.a === 1);
   const withMemo = redactRoomSummaryCost({ bidStrategyMemo: { pricingStrategyZh: "成本 91,234" }, majorBlockers: ["x"] }) as Record<string, unknown>;
   ok("去掉投标策略备忘（可能转述成本），其它键原样", !("bidStrategyMemo" in withMemo) && Array.isArray(withMemo.majorBlockers));
   ok("不改入参", sj.pricingInputs.ourCostCad === 2 && "ourCostSource" in sj.pricingInputs);
   ok("没有 pricingInputs / 不是对象 / null：原样返回", redactRoomSummaryCost({ a: 1 }).a === 1 && redactRoomSummaryCost(null) === null && redactRoomSummaryCost("x") === "x");
-  const clean = { pricingInputs: { ourPriceCad: 1 } };
-  ok("pricingInputs 里本来就没有成本：返回同一个对象", redactRoomSummaryCost(clean) === clean);
+  const clean = { majorBlockers: ["x"], pricingModel: { a: 1 } };
+  ok("没有 pricingInputs、bidDraft 与备忘：返回同一个对象", redactRoomSummaryCost(clean) === clean);
 }
 
 console.log("接线（源码断言）");
@@ -135,10 +137,10 @@ console.log("接线（源码断言）");
   ok("卡片：成本格换成那句话", card.includes('k === "cost" && costHidden ? (') && card.includes("{COST_HIDDEN_FIELD_ZH}"));
   ok("卡片：没有财务查看权时保存不带 ourCostCad", card.includes("...(data.costHidden ? {} : { ourCostCad: n(form.cost) }),"));
   ok("卡片：没有财务查看权时不显示毛利一栏", card.includes('{costHidden ? null : <th className="py-1 pr-2">{cc ? MARGIN_ON_PRICE_ZH : "毛利"}</th>}') && card.includes("{costHidden ? null : ("));
-  ok("卡片：目标毛利写法与成本加成提示按开关（含 compareCostHidden）", card.includes("const compareOn = !!cc || data.compareCostHidden === true;") && card.includes("<MarkupHint enabled={compareOn} margin={form.margin} />"));
+  ok("卡片：目标毛利写法按开关（含 compareCostHidden）；成本加成提示没有财务查看权时不渲染（FIX-25）", card.includes("const compareOn = !!cc || data.compareCostHidden === true;") && card.includes("<MarkupHint enabled={compareOn && !costHidden} margin={form.margin} />"));
   ok("卡片：假设说明不重复那句（已写在情景表上方）", card.includes("!(costHidden && a === COST_HIDDEN_NOTE_ZH)"));
   ok("卡片：没有财务查看权时情景表上方写明少了什么、找谁", /\{costHidden && r \? \(\s*<p className="mt-3 text-\[11px\] text-muted" data-testid="pricing-cost-hidden-note">\s*\{COST_HIDDEN_NOTE_ZH\}\s*\{COST_ACCESS_HINT_ZH\}/.test(card));
-  ok("卡片：没有财务查看权时目标毛利下面那句", card.includes("{costHidden ? <p className=\"mt-1 text-[10px] text-muted\">{COST_TARGET_MARGIN_NOTE_ZH}</p> : null}"));
+  ok("卡片：没有财务查看权时目标毛利格换成那句话（FIX-25，原来目标毛利下面那句删掉）", card.includes("{TARGET_MARGIN_HIDDEN_FIELD_ZH}") && !card.includes("目标毛利只用于"));
   ok("卡片：403 时保留表单、不重新读取；错误红字并读屏播报", card.includes("if (res.status === 403) return;") && card.includes('msgIsError ? "text-danger" : "text-muted"') && card.includes('role="status" aria-live="polite"'));
   const list = read("src/app/api/projects/route.ts");
   const room = read("src/app/api/projects/[id]/bid-intelligence/route.ts");

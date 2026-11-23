@@ -4,6 +4,8 @@
  * 报价表助手卡（工作台）：评分模型（自动推导，可人工改权重/得分率）+ 对手价假设
  * （现任线索/联邦合同价格带预填）+ 我方成本/目标毛利 → 情景表与打平价。
  * 结果是假设驱动的情景，不是报价决定；AI 只负责把文件里的评分规则结构化。
+ * CHAIN-2b / FIX-25：读取结果带 costHidden（没有财务查看权）时，我方成本与目标毛利两格都换成一句话，
+ * 不显示毛利一栏与成本加成提示，保存只带对手价（带成本或目标毛利会被 403）。
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -22,7 +24,7 @@ import {
   type OurCostSourceClaim,
 } from "@/lib/tender-pricing/compare-cost-source";
 import { CompareCostSourceBlock, MarkupHint } from "./pricing-compare-source";
-import { COST_ACCESS_HINT_ZH, COST_HIDDEN_FIELD_ZH, COST_HIDDEN_NOTE_ZH, COST_TARGET_MARGIN_NOTE_ZH } from "@/lib/tender-pricing/finance-view";
+import { COST_ACCESS_HINT_ZH, COST_HIDDEN_FIELD_ZH, COST_HIDDEN_NOTE_ZH, TARGET_MARGIN_HIDDEN_FIELD_ZH } from "@/lib/tender-pricing/finance-view";
 
 type Payload = {
   runId: string | null;
@@ -42,7 +44,7 @@ type Payload = {
   note: string | null;
   /** FLOW-H2：开关开启时才有 */
   compareCost?: CompareCostView;
-  /** CHAIN-2b：没有财务查看权时为 true（我方成本为 null、情景按没有成本算） */
+  /** CHAIN-2b / FIX-25：没有财务查看权时为 true（我方成本与目标毛利都为 null、情景按没有成本算） */
   costHidden?: boolean;
   /** CHAIN-2b：没有财务查看权、开关开着时为 true（不带成本建议） */
   compareCostHidden?: boolean;
@@ -115,7 +117,7 @@ export function PricingHelperCard({
       if (!res.ok) {
         setMsg(json.error ?? "操作失败");
         setMsgIsError(true);
-        // CHAIN-2b：成本不能改（403）时保留表单里刚填的对手价与目标毛利，不重新读取
+        // CHAIN-2b：成本不能改（403）时保留表单里刚填的值，不重新读取
         if (res.status === 403) return;
       }
       else if (kind === "derive")
@@ -134,14 +136,14 @@ export function PricingHelperCard({
 
   const save = () => {
     const n = (s: string) => (s.trim() === "" ? null : Number(s));
-    // CHAIN-2b：没有财务查看权时不带我方成本（带了会被 403）
+    // CHAIN-2b / FIX-25：没有财务查看权时不带我方成本与目标毛利（带了会被 403）
     void post(
       {
         action: "save",
         inputs: {
           competitorPriceCad: n(form.competitor),
           ...(data.costHidden ? {} : { ourCostCad: n(form.cost) }),
-          targetMarginPct: n(form.margin),
+          ...(data.costHidden ? {} : { targetMarginPct: n(form.margin) }),
         },
         ...(costClaim ? { ourCostSource: costClaim } : {}),
       },
@@ -246,6 +248,11 @@ export function PricingHelperCard({
                 我方成本
                 <span className="mt-0.5 block text-[11px] text-foreground/80">{COST_HIDDEN_FIELD_ZH}</span>
               </p>
+            ) : k === "margin" && costHidden ? (
+              <p key={k} className="text-[10px] text-muted" data-testid="pricing-margin-hidden">
+                {label}
+                <span className="mt-0.5 block text-[11px] text-foreground/80">{TARGET_MARGIN_HIDDEN_FIELD_ZH}</span>
+              </p>
             ) : (
               <label key={k} className="text-[10px] text-muted">
                 {label}
@@ -263,8 +270,8 @@ export function PricingHelperCard({
               </label>
             ))}
           </div>
-          <MarkupHint enabled={compareOn} margin={form.margin} />
-          {costHidden ? <p className="mt-1 text-[10px] text-muted">{COST_TARGET_MARGIN_NOTE_ZH}</p> : null}
+          {/* FIX-25：成本加成提示由目标毛利算出，没有财务查看权时不渲染 */}
+          <MarkupHint enabled={compareOn && !costHidden} margin={form.margin} />
           {canManage ? (
             <button
               type="button"
