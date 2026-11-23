@@ -7,6 +7,7 @@
 | 拍板 | Lucas 2026-11-20：「报价助手里的落地成本与节省成本，改成只对有财务查看权的人显示，口径与其它页面一致。」（「节省成本」按交接文档读作「已保存的我方成本」，代码里没有「节省」字段；若指毛利，毛利一栏同样只给有财务查看权的人——两种读法都覆盖） |
 | OpenSpec change | `openspec/changes/pricing-helper-finance-gate/`（修改 `tender/pricing-helper`：新增 5 条、改 2 条；修改 `tender/pricing-compare-cost-source` 5 条） |
 | 基线 | origin/main `91d928e4` |
+| PR | #532，2026-11-23 合并（合并提交 `d9de8490`）；归档 `openspec/changes/archive/2026-11-23-pricing-helper-finance-gate/` |
 | 开关 | 没有新开关；随合并生效（比价建议部分仍跟 `TENDER_PRICING_COMPARE_SOURCE_ENABLED`） |
 
 ## 1. 做了什么
