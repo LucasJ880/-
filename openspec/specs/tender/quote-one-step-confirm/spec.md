@@ -1,4 +1,9 @@
-## ADDED Requirements
+# tender/quote-one-step-confirm Specification
+
+## Purpose
+「标书与报价」新页面 ② 定报价：逐行报价与总价报价的编辑器里放一个主按钮，有批准权限的人点一次就把报价提交、批准并定为我方报价，只有编辑权限的人点一次就提交给项目负责人并发一条站内通知；② 最上面写明我方报价是哪一份、多少钱、谁何时定的。
+
+## Requirements
 
 ### Requirement: 主按钮按状态与权限
 新页面上逐行报价与总价报价的编辑器标题旁边 SHALL 有一个主按钮或一句状态，按报价状态与看的人的权限决定（批准权限 = `project:cost:review` 或项目负责人等报价引擎认的特权；编辑权限 = `project:cost:write` 或同样的特权）：
