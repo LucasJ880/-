@@ -5,8 +5,8 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-23（第 2 次：TREE-1 八个维度审查已回、意见已改，待挑错交叉验证） |
-| 当前 main | `451bb0d3`（开工时；任务书「依据」写的是 `f016325f`，之间多了 #532 CHAIN-2b、#550、#551，都不碰「依据」里列的文件，依据仍成立——见 §3） |
+| 最后更新 | 2026-11-23（第 3 次：TREE-1 第三轮挑错的 17 条已改，待第四轮挑错与门禁复跑） |
+| 当前 main | `f9c73ba2`（2026-11-23 本次更新时）；开工时是 `451bb0d3`（任务书「依据」写的是 `f016325f`，之间多了 #532 CHAIN-2b、#550、#551，都不碰「依据」里列的文件，依据仍成立——见 §3） |
 | 工作分支 | `claude/awesome-maxwell-9wh9m6`（会话指定的唯一可推送分支；八个 PR 依次从它开：上一个合并后把它重置到最新 main 再做下一个） |
 | 授权 | Evan 2026-11-22 20:08：TREE-0 ～ TREE-8 全权交给实现者，PR 自行合并，条件是至少七维度子 agent 独立审查 + 一个挑错子 agent 亲自重跑验证 + 每条意见有去向 + 基于最新 main 重跑门禁。**不在授权内**：改预发 / 生产环境变量与开关、买付费数据、对外发送、改数据库结构、改任务运行时、绕过访问限制 |
 
@@ -14,8 +14,8 @@
 
 | ID | change | 状态 | PR / 分支 |
 |---|---|---|---|
-| TREE-0 | （随 TREE-1） | 实现中 | 同 TREE-1 |
-| TREE-1 | `public-page-reader` | 审查中（八维度已回、已改；待挑错交叉验证与门禁复跑） | `claude/awesome-maxwell-9wh9m6`，PR 未开 |
+| TREE-0 | （随 TREE-1） | 审查中 | 同 TREE-1 |
+| TREE-1 | `public-page-reader` | 审查中（八维度 + 三轮挑错已回、全部已改；第四轮挑错与门禁复跑进行中） | `claude/awesome-maxwell-9wh9m6`，PR [LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559)（草稿） |
 | TREE-2 | `research-tree-runtime` | 未开始 | — |
 | TREE-3 | `research-branches-awards` | 未开始 | — |
 | TREE-4 | `research-cross-verify` | 未开始 | — |
@@ -28,7 +28,9 @@
 
 - 正在做：TREE-1（含 TREE-0）。四件套在 `openspec/changes/public-page-reader/`；代码 `src/lib/web-reader/**`、`src/lib/text/html-to-text.ts`、`src/lib/tender-research-tree/flags.ts`。
 - 已做：全量门禁（`70b4e162`：713/723，失败 10 项与 main 基线逐条相同）→ `/opsx:verify` → 八个维度审查（需求、正确性、读网页安全、提示注入、硬纪律、开关零变化、文案、测试质量 / 变异），意见去向见 scratchpad `reviews/tree1-dispositions.md`（报告 §5 抄录）。两名审查员独立复现一个阻断：并发同址合并会空转卡死进程，已改（D12）。
-- 下一步：基于改后的提交复跑门禁 → 挑错子 agent 亲自重跑 → 处理其意见 → 开 PR → CI 绿 → 合并 → 确认部署 → 本文件更新 → TREE-2。
+- 之后：三轮挑错交叉验证（各起一个没参与过的子 agent，亲自重跑全量门禁与差分），第一轮 13 条、第二轮 10 条（阻断 1：PDF → 读网页层不在线解析）、第三轮 17 条（阻断 1：被挡后经抓取代理换地址读同一个站）全部按更保守的一方改了，去向见报告 §5、design D13。PR #559 已开（草稿）。
+- 现在：提交 `6e135414`（基于 main `f9c73ba2`）上跑全量门禁（`gate.sh … tree1-f`）与第四轮挑错子 agent。main 基线：`d1b0d3e2` 上 717/727、10 项失败（`f9c73ba2` 相对它只改了文档与 openspec 归档，不影响测试）。
+- 下一步：第四轮挑错回来 → 处理 → 门禁与基线逐条比 → 报告 §4 / §5 与 PR 描述 → 标为可审 → 合并 → 确认生产部署成功、开关仍关、情报页签不变 → 本文件更新 → TREE-2（先问 Lucas：TREE-2 要在 `src/lib/tender-workforce/tools.ts` 加工具，而未合并的 FIX-20 分支也改这个文件）。
 
 ## 3. 开工核对（2026-11-23）
 
@@ -70,12 +72,15 @@
 ## 6. 已知问题、没验证到的地方、给后续 change 的硬要求
 
 - 读网页的真实传输只连过本机服务（gzip、炸弹、超时、不跟跳转、只 GET 已测）；真实外网（政府站、TLS、br、IPv6 双栈、真实大 PDF）**未验证**——预发验收时才第一次发请求。
-- 同站 2 秒间隔只在同一进程内保证。PDF 一律不在线解析（D-12），由人用 TREE-6 补页。
+- 同站 2 秒间隔、树账本只在同一进程内保证。PDF 一律不在线解析（D-12），由人用 TREE-6 补页；纯文本也不读（只读 HTML，任务书「其它类型拒绝」）。
+- 范围外的既有风险（第三轮挑错发现，未核实到生产）：询价回信附件（`src/lib/tender-rfq/inbound-parse.ts`）、文件解析（`files/parse-buffer.ts`、`files/parse-content.ts`）、页级解析（`tender-auto-analysis/page-parse.ts`）、宣传册解析（`supplier/brochure-parser.ts`）在进程内用 unpdf 解析不可信 PDF，构造的 2 KB PDF 能让事件循环几十秒不动。建议另开任务做进程隔离（要改打包、在 Vercel 上验证），不在 TREE 范围。
 - config 第 7 条例外二里标为「实现者解释」的三处（agent-runs 续跑不算定时任务发起；重新查 / 补页后重算算人发起；请求内部重试不另算）**待 Evan 确认**。
 - 一支里 robots 只禁一个路径也会让该站在这一支作废（任务书字面），会损失召回。
 - **给 TREE-2 的硬要求（审查员④⑤⑥①提出，TREE-2 的 design 必须逐条落实）**：
   1. 建 Job 用平铺标记（D-9）；调研 Job 不能与一键分析的卡片 / 重用逻辑撞车——`tender-workforce/trigger-service.ts` 的 `tenderJobWhere` 只看 `metadata.projectId` + `workDomain`，调研 Job 不要设 `metadata.projectId`（项目放另一个键），见 scratchpad `tree2-research-notes.md` §1。
-  2. 每支每次处理只 `forBranch` 一次；额度由读页层内部记账，处理结束时读 `ctx.budget.used` 持久化，下次传回（否则同一支两个会话合计能读 24 次）；`blockedSites` 同样持久化；必须传 `deadlineAt`（切片截止 − 15 秒，同 FIX-12）。
+  2. 每支每次处理只 `forBranch` 一次；必须传 `deadlineAt`（切片截止 − 15 秒，同 FIX-12）。额度、取 robots 次数、被挡站与分支数由读页层记在进程内按 Job 共用的树账本里，建会话时与审计历史取大（第三轮挑错后，D13）——`ctx.budget.used` 与 `blockedSites` 仍建议持久化后传回（第二道保险，取大）。**读页层不防跨进程同时处理同一 Job**：TREE-2 必须靠运行时的租约保证同一 Job 同一时间只有一处处理，并配测试（两个处理器同时认领同一调研 Job 只有一个拿到）。
+  2d. 读页结果的「到上限」有三种原因：`budget_exhausted`（读页次数）、`robots_limit`（取读取规则次数）、`blocked_sites_limit`（这一支被挡站到 24 个）；三种都表示这一支不能再读页，分支循环要据此收尾（不要换个网址再试）。
+  2e. 被挡后换来源时，不要把抓取代理 / 快照 / 翻译代理当成「别的来源」：它们预置「不碰」，网址里嵌着本支被挡站的也按被挡（D13）。代价：查询里带被挡站名字的普通网址在这一支也不读。
   2c. **只有 TREE-2 的人发起接口写调研标记**（`researchTree: true`）：读页层的规则 1 最终靠这一点（`scheduled` 是调用方自报、`researchTrigger` 不是运行时保留键）；TREE-2 加守卫测试：`researchTree: true` 只许出现在那几个接口里。
   2b. 发起方式取值：「开始调研」`human_start`、确认招标要求 `requirements_confirmed`、某一支「重新查」`human_rerun`、补页后重算 `human_page_intake`。
   3. 必须传 `allowUrl`（读页层已改成必填）：网址只能来自本支搜索结果 / 已读页面链接 / 标书引用 / 人工提供，且不含我方成本 / 毛利 / 目标价的数；搜索词过 `china-supplier-brief.ts` 的闸（注意它会误挡 cost / budget，需要按调研场景定一份）。
