@@ -45,7 +45,7 @@ console.log("固定文字");
 {
   const calc = readFileSync(join(process.cwd(), "src/lib/tender-pricing/calc.ts"), "utf8");
   ok("calc.ts 里没有成本时写的那句与 NO_COST_ASSUMPTION_ZH 逐字相同", calc.includes(`"${NO_COST_ASSUMPTION_ZH}"`));
-  ok("固定文字", COST_HIDDEN_NOTE_ZH === "需要财务查看权才能看我方成本；毛利一栏和「成本 + 目标毛利」「成本价」两种情景也不显示。" && COST_HIDDEN_FIELD_ZH === "需要财务查看权才能看我方成本。" && COST_ACCESS_HINT_ZH === "只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。" && TARGET_MARGIN_HIDDEN_FIELD_ZH === "需要财务查看权才能看目标毛利。" && COST_WRITE_FORBIDDEN_ZH === "页面已更新，没有保存：需要财务查看权才能修改我方成本和目标毛利。请刷新页面，重新填写后再保存。");
+  ok("固定文字", COST_HIDDEN_NOTE_ZH === "需要财务查看权才能看我方成本；毛利一栏和「成本 + 目标毛利」「成本价」两种情景也不显示。" && COST_HIDDEN_FIELD_ZH === "需要财务查看权才能看我方成本。" && COST_ACCESS_HINT_ZH === "只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。" && TARGET_MARGIN_HIDDEN_FIELD_ZH === "需要财务查看权才能看目标毛利。" && COST_WRITE_FORBIDDEN_ZH === "没有保存：页面已更新，目标毛利现在和我方成本一样，只给有财务查看权的人改。请刷新页面，重新填写后再保存。");
   ok("两种情景的名字与 calc.ts 里的情景标签一致", calc.includes("成本 + 目标毛利") && calc.includes("成本价（零毛利）"));
 }
 
@@ -135,7 +135,7 @@ console.log("接线（源码断言）");
   ok("保存：返回经 buildSavedInputsView", route.includes("buildSavedInputsView(") && route.includes("canSeeCost,\n    ),"));
   ok("重新推导不做财务判定（derive 分支在判定之前返回）", route.indexOf('if (body.action === "derive") {') < route.indexOf("touchesCost(body)"));
   ok("卡片：成本格换成那句话", card.includes('k === "cost" && costHidden ? (') && card.includes("{COST_HIDDEN_FIELD_ZH}"));
-  ok("卡片：没有财务查看权时保存不带 ourCostCad", card.includes("...(data.costHidden ? {} : { ourCostCad: n(form.cost) }),"));
+  ok("卡片：没有财务查看权时保存不带 ourCostCad（FIX-25 起请求体由 buildPricingSaveBody 给出，行为断言在 target-margin-finance-view.test.ts）", card.includes("buildPricingSaveBody(form, data.costHidden === true, costClaim)"));
   ok("卡片：没有财务查看权时不显示毛利一栏", card.includes('{costHidden ? null : <th className="py-1 pr-2">{cc ? MARGIN_ON_PRICE_ZH : "毛利"}</th>}') && card.includes("{costHidden ? null : ("));
   ok("卡片：目标毛利写法按开关（含 compareCostHidden）；成本加成提示没有财务查看权时不渲染（FIX-25）", card.includes("const compareOn = !!cc || data.compareCostHidden === true;") && card.includes("<MarkupHint enabled={compareOn && !costHidden} margin={form.margin} />"));
   ok("卡片：假设说明不重复那句（已写在情景表上方）", card.includes("!(costHidden && a === COST_HIDDEN_NOTE_ZH)"));

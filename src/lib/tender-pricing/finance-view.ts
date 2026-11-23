@@ -17,7 +17,7 @@
  * 本文件只 import ./calc 与类型：CHAIN-2e 的 view-hint.ts 从这里取 COST_ACCESS_HINT_ZH，客户端组件也 import 这里的文字。
  */
 import { buildScenarios, type PricingInputs, type PricingResult, type ScoringModel } from "./calc";
-import type { CompareCostView } from "./compare-cost-source";
+import type { CompareCostView, OurCostSourceClaim } from "./compare-cost-source";
 
 /** 情景计算没有成本时 calc.ts 写的那句（逐字相同；测试核对） */
 export const NO_COST_ASSUMPTION_ZH = "未填我方成本——毛利列为空；成本底价情景未生成";
@@ -29,8 +29,11 @@ export const COST_HIDDEN_FIELD_ZH = "需要财务查看权才能看我方成本�
 export const COST_ACCESS_HINT_ZH = "只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。";
 /** FIX-25：卡片上代替目标毛利输入框的那句 */
 export const TARGET_MARGIN_HIDDEN_FIELD_ZH = "需要财务查看权才能看目标毛利。";
-/** 没有财务查看权的人带成本、目标毛利或成本来源保存 → 403（上线前打开的旧卡片每次都带目标毛利，所以先说页面已更新） */
-export const COST_WRITE_FORBIDDEN_ZH = "页面已更新，没有保存：需要财务查看权才能修改我方成本和目标毛利。请刷新页面，重新填写后再保存。";
+/**
+ * 没有财务查看权的人带成本、目标毛利或成本来源保存 → 403。上线前打开的旧卡片每次都带目标毛利，所以要说清：没存上、页面已更新、
+ * 目标毛利现在和成本同一个门、刷新后重填（文案审查 X1）。
+ */
+export const COST_WRITE_FORBIDDEN_ZH = "没有保存：页面已更新，目标毛利现在和我方成本一样，只给有财务查看权的人改。请刷新页面，重新填写后再保存。";
 
 /**
  * 对本项目有没有财务查看权：项目有组织时用注入的判定（resolveFinancePrivilege(...).canReadAll）；
@@ -98,6 +101,27 @@ export function hasKey(obj: unknown, key: string): boolean {
 export function touchesCost(body: unknown): boolean {
   const b = asRec(body);
   return hasKey(b.inputs, "ourCostCad") || hasKey(b.inputs, "targetMarginPct") || hasKey(b, "ourCostSource");
+}
+
+/** 卡片表单里的三项（字符串，空串表示没填） */
+export type PricingFormValues = { competitor: string; cost: string; margin: string };
+
+/**
+ * 卡片「保存并重算」的请求体（FIX-25 审查 T7：纯函数，测试直接断言）。没有财务查看权时只带对手价——
+ * 带我方成本、目标毛利或成本来源都会被 403；有财务查看权时三项都带，按钮填入的成本来源声明一并带上。
+ */
+export function buildPricingSaveBody(
+  form: PricingFormValues,
+  costHidden: boolean,
+  claim: OurCostSourceClaim | null,
+): { action: "save"; inputs: Partial<PricingInputs>; ourCostSource?: OurCostSourceClaim } {
+  const n = (s: string) => (s.trim() === "" ? null : Number(s));
+  if (costHidden) return { action: "save", inputs: { competitorPriceCad: n(form.competitor) } };
+  return {
+    action: "save",
+    inputs: { competitorPriceCad: n(form.competitor), ourCostCad: n(form.cost), targetMarginPct: n(form.margin) },
+    ...(claim ? { ourCostSource: claim } : {}),
+  };
 }
 
 /** 保存的返回：没有财务查看权时我方成本与目标毛利为 null、带 costHidden、去掉成本来源；有权限时原样 */

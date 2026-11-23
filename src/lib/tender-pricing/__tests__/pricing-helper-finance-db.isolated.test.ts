@@ -43,7 +43,9 @@ async function main() {
   const { createSession } = await import("@/lib/auth/session");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
   const { PRICING_MODEL_VERSION } = await import("@/lib/tender-pricing/calc");
-  const { COST_HIDDEN_NOTE_ZH, COST_WRITE_FORBIDDEN_ZH, NO_COST_ASSUMPTION_ZH } = await import("@/lib/tender-pricing/finance-view");
+  const { COST_HIDDEN_NOTE_ZH, NO_COST_ASSUMPTION_ZH } = await import("@/lib/tender-pricing/finance-view");
+  // 403 那句写字面量，不从源码取（多审：去掉自证）
+  const COST_WRITE_FORBIDDEN_ZH = "没有保存：页面已更新，目标毛利现在和我方成本一样，只给有财务查看权的人改。请刷新页面，重新填写后再保存。";
   const route = await import("@/app/api/projects/[id]/pricing-helper/route");
   const roomRoute = await import("@/app/api/projects/[id]/bid-intelligence/route");
   const listRoute = await import("@/app/api/projects/route");
@@ -193,8 +195,9 @@ async function main() {
     );
     ok(rec(w4b.body.inputs).ourCostCad === null && rec(w4b.body.inputs).targetMarginPct === null && w4b.body.costHidden === true && !("ourCostSource" in w4b.body) && noCostIn(w4b.text), "编辑者保存的返回：成本与目标毛利为 null、costHidden、没有 ourCostSource、搜不到成本与目标毛利数字", w4b.body);
     // FIX-25：编辑者带目标毛利 100 先撞财务 403（原来 400）；400 由能改目标毛利的人触发
+    const snapW5 = JSON.stringify(await roomSj(P));
     const w5 = await post(P, { action: "save", inputs: { competitorPriceCad: 105000, targetMarginPct: 100 } }, EDITOR);
-    ok(w5.status === 403 && w5.body.error === COST_WRITE_FORBIDDEN_ZH, "编辑者带目标毛利 100：403（FIX-25，财务判定先于目标毛利校验）", w5.body);
+    ok(w5.status === 403 && w5.body.error === COST_WRITE_FORBIDDEN_ZH && JSON.stringify(await roomSj(P)) === snapW5 && rec((await roomSj(P)).pricingInputs).targetMarginPct === MARGIN, "编辑者带目标毛利 100：403（FIX-25，财务判定先于目标毛利校验）、库不变", w5.body);
     const f5 = await post(P, { action: "save", inputs: { competitorPriceCad: 105000, targetMarginPct: 100 } }, FINREAD);
     ok(f5.status === 400, "能编辑项目、持 ORG 范围 finance.read 的成员带目标毛利 100：400", f5.body);
     const w6 = await post(P, { action: "save", inputs: { targetMarginPct: 100, ourCostCad: 5 } }, EDITOR);
@@ -229,6 +232,7 @@ async function main() {
       const listSj = rec(rec(mine?.intelligenceRoom).summaryJson);
       const listPi = rec(listSj.pricingInputs);
       ok(lr.status === 200 && !!mine && !("pricingInputs" in listSj) && Object.keys(listPi).length === 0 && !("bidStrategyMemo" in listSj) && Array.isArray(listSj.majorBlockers), `项目列表（${label}）：没有 pricingInputs（FIX-25 整个去掉）、没有投标策略备忘，其它键还在`, mine ? listSj : list);
+      ok(noCostIn(JSON.stringify(mine ?? {})), `项目列表（${label}）：该项目那一项里搜不到成本、落地价与目标毛利的数字`);
     }
     ok(noCostIn(JSON.stringify(mine ?? {})) && noCostIn(JSON.stringify(roomBody)), "两个接口的 JSON 里都搜不到成本与落地价的数字");
     ok(JSON.stringify(await roomSj(P)) === before, "两个接口都不改库");

@@ -7,9 +7,12 @@
  * 运行：npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts
  *
  * 用命名空间 import：在改动前的 finance-view.ts 上跑时缺的导出是 undefined，逐条算失败，而不是整个文件 import 不了。
+ * 卡片的展示部分与保存请求体用行为断言（renderToStaticMarkup / 纯函数），卡片模块在 main() 里动态 import（多审 T7）。
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import * as React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { buildScenarios, PRICING_MODEL_VERSION, type PricingInputs, type ScoringModel } from "../calc";
 import * as fv from "../finance-view";
 
@@ -23,6 +26,7 @@ function safe<T>(f: () => T): T | undefined {
   try { return f(); } catch { return undefined; }
 }
 type Rec = Record<string, unknown>;
+const rec = (v: unknown): Rec => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : {});
 const ex = fv as unknown as Rec;
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
@@ -51,7 +55,7 @@ console.log("夹具");
 console.log("固定文字");
 {
   ok("目标毛利格那句", ex.TARGET_MARGIN_HIDDEN_FIELD_ZH === "需要财务查看权才能看目标毛利。");
-  ok("403 那句：句首说页面已更新，成本与目标毛利共用", fv.COST_WRITE_FORBIDDEN_ZH === "页面已更新，没有保存：需要财务查看权才能修改我方成本和目标毛利。请刷新页面，重新填写后再保存。");
+  ok("403 那句：先说没有保存，再说页面已更新、目标毛利和成本同一个门（文案审查 X1）", fv.COST_WRITE_FORBIDDEN_ZH === "没有保存：页面已更新，目标毛利现在和我方成本一样，只给有财务查看权的人改。请刷新页面，重新填写后再保存。");
   ok("「目标毛利只用于按成本算的底价情景」那句已删掉", !("COST_TARGET_MARGIN_NOTE_ZH" in ex));
   ok(
     "CHAIN-2b 的四句不变（CHAIN-2e 的 view-hint.ts 拼 COST_ACCESS_HINT_ZH）",
@@ -141,14 +145,38 @@ console.log("房间 JSON");
   ok("不是对象 / null / 数组：原样返回", fv.redactRoomSummaryCost(null) === null && fv.redactRoomSummaryCost("x") === "x" && Array.isArray(fv.redactRoomSummaryCost([1])));
 }
 
+console.log("保存请求体（多审 T7：行为断言）");
+{
+  const build = ex.buildPricingSaveBody as ((f: { competitor: string; cost: string; margin: string }, hidden: boolean, claim: unknown) => Rec) | undefined;
+  ok("导出了保存请求体的纯函数", typeof build === "function");
+  if (typeof build === "function") {
+    const form = { competitor: "100000", cost: "87654.32", margin: "23.7" };
+    const claim = { kind: "rfq_compare", inquiryItemId: "item_x" };
+    const hidden = build(form, true, claim);
+    ok("没有财务查看权：inputs 只有对手价，没有 ourCostCad 与 targetMarginPct 这两个键，也不带成本来源", JSON.stringify(Object.keys(rec(hidden.inputs))) === JSON.stringify(["competitorPriceCad"]) && rec(hidden.inputs).competitorPriceCad === 100000 && !("ourCostSource" in hidden) && hidden.action === "save", hidden);
+    ok("没有财务查看权：请求体里搜不到目标毛利与成本", !JSON.stringify(hidden).includes("23.7") && !JSON.stringify(hidden).includes("87654"));
+    const shown = build(form, false, claim);
+    ok("有财务查看权：三项都带（数字）、带成本来源声明", JSON.stringify(Object.keys(rec(shown.inputs))) === JSON.stringify(["competitorPriceCad", "ourCostCad", "targetMarginPct"]) && rec(shown.inputs).ourCostCad === 87654.32 && rec(shown.inputs).targetMarginPct === 23.7 && JSON.stringify(shown.ourCostSource) === JSON.stringify(claim), shown);
+    const empty = build({ competitor: " ", cost: "", margin: "" }, false, null);
+    ok("有财务查看权：空串存成 null、没有声明时不带 ourCostSource", rec(empty.inputs).competitorPriceCad === null && rec(empty.inputs).ourCostCad === null && rec(empty.inputs).targetMarginPct === null && !("ourCostSource" in empty), empty);
+    ok("没有财务查看权的请求体过 403 判定：没碰受限的键；有财务查看权的请求体：碰了", !fv.touchesCost(hidden) && fv.touchesCost(shown));
+  }
+}
+
 console.log("接线（源码断言）");
 {
   const view = read("src/lib/tender-pricing/finance-view.ts");
-  const imports = view.split("\n").filter((l) => /^import\b/.test(l));
+  // 多审 T8：取出所有模块说明符（import … from、export … from、import("…")、require("…")、import "…"），集合恰好是两个，
+  // 且 ./compare-cost-source 只以 import type 出现（CHAIN-2e 的 view-hint.ts 从这里取文字，链上不能有读库 / node / next）
+  const specs = new Set<string>();
+  for (const re of [/\bfrom\s*["']([^"']+)["']/g, /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g, /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g, /^\s*import\s*["']([^"']+)["']/gm]) {
+    for (const mm of view.matchAll(re)) specs.add(mm[1]);
+  }
+  const ccsStatements = view.split("\n").filter((l) => l.includes('"./compare-cost-source"'));
   ok(
-    "finance-view.ts 只 import ./calc 与 ./compare-cost-source 的类型（不引用 node: / @/lib/db / next/ / project-finance/access）",
-    imports.length === 2 && imports.some((l) => l.endsWith('from "./calc";')) && imports.some((l) => l.startsWith("import type") && l.endsWith('from "./compare-cost-source";')) && !/from "node:|@\/lib\/db|from "next\/|project-finance\/access/.test(view),
-    imports,
+    "finance-view.ts 的模块说明符恰好是 ./calc 与 ./compare-cost-source，后者只用 import type（不引用 node: / @/lib/db / next/ / project-finance/access，也不再导出别的模块）",
+    JSON.stringify([...specs].sort()) === JSON.stringify(["./calc", "./compare-cost-source"]) && ccsStatements.length > 0 && ccsStatements.every((l) => /^import type\b/.test(l)) && !/\bexport\s*\*|\bexport\s*\{[^}]*\}\s*from/.test(view),
+    [...specs],
   );
   const route = read("src/app/api/projects/[id]/pricing-helper/route.ts");
   ok(
@@ -158,9 +186,9 @@ console.log("接线（源码断言）");
   ok("保存：403 判定仍在写锁之前、仍经 touchesCost", route.indexOf("if (!canSeeCost && touchesCost(body)) {") > 0 && route.indexOf("touchesCost(body)") < route.indexOf("const out = await writeRoomLocked(projectId, room.id, (latest) => {\n    const built"));
   ok("读取与保存返回仍经裁剪视图", route.includes("buildPricingHelperView({ model, inputs, canSeeCost, compareEnabled, compareCost })") && route.includes("buildSavedInputsView("));
   const card = read("src/components/tender/pricing-helper-card.tsx");
-  ok("卡片：目标毛利格换成标签 + 那句话", /k === "margin" && costHidden \? \(\s*<p key=\{k\} className="text-\[10px\] text-muted" data-testid="pricing-margin-hidden">\s*\{label\}\s*<span className="mt-0\.5 block text-\[11px\] text-foreground\/80">\{TARGET_MARGIN_HIDDEN_FIELD_ZH\}<\/span>/.test(card));
-  ok("卡片：标签按开关（开关开着时「目标毛利率 %（按售价）」）", card.includes('["margin", compareOn ? TARGET_MARGIN_ON_PRICE_ZH : "目标毛利 %"]'));
-  ok("卡片：没有财务查看权时保存不带目标毛利", card.includes("...(data.costHidden ? {} : { targetMarginPct: n(form.margin) }),") && !/\n\s*targetMarginPct: n\(form\.margin\),/.test(card));
+  ok("卡片：目标毛利格换成固定标签「目标毛利」+ 那句话（文案审查 X2）", /k === "margin" && costHidden \? \(\s*<p key=\{k\} className="text-\[10px\] text-muted" data-testid="pricing-margin-hidden">\s*目标毛利\s*<span className="mt-0\.5 block text-\[11px\] text-foreground\/80">\{TARGET_MARGIN_HIDDEN_FIELD_ZH\}<\/span>/.test(card));
+  ok("卡片：有财务查看权时输入框标签照旧按开关（开关开着时「目标毛利率 %（按售价）」）", card.includes('["margin", compareOn ? TARGET_MARGIN_ON_PRICE_ZH : "目标毛利 %"]'));
+  ok("卡片：保存请求体只由 buildPricingSaveBody 给出，卡片里没有别处拼 inputs", card.includes("void post(buildPricingSaveBody(form, data.costHidden === true, costClaim), \"save\");") && !/targetMarginPct\s*:/.test(card) && !/ourCostCad\s*:/.test(card) && (card.match(/void post\(/g) ?? []).length === 2);
   ok("卡片：没有财务查看权时不渲染成本加成提示", card.includes("<MarkupHint enabled={compareOn && !costHidden} margin={form.margin} />") && (card.match(/<MarkupHint /g) ?? []).length === 1);
   ok("卡片：「目标毛利只用于…」那句不再出现", !card.includes("COST_TARGET_MARGIN_NOTE_ZH") && !card.includes("目标毛利只用于"));
   ok("卡片：有财务查看权时目标毛利仍是输入框（同一个 input 分支）", card.includes("value={form[k]}") && card.includes('["cost", "我方成本"],'));
@@ -169,5 +197,39 @@ console.log("接线（源码断言）");
   ok("两个房间 JSON 接口仍经同一个裁剪", list.includes("summaryJson: redactRoomSummaryCost(room.summaryJson)") && room.includes("summaryJson: redactRoomSummaryCost(room.summaryJson)"));
 }
 
-console.log(`\ntarget-margin-finance-view: ${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+async function renderChecks() {
+  console.log("卡片展示部分（多审 T7：renderToStaticMarkup）");
+  let mod: Rec;
+  try {
+    mod = (await import("@/components/tender/pricing-helper-card")) as unknown as Rec;
+  } catch (e) {
+    ok("卡片模块能在测试里 import", false, String(e));
+    return;
+  }
+  const View = mod.PricingHelperCardView as React.ComponentType<Rec> | undefined;
+  ok("卡片导出了纯展示组件", typeof View === "function");
+  if (typeof View !== "function") return;
+  const result = buildScenarios(model, { competitorPriceCad: 100000, ourCostCad: null, targetMarginPct: null });
+  const base = {
+    runId: "run_x", model, modelOrigin: "HUMAN", note: null,
+    benchmark: { vendor: null, low: null, high: null, median: null, sampleSize: null, noteZh: null, source: null },
+  };
+  const noop = () => undefined;
+  const html = (data: Rec, form: Rec) => renderToStaticMarkup(React.createElement(View, { data, form, canManage: true, busy: null, msg: null, msgIsError: false, onFieldChange: noop, onSave: noop, onDerive: noop, onFill: noop }));
+  const hiddenData = { ...base, inputs: { competitorPriceCad: 100000, ourCostCad: null, targetMarginPct: null }, result: { ...result, assumptionsZh: [...result.assumptionsZh.filter((a) => a !== fv.NO_COST_ASSUMPTION_ZH), fv.COST_HIDDEN_NOTE_ZH] }, costHidden: true, compareCostHidden: true };
+  // 表单里故意留着 23.7（例如旧值没清掉）：没有财务查看权时也不能渲染出来
+  const h = html(hiddenData, { competitor: "100000", cost: "", margin: "23.7" });
+  const inputs = h.match(/<input\b/g) ?? [];
+  ok("没有财务查看权（开关开着）：只剩对手价一个输入框", inputs.length === 1, inputs.length);
+  ok("没有财务查看权：成本格与目标毛利格都是那句话，目标毛利格的标签固定写「目标毛利」", h.includes('data-testid="pricing-cost-hidden"') && h.includes(fv.COST_HIDDEN_FIELD_ZH) && h.includes('data-testid="pricing-margin-hidden"') && /data-testid="pricing-margin-hidden">目标毛利<span[^>]*>需要财务查看权才能看目标毛利。<\/span>/.test(h), h.slice(h.indexOf("我方假设"), h.indexOf("我方假设") + 900));
+  ok("没有财务查看权：不出「目标毛利率 %（按售价）」、成本加成提示、毛利一栏、「目标毛利只用于…」，也不出表单里的 23.7", !h.includes("目标毛利率 %（按售价）") && !h.includes("pricing-markup-hint") && !h.includes("相当于成本加成") && !h.includes("毛利率（按售价）") && !/<th[^>]*>毛利<\/th>/.test(h) && !h.includes("目标毛利只用于") && !h.includes("23.7"));
+  ok("没有财务查看权：情景表上方写少了什么、找谁，假设说明列表不重复那句", h.includes('data-testid="pricing-cost-hidden-note"') && h.includes(fv.COST_ACCESS_HINT_ZH) && (h.split(fv.COST_HIDDEN_NOTE_ZH).length - 1) === 1);
+  const shownData = { ...base, inputs: { competitorPriceCad: 100000, ourCostCad: COST, targetMarginPct: 20 }, result: buildScenarios(model, { competitorPriceCad: 100000, ourCostCad: COST, targetMarginPct: 20 }), compareCost: { suggestion: { status: "none_selected", messageZh: "x" }, source: null, staleNoteZh: null } };
+  const g = html(shownData, { competitor: "100000", cost: String(COST), margin: "20" });
+  ok("有财务查看权（开关开着）：三个输入框、标签「目标毛利率 %（按售价）」、成本加成提示「相当于成本加成 25%」、毛利一栏，没有那两句", (g.match(/<input\b/g) ?? []).length === 3 && g.includes("目标毛利率 %（按售价）") && g.includes("相当于成本加成 25%") && g.includes("毛利率（按售价）") && !g.includes("pricing-margin-hidden") && !g.includes("pricing-cost-hidden"), g.slice(g.indexOf("我方假设"), g.indexOf("我方假设") + 600));
+}
+
+void renderChecks().then(() => {
+  console.log(`\ntarget-margin-finance-view: ${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+});
