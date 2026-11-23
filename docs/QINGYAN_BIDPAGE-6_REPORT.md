@@ -5,7 +5,7 @@
 | TASKFLOW | BIDPAGE-6（Phase F（续）— 标书与报价页改版） |
 | 任务书 | `docs/QINGYAN_BIDPAGE_BID_QUOTE_REDESIGN_TASKBRIEF.md`「BIDPAGE-6」、验收 7、附录 C 决定 D / J、不确定处 5 |
 | OpenSpec change | `openspec/changes/quote-one-step-confirm/`。新能力 `tender/quote-one-step-confirm`；改 `tender/quote-line-mode` 2 条、`tender/bid-page` 3 条；加 `notifications/click-targets` 1 条 |
-| PR | （开 PR 后填） |
+| PR | #587（审核中） |
 | 基线 | 开工时 origin/main `9ff1b29e`（#582 BIDPAGE-4 归档合并后）；之后合入 main `58508ecc`（TREE-2，代码）、`e77e2c72`（TREE-2 归档，只有文档 / 规格）、`c339cb40`（FIX-25，代码）；见 §3 |
 | 开关 | `TENDER_BID_PAGE_V2_ENABLED` + `TENDER_BID_PAGE_V2_ORG_ALLOWLIST`，默认关（与 BIDPAGE-1 / 3 / 4 同一组） |
 

@@ -17,7 +17,7 @@
 | BIDPAGE-1 | **已合并**（#557，`d1b0d3e2`，2026-11-23）；开关默认关，合并后页面无变化；生产部署：**已部署**——2026-11-23 04:41 UTC `release-drift`（workflow_dispatch，run 45113342662）读到线上 `deployedCommit = f9c73ba`，即 main 当时的最新提交，`d1b0d3e` 是它的祖先（中间只多了 FIX-21 的归档 #560）。合并后约 1.5 分钟那次查时线上还是 `212613e`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-bid-page-v2-shell`（主规格 `tender/bid-page` 13 条），归档 PR 见下表 |
 | BIDPAGE-3 | **已合并**（#564，`c376be86`，2026-11-23 09:31）；开关默认关；生产部署：**已部署**——2026-11-23 09:47 UTC `release-drift`（workflow_dispatch，run 45150109772）读到线上 `deployedCommit = c376be8`，与 main 一致；合并后约 1 分钟那次（run 45147965079）线上还是 `2a0eb96`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-line-mode-persist`（主规格 `tender/quote-line-mode` 15 条、`tender/bid-page` 改 3 条），归档 PR 见下表 |
 | BIDPAGE-4 | **已合并**（#581，`4b6c3dd4`，2026-11-23）；开关默认关；生产部署：**已部署**——2026-11-23 13:50 UTC `release-drift`（workflow_dispatch，run 45187960729）读到线上 `deployedCommit = 4b6c3dd`，与 main 一致。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-lump-sum-mode`（主规格新增 `tender/quote-lump-sum-mode` 19 条、`tender/quote-line-mode` 改 6 条；1 个子代理逐字核对主规格与增量一致），归档 PR 见下表 |
-| BIDPAGE-6 | **PR 审核中**（开关默认关）；报告 `docs/QINGYAN_BIDPAGE-6_REPORT.md`；开工前审查 + 六维审查 + 交叉验证都做完，意见去向见报告 §5 |
+| BIDPAGE-6 | **PR #587 审核中**（开关默认关）；报告 `docs/QINGYAN_BIDPAGE-6_REPORT.md`；开工前审查 + 六维审查 + 交叉验证都做完，意见去向见报告 §5 |
 | 正在做 | BIDPAGE-6 PR：CI 绿后合并 → 确认部署 → 归档小 PR |
 | 下一步 | BIDPAGE-5 `quote-margin-advice-market`（AI 毛利建议；审查多一个「模型调用」维度） |
 
@@ -26,7 +26,7 @@
 | `bid-page-v2-shell` | BIDPAGE-1 | 已合并、已归档 | #557（合并 `d1b0d3e2`）；归档 #561（合并 `b717427f`） | `claude/laughing-curie-2b9s1v` |
 | `quote-line-mode-persist` | BIDPAGE-3 | 已合并、已归档 | #564（合并 `c376be86`）；归档 #572（合并 `325cbdc0`） | `claude/laughing-curie-2b9s1v` |
 | `quote-lump-sum-mode` | BIDPAGE-4 | 已合并、已归档 | #581（合并 `4b6c3dd4`）；归档 #582（合并 `9ff1b29e`） | `claude/laughing-curie-2b9s1v` |
-| `quote-one-step-confirm` | BIDPAGE-6 | PR 审核中 | （开 PR 后填） | `claude/laughing-curie-2b9s1v` |
+| `quote-one-step-confirm` | BIDPAGE-6 | PR 审核中 | #587 | `claude/laughing-curie-2b9s1v` |
 | `quote-margin-advice-market` | BIDPAGE-5 | 未开始 | — | — |
 | `bid-page-sourcing-step` | BIDPAGE-2 | 未开始 | — | — |
 | `bid-page-documents-step` | BIDPAGE-7 | 未开始 | — | — |
