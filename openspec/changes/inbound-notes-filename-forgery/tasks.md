@@ -12,7 +12,7 @@
 
 ## 1. 测试先行
 
-- [ ] 1.1 写 `src/lib/tender-rfq/__tests__/notes-forgery.test.ts`（不连库、不调模型，用例名用中文），按 design D7 分五节，每条用例对应规格 `tender/rfq-inbound-notes` 的一个 Scenario。
+- [x] 1.1 写 `src/lib/tender-rfq/__tests__/notes-forgery.test.ts`（不连库、不调模型，用例名用中文），按 design D7 分五节，每条用例对应规格 `tender/rfq-inbound-notes` 的一个 Scenario。
   - 每条用例单独计入通过 / 失败，跑完全部再按失败数退出：不用 `assert` 抛错中途退出，失败清单一次打全。
   - 第 5 节普通回信的期望串取自 main 的实际输出，写死在测试里。
   - 注册：
