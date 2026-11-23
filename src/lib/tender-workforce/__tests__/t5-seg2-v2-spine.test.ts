@@ -512,6 +512,9 @@ console.log("T5 Segment 2 — canonical V2 持久化脊柱（纯平面）");
       "tender-workforce/v2-persist-workforce.ts",
       // T5-P1.1：可续跑编排层（cursor checkpoint + 落库都要 fence）
       "tender-workforce/v2-resumable-workforce.ts",
+      // TREE-2 情报调研树：分支写游标审计、树干写情报室摘要都经 fence（只调用 check / guard，不序列化）
+      "tender-research-tree/branch-run.ts",
+      "tender-research-tree/trunk.ts",
     ];
     ok(
       hits.every((h) => allowed.includes(h)),
