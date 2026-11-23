@@ -314,6 +314,7 @@
 | 待定 | cron 巡检对未分发的项目也建任务（FIX-23 后续 3）：`src/app/api/cron/inspect/route.ts:30-45` 只按 `status: "active"` 选项目、不看 `intakeStatus`；这些任务挂在负责人名下，负责人（不是 super_admin）从详情接口与最近任务接口都看不到。该不该跳过未分发项目，按 `docs/acceptance/fix-23/prod-check.sql` A 段「1 项目未分发」一行的 cron 条数定 | FIX-23 | 另开 change；报告 `docs/QINGYAN_FIX-23_REPORT.md` §8 | [ ] |
 | 待定 | execute / approve 的响应 `reason` 可能带原始异常文字（FIX-23 后续 4）：技能抛错时 `src/lib/agent-core/skills/flow-runner.ts:351-356` 把 `err.message` 作为 `reason` 返回，`POST /api/agent/tasks/:taskId/execute`（`src/app/api/agent/tasks/[taskId]/execute/route.ts:34`）与 `POST …/steps/:stepId/approve`（`approve/route.ts:65`）原样给调用者，不分平台管理员 | FIX-23 | 另开 change；报告 `docs/QINGYAN_FIX-23_REPORT.md` §8 | [ ] |
 | 待定 | 公开的自定义流程模板跨企业可见（FIX-23 后续 5）：`GET /api/agent/templates`（`src/app/api/agent/templates/route.ts:22`）按 `isPublic` 列出所有企业的公开模板，`GET /api/agent/templates/:templateId`（`[templateId]/route.ts:28`）返回整条记录、含 `createdById` | FIX-23 | 另开 change；报告 `docs/QINGYAN_FIX-23_REPORT.md` §8 | [ ] |
+| 待定 | 岗位预览中的 super_admin 看最近任务这条路径补一个不连库的用例（FIX-23 后续 6，交叉验证提出）：`GET /api/agent/tasks/recent` 按预览身份判断（`src/lib/auth/index.ts:49,57` 降为 `user`，`src/lib/preview/server.ts:226-230` 只给预览企业的成员身份），目前只有隔离库测试 `recent-view-db.isolated.test.ts` 覆盖，CI 子集不跑；补进截获查询参数的不连库测试（预览身份下检查报告为 `null`、范围按预览企业） | FIX-23 | 另开小 change 或顺手并进下一个改 `src/app/api/agent/tasks/` 的 change；报告 `docs/QINGYAN_FIX-23_REPORT.md` §8 | [ ] |
 
 ### Phase F（续）— 询价单 PDF
 
