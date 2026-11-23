@@ -50,7 +50,7 @@
   - `dto.test.ts` 加用例：三种内部字段都在时都置 `null`；只有 `checkReportJson` 时只置它；平台管理员原样；置空的键与 `AGENT_STEP_INTERNAL_FIELDS` 逐项相同。
   - verify：`npx tsx src/lib/agent-tasks/__tests__/dto.test.ts` 退出码 0，原有 23 项照过。
   - verify：`npm run test:runtime-architecture` 通过；`git diff --exit-code origin/main -- src/lib/runtime-architecture/` 无差异。
-- [ ] 2.2 `src/app/api/agent/tasks/recent/route.ts`（design D1、D2、D3）。
+- [x] 2.2 `src/app/api/agent/tasks/recent/route.ts`（design D1、D2、D3）。
   - 不是 super_admin 时：先取有效组织成员身份，挑出 owner / admin 的组织；把可读项目条件作为 `project` 关系条件，与 `createdById`、`triggerType` 放进同一个 `where`，再 `take`。
   - 每一步经 2.1 的投影，按 `isPlatformAdmin(user)` 区分。
   - `limit`：转成数字后是大于 0 的整数才用，否则按 10，再封顶 20（design D7）。
