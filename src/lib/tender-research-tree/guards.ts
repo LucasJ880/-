@@ -7,6 +7,7 @@
 import { containsSensitiveSupplierBriefText } from "@/lib/bid-workflow/china-supplier-brief";
 import { containsOutboundSensitive } from "@/lib/muse-bridge/contract";
 import { numbersIn } from "@/lib/tender-rfq/inbound-contract";
+import { scopeBasisOk, statedCurrencyOf } from "./awards";
 import { RESEARCH_TREE_LIMITS } from "./limits";
 
 /* ───────────────────────────── 外发闸 ───────────────────────────── */
@@ -188,7 +189,8 @@ export type FactRejectReason =
   | "no_digit"
   | "excerpt_not_in_page"
   | "value_not_in_excerpt"
-  | "number_not_in_excerpt";
+  | "number_not_in_excerpt"
+  | "bad_enum_value";
 
 export type FactCheck = { ok: true; factType: string; value: string; excerpt: string } | { ok: false; why: FactRejectReason };
 
@@ -219,6 +221,8 @@ function hasNonAsciiDigit(s: string): boolean {
  * 2. 值与摘录里只有 0–9 的数字；数字类事实（metric 类型）的值里至少有一个数字；
  * 3. 摘录逐字（归一后）出现在正文里；值逐字（归一后）出现在摘录里；
  * 4. 值里的每一个数都出现在摘录的数里。
+ * 枚举类事实（TREE-3）：币种的值只能是 CAD / USD、摘录里要写明这个币种；口径的值只能是四个标签之一、摘录里要有
+ * 对应的提示词；两者都不要求值逐字在摘录里，摘录仍要逐字在正文里。
  */
 export function checkFact(
   c: FactCandidate,
@@ -242,6 +246,16 @@ export function checkFact(
   if (hasNonAsciiDigit(v) || hasNonAsciiDigit(e)) return { ok: false, why: "bad_digits" };
   if (numericTypes.includes(c.factType) && !/[0-9]/.test(v)) return { ok: false, why: "no_digit" };
   if (!normalizeForMatch(pageText).includes(e)) return { ok: false, why: "excerpt_not_in_page" };
+  if (c.factType === "currency") {
+    const cur = value.toUpperCase();
+    if ((cur !== "CAD" && cur !== "USD") || statedCurrencyOf(excerpt) !== cur) return { ok: false, why: "bad_enum_value" };
+    return { ok: true, factType: c.factType, value: cur, excerpt };
+  }
+  if (c.factType === "scope_basis") {
+    const tag = value.toLowerCase();
+    if (!scopeBasisOk(tag, excerpt)) return { ok: false, why: "bad_enum_value" };
+    return { ok: true, factType: c.factType, value: tag, excerpt };
+  }
   if (!e.includes(v)) return { ok: false, why: "value_not_in_excerpt" };
   const inExcerpt = numbersIn(excerpt);
   for (const n of numbersIn(value)) {

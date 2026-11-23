@@ -6,7 +6,7 @@
  * 不再为同一个决定请求一次模型。
  */
 
-import type { FoundFact, ResearchHandoffV1, SuggestedBranch } from "./types";
+import type { FoundFact, ResearchAwardRecordV1, ResearchHandoffV1, SuggestedBranch } from "./types";
 import type { CursorRow } from "./deps";
 import { RESEARCH_HANDOFF_VERSION } from "./types";
 
@@ -18,6 +18,7 @@ export type CursorKind =
   | "read_sent"
   | "read_result"
   | "blocked_query"
+  | "open_data_result"
   | "finish";
 
 export type PendingAction = { action: "search"; query: string } | { action: "read"; url: string };
@@ -60,6 +61,12 @@ export type BranchCursorState = {
   unextractedPage: string | null;
   /** 已经交过的单（再执行时原样交回） */
   finished: ResearchHandoffV1 | null;
+  /** 往期同标：已发出的联邦数据查询（按检索词序号；崩在结果之前的也算发过） */
+  openDataSent: Set<number>;
+  /** 往期同标：联邦数据转成的记录 */
+  openDataRecords: ResearchAwardRecordV1[];
+  /** 往期同标：最近一次联邦数据结果给模型看的行（模型请求过一次之后清空） */
+  openDataLines: string[];
 };
 
 function str(v: unknown): string | null {
@@ -79,9 +86,31 @@ function asFacts(v: unknown): FoundFact[] {
     const r = x as Record<string, unknown>;
     if (typeof r.factType !== "string" || typeof r.value !== "string" || typeof r.url !== "string") continue;
     if (typeof r.excerpt !== "string" || typeof r.fetchedAt !== "string") continue;
-    out.push({ factType: r.factType, value: r.value, url: r.url, excerpt: r.excerpt, fetchedAt: r.fetchedAt, source: "web" });
+    out.push({
+      factType: r.factType,
+      value: r.value,
+      url: r.url,
+      ...(typeof r.requestedUrl === "string" ? { requestedUrl: r.requestedUrl } : {}),
+      excerpt: r.excerpt,
+      fetchedAt: r.fetchedAt,
+      source: "web",
+      ...(typeof r.group === "string" && r.group ? { group: r.group } : {}),
+    });
   }
   return out;
+}
+
+function asRecords(v: unknown): ResearchAwardRecordV1[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(
+    (x): x is ResearchAwardRecordV1 =>
+      !!x &&
+      typeof x === "object" &&
+      typeof (x as Record<string, unknown>).recordId === "string" &&
+      typeof (x as Record<string, unknown>).url === "string" &&
+      !!(x as Record<string, unknown>).fields &&
+      typeof (x as Record<string, unknown>).fields === "object",
+  );
 }
 
 function asSuggestions(v: unknown): SuggestedBranch[] {
@@ -125,6 +154,9 @@ export function emptyCursorState(): BranchCursorState {
     pending: null,
     unextractedPage: null,
     finished: null,
+    openDataSent: new Set(),
+    openDataRecords: [],
+    openDataLines: [],
   };
 }
 
@@ -149,6 +181,7 @@ export function restoreCursorState(allRows: readonly CursorRow[], branchKey: str
     switch (r.kind as CursorKind) {
       case "model_call":
         st.modelCalls += 1;
+        st.openDataLines = [];
         break;
       case "decision": {
         if (d.ok !== true) {
@@ -188,9 +221,27 @@ export function restoreCursorState(allRows: readonly CursorRow[], branchKey: str
         break;
       case "search_sent":
         st.searches += 1;
+        if (str(d.source) === "open_data") {
+          // 联邦数据的查询不动「待执行的决定」（它在第一轮模型请求之前、由代码发出）
+          if (typeof d.openDataIndex === "number") st.openDataSent.add(d.openDataIndex);
+          st.history.push(`查联邦合同公开数据「${short(str(d.query) ?? "", 120)}」`);
+          break;
+        }
         st.pending = null;
         st.history.push(`搜索「${short(str(d.query) ?? "", 120)}」`);
         break;
+      case "open_data_result": {
+        const recs = asRecords(d.records);
+        for (const r of recs) if (!st.openDataRecords.some((x) => x.recordId === r.recordId)) st.openDataRecords.push(r);
+        st.openDataLines = Array.isArray(d.lines) ? d.lines.filter((x): x is string => typeof x === "string").slice(0, 10) : [];
+        const rows = typeof d.rows === "number" ? d.rows : 0;
+        st.history.push(
+          d.ok === true
+            ? `  → 联邦数据 ${rows} 行（同一采购方的 ${recs.length} 行记为记录）`
+            : `  → 联邦数据没查成${str(d.messageZh) ? `：${short(str(d.messageZh)!, 80)}` : ""}`,
+        );
+        break;
+      }
       case "search_result": {
         const hits = Array.isArray(d.hits) ? d.hits : [];
         let added = 0;

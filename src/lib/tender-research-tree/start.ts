@@ -26,7 +26,8 @@ export type StartResearchTreeResult =
  */
 export const OPEN_RESEARCH_STATUSES: readonly string[] = Object.freeze(["queued", "acknowledged", ...WORKFORCE_ACTIVE_STATUSES]);
 
-function researchJobWhere(orgId: string, projectId: string): Prisma.AgentRunWhereInput {
+/** 本组织、本项目的调研 Job（发起服务与读取共用） */
+export function researchJobWhere(orgId: string, projectId: string): Prisma.AgentRunWhereInput {
   return {
     orgId,
     runType: WORKFORCE_JOB_RUN_TYPE,
