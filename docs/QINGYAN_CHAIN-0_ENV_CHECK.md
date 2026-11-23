@@ -5,7 +5,7 @@
 
 ## 填写顺序
 
-先 1–6，验证通过后再等 CHAIN-4b（`rfq-supplier-identity-guard`）合并，才动第 7 项。改完任何一项都要重新部署生产才生效。
+先 1–6，验证通过后，等 CHAIN-4b 合并且 FIX-14 部署之后、第 7 行「建议值」里的四条前提都满足，才动第 7 项：① CHAIN-4b（`rfq-supplier-identity-guard`）staging 真实标包实测已做（TASKFLOW CHAIN-4b 行）；② FIX-14（PR #569，`extracted-text-nul-other-paths`：询价回信等入口写库前清理 U+0000 / 落单代理字符）已合并、且那次生产部署成功（在 Vercel → Deployments 按合并提交核对）；③ `docs/QINGYAN_FIX-14_REPORT.md` §9 第 1–4 步已做；④ FIX-24（供应商附件文件名不能伪造报价备注字段）已合并部署。三个白名单都填 Sunny 的组织 id，不能留空（为空 = 所有组织）。第 7 项的日期必须晚于 FIX-14 与 FIX-24 的部署日期，两个部署日期填在下面「验证」表第 7 项一行。改完任何一项都要重新部署生产才生效。
 
 | # | 环境变量 | 代码里怎么读（已核对） | 建议值 | 原值 | 新值 | 日期 |
 |---|---|---|---|---|---|---|
@@ -16,7 +16,7 @@
 | 4 | `T4_AWARD_INTELLIGENCE_SCHEMA_READY` | 认 `1 / true / on / yes`（不分大小写）（`tender-intel/award-flags.ts:26-40`）。前提：生产库已应用迁移 `20260814150000_add_tender_t4_award_record_foundation`（`award-flags.ts:10`、`docs/QINGYAN_TENDER_T4_INTELLIGENCE_P1_REPORT.md`） | 迁移核对后设 `1` | | | |
 | 5 | `TAVILY_API_KEY` | 与第 3 项同为外部检索的两道门；缺任一项，供应商发现只走内部来源（`supplier-intel/discovery-service.ts:237-243`） | 确认存在（只记「存在 / 不存在」，不抄值） | | — | |
 | 6 | `SUPPLIER_INTEL_ENABLED` + `SUPPLIER_INTEL_ORG_ALLOWLIST` | 主开关认 `1 / true / on / yes`；白名单逗号分隔组织 id，**为空 = 对所有组织生效**（`supplier-intel/flags.ts:19-38`） | 主开关 `1`；白名单填 Sunny 的组织 id（不能留空，否则全组织生效） | | | |
-| 7 | `TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED`、`TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`（各自 `*_ORG_ALLOWLIST`） | 均认 `1 / true / on / yes`；白名单为空 = 所有组织（`tender-rfq/auto-draft-flags.ts`、`supplier-groups-flags.ts`、`followup-flags.ts`） | **CHAIN-4b 合并之后**再开 | | | |
+| 7 | `TENDER_RFQ_AUTO_DRAFT_ENABLED`、`TENDER_RFQ_SUPPLIER_GROUPS_ENABLED`、`TENDER_RFQ_FOLLOWUP_PREAPPROVAL_ENABLED`（各自 `*_ORG_ALLOWLIST`） | 均认 `1 / true / on / yes`；白名单为空 = 所有组织（`tender-rfq/auto-draft-flags.ts`、`supplier-groups-flags.ts`、`followup-flags.ts`） | **以下都满足才开（CHAIN-4b 合并且 FIX-14 部署之后）**：① CHAIN-4b staging 真实标包实测已做（TASKFLOW CHAIN-4b 行）；② FIX-14（PR #569）已合并、且那次生产部署成功（在 Vercel Deployments 页按合并提交核对）；③ FIX-14 报告 §9 第 1–4 步已做；④ FIX-24 已合并部署。三个白名单都填 Sunny 的组织 id，不能留空（为空 = 所有组织） | | | |
 
 ## 验证（每项写下证据：项目 / 时间 / 看到的值）
 
@@ -26,6 +26,7 @@
 | 第 1–2 项 | 一份 150 页以上标包从上传到分析完成的总耗时 | ≤ 20 分钟（OBS-P1 首单 163 页 35.6 分钟） | |
 | 第 3–5 项 | 用 TBS 24062-27-057 跑一次：项目情报室 `summaryJson.externalIntelStatus.status` 与 `awardCandidates` 计数 | `status = "ran"`，`awardCandidates` 有计数 | |
 | 第 6 项 | Sunny 的项目上能从界面发起供应商情报 run；其它组织看不到入口 | 只对 Sunny 生效 | |
+| 第 7 项（开之前） | ① TASKFLOW CHAIN-4b 行写明 staging 实测已做；② Vercel → Deployments 找到 FIX-14（PR #569）合并提交那次生产部署、状态 Ready，记下日期；③ FIX-14 报告 §9 第 1–4 步各自的结果（名单交给了谁）；④ 同样找到 FIX-24 那次生产部署；三个 `*_ORG_ALLOWLIST` 的值 | 四条都满足；三个白名单都只有 Sunny 的组织 id；第 7 项日期晚于两个部署日期 | FIX-14 部署日期（UTC）：＿＿＿＿；FIX-24 部署日期（UTC）：＿＿＿＿ |
 
 ## 不在本表处理
 

@@ -37,6 +37,7 @@ npx tsx src/lib/tender-understanding/__tests__/extract-prompt-locator.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/worker-budget-guards.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/package-coverage.test.ts
 npx tsx src/lib/files/__tests__/extracted-text.test.ts
+npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/page-parse.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/tender-identity.test.ts
 npx tsx src/lib/tender-analyst/__tests__/analyst-synthesis.test.ts
@@ -84,6 +85,7 @@ npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/obs-p2p3-single-pipeline.test.ts
 npx tsx src/lib/tender-intel/__tests__/bid-strategy-memo.test.ts
+npx tsx src/lib/tender-intel/__tests__/memo-pricing.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-ops.test.ts
 npx tsx src/lib/tender-understanding/__tests__/taxonomy-p2.test.ts
 npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts
@@ -499,6 +501,8 @@ NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.te
 npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts
 npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-orchestrate-db.isolated.test.ts
 npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/alias-decisions-db.isolated.test.ts
@@ -578,6 +582,11 @@ NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/bid-page-summary-db.isolated
 npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts
 npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx
 NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts
+npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts
+npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx
+NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts
+# FIX-26a（openspec change quote-pdf-no-margin）：报价单 PDF 永远不印利润率
+npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

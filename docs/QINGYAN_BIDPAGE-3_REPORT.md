@@ -4,8 +4,9 @@
 |---|---|
 | TASKFLOW | BIDPAGE-3（Phase F（续）— 标书与报价页改版） |
 | 任务书 | `docs/QINGYAN_BIDPAGE_BID_QUOTE_REDESIGN_TASKBRIEF.md`「BIDPAGE-3」、不确定处 1 / 2 / 4、附录 C 决定 A / C / H |
-| OpenSpec change | `openspec/changes/quote-line-mode-persist/`（新能力 `tender/quote-line-mode` 15 条；改 `tender/bid-page` 3 条） |
-| 基线 | origin/main `b717427f`（#561 BIDPAGE-1 归档合并后） |
+| OpenSpec change | `openspec/changes/archive/2026-11-23-quote-line-mode-persist/`（主规格 `tender/quote-line-mode` 15 条；`tender/bid-page` 改 3 条） |
+| 合并 | #564，2026-11-23 合并（merge commit `c376be86`）；见 §3 末「开 PR 之后」 |
+| 基线 | 开工与开 PR 时 origin/main `b717427f`（#561 BIDPAGE-1 归档合并后）；合并时 main `4a393339` |
 | 开关 | `TENDER_BID_PAGE_V2_ENABLED` + `TENDER_BID_PAGE_V2_ORG_ALLOWLIST`，默认关（与 BIDPAGE-1 同一组） |
 
 ## 1. 做了什么
@@ -66,6 +67,16 @@ proposal「与任务书的出入」七条，理由见 design：
 | `git diff origin/main -- prisma/ vercel.json`；`git diff --stat origin/main -- openspec/specs` | 都为空 |
 
 跑全量前照交接 §4 删了残留的平台组织 wecom 网关行、删了 `.next`。
+
+**开 PR 之后**（2026-11-23 06:41 → 09:31）：main 陆续合进其它轨道，每次都把 main 合进本分支（只与 TASKFLOW、两个测试脚本的注册行重叠，自动合并无冲突）：
+
+| main 合进来的 | 处理 | 结果 |
+|---|---|---|
+| FIX-23 #562（`d94e4323`） | 合并、重跑全量（第一次重跑时容器刚重启、Postgres 没起，161 项连库失败，结果作废；起库后重跑） | 723/733，10 项与 main 相同；`test:ci` PASS；`lint:baseline` PASS |
+| TREE-1 #559、FIX-23 归档 #565 / #566（`99bd7e18`） | 合并、重跑全量 | 729/739，10 项与 main 相同（`test:ci` 跑到一半 main 又动，停掉重来） |
+| CHAIN-1b #536（`51865685`）、CHAIN-2c #539 与 TREE-1 归档（`86a85724`） | 两次合并（`454fc0f7` 合 `51865685`，跑到一半 main 又动、停掉；`4e904a2f` 合 `86a85724`），在 `4e904a2f` 上跑全量 | **733/743，10 项与 main 相同；`test:ci` PASS；`lint:baseline` PASS；注册 708** |
+| CHAIN-1b 归档 #568（`830ee2a9`）、CHAIN-2c 归档 #570（`2a0eb964`）——只有文档 / 规格 | 合并后核对与 `4e904a2f` 比 `docs/`、`openspec/` 以外的差异为空（代码与测试逐字节相同，也没有测试读这些文件）；补跑主规格严格校验与注册校验 | `openspec validate --specs --strict` 156/156；注册校验通过；GitHub CI 在 `65358927` 上全绿 |
+| 交接文档 #571（`4a393339`）——只有一个文档 | 本地合并（不推送）核对同上，然后以 PR 头 `65358927` 合并 | 差异为空；156/156；注册校验通过 |
 
 ## 4. 浏览器抽检
 

@@ -575,6 +575,8 @@ run_test "招标自动分析多文档包指纹" "npx tsx src/lib/tender-auto-ana
 run_test "招标自动分析页级解析" "npx tsx src/lib/tender-auto-analysis/__tests__/page-parse.test.ts"
 run_test "解析出的文字入库前清理 U+0000 / 落单代理字符（FIX-13）" "npx tsx src/lib/files/__tests__/extracted-text.test.ts"
 run_test "带 U+0000 的文件经两条解析路径入库 DB（FIX-13；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-auto-analysis/__tests__/page-parse-nul-db.isolated.test.ts"
+run_test "其它文字抽取入口入库前清理 U+0000 / 落单代理字符（FIX-14：询价回信 / 采购附件 / AI 对话附件与标题 / 产品资料 / 成本表导入）" "npx tsx src/lib/files/__tests__/extracted-text-other-paths.test.ts"
+run_test "其它文字抽取入口真实写库 DB（FIX-14；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/files/__tests__/extracted-text-other-paths-db.isolated.test.ts"
 run_test "观察期包4 页数上限 400（解析/包分析/t2 口径）" "npx tsx src/lib/tender-auto-analysis/__tests__/obs-p4-page-limit.test.ts"
 run_test "招标自动分析来源核验" "npx tsx src/lib/tender-auto-analysis/__tests__/source-verify.test.ts"
 run_test "观察期包5 外部情报自动化闭环" "npx tsx src/lib/tender-intel/__tests__/obs-p5-intel-loop.test.ts"
@@ -587,6 +589,7 @@ run_test "CJK-PDF 中文安全文档生成" "npx tsx src/lib/pdf/__tests__/cjk-p
 run_test "工作台指挥台重构" "npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts"
 run_test "观察期包2+包3 单管线与完成通知" "npx tsx src/lib/tender-auto-analysis/__tests__/obs-p2p3-single-pipeline.test.ts"
 run_test "批次一 投标策略备忘录+合规矩阵" "npx tsx src/lib/tender-intel/__tests__/bid-strategy-memo.test.ts"
+run_test "策略备忘不带我方成本（CHAIN-2d）" "npx tsx src/lib/tender-intel/__tests__/memo-pricing.test.ts"
 run_test "情报运维 价格带对标+公告盯梢" "npx tsx src/lib/tender-intel/__tests__/intel-ops.test.ts"
 run_test "批次二 抽取分类学扩容" "npx tsx src/lib/tender-understanding/__tests__/taxonomy-p2.test.ts"
 run_test "合规矩阵可用性批次" "npx tsx src/lib/tender-auto-analysis/__tests__/bid-fit-usability.test.ts"
@@ -693,6 +696,8 @@ run_test "供应商询价单 PDF DB 端到端（与询价附件同一份 / 不�
 run_test "招标询价 情报推荐并入自动起草收件人：合并规则与开关（CHAIN-2）" "npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts"
 run_test "寻源建议：开关 / 推荐型号 / 价格三栏 / 不合并（CHAIN-2）" "npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts"
 run_test "寻源建议 DB 端到端（自动建候选池 / 推荐 / 财务权限 / 并入收件人，隔离库执行，否则跳过，CHAIN-2）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts"
+run_test "旧版策略备忘裁剪 DB 端到端（情报页签 / 工作台摘要 / 投标文件草稿输入，隔离库执行，否则跳过，CHAIN-2d）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts"
+run_test "策略备忘编排接线 DB 端到端（截获交给模型的报价演算，隔离库执行，否则跳过，CHAIN-2d）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-orchestrate-db.isolated.test.ts"
 run_test "进口线索：开关 / 解析与逐条校验 / 比对三档 / 汇总 / 接线（CHAIN-3）" "npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts"
 run_test "进口线索 DB 端到端（导入 / 裁决 / 汇总 / 加入供应商库 / 权限，隔离库执行，否则跳过，CHAIN-3）" "NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts"
 run_test "「是不是同一家」裁决与撤回 DB 对抗用例（两个组织同一对 / 并发 / 锁内重读 / 裁决人，隔离库执行，否则跳过，CHAIN-3c）" "NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/alias-decisions-db.isolated.test.ts"
@@ -768,6 +773,9 @@ run_test "BIDPAGE-1 标书与报价页汇总接口 DB（隔离库执行，否则
 run_test "BIDPAGE-3 逐行报价：词表与模板对照、状态 ↔ 成本行往返、只动自己的行、四个数取引擎、分摊不变量与差额上限、校验、粘贴、旧草稿导入、接口写法（纯函数）" "npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts"
 run_test "BIDPAGE-3 ② 定报价新区块：列表与专业模式入口、新建两问、逐行表 7 列、四个数与差额说明、预置说明、导出（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx"
 run_test "BIDPAGE-3 逐行报价 DB+HTTP（开关 / 新建 / 存取 / 换人看到同样的数 / 金额门与各种身份 / 专业模式改过以后 / 并发 / 导出 / 另起新版 / 不写客户报价单与投标工作区；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts"
+run_test "BIDPAGE-4 只报总价：判定、类别对照、范围、销售税、验收 3 的数、算式、往返、专业模式改过以后、互转前后引擎结果相同与拒绝、接口写法（纯函数）" "npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts"
+run_test "BIDPAGE-4 ② 总价构成表：开始的 4 行、添加一项、默认填法与基数说明、六个数与算式、成本加成、算不出、明细与改回总数、其它成本行、互转入口、不写浏览器（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx"
+run_test "BIDPAGE-4 只报总价 DB+HTTP（开关 / 新建 / 验收 3 与 4 / 换人看到同样的数 / 明细与点选 / 其它成本行 / 并发 / 专业模式改过以后 / 金额门与各种身份 / 跨项目 / 互转往返与拒绝 / 导出原因 / 另起新版；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
@@ -841,6 +849,7 @@ run_test "采购监控 新标匹配度（P2-2）" "npx tsx src/lib/procurement-r
 run_test "采购监控 新标匹配度 DB（隔离库执行，否则跳过，P2-2）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/fit-score-db.isolated.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间（P2-1b）" "npx tsx src/lib/procurement-records/__tests__/closing-tz-pure.test.ts"
 run_test "CanadaBuys 截标时间按东部当地时间 DB（隔离库执行，否则跳过，P2-1b）" "NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolated.test.ts"
+run_test "报价单 PDF 永远不印利润率：Node 里生成真 PDF 抽页面文字、源码断言（FIX-26a）" "npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts"
 
 # 测试注册校验（SDD-0 / qa/test-registry）：src/lib/**/__tests__/*.test.ts 漏注册或基线过期 → 整体失败
 run_test "测试注册校验（SDD-0）" "bash scripts/check-test-registry.sh"
