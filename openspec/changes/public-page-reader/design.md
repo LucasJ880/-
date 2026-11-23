@@ -3,7 +3,7 @@
 ## Context
 
 - 现状（main `451bb0d3` 只读核对）：`src/lib/tender-intel/tavily-client.ts` 只调搜索接口（`search_depth: "basic"`，每次 5 条）；`tender-intel/`、`supplier-intel/` 下没有读网页正文的代码；全库没有内网地址判断的现成函数（只有 `supplier-intel/submission-parser.ts` 的 `validatePublicHttpUrl` 做 http / https 白名单与长度上限）。
-- 可复用：`validatePublicHttpUrl`；FIX-13 的 `toStorableText`（`src/lib/files/extracted-text.ts`，U+0000 → 空格、落单代理字符 → U+FFFD）；unpdf；`logAudit`（`src/lib/audit/logger.ts`）。
+- 可复用：`validatePublicHttpUrl`；FIX-13 的 `toStorableText`（`src/lib/files/extracted-text.ts`，U+0000 → 空格、落单代理字符 → U+FFFD）；`logAudit`（`src/lib/audit/logger.ts`）。
 - 任务运行时：招投标 Job 由既有 cron `src/app/api/cron/agent-runs` 处理（让出后自触发续跑）。调研 Job 的分支步骤本身就跑在 cron 进程里——「定时任务上下文直接拒绝」不能按「当前是不是 cron 进程」判断，只能按「这次读页属于哪个 Job、那个 Job 是不是人发起的调研 Job」判断（D1）。
 - `createWorkforceJob` 的 `extraMetadata` 只收原始值（≤16 键、字符串 ≤500、保留键拒绝；`src/lib/workforce-runtime/job.ts:110-134`），`initiatedByUserId`、`workDomain` 是运行时自己写的保留键——调研标记据此平铺（D1）。
 - 需求方拍板（2026-11-22）：读公开网页全文开放；robots 看并遵守（判断点 1），ImportYeti 除外；被挡即停不取消；所有站点同一读页额度。
@@ -118,6 +118,15 @@
 - 不改：config「任何定时任务都不发起」与任务书「任何定时任务里不跑」的措辞差别、核对员「一次」与模型请求内部重试的关系——都已标为实现者解释、待 Evan 确认（D10）；把「条款员每棵树一次」的出处改标为任务书 TREE-3。
 - 本 PR 范围外：生产上已有几处在进程内解析不可信来源的 PDF（询价回信附件、文件解析、页级解析、宣传册），同样会被构造的 PDF 卡住——另开任务建议，不在本 PR 改。
 
+### D14 第四轮挑错后：robots 次数不挤占读页、被挡立刻记、上限取最小、兄弟子域名不连带
+第四轮挑错（`6e135414`）：没有阻断，应改 4 条、小问题 9 条，全部处理：
+- **A robots 次数提前用完读页额度**：上一轮把「每支取 robots ≤12 次」跨会话累计后，跨源跳转每读一页要取 2 次 robots，读 6 页就到上限。改为只计「没发出页面请求的读页」里取的 robots：取时先计上，这次读页发出了页面请求就退回（读了页的那次已经扣了读页额度，它取的 robots 受跳转次数约束，每次最多 4 个源）；审计历史里只累加 `attempts = 0` 的行的 `robotsFetches`。上限、历史行数的推算（每支最多 12 行只取 robots）都不变。
+- **B 被挡要等缓存写完才记**：被挡站在读页层得出「被挡」的那一刻就记进这一支（`readUncached` 的 `stop`），不等调用方的持久缓存。
+- **C 组织调低的额度翻倍**：额度的「剩余 + 已用」当作这一支的上限记进账本，同一 Job 多次给的取最小；剩余 = 上限 − 账本里的已用。不再有「每个上下文自己的额度」。代价：同一进程里调低过的上限不会自动回升（重启后按新给的算）。
+- **D 伞形域名整片被挡**：被挡改记在主机上（保留 `www.`），匹配规则改为「只差 `www.` 的同一个站、它的子域名、以它打头的代理式主机名」——www.canada.ca 被 robots 挡了一个路径，canada.ca 照样不读，但 canadabuys.canada.ca、open.canada.ca 照读。子域名规则不变（gov.example 被挡，m.gov.example 也不读）。同站间隔与审计的 `site` 仍按去掉 `www.` 的站点键。
+- 小问题：E 嵌入主机名改为每层都扫、最多解三层，还能再解、超过 4096 字或 64 个主机就「认不清」、不读（不按部分结果放行）；全角 / 表意句点当「.」。F 以被挡站打头的代理式主机名按被挡（`gov.example.mirror.example`、`gov-example.proxy.example`）；仍认不出的写法（例如任意改名的代理）是已知限制，靠「不碰」名单与网址检查兜底。G 账本上限 512 → 4096 棵树；会话还在用时账本被挤出属例外，规格写明由运行时保证一处处理。H 嵌着不碰站另给原因 `embedded_site_denied`（「网址里带着不读名单里的网站，不读」），不再说「该网站在不读名单里」；`utm_source=facebook.com` 这类仍不读（宁可少读）。I 历史超限另给原因 `history_overflow`。J robots 只有恰好是「*」才是通配组。K 规格补「分支上下文的入参」一条与「不经代理换地址」的缓存例外。L 排队后再查发现被挡时，记真正命中的被挡主机（不再把代理站记成被挡）。M 站点节拍表超过 1000 项清掉过期的；默认会话缓存存全文，最坏 288 页 × 2 MB——交接里写成 TREE-2 的内存提醒。另：正文开头跳过 BOM 与空白（最多 64 KiB）再认 `%PDF-`；design 顶部「可复用」去掉 unpdf。
+- 「PDF 不在本层解析」与任务书的出入：第四轮挑错要求合并前由 Evan 明确认可——按更保守的一方，合并前先问（见交接）。
+
 ## 与八条硬纪律的关系
 
 1. 零 schema：遵守。不新增表、字段、迁移；组织覆盖读既有的 `Organization.settingsJson`；调研标记落在既有的 `AgentRun.metadata` JSON 列（零迁移，已有 `workDomain` 先例）；审计写既有的 `AuditLog`。
@@ -153,4 +162,4 @@
 
 ## Open Questions
 
-无（判断点 1 按默认；其余新选择见 D1–D13，写进交接文档）。
+无（判断点 1 按默认；其余新选择见 D1–D14，写进交接文档）。

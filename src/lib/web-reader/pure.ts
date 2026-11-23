@@ -142,40 +142,66 @@ export function hostOf(url: URL): string {
   return url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
 }
 
-/** 站点键（主机名字符串）：小写、去方括号、去末尾的点、去开头的 www.（调用方传回的被挡站也按它归一） */
+/** 站点键（主机名字符串）：小写、去方括号、去末尾的点、去开头的 www.（同站间隔与审计的 site 按它记） */
 export function siteKeyOfHost(host: string): string {
-  return host.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "").replace(/^www\./, "");
+  return normalizeHost(host).replace(/^www\./, "");
+}
+
+/** 主机名归一：小写、去首尾空白、去方括号、去末尾的点（保留 www.；被挡主机按它记） */
+export function normalizeHost(host: string): string {
+  return host.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
 }
 
 const EMBEDDED_HOST_RE = /(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}/g;
-/** 嵌入主机名的扫描范围与个数上限（防止超长网址占 CPU） */
+/** 嵌入主机名的扫描范围、解码层数与个数上限：超了就算「认不清」（调用方按不读处理，不按部分结果放行） */
 const EMBEDDED_SCAN_MAX_CHARS = 4096;
+const EMBEDDED_MAX_DECODES = 3;
 const EMBEDDED_MAX_HOSTS = 64;
+/** 全角句点、表意句点、半角表意句点：都当成「.」 */
+const UNICODE_DOTS_RE = /[\u3002\uff0e\uff61]/g;
+
+export type EmbeddedHosts = { hosts: string[]; complete: boolean };
 
 /**
- * 网址的路径与查询里嵌着的主机名（站点键，去重；不含网址自己的主机）。用于识别「经抓取代理 / 快照 / 翻译代理
+ * 网址的路径与查询里嵌着的主机名（归一后去重；不含网址自己的主机）。用于识别「经抓取代理 / 快照 / 翻译代理
  * 换地址读同一个站」：`https://proxy.example/https://gov.example/a`、`?url=gov.example%2Fa` 都能认出 gov.example。
- * 百分号编码最多解两层。
+ * 百分号编码最多解三层，每一层都扫；还能再解、路径加查询超过 4096 字、或嵌着的主机超过 64 个，complete 为 false。
  */
-export function embeddedHostsOf(url: URL): string[] {
-  let s = (url.pathname + url.search).slice(0, EMBEDDED_SCAN_MAX_CHARS).toLowerCase();
-  for (let i = 0; i < 2; i++) {
+export function embeddedHostsOf(url: URL): EmbeddedHosts {
+  const raw = url.pathname + url.search;
+  let complete = raw.length <= EMBEDDED_SCAN_MAX_CHARS;
+  const levels: string[] = [raw.slice(0, EMBEDDED_SCAN_MAX_CHARS).toLowerCase()];
+  for (let i = 0; i < EMBEDDED_MAX_DECODES; i++) {
+    const prev = levels[levels.length - 1];
+    let d: string;
     try {
-      const d = decodeURIComponent(s.replace(/\+/g, " "));
-      if (d === s) break;
-      s = d;
+      d = decodeURIComponent(prev.replace(/\+/g, " "));
     } catch {
-      break;
+      break; // 坏的百分号编码：后面没法再解
+    }
+    if (d === prev) break;
+    levels.push(d);
+    if (i === EMBEDDED_MAX_DECODES - 1) {
+      try {
+        if (decodeURIComponent(d.replace(/\+/g, " ")) !== d) complete = false;
+      } catch {
+        // 解不开就停在这一层
+      }
     }
   }
   const own = siteKeyOfHost(hostOf(url));
   const out = new Set<string>();
-  for (const m of s.matchAll(EMBEDDED_HOST_RE)) {
-    const k = siteKeyOfHost(m[0]);
-    if (k && k !== own) out.add(k);
-    if (out.size >= EMBEDDED_MAX_HOSTS) break;
+  outer: for (const level of levels) {
+    for (const m of level.replace(UNICODE_DOTS_RE, ".").matchAll(EMBEDDED_HOST_RE)) {
+      const h = normalizeHost(m[0]);
+      if (h && siteKeyOfHost(h) !== own) out.add(h);
+      if (out.size > EMBEDDED_MAX_HOSTS) {
+        complete = false;
+        break outer;
+      }
+    }
   }
-  return [...out];
+  return { hosts: [...out], complete };
 }
 
 /** 主机名本身就是 IP 字面量时返回它 */
@@ -338,7 +364,8 @@ export function parseRobots(text: string): RobotsGroup[] {
       }
       // 只取产品名（RFC 9309：开头的字母、下划线、连字符；「QingyanResearchBot/1.0」「QingyanResearchBot 1.0」都算本机器人）
       const v = value.trim();
-      current.agents.push(v.startsWith("*") ? "*" : (/^[A-Za-z_-]+/.exec(v)?.[0] ?? "").toLowerCase());
+      // 只有恰好是「*」才是通配组（「*bot」不是）
+      current.agents.push(v === "*" ? "*" : (/^[A-Za-z_-]+/.exec(v)?.[0] ?? "").toLowerCase());
       lastWasAgent = true;
       continue;
     }
@@ -586,6 +613,8 @@ const REASON_ZH: Record<PageReadReason, string> = {
   non_default_port: "网址带了非标准端口，不读",
   private_address: "这是内部网络地址，不读",
   site_denied: "该网站在不读名单里，不读",
+  embedded_site_denied: "网址里带着不读名单里的网站，不读",
+  embedded_url_unclear: "网址里嵌着的网址认不清，不读",
   login_url: "这是登录地址，不读",
   ip_literal: "网址是 IP 地址而不是网站域名，不读",
   url_not_allowed: "这个网址不是从搜索结果或已读页面里来的，不读",
@@ -594,6 +623,7 @@ const REASON_ZH: Record<PageReadReason, string> = {
   budget_exhausted: "读页次数到上限，未读",
   robots_limit: "这一支查网站读取规则的次数到上限，未读",
   blocked_sites_limit: "这一支被挡的网站已达上限，未读",
+  history_overflow: "这棵树的读页记录超过上限，不再读页，未读",
 };
 
 export function reasonMessageZh(reason: PageReadReason | null): string {

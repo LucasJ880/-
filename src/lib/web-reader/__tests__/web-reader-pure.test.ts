@@ -225,14 +225,25 @@ console.log("第三轮挑错后补：robots 产品名、重复斜杠、meta refr
   const base = new URL("https://x.gov/page");
   ok("meta refresh 目标带单引号也认得", metaRefreshTarget(`<meta http-equiv="refresh" content="0; URL='/account/login'">`, base)?.toString() === "https://x.gov/account/login");
   ok("meta refresh 目标带双引号也认得", metaRefreshTarget(`<meta http-equiv='refresh' content='0; url="/user/login"'>`, base)?.pathname === "/user/login");
-  ok("嵌入主机名：路径里的完整网址", JSON.stringify(embeddedHostsOf(new URL("https://r.jina.ai/https://www.gov.example/a"))) === '["gov.example"]');
-  ok("嵌入主机名：查询里编码过的网址（两层编码）", embeddedHostsOf(new URL("https://p.example/x?u=https%253A%252F%252Fgov.example%252Fa")).includes("gov.example"));
-  ok("嵌入主机名：不含网址自己的主机", embeddedHostsOf(new URL("https://www.gov.example/gov.example/a")).length === 0);
-  ok("嵌入主机名：数字不当主机名", embeddedHostsOf(new URL("https://p.example/v1.2/3.4")).length === 0);
+  const e1 = embeddedHostsOf(new URL("https://r.jina.ai/https://www.gov.example/a"));
+  ok("嵌入主机名：路径里的完整网址（保留 www.）", JSON.stringify(e1.hosts) === '["www.gov.example"]' && e1.complete, e1);
+  ok("嵌入主机名：查询里编码过的网址（两层编码）", embeddedHostsOf(new URL("https://p.example/x?u=https%253A%252F%252Fgov.example%252Fa")).hosts.includes("gov.example"));
+  ok("嵌入主机名：三层编码也认得", embeddedHostsOf(new URL("https://p.example/x?u=https%25253A%25252F%25252Fgov.example%25252Fa")).hosts.includes("gov.example"));
+  const e4 = embeddedHostsOf(new URL("https://p.example/x?u=https%2525253A%2525252F%2525252Fgov.example"));
+  ok("嵌入主机名：四层编码 → 认不清（complete 为 false）", e4.complete === false, e4);
+  const many = embeddedHostsOf(new URL("https://p.example/x?" + Array.from({ length: 70 }, (_, i) => `x${i}=h${i}.co`).join("&") + "&u=https://gov.example/a"));
+  ok("嵌入主机名：超过 64 个 → 认不清", many.complete === false);
+  ok("嵌入主机名：路径加查询超过 4096 字 → 认不清", embeddedHostsOf(new URL("https://p.example/" + "a".repeat(5000))).complete === false);
+  ok("嵌入主机名：全角句点当成「.」", embeddedHostsOf(new URL("https://p.example/?u=gov\uff0eexample")).hosts.includes("gov.example"));
+  ok("嵌入主机名：不含网址自己的主机", embeddedHostsOf(new URL("https://www.gov.example/gov.example/a")).hosts.length === 0);
+  ok("嵌入主机名：数字不当主机名", embeddedHostsOf(new URL("https://p.example/v1.2/3.4")).hosts.length === 0);
+  const g4 = parseRobots("User-agent: *\nDisallow: /\n\nUser-agent: *bot\nAllow: /");
+  ok("「User-agent: *bot」不是通配组", !isAllowedByRobots(g4, "/x"));
   const t0 = Date.now();
   embeddedHostsOf(new URL("https://p.example/" + "a.".repeat(2000) + "?q=" + "1.".repeat(2000)));
   ok("嵌入主机名：超长网址也很快（< 200 ms）", Date.now() - t0 < 200, Date.now() - t0);
   ok("站点键：去大小写、末尾点、www.、空白", siteKeyOfHost(" WWW.Gov.Example. ") === "gov.example");
+  ok("新原因文案：嵌着不碰站 / 认不清以「不读」结尾、历史超限以「未读」结尾", reasonMessageZh("embedded_site_denied").endsWith("不读") && reasonMessageZh("embedded_url_unclear").endsWith("不读") && reasonMessageZh("history_overflow").endsWith("未读") && !reasonMessageZh("embedded_site_denied").includes("该网站在不读名单里"));
   for (const h of ["r.jina.ai", "gov-example.translate.goog", "webcache.googleusercontent.com", "web.archive.org", "archive.ph", "12ft.io"]) {
     ok(`预置不碰：${h}`, classifySite(h, PRESET_SITE_POLICY) === "deny");
   }

@@ -47,8 +47,8 @@ import {
   parseRetryAfterSeconds,
   parseRobotsLimited,
   readOrgSiteOverride,
+  normalizeHost,
   reasonMessageZh,
-  siteKeyOfHost,
   type RobotsGroup,
 } from "./pure";
 import {
@@ -68,7 +68,10 @@ export const WEB_READER_LIMITS = Object.freeze({
   MAX_READS_PER_BRANCH: 12,
   /** 每棵树的分支数上限（任务书拍板第 5 项） */
   MAX_BRANCHES_PER_TREE: 24,
-  /** 每支发起取 robots 的次数上限（与读页额度相同的量级，防止只取 robots 不读页地无限发请求） */
+  /**
+   * 每支在「没发出页面请求的读页」里取 robots 的次数上限（防止只取 robots 不读页地无限发请求）。发出了页面请求的
+   * 读页里取的 robots 不计（那次读页已经扣了读页额度，robots 次数受跳转次数约束），所以它不会提前用完读页额度
+   */
   MAX_ROBOTS_FETCHES_PER_BRANCH: 12,
   /** 正文上限（解压后字节） */
   MAX_BODY_BYTES: 2 * 1024 * 1024,
@@ -97,8 +100,10 @@ export const WEB_READER_LIMITS = Object.freeze({
    * 24 行缓存被挡）= 1152 行；超过即判为历史不可信，这棵树不再读页（不按部分历史放行）
    */
   HISTORY_MAX_ROWS: 2000,
-  /** 进程内最多记这么多棵树的账本（最久没用的先丢；丢了的下次建会话从审计历史恢复） */
-  LEDGER_MAX_TREES: 512,
+  /** 进程内最多记这么多棵树的账本（最久没用的先丢；丢了的下次建会话从审计历史恢复——见 design D14 的例外） */
+  LEDGER_MAX_TREES: 4096,
+  /** 站点节拍表超过这么多项就清掉已经过期的 */
+  PACER_PRUNE_AT: 1000,
 });
 
 export const WEB_READER_USER_AGENT = "QingyanResearchBot/1.0 (+https://qingyan.ca)";
@@ -217,8 +222,16 @@ type TreeState = {
   robots: Map<string, Promise<RobotsVerdict>>;
 };
 
-/** 一支的账（同一 Job 的所有会话共用这一份） */
-type BranchLedger = { used: number; robotsFetches: number; blocked: Set<string> };
+/**
+ * 一支的账（同一 Job 的所有会话共用这一份）。cap：这一支的读页上限（调用方给的剩余 + 已用，取各次里最小的，
+ * 组织调低的额度并发或重建也不会翻倍）；robotsFetches：没发出页面请求的读页里取 robots 的次数；
+ * blocked：这一支被挡过的主机（小写、去末尾的点，保留 www.）
+ */
+type BranchLedger = { used: number; cap: number; robotsFetches: number; blocked: Set<string> };
+
+function newBranchLedger(): BranchLedger {
+  return { used: 0, cap: WEB_READER_LIMITS.MAX_READS_PER_BRANCH, robotsFetches: 0, blocked: new Set<string>() };
+}
 
 /** 一棵树（一条调研 Job）的账本 */
 type TreeLedger = {
@@ -274,8 +287,6 @@ type BranchState = {
   branchKey: string;
   /** 这一支的共用账 */
   led: BranchLedger;
-  /** 这个上下文自己还允许读几次（调用方给的额度，可比 12 小；同时受共用账约束） */
-  allowance: number;
   deadlineAt: number | null;
   allowUrl: (url: URL) => unknown;
 };
@@ -283,17 +294,17 @@ type BranchState = {
 const sessionStates = new WeakMap<object, SessionState>();
 const branchStates = new WeakMap<object, BranchState>();
 
-/** 这一支这个上下文现在还能读几次 */
+/** 这一支现在还能读几次 */
 function remainingReads(st: BranchState): number {
   if (st.sess.ledger.overflow) return 0;
   if (st.led.blocked.size >= WEB_READER_LIMITS.MAX_BLOCKED_SITES_PER_BRANCH) return 0;
-  return Math.max(0, Math.min(st.allowance, WEB_READER_LIMITS.MAX_READS_PER_BRANCH - st.led.used));
+  return Math.max(0, Math.min(st.led.cap, WEB_READER_LIMITS.MAX_READS_PER_BRANCH) - st.led.used);
 }
 
 export type ForBranchInput = {
   branchKey: string;
   budget: ReadBudget;
-  /** 这一支里已经被挡过的站点（调用方可持久化后传回，按站点键归一；审计里的历史会自动并进来；最多 1000 个） */
+  /** 这一支里已经被挡过的主机（调用方可持久化后传回，按主机名归一；审计里的历史会自动并进来；最多 1000 个，超了拒绝建上下文） */
   blockedSites?: Iterable<string>;
   /** 绝对截止时间（毫秒时间戳，有限数）；不传或 null 则只受单次请求超时约束 */
   deadlineAt?: number | null;
@@ -387,14 +398,16 @@ function mergeHistory(ledger: TreeLedger, rows: readonly TreeHistoryRow[]): void
   const hist = new Map<string, BranchLedger>();
   for (const r of rows) {
     if (!r || typeof r.branchKey !== "string" || !r.branchKey) continue;
-    const e = hist.get(r.branchKey) ?? { used: 0, robotsFetches: 0, blocked: new Set<string>() };
-    if (typeof r.attempts === "number" && r.attempts > 0) e.used += 1;
-    if (typeof r.robotsFetches === "number" && r.robotsFetches > 0) e.robotsFetches += Math.floor(r.robotsFetches);
-    if (typeof r.blockedSite === "string" && r.blockedSite) e.blocked.add(siteKeyOfHost(r.blockedSite));
+    const e = hist.get(r.branchKey) ?? newBranchLedger();
+    const sentPage = typeof r.attempts === "number" && r.attempts > 0;
+    if (sentPage) e.used += 1;
+    // 只有没发出页面请求的读页里取的 robots 计入上限
+    if (!sentPage && typeof r.robotsFetches === "number" && r.robotsFetches > 0) e.robotsFetches += Math.floor(r.robotsFetches);
+    if (typeof r.blockedSite === "string" && r.blockedSite) e.blocked.add(normalizeHost(r.blockedSite));
     hist.set(r.branchKey, e);
   }
   for (const [key, h] of hist) {
-    const led = ledger.branches.get(key) ?? { used: 0, robotsFetches: 0, blocked: new Set<string>() };
+    const led = ledger.branches.get(key) ?? newBranchLedger();
     led.used = Math.max(led.used, h.used);
     led.robotsFetches = Math.max(led.robotsFetches, h.robotsFetches);
     for (const b of h.blocked) led.blocked.add(b);
@@ -497,23 +510,24 @@ function openBranch(sess: SessionState, session: ResearchReadSession, b: ForBran
   if (rawBlocked != null) {
     for (const s of rawBlocked as Iterable<unknown>) {
       if (passedBlocked.length >= 1000) fail("被挡站太多");
-      if (typeof s === "string" && s.trim()) passedBlocked.push(siteKeyOfHost(s));
+      if (typeof s === "string" && s.trim()) passedBlocked.push(normalizeHost(s));
     }
   }
   const ledger = sess.ledger;
   if (!ledger.branches.has(branchKey) && ledger.branches.size >= WEB_READER_LIMITS.MAX_BRANCHES_PER_TREE) {
     fail(`每棵树最多 ${WEB_READER_LIMITS.MAX_BRANCHES_PER_TREE} 个分支`);
   }
-  const led = ledger.branches.get(branchKey) ?? { used: 0, robotsFetches: 0, blocked: new Set<string>() };
+  const led = ledger.branches.get(branchKey) ?? newBranchLedger();
   ledger.branches.set(branchKey, led);
   led.used = Math.min(WEB_READER_LIMITS.MAX_READS_PER_BRANCH, Math.max(led.used, usedIn));
+  // 调用方给的上限（剩余 + 已用）取各次里最小的：组织调低的额度在并发会话与重建会话之间也不会翻倍
+  led.cap = Math.min(led.cap, remainingIn + usedIn);
   for (const s of passedBlocked) if (s) led.blocked.add(s);
   sess.usedBranchKeys.add(branchKey);
   const st: BranchState = {
     sess,
     branchKey,
     led,
-    allowance: remainingIn,
     deadlineAt: rawDeadline == null ? null : (rawDeadline as number),
     allowUrl: rawAllow as (url: URL) => unknown,
   };
@@ -610,6 +624,7 @@ function isContextual(r: PageReadResult): boolean {
     r.reason === "budget_exhausted" ||
     r.reason === "robots_limit" ||
     r.reason === "blocked_sites_limit" ||
+    r.reason === "history_overflow" ||
     r.reason === "site_blocked_in_branch" ||
     r.reason === "deadline" ||
     r.reason === "url_not_allowed"
@@ -637,7 +652,7 @@ function sanitizeCached(raw: unknown, key: string): PageReadResult | null {
     truncated: r.truncated === true,
     blocked:
       blk && reason && isBlockedReason(reason)
-        ? { reason: reason as BlockedReason, messageZh: reasonMessageZh(reason), site: typeof blk.site === "string" ? siteKeyOfHost(blk.site) : "" }
+        ? { reason: reason as BlockedReason, messageZh: reasonMessageZh(reason), site: typeof blk.site === "string" ? normalizeHost(blk.site) : "" }
         : null,
     outcome: r.outcome as PageReadOutcome,
     reason,
@@ -649,30 +664,45 @@ function sanitizeCached(raw: unknown, key: string): PageReadResult | null {
   });
 }
 
-/** 这一支里被挡过的站：站点本身，或它的子域名（被挡后不靠换子域名绕过）；返回命中的那个被挡站 */
-function blockedSiteFor(st: BranchState, site: string): string | null {
-  const blocked = st.led.blocked;
-  if (blocked.has(site)) return site;
-  for (const b of blocked) if (site.endsWith(`.${b}`)) return b;
+const wwwless = (h: string) => h.replace(/^www\./, "");
+
+/**
+ * 主机 host 是否落在被挡的主机 b 里：同一个站（只差 www.）；b 的子域名（被挡后不靠换子域名绕过）；
+ * 或以 b 打头的代理式主机名（`gov.example.mirror.example`、`gov-example.proxy.example`）。
+ * www.canada.ca 被挡不连带 canadabuys.canada.ca（兄弟子域名不是同一个站，第四轮挑错 D）。
+ */
+function hostInBlocked(host: string, b: string): boolean {
+  if (wwwless(host) === wwwless(b)) return true;
+  if (host.endsWith(`.${b}`)) return true;
+  const core = wwwless(b);
+  return host.startsWith(`${core}.`) || host.startsWith(`${core.replace(/\./g, "-")}.`);
+}
+
+/** 这一支里挡住这个主机的那个被挡主机；没有返回 null */
+function blockedSiteFor(st: BranchState, host: string): string | null {
+  for (const b of st.led.blocked) if (hostInBlocked(host, b)) return b;
   return null;
 }
 
-/** 这个网址的站、或网址里嵌着的站（经抓取代理 / 快照换地址）在这一支里被挡过：返回那个被挡站 */
+/** 这个网址的主机、或网址里嵌着的主机（经抓取代理 / 快照换地址）在这一支里被挡过：返回那个被挡主机 */
 function blockedSiteForUrl(st: BranchState, url: URL): string | null {
-  const own = blockedSiteFor(st, siteKeyOf(url));
-  if (own) return own;
   if (st.led.blocked.size === 0) return null;
-  for (const h of embeddedHostsOf(url)) {
+  const own = blockedSiteFor(st, hostOf(url));
+  if (own) return own;
+  for (const h of embeddedHostsOf(url).hosts) {
     const b = blockedSiteFor(st, h);
     if (b) return b;
   }
   return null;
 }
 
-/** 网址的站或嵌着的站在「不碰」名单里 */
-function deniedUrl(url: URL, policy: SitePolicy): boolean {
-  if (classifySite(hostOf(url), policy) === "deny") return true;
-  return embeddedHostsOf(url).some((h) => classifySite(h, policy) === "deny");
+/** 网址的主机在「不碰」名单里 → site_denied；嵌着的主机在名单里 → embedded_site_denied；嵌着的网址认不清 → embedded_url_unclear */
+function deniedUrl(url: URL, policy: SitePolicy): "site_denied" | "embedded_site_denied" | "embedded_url_unclear" | null {
+  if (classifySite(hostOf(url), policy) === "deny") return "site_denied";
+  const emb = embeddedHostsOf(url);
+  if (emb.hosts.some((h) => classifySite(h, policy) === "deny")) return "embedded_site_denied";
+  if (!emb.complete) return "embedded_url_unclear";
+  return null;
 }
 
 function remainingMs(st: BranchState): number {
@@ -703,7 +733,8 @@ export async function readPublicPage(rawUrl: string, ctx: ResearchReadContext): 
   // 只有明确返回 true 才算放行（返回 Promise / 别的值一律不读）
   if (st.allowUrl(new URL(key)) !== true) return nonRequest(key, "refused", "url_not_allowed", nowIso());
   // 不碰名单（含网址里嵌着的站：抓取代理 / 快照 / 翻译代理）先于缓存与被挡判断：不读
-  if (deniedUrl(checked.url, sess.sitePolicy)) return nonRequest(key, "refused", "site_denied", nowIso());
+  const denied = deniedUrl(checked.url, sess.sitePolicy);
+  if (denied) return nonRequest(key, "refused", denied, nowIso());
 
   // 规则 6：同一会话内同址只读一次（含并发合并）。别的支正在读同一网址时等它的结果（受本支截止约束）；
   // 那个结果若与它自己的状态有关（到上限等），本支再按自己的状态读。同一个等候对象只等一次（不会空转）。
@@ -721,7 +752,7 @@ export async function readPublicPage(rawUrl: string, ctx: ResearchReadContext): 
 
   const blockedAs = blockedSiteForUrl(st, checked.url);
   if (blockedAs) return nonRequest(key, "blocked", "site_blocked_in_branch", nowIso(), blockedAs);
-  if (sess.ledger.overflow) return nonRequest(key, "limit", "budget_exhausted", nowIso());
+  if (sess.ledger.overflow) return nonRequest(key, "limit", "history_overflow", nowIso());
   if (st.led.blocked.size >= WEB_READER_LIMITS.MAX_BLOCKED_SITES_PER_BRANCH) return nonRequest(key, "limit", "blocked_sites_limit", nowIso());
   if (remainingReads(st) <= 0) return nonRequest(key, "limit", "budget_exhausted", nowIso());
 
@@ -738,6 +769,8 @@ export async function readPublicPage(rawUrl: string, ctx: ResearchReadContext): 
   tree.inflight.set(key, shared);
   const r = await shared;
   if (r.blocked?.site) st.led.blocked.add(r.blocked.site);
+  // 发出了页面请求的读页里取的 robots 不计入「没读页只取 robots」的上限
+  if (state.attempts > 0 && state.robotsFetches > 0) st.led.robotsFetches = Math.max(0, st.led.robotsFetches - state.robotsFetches);
   // 发过请求，或这一支发起过取 robots（哪怕没发出请求）：都写审计，重建会话时据此恢复账
   if (r.attempts + r.robotsRequests + state.robotsFetches > 0) {
     await writeAudit(st, r, site, { robotsFetches: state.robotsFetches, fromCache: false });
@@ -801,7 +834,7 @@ async function markBranchFromCache(st: BranchState, r: PageReadResult, site: str
 
 type AttemptBudget = { transientLeft: number; rateLimitRetryLeft: number };
 
-type ReqStop = { kind: "stop"; outcome: PageReadOutcome; reason: PageReadReason; status: number | null };
+type ReqStop = { kind: "stop"; outcome: PageReadOutcome; reason: PageReadReason; status: number | null; blockedSite?: string };
 type ReqResult = { kind: "response"; res: NetResponse } | ReqStop;
 
 type SendHooks = {
@@ -826,6 +859,9 @@ async function reserveSiteSlot(site: string, st: BranchState): Promise<boolean> 
     pacers.set(clock, m);
   }
   const now = clock.now();
+  if (m.size > WEB_READER_LIMITS.PACER_PRUNE_AT) {
+    for (const [k, v] of m) if (v <= now) m.delete(k);
+  }
   const start = Math.max(now, m.get(site) ?? 0);
   if (start - now > remainingMs(st) - WEB_READER_LIMITS.MIN_ATTEMPT_MS) return false;
   m.set(site, start + WEB_READER_LIMITS.SAME_SITE_INTERVAL_MS);
@@ -861,8 +897,9 @@ async function requestWithRetry(url: URL, accept: string, st: BranchState, retry
   });
   for (;;) {
     if (!(await reserveSiteSlot(site, st))) return stop("unreachable", "deadline");
-    // 排到时段之后再查一次：同一支里别的并发读可能刚刚被这个站（或网址里嵌着的站）挡了
-    if (blockedSiteForUrl(st, url)) return stop("blocked", "site_blocked_in_branch");
+    // 排到时段之后再查一次：同一支里别的并发读可能刚刚被这个站（或网址里嵌着的站）挡了；记真正命中的被挡主机
+    const hit = blockedSiteForUrl(st, url);
+    if (hit) return { ...stop("blocked", "site_blocked_in_branch"), blockedSite: hit };
     const left = remainingMs(st);
     if (left < WEB_READER_LIMITS.MIN_ATTEMPT_MS) return stop("unreachable", "deadline");
     if (hooks.beforeSend && !hooks.beforeSend()) return stop("limit", "budget_exhausted");
@@ -978,7 +1015,6 @@ async function fetchRobots(start: URL, st: BranchState, state: ReadState): Promi
       if (url.pathname !== "/robots.txt" || isLoginUrl(url)) return { kind: "allow_all" };
       if (ipLiteralOf(url)) return { kind: "unavailable" };
     }
-    const site = siteKeyOf(url);
     if (deniedUrl(url, st.sess.sitePolicy)) return { kind: "unavailable" };
     const blockedAs = blockedSiteForUrl(st, url);
     if (blockedAs) return { kind: "branch_blocked", site: blockedAs };
@@ -994,7 +1030,7 @@ async function fetchRobots(start: URL, st: BranchState, state: ReadState): Promi
     if (r.kind === "stop") {
       if (r.reason === "deadline") return { kind: "deadline" };
       if (r.reason === "private_address") return { kind: "private" };
-      if (r.reason === "site_blocked_in_branch") return { kind: "branch_blocked", site };
+      if (r.reason === "site_blocked_in_branch") return { kind: "branch_blocked", site: r.blockedSite ?? hostOf(url) };
       // 429 / 5xx / 超时 / 连接失败 → 视为全部不许读（RFC 9309 §2.3.1.4；429 同样按读取失败）
       return { kind: "unavailable" };
     }
@@ -1057,8 +1093,12 @@ function looksLikePdf(url: URL): boolean {
 
 /** 正文开头（跳过 BOM 与空白）是 %PDF-：按 PDF 处理 */
 function bodyLooksLikePdf(body: Uint8Array): boolean {
-  const head = new TextDecoder("latin1").decode(body.subarray(0, 1024)).replace(/^[\ufeff\u00ef\u00bb\u00bf\s]+/, "");
-  return head.startsWith("%PDF-");
+  // 跳过开头的 UTF-8 BOM 与空白（最多看前 64 KiB）
+  let i = 0;
+  const end = Math.min(body.length, 64 * 1024);
+  if (body[0] === 0xef && body[1] === 0xbb && body[2] === 0xbf) i = 3;
+  while (i < end && (body[i] === 0x20 || body[i] === 0x09 || body[i] === 0x0a || body[i] === 0x0d || body[i] === 0x0c || body[i] === 0x00)) i++;
+  return new TextDecoder("latin1").decode(body.subarray(i, i + 5)) === "%PDF-";
 }
 
 async function readUncached(start: URL, key: string, st: BranchState, state: ReadState): Promise<PageReadResult> {
@@ -1069,8 +1109,10 @@ async function readUncached(start: URL, key: string, st: BranchState, state: Rea
   let url = start;
   let prev: URL | null = null;
   let lastStatus: number | null = null;
-  const stop = (outcome: PageReadOutcome, reason: PageReadReason, status: number | null = lastStatus, blockedSite?: string): PageReadResult =>
-    finish(key, {
+  const stop = (outcome: PageReadOutcome, reason: PageReadReason, status: number | null = lastStatus, blockedSite?: string): PageReadResult => {
+    // 被挡站立刻记进这一支（不等写调用方的持久缓存，第四轮挑错 B）
+    if (outcome === "blocked" && blockedSite) st.led.blocked.add(blockedSite);
+    return finish(key, {
       finalUrl: state.lastRequested ? state.lastRequested.toString() : null,
       fetchedAt: nowIso(),
       text: "",
@@ -1082,21 +1124,24 @@ async function readUncached(start: URL, key: string, st: BranchState, state: Rea
       robotsRequests: state.robotsRequests,
       blockedSite,
     });
+  };
 
   for (let hop = 0; ; hop++) {
     if (hop > WEB_READER_LIMITS.MAX_REDIRECTS) return stop("unreachable", "too_many_redirects");
     // 每一跳重新校验：网址、IP 地址、站点名单、登录地址、PDF、这一支里被挡过的站、地址、robots
     const chk = checkPublicUrl(url.toString());
     if (!chk.ok) return hop === 0 ? stop("refused", chk.reason) : stop("unreachable", "invalid_redirect");
-    const site = siteKeyOf(url);
+    // 被挡记在主机上（保留 www.，见 hostInBlocked）
+    const site = hostOf(url);
     // 主机名是 IP 地址的不读：被挡后不靠换成 IP 绕过，正常的公开网站也不用 IP 地址
     if (ipLiteralOf(url)) return hop === 0 ? stop("refused", "ip_literal") : stop("unreachable", "invalid_redirect");
     const cls = classifySite(hostOf(url), policy);
     // 网址的站或网址里嵌着的站（经抓取代理 / 快照 / 翻译代理）在不碰名单里：不读
-    if (deniedUrl(url, policy)) return stop("refused", "site_denied");
+    const denied = deniedUrl(url, policy);
+    if (denied) return stop("refused", denied);
     // 直接给的登录地址：不碰（不读，不算该站被挡）；跳转到登录地址：发出跳转的那个站挡了我们
     if (isLoginUrl(url)) {
-      return hop === 0 ? stop("refused", "login_url") : stop("blocked", "login_redirect", lastStatus, prev ? siteKeyOf(prev) : site);
+      return hop === 0 ? stop("refused", "login_url") : stop("blocked", "login_redirect", lastStatus, prev ? hostOf(prev) : site);
     }
     if (looksLikePdf(url)) return stop("refused", "pdf_not_read");
     const blockedHop = blockedSiteForUrl(st, url);
@@ -1122,7 +1167,6 @@ async function readUncached(start: URL, key: string, st: BranchState, state: Rea
       beforeSend: () => {
         if (state.charged) return true;
         if (remainingReads(st) <= 0) return false;
-        st.allowance -= 1;
         st.led.used += 1;
         state.charged = true;
         return true;
@@ -1134,7 +1178,7 @@ async function readUncached(start: URL, key: string, st: BranchState, state: Rea
     });
     if (r.kind === "stop") {
       lastStatus = r.status;
-      return stop(r.outcome, r.reason, r.status, r.outcome === "blocked" ? site : undefined);
+      return stop(r.outcome, r.reason, r.status, r.outcome === "blocked" ? (r.blockedSite ?? site) : undefined);
     }
     const { res } = r;
     lastStatus = res.status;

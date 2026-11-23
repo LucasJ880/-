@@ -39,14 +39,16 @@ export type RefusedReason =
   | "non_default_port"
   | "private_address"
   | "site_denied"
+  | "embedded_site_denied"
+  | "embedded_url_unclear"
   | "login_url"
   | "ip_literal"
   | "url_not_allowed"
   | "unsupported_type"
   | "pdf_not_read";
 
-/** 到上限的原因：读页次数、取 robots 的次数、被挡站数（每支） */
-export type LimitReason = "budget_exhausted" | "robots_limit" | "blocked_sites_limit";
+/** 到上限的原因：读页次数、取 robots 的次数、被挡站数（每支）；这棵树的审计历史超过上限 */
+export type LimitReason = "budget_exhausted" | "robots_limit" | "blocked_sites_limit" | "history_overflow";
 
 export type PageReadReason = BlockedReason | UnreachableReason | RefusedReason | LimitReason;
 
@@ -62,7 +64,7 @@ export type PageReadResult = {
   text: string;
   /** 正文超过 2 MB 被截断 */
   truncated: boolean;
-  /** 只在被挡时非空；site 是真正挡住我们的那个站（站点键：主机名去掉 www.） */
+  /** 只在被挡时非空；site 是真正挡住我们的那个主机（小写、去末尾的点，保留 www.） */
   blocked: { reason: BlockedReason; messageZh: string; site: string } | null;
   outcome: PageReadOutcome;
   /** 非「读到」时的原因；「读到」时为 null */
