@@ -94,14 +94,12 @@ console.log("BIDPAGE-1 下一步查表");
     requirements_unapproved: "requirements", bid_decided: "documents", quote_draft: "quote", no_suppliers: "sourcing",
     rfq_pending_approval: "sourcing", no_rfq_sent: "sourcing", waiting_replies: "sourcing", replies_to_record: "sourcing", start_quote: "quote",
   };
-  ok(JSON.stringify(BID_PAGE_RULE_TARGET) === JSON.stringify(expected), "对应表：招标要求 → 切页签；找供应商那几条 → ①；检查后定 / 开始做报价 → ②；已定 → ③（我方报价是逐行报价时去 ②，另测）", BID_PAGE_RULE_TARGET);
+  ok(JSON.stringify(BID_PAGE_RULE_TARGET) === JSON.stringify(expected), "对应表：招标要求 → 切页签；找供应商那几条 → ①；检查后定 / 开始做报价 → ②；已定 → ③", BID_PAGE_RULE_TARGET);
   const req = decideBidPageNextStep(facts({ analysisStatus: null }));
   ok(req.action.labelZh === "去「招标要求」" && req.action.target.kind === "tab" && req.action.target.tab === "requirements" && req.expanded === "sourcing", "指向招标要求：按钮「去「招标要求」」、切页签、默认展开 ①", req);
   const labels: Array<[Over, string, string]> = [
     [{ supplierCount: 1, inquiry: { askedCount: 1, quotedCount: 1, respondedCount: 1 } }, "去「定报价」", "quote"],
     [{ quote: { bid: DECIDED } }, "去「出文件」", "documents"],
-    [{ quote: { bid: { ...DECIDED, lineMode: true } } }, "去「定报价」", "quote"],
-    [{ quote: { bid: { ...DECIDED, lineMode: false } } }, "去「出文件」", "documents"],
     [{}, "去「找供应商、询价」", "sourcing"],
   ];
   for (const [o, label, expanded] of labels) {

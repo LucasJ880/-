@@ -32,6 +32,7 @@ import { costLinesToState, defaultLineModeState, lineModeTemplate, seedRowsFromS
 import { allocateFromEngine, diffBoundOf, exportUnitPrices } from "../quote-line/allocation";
 import { importCostDraft, draftHasLines, draftToPrompt } from "../quote-line/draft-import";
 import { buildLineComputed, isLineModeQuote } from "../quote-line/service";
+import { BID_PAGE_RULE_TARGET, decideBidPageNextStep, type BidPageFacts } from "../next-step";
 
 let pass = 0;
 let fail = 0;
@@ -386,6 +387,29 @@ console.log("\n━━━ 6. 粘贴、旧的本地成本草稿 ━━━");
   odd.fx = { usd: { rate: "1.35", source: "", asOf: "" } };
   const oddImp = importCostDraft(base, odd);
   ok(eq(oddImp.importedRows, [2]) && oddImp.state.rows[1].currency === "USD" && oddImp.state.fx.USD?.rate === 1.35 && oddImp.skipped.some((x) => x.includes("rmb")), "草稿币种转大写；不在报价币种里的（rmb）那一行不带入并写明", oddImp);
+}
+
+/* ------------------------------ 7a. 「下一步」已定的去处 ------------------------------ */
+console.log("\n━━━ 7a. 「已定」按我方报价的做法去 ② / ③ ━━━");
+{
+  const factsOf = (lineMode: boolean | undefined): BidPageFacts => ({
+    now: new Date("2026-11-23T00:00:00Z"),
+    analysisStatus: "APPROVED",
+    supplierCount: 1,
+    pendingRfqApprovals: 0,
+    inquiry: { askedCount: 1, respondedCount: 1, quotedCount: 1, repliedNoQuoteCount: 0, waitingCount: 0, waitingSince: null },
+    quote: { available: true, bid: { status: "AUTHORITATIVE", version: 2, amount: null, ...(lineMode === undefined ? {} : { lineMode }) }, openDraft: null, approvedUnselected: 0 },
+    documents: { canGenerate: true, generatedKinds: 0 },
+    canViewAmounts: true,
+  });
+  const yes = decideBidPageNextStep(factsOf(true));
+  const no = decideBidPageNextStep(factsOf(false));
+  const unknown = decideBidPageNextStep(factsOf(undefined));
+  ok(yes.rule === "bid_decided" && yes.action.labelZh === "去「定报价」" && yes.expanded === "quote", "我方报价是逐行报价：「导出价格表 / 生成投标文件」去 ②（导出在 ② 底部）", yes);
+  ok(no.action.labelZh === "去「出文件」" && no.expanded === "documents" && unknown.action.labelZh === "去「出文件」" && unknown.expanded === "documents", "不是逐行报价、或不知道：照旧去 ③", [no.action, unknown.action]);
+  ok(BID_PAGE_RULE_TARGET.bid_decided === "documents", "对应表里「已定」的默认去处仍是 ③（BIDPAGE-1 原样）");
+  const summarySvc = stripComments(read("src/lib/bid-page-v2/service.ts"));
+  ok(/select: \{ engineJson: true \}/.test(summarySvc) && /entryMode === "LINE"/.test(summarySvc) && /lineMode,/.test(summarySvc), "汇总只多读我方报价的做法字段（不读成本行）");
 }
 
 /* ------------------------------ 7. 接口与组件源码 ------------------------------ */
