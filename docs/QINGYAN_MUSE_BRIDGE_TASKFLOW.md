@@ -318,6 +318,22 @@
 | RFQ-PDF-1 | 菜单里的供应商文件收口到询价单：「一键生成文档」的 `supplier_rfq` 改用发询价时同一个询价单生成器、询价附件的同一个模板与同一套 PDF 检查（只收已确认的供应商侧要求，不读 AI 分析综合与项目上下文）；没有要求 / 含内部财务信息 / 含招标身份 / PDF 不合格时不保存并给中文说明，不再回落成 HTML；「供应商技术确认表」「国内供应商简报」停止生成（旧文件保留）；菜单项改名「供应商询价单 PDF」 | CHAIN-4a、CHAIN-4b | OpenSpec change `supplier-docs-converge`；任务书 T1「验收」七条；报告 `docs/QINGYAN_RFQ-PDF-1_REPORT.md` | [x]（#544，2026-11-22 合并；archive `2026-11-23-supplier-docs-converge`；主规格 `tender/rfq-sheet-download` 11 条（新）、`tender/supplier-identity-guard` 改 6 条；**没有开关，已随合并生效**；与任务书的出入见报告 §1；经开工前 1 轮 + 实现后两轮多维审查，共九个子 agent（报告 §5a）；线上点一次「供应商询价单 PDF」的验证未做（沙箱访问不到线上）；简报里的合规取证清单在 RFQ-PDF-2 合并前不在任何生成文件里） |
 | RFQ-PDF-2 | 询价单模板第 2 版：首屏放询价内容、补报价表（与回信解析的六个字段对上）、只留要求编号一套编号、按类别分组、去掉招标文件页码、缺中文译文的提示、合规取证清单并入「请随报价提供」、邮件正文同步；版式版本 1 → 2。RFQ-PDF-1 审查带出、并入本项的三件：回复截止不再落在截标当天（现在截标前 2 天整份生成不了）、内部字段词表扩充且要求编号与数量也过检查、身份命中与「没有已确认的要求」两句说明给出出路 | RFQ-PDF-1 | OpenSpec change `rfq-sheet-template-v2`；任务书 T2「验收」；报告附 8pt 与 7.5pt 两份样张，Evan 打印后定字号 | [ ] |
 
+
+### Phase F（续）— 标书与报价页改版
+
+任务书：`docs/QINGYAN_BIDPAGE_BID_QUOTE_REDESIGN_TASKBRIEF.md`（Evan 2026-11-22 需求：「标书与报价」页太复杂、中英混杂；一次性全部改完、单独一条轨道）。规则：**一页只做三件事，按做事的顺序排：找供应商询价 → 定报价 → 出文件。能自动带出来的不让人再填，对外发的照旧人批，界面一律中文。** 八个 change 全部藏在 `TENDER_BID_PAGE_V2_ENABLED` + `TENDER_BID_PAGE_V2_ORG_ALLOWLIST` 后面（开关关 = 零变化），八个都合并、预发验收通过后一次打开（生产名单必须填 Sunny 的组织 id）。合并由实现者按任务书「合并授权、交叉验证与交接」自行完成（Evan 2026-11-22 18:01）。开工前核对与 A / B / C 拍板（Lucas 2026-11-22）见任务书附录 C。交接：`docs/QINGYAN_BIDPAGE_HANDOFF.md`。上线顺序：1 → 3 → 4 → 6 → 5 → 2 → 7 → 8。
+
+| ID | 任务 | 依赖 | 验收 | 状态 |
+|---|---|---|---|---|
+| BIDPAGE-1 | 三步骨架 + 「下一步」提示：新页面从上到下「下一步」→ ① 找供应商、询价 → ② 定报价 → ③ 出文件，每步可折叠、标题一句话状态；「下一步」按确定性查表算出（与任务书的出入见 design D3）；只读汇总接口金额只给有成本与财务查看权的人；入口在项目页分流（`bid-tab.tsx` 不动）；带金额的旧组件只给看得到金额的人挂 | — | OpenSpec change `bid-page-v2-shell`；任务书 BIDPAGE-1；报告 `docs/QINGYAN_BIDPAGE-1_REPORT.md` | [~]（PR 待开；开工前审查 1 轮 + 六维审查已处理） |
+| BIDPAGE-3 | 报价做法一「逐行报价」，成本存进系统（`QuoteCostLine`），四个数取引擎结果；旧本地草稿提示一次、人点了才导入；「按招标方价格表导出」。另须：② 换成按金额门做的新区块，恢复有 `project:cost:write`、没有财务查看权的人编辑报价（BIDPAGE-1 design D5 的临时出入）；从新页面拿掉 `BidWorkspacePanel`；「更多」里加「专业模式」；回看「下一步」「导出价格表 / 生成投标文件」的去处 | BIDPAGE-1 | OpenSpec change `quote-line-mode-persist`；任务书 BIDPAGE-3、验收 5 / 8 | [ ] |
+| BIDPAGE-4 | 报价做法二「只报总价」：总价构成表开始只有 4 行，其余从中文清单添加；落既有成本类别与计算方式；税走既有 `computeTax` | BIDPAGE-3 | OpenSpec change `quote-lump-sum-mode`；任务书 BIDPAGE-4、验收 3 / 4 | [ ] |
+| BIDPAGE-6 | 定报价只点一次：有批准权限的人「定为我方报价」= 提交 + 批准 + 选定；没有的人「提交给负责人」（站内通知负责人）；状态机不改；`TenderOurBidCard` 并入 ② 标题下一行（金额按金额门） | BIDPAGE-3 | OpenSpec change `quote-one-step-confirm`；任务书 BIDPAGE-6、验收 7 | [ ] |
+| BIDPAGE-5 | AI 毛利建议「先查市场，再给数」：至多 2 次检索 + 1 次模型，品类判断、区间、把握程度、出处；没有依据时把握程度固定为低；只建议不落库 | BIDPAGE-3 | OpenSpec change `quote-margin-advice-market`；任务书 BIDPAGE-5、验收 6 | [ ] |
+| BIDPAGE-2 | 第 ① 步「找供应商、询价」合成一块：一张「本项目的供应商」表；空库也能添加供应商、起草询价；状态归并为「在用 / 不用了」；「回复截止」与「去『招标要求』」文案修正（按开关分流）。另须：「报价」列只给有成本与财务查看权的人，恢复没有财务查看权、有编辑权的人起草询价（BIDPAGE-1 design D5 的临时出入） | BIDPAGE-1 | OpenSpec change `bid-page-sourcing-step`；任务书 BIDPAGE-2、验收 2 | [ ] |
+| BIDPAGE-7 | 第 ③ 步「出文件」：八种文件按用途分三组（交给招标方 / 发给供应商 / 内部用），只换展示与分组；会写出我方报价 / 中标价的内部文件（如内部项目分析）按金额门处理 | BIDPAGE-1；#544 | OpenSpec change `bid-page-documents-step`；任务书 BIDPAGE-7、验收 8 | [ ] |
+| BIDPAGE-8 | 全中文 + 守卫测试：新页面与专业模式的界面文字按术语表改中文（按开关分流），扫描守卫测试 | BIDPAGE-1 ～ 7 | OpenSpec change `bid-page-zh-copy`；任务书 BIDPAGE-8、验收 1 | [ ] |
+
 ---
 
 ## Phase N — 导航与说明白话化 + 回复入口（看得懂、找得到、回得了）
