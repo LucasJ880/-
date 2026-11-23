@@ -467,6 +467,8 @@ console.log("\n[挑错后：认不清的数、减项、别的币种、口径提�
   ok(eurWithCad.currency === null && eurWithCad.currencyBasis === "unknown", "合同额写 €、同组币种事实写 CAD：不明（不让别处的一句盖过合同额自己写的）", eurWithCad);
   ok(["AU$230,000", "A$230,000", "230 000 euros"].every((v) => otherCurrencyMentioned(v)) && !otherCurrencyMentioned("CA$230,000"), "AU$ / A$ / euros 算别的币种，CA$ 不算");
   ok(!otherCurrencyMentioned("awarded to Euro Office Systems for $230,000") && !otherCurrencyMentioned("Euro Style Furniture $230,000"), "公司名里的 Euro 不算欧元");
+  ok(otherCurrencyMentioned("Montant en euros : 230 000") && otherCurrencyMentioned("payé en euros"), "「en euros」「euros : 230 000」算欧元");
+  ok(parseAmountValue("(cad 230,000)") === null && parseAmountValue("(Can$230,000)") === null, "括号里的币种字母不分大小写");
   const usOnCa = assembleRecords([g("award_amount", "230 000 $ US", "Total : 230 000 $ US")], "comparable_award", ctx)[0]!;
   ok(usOnCa.currency === "USD" && usOnCa.currencyBasis === "stated", ".ca 网站上写「230 000 $ US」：写明的 USD（不按网站推断）", usOnCa);
   ok(!scopeBasisOk("multi_year", "includes a 1-year warranty") && !scopeBasisOk("multi_year", "term of 1 year") && !scopeBasisOk("multi_year", "1 an"), "一年的写法不算多年期");
@@ -477,6 +479,10 @@ console.log("\n[挑错后：认不清的数、减项、别的币种、口径提�
   ok(notTerm2.every((e) => !scopeBasisOk("multi_year", e)), "按月写的保修、保修写在后面、中文质保、财年的几种写法：也不算", notTerm2.filter((e) => scopeBasisOk("multi_year", e)));
   const termWithWarranty = ["a 3-year service and warranty contract", "5-year maintenance and warranty agreement", "3-year contract including warranty", "3-year term plus warranty", "three-year supply and warranty agreement", "3-year guaranteed pricing"];
   ok(termWithWarranty.every((e) => scopeBasisOk("multi_year", e)), "合同期里带着保修（service and warranty contract、guaranteed pricing）：照认多年期", termWithWarranty.filter((e) => !scopeBasisOk("multi_year", e)));
+  const termMore = ["3-year warranty and maintenance contract", "over the 2022-2025 fiscal years", "FY 2024-2027", "price guarantee: 3 years", "合同期3年保修1年"];
+  ok(termMore.every((e) => scopeBasisOk("multi_year", e)), "保修后面接着合同、跨几个财年、价格保证几年、合同期写在保修前：照认多年期", termMore.filter((e) => !scopeBasisOk("multi_year", e)));
+  const warrantyMore = ["warranty – 5 years", "warranty (5 years)", "Garantie : 5 ans", "garantie pièces et main-d'œuvre de 5 ans", "质保期：3年"];
+  ok(warrantyMore.every((e) => !scopeBasisOk("multi_year", e)), "保修写成横线、括号、冒号的几种：不算多年期", warrantyMore.filter((e) => scopeBasisOk("multi_year", e)));
   const term = ["3-year contract with 2-year warranty", "for a period of three (3) years", "36-month contract", "contrat de trois ans", "contrat de deux ans", "2024年至2026年", "合同期三年，质保两年"];
   ok(term.every((e) => scopeBasisOk("multi_year", e)) && !scopeBasisOk("multi_year", "12 months"), "合同期的写法（三 (3) 年、36 个月、trois ans、2024年至2026年）照认；保修另写的不影响", term.filter((e) => !scopeBasisOk("multi_year", e)));
   ok(!scopeBasisOk("freight", "bins delivered by March 2024") && !scopeBasisOk("freight", "delivery date: May 1"), "只写交货时间：不算含运费");
@@ -506,6 +512,20 @@ console.log("\n[挑错后：认不清的数、减项、别的币种、口径提�
   ok(timing.every((e) => !scopeBasisOk("freight", e)), "「送货」后面跟着日期 / 时间表、单写 Transport（部门名）：不算含运费", timing.filter((e) => scopeBasisOk("freight", e)));
   const negated = ["Freight not included", "Delivery charges are not included", "delivery costs are extra", "frais de livraison en sus", "prices exclusive of freight", "hors livraison", "不含运费"];
   ok(negated.every((e) => !scopeBasisOk("freight", e)), "写明不含运费的：不算含运费", negated.filter((e) => scopeBasisOk("freight", e)));
+  const includedOther = [
+    "Delivery included at no additional cost",
+    "free delivery, no extra charge",
+    "Delivery included, installation extra",
+    "Prices include delivery, taxes extra",
+    "FOB destination, freight included, HST extra",
+    "livraison incluse, installation en sus",
+    "Prix incluant la livraison, taxes en plus",
+    "Delivery: included (additional locations at extra cost)",
+    "Delivery and installation at no extra cost",
+  ];
+  ok(includedOther.every((e) => scopeBasisOk("freight", e)), "运费含、别的另计（installation extra、taxes en plus、at no additional cost）：照认含运费", includedOther.filter((e) => !scopeBasisOk("freight", e)));
+  const placeNotTime = ["includes delivery within the City limits", "including delivery within Canada", "Supply and delivery by the Contractor", "including delivery by truck", "Fourniture et livraison en vrac de sel de déglaçage", "y compris la livraison en magasin", "avec livraison en Montérégie"];
+  ok(placeNotTime.every((e) => scopeBasisOk("freight", e)), "by / within / en 后面不是日期（by the Contractor、within Canada、en vrac）：照认", placeNotTime.filter((e) => !scopeBasisOk("freight", e)));
   ok(groupKeyOf("Contract 2024-001") !== groupKeyOf("Contract 2024-002") && groupKeyOf("Purchase Order Alpha") !== groupKeyOf("Purchase Order Beta"), "长组名截到 12 字后相同（contract-202）：带哈希，不并", [groupKeyOf("Contract 2024-001"), groupKeyOf("Contract 2024-002")]);
   ok(groupKeyOf("Contract 2024-001") === groupKeyOf("CONTRACT  2024-001") && groupKeyOf("Lot 1.1") === groupKeyOf("LOT 1.1") && groupKeyOf("Lot 1") === groupKeyOf("Lot 1.") && groupKeyOf("Lot 1") === groupKeyOf("Lot 1\u200b") && groupKeyOf("第一包") === groupKeyOf("第一包。"), "同一个组名的大小写、空白、末尾标点（含中文句号）、不可见字符不同：照并");
   {
