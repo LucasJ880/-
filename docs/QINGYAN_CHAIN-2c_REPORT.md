@@ -120,3 +120,41 @@ Lucas 2026-11-20：「#539 的规则不用变」——第 1、2 条照现在的�
 3. **中标后转执行**（`src/lib/projects/handoff/execute.ts`）：操作人可以把自己选为新执行项目的负责人；能执行交接的不只组织管理员，持 `project.create` 或交接权限键的人也能。
 
 另立任务（不在本次）：`POST /api/ops/projects`（新建执行项目）接受任何存在的用户作负责人、不查组织成员关系；负责人被移出组织后仍有写权限与财务特权（`src/lib/projects/access.ts` 负责人分支）。只有「管理执行项目」权限的人能经执行项目接口交接、但在项目团队卡片上不能——沿用既有口径。
+
+## 7. 交叉验证（2026-11-23）
+
+**结论**：可以合并，没有阻断项。被验证的是提交 `6e713eae`。
+
+**交叉验证跑的数字**：角色矩阵 406 条；并发四个场景各跑 12 轮；27 个变异抓到 26 个；归档演练 152 → 153。
+
+**四条发现与去向**
+
+| 编号 | 发现 | 去向 |
+|---|---|---|
+| F1（测试缺口） | 成员列表接口 `src/app/api/projects/[id]/members/route.ts:37-46` 里「能不能修改本项目」的判断，把 `project_admin` 条件放宽成「有任意项目角色」（变异 M8b），两个测试都照过：测试里的只读成员既不是管理者也没有财务键 | **已补隔离库用例**：持组织范围 `project.finance.manage` 岗位、但在项目里只是只读成员的人。用例先确认他有财务特权、改不了本项目（PATCH 403），再断言两个标记都是 false |
+| F2（测试缺口） | 执行项目接口上「能管理执行项目、但不是组织管理员」的人（运营主管 `ops_lead`）只有源码断言守着（去掉 `isManager: true` 的变异 M9，隔离库全过） | **已补隔离库用例**：按岗位的组织里，运营主管经 `PATCH /api/ops/projects/{项目}` 同时改名并换给自己 → 403 `OWNER_SELF_ASSIGN_FORBIDDEN`，名称、负责人、审计都不变；换给已停用的用户 → 400 `OWNER_INVALID`；交给本组织另一位成员 → 200，审计带前后负责人。顺手补了成员接口 PATCH 的 409 行为用例（变异 M16）：判定之后、写入之前负责人被换掉 → 409，那一行的角色不变、没有新审计 |
+| F3（既有口径） | `src/lib/projects/owner-change-access.ts:24-27` 判「有财务特权」用 `resolveFinancePrivilege`，不看组织成员身份；删组织成员时也不停岗位绑定 | **不改代码**，登记后续：TASKFLOW 新增一行「待定」，并写进 §8 |
+| F4（文档漂移） | TASKFLOW 的 CHAIN-2c 行还写「Draft PR」「全量 704/714」 | **已改**：PR #539 已 Ready；合入 main `b717427f` 后全量 720/730，与基线逐条相同；写上交叉验证结论 |
+
+**变异验证**（隔离库 `qy_iso_e`；每次跑完都用 `git checkout` 还原路由文件。「补用例前」指 `6e713eae` 的测试，「补用例后」指本次的测试）
+
+| 变异 | 补用例前（隔离库 / 单测） | 补用例后（隔离库 / 单测） |
+|---|---|---|
+| M8b：成员列表的 `project_admin` 条件放宽成「有任意项目角色」 | 25 过 0 失败 / 21 过 0 失败 | 29 过 1 失败（持财务键的只读成员两个标记变成 true / true）/ 21 过 0 失败 |
+| M9：执行项目接口去掉 `isManager: true` | 25 过 0 失败 / 20 过 1 失败（只有源码断言抓到） | 28 过 2 失败（运营主管换给不合格的人、交给别人都变成 403 `OWNER_CHANGE_FORBIDDEN`）/ 20 过 1 失败 |
+| M16：成员接口 PATCH 去掉 409 映射 | 25 过 0 失败 / 20 过 1 失败（只有源码断言抓到） | 29 过 1 失败（冲突时抛错，按 500 记）/ 20 过 1 失败 |
+
+还原后：`owner-change.test.ts` 21 通过，`owner-change-db.isolated.test.ts` 30 通过（原来 25 条，加 F1 一条、M16 一条、F2 三条）。规格增量对应改了三个场景：「同时更换负责人」加上成员接口 PATCH 的 409；「成员接口的两个标记」加上持财务键的只读成员；新增场景「执行项目接口上不是组织管理员的管理者」。design「验证方式」写上这几种身份。要求的正文没有改。
+
+**合入 main `d94e4323`（#562 FIX-23）后的门禁**（合并提交 `2baf0fb2`）：没有冲突，TASKFLOW 与两个测试脚本自动合并。FIX-23 只改 `src/app/api/agent/tasks/**`、`src/lib/agent-tasks/**` 和自己的文档，与本分支没有交叠。这一轮只加测试与文档、不改源码，没有重跑全量。
+- 单跑（隔离库 `qy_iso_e`）：`owner-change.test.ts` 21 通过；`owner-change-db.isolated.test.ts` 30 通过。
+- FIX-21 目录守卫 `project-routes-guard.test.ts`：98 通过。
+- `bash scripts/check-test-registry.sh` 通过（已注册 698 个，历史欠账 66 条）。
+- `npm run typecheck` 通过；`npm run lint:baseline` PASS（无新增指纹）。
+- `npm run test:ci`（`env -u DATABASE_ENVIRONMENT`、CI 的库地址与 JWT）：PASS（已注册 698 个，历史欠账 66 条；隔离库测试在 CI 里按设计跳过）。
+- `openspec validate project-owner-change-guard --strict`：valid。
+
+## 8. 后续 / 已知限制
+
+- **财务特权与岗位绑定不看组织成员身份**（交叉验证 F3，TASKFLOW「待定」一行）：`src/lib/projects/owner-change-access.ts:24-27` 判「有财务特权」用 `resolveFinancePrivilege(user, orgId, null).privileged`（`src/lib/project-finance/access.ts:50`），只看岗位绑定、不看组织成员身份；删组织成员时也不停岗位绑定。所以有一种人仍能把负责人换给别人：组织成员身份已经是 inactive，但保留着「老板」岗位绑定，又仍是项目管理员。他换给自己会因「新负责人须是本组织在用成员」得 400。这条路比合并前窄，口径与项目财务接口相同，本次不改。要改，就得让岗位绑定或财务特权跟着组织成员身份走，会影响所有按岗位判定的地方，所以另开 change。它与 FIX-21 后续 4（已离开组织的人仍过项目读 / 写权限，`src/lib/projects/access.ts`）是同一类问题，可以一起看。
+- §6 末尾列的另立任务照旧：新建执行项目不查负责人的组织成员关系；负责人被移出组织后仍有写权限与财务特权。

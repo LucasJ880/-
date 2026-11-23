@@ -79,7 +79,7 @@
 ## 验证方式
 
 - 纯函数：`npx tsx src/lib/projects/__tests__/owner-change.test.ts`——`decideOwnerChange` 各身份 × 换给别人 / 换给自己 / 不变 × 有组织 / 个人项目；`checkNewOwner`；`ownerChangeFlags`、`ownerChangeHint`；文字逐字；四个入口与卡片的源码断言（写库前调用判定、带条件写入、被拒提前返回、409、审计）。
-- 隔离库：`NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts`——身份：平台超级管理员、负责人、组织管理员、不是负责人的项目管理员、持组织范围 `project.finance.manage` 且是项目管理员的成员；四个入口；被拒时名称等字段、成员、审计都不变；新负责人不合格 400；带条件写入在负责人已变时冲突；审计；成员接口的两个标记；个人项目。
+- 隔离库：`NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts`——身份：平台超级管理员、负责人、组织管理员、不是负责人的项目管理员、持组织范围 `project.finance.manage` 且是项目管理员的成员；交叉验证后补：持组织范围 `project.finance.manage` 但在项目里只是只读成员的人（两个标记都是 false）、运营主管（能管理执行项目、不是组织管理员，经执行项目接口换给别人 / 自己 / 不合格的人）、成员接口 PATCH 经真实路由的 409；四个入口；被拒时名称等字段、成员、审计都不变；新负责人不合格 400；带条件写入在负责人已变时冲突；审计；成员接口的两个标记；个人项目。
 - 既有不改期望：成员、执行项目相关的既有测试原样通过。
 - 门禁：`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`、`openspec validate project-owner-change-guard --strict`；全量 `npm test` 由会话统一跑。
 

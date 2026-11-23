@@ -11,6 +11,10 @@
 - **WHEN** 不是负责人的项目管理员、组织管理员、当前负责人、持组织范围 `project.finance.manage` 的项目管理员、平台超级管理员分别把负责人换成本组织另一位在用成员
 - **THEN** 不是负责人的项目管理员 403 `OWNER_CHANGE_FORBIDDEN`、负责人不变；其余四种成功（`NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts`；`npx tsx src/lib/projects/__tests__/owner-change.test.ts`）
 
+#### Scenario: 执行项目接口上不是组织管理员的管理者
+- **WHEN** 运营主管（岗位含「管理执行项目」、组织角色是普通成员）经 `PATCH /api/ops/projects/{项目}` 同时改名并把自己设为负责人、把负责人换成已停用的用户、交给本组织另一位在用成员
+- **THEN** 依次 403 `OWNER_SELF_ASSIGN_FORBIDDEN`（名称与负责人都不变、没有新审计）、400 `OWNER_INVALID`、成功并写审计（前后负责人）（`NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts`）
+
 ### Requirement: 不能把自己设为负责人
 把自己设为现有项目的负责人时，系统 SHALL 只放行平台超级管理员与在项目组织持组织范围 `project.finance.manage` 的人。其他人（含组织管理员、项目管理员、能管理执行项目的人）SHALL 得到 403，`code` 为 `OWNER_SELF_ASSIGN_FORBIDDEN`，`error` 为 `你不能把自己设为主负责人（需要「管理项目财务」权限），可以请现在的主负责人或另一位组织管理员交给你。`（个人项目为 `不能把自己设为负责人：请项目负责人把负责人交给你。`）。
 
@@ -29,8 +33,8 @@
 写入新负责人时，系统 SHALL 只在负责人仍是本次请求读到的那个人时写入；否则 SHALL 返回 409，`code` 为 `OWNER_CONFLICT`，`error` 为 `负责人刚被别人换过了，请刷新页面，看清现在的负责人再操作。`，整个请求不写。
 
 #### Scenario: 负责人已被改过
-- **WHEN** 组织管理员经 `PATCH /api/projects/{项目}` 同时改名称并换负责人，在权限判定之后、写入之前负责人被换成另一个人（测试里在开事务前改库）；另按读到的旧负责人直接调用带条件写入
-- **THEN** 路由返回 409 `OWNER_CONFLICT`，负责人仍是另一个人、名称没写；直接写入也失败；其余三个入口用同一写入并同样返回 409（源码断言）（`NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts`；`npx tsx src/lib/projects/__tests__/owner-change.test.ts` 源码断言）
+- **WHEN** 组织管理员经 `PATCH /api/projects/{项目}` 同时改名称并换负责人、经 `PATCH /api/projects/{项目}/members/{成员}` 把一位成员设为主负责人，两次都在权限判定之后、写入之前负责人被换成另一个人（测试里在开事务前改库）；另按读到的旧负责人直接调用带条件写入
+- **THEN** 两个路由都返回 409 `OWNER_CONFLICT`，负责人仍是另一个人；`PATCH /api/projects/{项目}` 的名称没写，成员接口那一行的角色不变、没有新审计；直接写入也失败；另两个入口用同一写入并同样返回 409（源码断言）（`NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts`；`npx tsx src/lib/projects/__tests__/owner-change.test.ts` 源码断言）
 
 ### Requirement: 四个入口同一口径
 `PATCH /api/projects/{项目}` 的 `ownerId`、`POST /api/projects/{项目}/members` 的 `duty: "owner"`、`PATCH /api/projects/{项目}/members/{成员}` 的 `duty: "owner"`、`PATCH /api/ops/projects/{项目}` 的 `ownerId` SHALL 用同一个判定与同样的话。执行项目接口原来的门槛不变：不能管理执行项目的人 SHALL 照旧得到 403 `{ error: "无权重新分配负责人", code: "FORBIDDEN" }`，这个接口 SHALL NOT 返回 `OWNER_CHANGE_FORBIDDEN`。被拒时 SHALL NOT 写入同一请求里的任何字段（含名称、日期、成员角色），SHALL NOT 新增成员、写项目事件、写审计或同步日历。
@@ -50,8 +54,8 @@
 `GET /api/projects/{项目}/members` SHALL 返回调用人的 `ownerChange: { canChange, canSelfAssign }`：调用人能修改本项目（与项目详情接口的 `canManage` 同一口径）时，分别等于「谁能把负责人换成别人」与「不能把自己设为负责人」两条的判定；不能修改本项目的人两项 SHALL 都是 false，且不为此查询授权；调用人就是负责人时 `canSelfAssign` SHALL 为 false。
 
 #### Scenario: 标记
-- **WHEN** 不是负责人的项目管理员、组织管理员、持财务键的项目管理员、只读成员读取成员列表
-- **THEN** 依次为 `canChange` false / `canSelfAssign` false、true / false、true / true、false / false（`NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts`）
+- **WHEN** 不是负责人的项目管理员、组织管理员、持财务键的项目管理员、只读成员、持财务键但在项目里只是只读成员的人读取成员列表
+- **THEN** 依次为 `canChange` false / `canSelfAssign` false、true / false、true / true、false / false、false / false（`NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts`）
 
 ### Requirement: 项目团队卡片的「主负责人」选项
 项目团队卡片里，每行的「项目身份」下拉在 `canChange` 为 false 时 SHALL NOT 提供「主负责人」，调用人自己那一行还 SHALL 要 `canSelfAssign`，项目属于组织时已离开组织的成员那一行 SHALL NOT 提供；当前负责人那一行 SHALL 照旧显示「主负责人」。「添加成员」的身份下拉 SHALL 同样处理（选的人是自己时看 `canSelfAssign`）；选了「主负责人」后又选了不能给的人，身份 SHALL 改回「参与者」。换主负责人前 SHALL 先确认 `把主负责人换成「{姓名}」？`，调用人是现在的负责人时再加 `换完后你不能自己改回来，要请新的主负责人或组织管理员交还。`；收到 409 SHALL 刷新卡片。判断「调用人是不是负责人」SHALL 看项目的负责人，不看成员行。

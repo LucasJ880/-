@@ -32,6 +32,7 @@ async function main() {
   const { createSession } = await import("@/lib/auth/session");
   const { seedOrgAuthorizationProfiles } = await import("@/lib/authorization/seed-org-profiles");
   const { writeOwnerIfUnchanged, OwnerChangeConflict } = await import("@/lib/projects/owner-change-access");
+  const { resolveFinancePrivilege } = await import("@/lib/project-finance/access");
   const projectRoute = await import("@/app/api/projects/[id]/route");
   const membersRoute = await import("@/app/api/projects/[id]/members/route");
   const memberRoute = await import("@/app/api/projects/[id]/members/[memberId]/route");
@@ -45,12 +46,14 @@ async function main() {
   const POWNER = id("powner"), PADMIN2 = id("padmin2");
   // 执行项目用一个不按岗位的组织（组织管理员是管理层，能进运营中心、能管理执行项目）
   const OADMIN3 = id("oadmin3"), OWNER3 = id("owner3"), TARGET3 = id("target3");
-  const USERS = [OWNER, PADMIN, OADMIN, FIN, SUPER, VIEWER, TARGET, TARGET2, INACTIVE, OUTSIDER, LEFT, POWNER, PADMIN2, OADMIN3, OWNER3, TARGET3];
+  // 交叉验证 F1：持财务键、但在项目里只是只读成员；F2：运营主管（岗位 ops_lead，能管理执行项目、不是组织管理员）
+  const FINV = id("finv"), OPSLEAD = id("opslead");
+  const USERS = [OWNER, PADMIN, OADMIN, FIN, SUPER, VIEWER, TARGET, TARGET2, INACTIVE, OUTSIDER, LEFT, POWNER, PADMIN2, OADMIN3, OWNER3, TARGET3, FINV, OPSLEAD];
   const ORG = id("org"), ORG2 = id("org2"), ORG3 = id("org3");
   for (const u of USERS) await db.user.create({ data: { id: u, email: `${u}@fixture.test`, name: `Example ${u}`, role: u === SUPER ? "super_admin" : "user", status: u === INACTIVE ? "inactive" : "active" } });
   await db.organization.create({ data: { id: ORG, name: "Example Owner Fixture", code: `oc-${stamp}`, ownerId: OADMIN, industryPackId: "window_covering_services_v1" } });
   await db.organization.create({ data: { id: ORG2, name: "Example Other Org", code: `oc2-${stamp}`, ownerId: OUTSIDER } });
-  for (const u of [OWNER, PADMIN, FIN, VIEWER, TARGET, TARGET2, INACTIVE]) await db.organizationMember.create({ data: { orgId: ORG, userId: u, role: "org_member", status: "active" } });
+  for (const u of [OWNER, PADMIN, FIN, VIEWER, TARGET, TARGET2, INACTIVE, FINV, OPSLEAD]) await db.organizationMember.create({ data: { orgId: ORG, userId: u, role: "org_member", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: OADMIN, role: "org_admin", status: "active" } });
   await db.organizationMember.create({ data: { orgId: ORG, userId: LEFT, role: "org_member", status: "inactive" } });
   await db.organizationMember.create({ data: { orgId: ORG2, userId: OUTSIDER, role: "org_member", status: "active" } });
@@ -61,12 +64,18 @@ async function main() {
   // FIN：岗位「owner」含组织范围 project.finance.manage（与 PERM-4c1 测试同一夹具）
   const ownerProfile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "owner" } } });
   await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: FIN, roleProfileId: ownerProfile!.id, status: "active" } });
+  await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: FINV, roleProfileId: ownerProfile!.id, status: "active" } });
+  // OPSLEAD：岗位「运营主管」ops_lead（含 operations.projects.manage，不含 project.finance.manage）；本组织按岗位，组织角色只是 org_member
+  const opsLeadProfile = await db.roleProfile.findUnique({ where: { orgId_key: { orgId: ORG, key: "ops_lead" } } });
+  await db.principalRoleBinding.create({ data: { orgId: ORG, principalType: "HUMAN", principalId: OPSLEAD, roleProfileId: opsLeadProfile!.id, status: "active" } });
 
   const P = (await db.project.create({ data: { name: `Fixture Owner Project ${stamp}`, ownerId: OWNER, orgId: ORG, intakeStatus: "dispatched" } })).id;
   const D = (await db.project.create({ data: { name: `Fixture Delivery ${stamp}`, ownerId: OWNER3, orgId: ORG3, intakeStatus: "dispatched", workDomain: "delivery", deliveryStage: "handoff" } })).id;
   const PP = (await db.project.create({ data: { name: `Fixture Personal ${stamp}`, ownerId: POWNER, intakeStatus: "dispatched" } })).id;
-  const projectIds = [P, D, PP];
-  for (const [u, role] of [[OWNER, "project_admin"], [PADMIN, "project_admin"], [FIN, "project_admin"], [VIEWER, "viewer"], [TARGET, "operator"], [LEFT, "operator"]] as const) {
+  // 按岗位的组织里的执行项目（运营主管经执行项目接口换负责人）
+  const D2 = (await db.project.create({ data: { name: `Fixture Delivery2 ${stamp}`, ownerId: OWNER, orgId: ORG, intakeStatus: "dispatched", workDomain: "delivery", deliveryStage: "handoff" } })).id;
+  const projectIds = [P, D, PP, D2];
+  for (const [u, role] of [[OWNER, "project_admin"], [PADMIN, "project_admin"], [FIN, "project_admin"], [VIEWER, "viewer"], [FINV, "viewer"], [TARGET, "operator"], [LEFT, "operator"]] as const) {
     await db.projectMember.create({ data: { projectId: P, userId: u, role, status: "active" } });
   }
   await db.projectMember.create({ data: { projectId: D, userId: OWNER3, role: "project_admin", status: "active" } });
@@ -85,7 +94,7 @@ async function main() {
     const m = await db.projectMember.findFirstOrThrow({ where: { projectId: P, userId: memberUserId } });
     return call(memberRoute.PATCH as never, "PATCH", `/api/projects/${P}/members/${m.id}`, u, { id: P, memberId: m.id }, body);
   };
-  const patchOps = (u: string, body: Rec) => call(opsRoute.PATCH as never, "PATCH", `/api/ops/projects/${D}`, u, { id: D }, body);
+  const patchOps = (u: string, body: Rec, pid = D) => call(opsRoute.PATCH as never, "PATCH", `/api/ops/projects/${pid}`, u, { id: pid }, body);
   const ownerOf = async (pid: string) => (await db.project.findUniqueOrThrow({ where: { id: pid }, select: { ownerId: true } })).ownerId;
   const nameOf = async (pid: string) => (await db.project.findUniqueOrThrow({ where: { id: pid }, select: { name: true } })).name;
   const resetOwner = (pid: string, u: string) => db.project.update({ where: { id: pid }, data: { ownerId: u } });
@@ -152,6 +161,12 @@ async function main() {
     const flags = async (u: string) => (await listMembers(u)).body.ownerChange as Rec | undefined;
     const fl = [await flags(PADMIN), await flags(OADMIN), await flags(FIN), await flags(VIEWER)];
     ok(JSON.stringify(fl) === JSON.stringify([{ canChange: false, canSelfAssign: false }, { canChange: true, canSelfAssign: false }, { canChange: true, canSelfAssign: true }, { canChange: false, canSelfAssign: false }]), "成员接口的两个标记：项目管理员、组织管理员、持财务键的项目管理员、只读成员", fl);
+    // 交叉验证 F1：持财务键（组织范围 project.finance.manage 岗位）、但在项目里只是只读成员 → 不能修改本项目，两项都是 false
+    // （变异 M8b：把「能修改本项目」里的 project_admin 条件放宽成「有任意项目角色」时这条失败；上面的只读成员没有财务键，抓不到）
+    const finvPriv = await resolveFinancePrivilege({ id: FINV, role: "user" } as never, ORG, null);
+    const finvWrite = await patchProject(FINV, { name: "Renamed by finance viewer" });
+    const finvFlags = await flags(FINV);
+    ok(finvPriv.privileged && finvWrite.status === 403 && JSON.stringify(finvFlags) === JSON.stringify({ canChange: false, canSelfAssign: false }), "成员接口的两个标记：持财务键、但在项目里只是只读成员（有财务特权、不能修改本项目）→ 两项都是 false", { privileged: finvPriv.privileged, write: finvWrite.status, finvFlags });
 
     /* ---------- 同时更换：经真实路由（在判定之后、写入之前把负责人改掉）与直接调写入 ---------- */
     {
@@ -167,6 +182,26 @@ async function main() {
         (db as unknown as { $transaction: unknown }).$transaction = orig;
       }
       ok(raced.status === 409 && raced.body.code === "OWNER_CONFLICT" && raced.body.error === "负责人刚被别人换过了，请刷新页面，看清现在的负责人再操作。" && (await ownerOf(P)) === TARGET2 && !(await nameOf(P)).startsWith("Raced"), "PATCH：判定之后负责人被别人换了 → 409，不覆盖、名称也不写", raced.body);
+      await resetOwner(P, OWNER);
+    }
+    {
+      // 交叉验证（变异 M16）：成员接口 PATCH 的 409 映射——判定之后、写入之前负责人被别人换了
+      const aRace = await audits(P);
+      const orig = db.$transaction.bind(db) as (...args: unknown[]) => Promise<unknown>;
+      (db as unknown as { $transaction: unknown }).$transaction = async (...args: unknown[]) => {
+        await db.project.update({ where: { id: P }, data: { ownerId: TARGET2 } });
+        return orig(...args);
+      };
+      let racedRow: { status: number; body: Rec };
+      try {
+        racedRow = await patchMember(OADMIN, TARGET, { duty: "owner" });
+      } catch (e) {
+        racedRow = { status: 500, body: { thrown: String(e) } };
+      } finally {
+        (db as unknown as { $transaction: unknown }).$transaction = orig;
+      }
+      const targetRow = await db.projectMember.findFirstOrThrow({ where: { projectId: P, userId: TARGET } });
+      ok(racedRow.status === 409 && racedRow.body.code === "OWNER_CONFLICT" && (await ownerOf(P)) === TARGET2 && targetRow.role === "operator" && (await audits(P)) === aRace, "成员接口 PATCH：判定之后负责人被别人换了 → 409，不覆盖、那一行的角色不变、没有新审计", { racedRow, role: targetRow.role });
       await resetOwner(P, OWNER);
     }
     await resetOwner(P, TARGET);
@@ -191,6 +226,15 @@ async function main() {
     ok(dOk.status === 200 && (await ownerOf(D)) === TARGET3 && (JSON.parse(dAudit?.beforeData ?? "{}") as Rec).ownerId === OWNER3 && (JSON.parse(dAudit?.afterData ?? "{}") as Rec).ownerId === TARGET3, "执行项目：组织管理员交给别人 → 成功，写审计（前后负责人）", { status: dOk.status, body: dOk.body, dAudit });
     const dBad = await patchOps(OADMIN3, { ownerId: OUTSIDER });
     ok(dBad.status === 400 && dBad.body.code === F.invalid && (await ownerOf(D)) === TARGET3, "执行项目：新负责人不在本组织 → 400", dBad.body);
+    // 交叉验证 F2：能管理执行项目、但不是组织管理员的运营主管（变异 M9：执行项目接口去掉 isManager: true 时，换给别人与换给不合格的人两条失败）
+    const aD2 = await audits(D2);
+    const oSelf = await patchOps(OPSLEAD, { name: "Delivery2 renamed", ownerId: OPSLEAD }, D2);
+    ok(oSelf.status === 403 && oSelf.body.code === F.self && (await ownerOf(D2)) === OWNER && (await nameOf(D2)) === `Fixture Delivery2 ${stamp}` && (await audits(D2)) === aD2, "执行项目：运营主管同时改名并把自己设为负责人 → 403 OWNER_SELF_ASSIGN_FORBIDDEN，名称与负责人都不变、没有新审计", oSelf.body);
+    const oBad = await patchOps(OPSLEAD, { ownerId: INACTIVE }, D2);
+    ok(oBad.status === 400 && oBad.body.code === F.invalid && (await ownerOf(D2)) === OWNER && (await audits(D2)) === aD2, "执行项目：运营主管换给已停用的用户 → 400 OWNER_INVALID，负责人不变", oBad.body);
+    const oOk = await patchOps(OPSLEAD, { ownerId: TARGET }, D2);
+    const oAudit = await db.auditLog.findFirst({ where: { projectId: D2, userId: OPSLEAD, targetType: "project" }, orderBy: { createdAt: "desc" } });
+    ok(oOk.status === 200 && (await ownerOf(D2)) === TARGET && (JSON.parse(oAudit?.beforeData ?? "{}") as Rec).ownerId === OWNER && (JSON.parse(oAudit?.afterData ?? "{}") as Rec).ownerId === TARGET, "执行项目：运营主管交给本组织另一位成员 → 成功，写审计（前后负责人）", { status: oOk.status, body: oOk.body, oAudit });
 
     /* ---------- 个人项目 ---------- */
     // 个人项目：既有写权限只给负责人与平台超级管理员（项目管理员连修改都不能），所以个人项目的那两句只在纯函数里测
