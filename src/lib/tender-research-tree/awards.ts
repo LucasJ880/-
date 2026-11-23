@@ -77,13 +77,13 @@ function normNum(text: string | null | undefined): string {
   return String(text ?? "").normalize("NFKC").replace(/\p{Cf}/gu, "");
 }
 
-export function numberTokens(text: string): Array<{ dec: Dec; end: number }> {
+export function numberTokens(text: string): Array<{ dec: Dec; end: number; ambiguous?: boolean }> {
   const s = normNum(text);
   // 依次：法文千分位小数 230 000,50；英文千分位 230,000.50；空格千分位 10 000（最后一组后面紧跟字母或连字符时不算千分位，
   // 免得「500 240L」被吞成 500240）；法文小数 1,25 / 12,5（逗号后只有 1–2 位，不会是英文千分位）；不带分隔的 230000 / 1.25
   const re =
     /(?<![\d.,])(?:(\d{1,3}(?:[   .]\d{3})+),(\d{1,2})(?![\d])|(\d{1,3}(?:,\d{3})+)(?:\.(\d+))?|(\d{1,3}(?:[   ]\d{3})+)(?![\p{L}\d-])(?:\.(\d+))?|(\d+),(\d{1,2})(?![\d,])|(\d+)(?:\.(\d+))?)(?![\d])/gu;
-  const out: Array<{ dec: Dec; end: number }> = [];
+  const out: Array<{ dec: Dec; end: number; ambiguous?: boolean }> = [];
   for (const m of s.matchAll(re)) {
     let dec: Dec | null = null;
     if (m[1] !== undefined) dec = decOf(m[1].replace(/[   .]/g, ""), m[2] ?? "");
@@ -91,7 +91,13 @@ export function numberTokens(text: string): Array<{ dec: Dec; end: number }> {
     else if (m[5] !== undefined) dec = decOf(m[5].replace(/[   ]/g, ""), m[6] ?? "");
     else if (m[7] !== undefined) dec = decOf(m[7], m[8] ?? "");
     else if (m[9] !== undefined) dec = decOf(m[9], m[10] ?? "");
-    if (dec) out.push({ dec, end: (m.index ?? 0) + m[0].length });
+    if (!dec) continue;
+    const end = (m.index ?? 0) + m[0].length;
+    // 认不清的写法（TREE-3 挑错）：后面还剩没读完的数字分组（「1.000.000」只读到 1.000）；只有一个点、点后正好三位
+    // （「10.000」可能是一万也可能是十）
+    const leftover = /^[.,]\d/.test(s.slice(end));
+    const dotThousands = m[9] !== undefined && m[10] !== undefined && m[10].length === 3 && m[9].length <= 3;
+    out.push({ dec, end, ...(leftover || dotThousands ? { ambiguous: true } : {}) });
   }
   return out;
 }
@@ -115,11 +121,18 @@ function multiplierAfter(text: string, tok: { dec: Dec; end: number }): Multipli
   return { factor: ten ** BigInt(8), abbreviated: false };
 }
 
-/** 合同额的值 → 十进制（只有一个数才认；区间、两个数、0 → null）。货币符号与币种字母不影响；认 k / m / million / 万 等倍数 */
+/** 减项写法：负号或括号（「-$230,000」「(230,000)」）——合同额与数量不收这种值 */
+const NEGATIVE_RE = /(?:^|[^\p{L}\p{N}])[-−]\s*(?:[A-Za-z]{1,3}\s*)?[$€£¥]?\s*\d|\(\s*(?:[A-Za-z]{1,3}\s*)?[$€£¥]?\s*\d[\d.,\s]*\)/u;
+
+/**
+ * 合同额的值 → 十进制（只有一个数才认；区间、两个数、0、认不清的写法、减项 → null）。货币符号与币种字母不影响；
+ * 认 k / m / million / 万 等倍数
+ */
 export function parseAmountValue(value: string | null | undefined): Dec | null {
   if (!value) return null;
+  if (NEGATIVE_RE.test(normNum(value))) return null;
   const toks = numberTokens(value);
-  if (toks.length !== 1) return null;
+  if (toks.length !== 1 || toks[0]!.ambiguous) return null;
   const mul = multiplierAfter(value, toks[0]);
   const d = mul ? decMul(toks[0].dec, mul.factor) : toks[0].dec;
   return decIsZero(d) ? null : d;
@@ -131,8 +144,9 @@ export function parseAmountValue(value: string | null | undefined): Dec | null {
  */
 export function parseQuantityValue(value: string | null | undefined): Dec | null {
   if (!value) return null;
+  if (NEGATIVE_RE.test(normNum(value))) return null;
   const toks = numberTokens(value);
-  if (toks.length !== 1) return null;
+  if (toks.length !== 1 || toks[0]!.ambiguous) return null;
   const mul = multiplierAfter(value, toks[0]);
   if (mul && mul.abbreviated && mul.factor !== BigInt(1000)) return null;
   const d = mul ? decMul(toks[0].dec, mul.factor) : toks[0].dec;
@@ -172,7 +186,14 @@ export function unitPriceOf(amount: Dec | string | null, quantity: Dec | string 
 
 /* ───────────────────────────── 币种 ───────────────────────────── */
 
-const CAD_RE = /(?:\bCAD\b|\bC\s?\$|\bCA\s?\$|\bCDN\s?\$|\bCDN\b|canadian\s+dollars?|dollars?\s+canadiens?)/i;
+const CAD_RE = /(?:\bCAD\b|\bC\s?\$|\bCA\s?\$|\bCDN\s?\$|\bCDN\b|\$\s?CAN?\b|canadian\s+dollars?|dollars?\s+canadiens?)/i;
+/** 别的币种（欧元、英镑等）：写了就不按网站推断成加元 / 美元 */
+const OTHER_CURRENCY_RE = /€|£|¥|₹|\b(?:EUR|GBP|JPY|CNY|RMB|AUD|MXN|CHF|INR)\b|人民币|欧元|英镑|日元/i;
+
+/** 文字里写到别的币种（不是加元、美元） */
+export function otherCurrencyMentioned(...texts: Array<string | null | undefined>): boolean {
+  return OTHER_CURRENCY_RE.test(texts.map((t) => String(t ?? "")).join("\n").normalize("NFKC"));
+}
 const USD_RE = /(?:\bUSD\b|\bUS\s?\$|\bU\.S\.\s?\$|\bU\.S\.\s+dollars?|\bUS\s+dollars?|american\s+dollars?)/i;
 
 /** 文字里写到的币种：只有一种 → 它；两种都有 → "both"；都没有 → null */
@@ -221,9 +242,12 @@ export const SCOPE_BASIS_UNCLEAR_ZH = "不明";
  */
 const BASIS_HINTS: Record<ScopeBasisTag, RegExp> = {
   installation: /install|montage|mise en place|安装/i,
-  freight: /freight|deliver|shipping|shipped|transport|\bf\.?o\.?b\b|\bd\.?d\.?p\b|livraison|运费|运输|送货/i,
+  // 「delivered by March」只是交货时间，不算含运费；要写到运费 / 送达费用、FOB / DDP、含送货
+  freight:
+    /freight|shipping|shipped|transport|\bf\.?o\.?b\b|\bd\.?d\.?p\b|deliver(?:y|ed)?\s+(?:included|incl\b|incl\.|cost|costs|charges?|fees?|to\s+(?:site|destination|the\s+site))|(?:including|includes|incl\.?|with)\s+(?:delivery|shipping)|delivery\s+(?:is\s+)?(?:included|incl)|livraison\s+(?:incluse|comprise)|frais\s+de\s+livraison|运费|运输|送货/i,
+  // 年数至少 2（「1-year warranty」不算）；起止年份的写法另由 multiYearRangeOk 判（同一年不算）
   multi_year:
-    /multi[\s-]?years?|\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten)[\s-]+years?\b|\b\d+[\s-]*year\b|\bterm\s+of\s+\d+|(?:19|20)\d{2}\s*(?:[-–—~]|to|through|à|au)\s*(?:19|20)\d{2}|\b\d+\s*ans\b|pluriannuel|\bpar\s+an\b|(?<!\d)\d{1,2}\s*年|[两三四五六七八九十]\s*年|多年/i,
+    /multi[\s-]?years?|\b(?:[2-9]|[1-9]\d|two|three|four|five|six|seven|eight|nine|ten)[\s-]+years?\b|\b(?:[2-9]|[1-9]\d)[\s-]*year\b|\bterm\s+of\s+(?:[2-9]|[1-9]\d)\b|\b(?:[2-9]|[1-9]\d)\s*ans\b|pluriannuel|\bpar\s+an\b|(?<!\d)(?:[2-9]|[1-9]\d)\s*年|[两三四五六七八九十]\s*年|多年/i,
   multi_item: /\b(?:items|lots|articles)\b|\b(?:various|assorted|multiple|several)\b|多种|多项|多个品项|多个品种/i,
 };
 
@@ -232,8 +256,17 @@ export function isScopeBasisTag(v: string): v is ScopeBasisTag {
 }
 
 /** 口径事实：值是四个标签之一，且摘录里有对应的提示词 */
+/** 起止年份的写法（2022–2025、2022 to 2025）：两头年份不同才算多年期 */
+const YEAR_RANGE_RE = /((?:19|20)\d{2})\s*(?:[-–—~]|to|through|à|au)\s*((?:19|20)\d{2})/gi;
+function multiYearRangeOk(text: string): boolean {
+  for (const m of text.matchAll(YEAR_RANGE_RE)) if (m[1] !== m[2]) return true;
+  return false;
+}
+
 export function scopeBasisOk(tag: string, excerpt: string): boolean {
-  return isScopeBasisTag(tag) && BASIS_HINTS[tag].test(String(excerpt ?? "").normalize("NFKC"));
+  if (!isScopeBasisTag(tag)) return false;
+  const text = String(excerpt ?? "").normalize("NFKC");
+  return BASIS_HINTS[tag].test(text) || (tag === "multi_year" && multiYearRangeOk(text));
 }
 
 /* ───────────────────────────── 可比度 ───────────────────────────── */
@@ -378,11 +411,14 @@ export function finishRecord(d: RecordDraft, ctx: ComparabilityContext): Researc
     ? (f.currency.value.trim().toUpperCase() as "CAD" | "USD")
     : null;
   const onAmount = f.amount ? currencyMentionOf(f.amount.value, f.amount.excerpt) : null;
+  const otherStated =
+    (f.amount ? otherCurrencyMentioned(f.amount.value, f.amount.excerpt) : false) ||
+    (f.currency && !fromFact ? otherCurrencyMentioned(f.currency.value, f.currency.excerpt) : false);
   if (d.datasetCurrency) {
     currency = d.datasetCurrency;
     currencyBasis = "dataset";
-  } else if (onAmount === "both" || (onAmount && fromFact && onAmount !== fromFact)) {
-    // 写明了两种、或两处写的不一样：不猜
+  } else if (otherStated || onAmount === "both" || (onAmount && fromFact && onAmount !== fromFact)) {
+    // 写的是别的币种、写明了两种、或两处写的不一样：不猜（不按网站推断）
   } else if (onAmount) {
     currency = onAmount;
     currencyBasis = "stated";

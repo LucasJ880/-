@@ -139,13 +139,19 @@ export function publicProjectFacts(p: ResearchProjectRow, req: RequirementFactsR
 }
 
 /**
- * 模型给的组名 → 组键：小写、空白换成连字符、只留字母数字下划线连字符、最多 12 字（「Lot 1」→「lot-1」）；
- * 清完是空的（例如全是中文）就用原文的哈希，保证不同的组名不会被并成一组
+ * 模型给的组名 → 组键：小写、空白换成连字符、只留字母数字下划线连字符（「Lot 1」→「lot-1」）。清的时候删过字符、
+ * 或长过 12 字，就在截下的前 12 字后面加原文的哈希（「Contract 2024-001」与「…-002」、「Lot 1.1」与「Lot 11」不会被
+ * 并成一组）；清完是空的（例如全是中文）只用哈希。
  */
 export function groupKeyOf(raw: unknown): string | undefined {
   if (typeof raw !== "string" || !raw.trim()) return undefined;
-  const g = raw.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "").slice(0, 12);
-  return g || `g${createHash("sha256").update(raw.normalize("NFKC").trim()).digest("hex").slice(0, 8)}`;
+  const norm = raw.normalize("NFKC").trim();
+  const full = norm.toLowerCase().replace(/\s+/g, "-");
+  const stripped = full.replace(/[^a-z0-9_-]/g, "");
+  const hash = createHash("sha256").update(norm).digest("hex").slice(0, 8);
+  if (!stripped) return `g${hash}`;
+  if (stripped === full && stripped.length <= 12) return stripped;
+  return `${stripped.slice(0, 12)}~${hash}`;
 }
 
 /** 可比度的项目一侧：采购方、数量、参照年（截标年份，没有就今年）、规格关键词（项目名与类别，最多 5 个） */

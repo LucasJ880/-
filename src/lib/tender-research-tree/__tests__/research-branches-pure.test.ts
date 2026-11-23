@@ -445,6 +445,29 @@ console.log("\n[审查后：组名、联邦数据记录号与规格]");
   ok(openDataMatchedBuyer(byBuyerName, ctx.buyer) === "Treasury Board of Canada Secretariat" && rb.fields.buyer?.value === "Treasury Board of Canada Secretariat" && rb.comparability.sameBuyer === "yes", "按采购人名对上的：记录写对上的那个名字，同采购方为「是」");
 }
 
+console.log("\n[挑错后：认不清的数、减项、别的币种、口径提示收紧、组名不并]");
+{
+  ok(parseAmountValue("$1.000.000") === null && parseAmountValue("1.000.000 €") === null, "点做千分位、读不完的分组（1.000.000）：认不清 → 不认（不读成 1.000）");
+  ok(parseQuantityValue("10.000 units") === null && parseAmountValue("$10.000") === null, "只有一个点、点后正好三位（10.000）：可能是一万也可能是十 → 不认");
+  ok(amt("$12.50") === "12.50" && amt("1.25") === "1.25" && parseQuantityValue("10,000")?.int === BigInt(10000), "点后两位的小数、英文千分位照认");
+  ok(parseAmountValue("-$230,000") === null && parseAmountValue("− 230,000 $") === null && parseAmountValue("($230,000)") === null && parseQuantityValue("-500") === null, "负号或括号的减项：合同额与数量都不收");
+  ok(amt("CAD 230,000") === "230000.00" && amt("$230,000 - credit") === "230000.00", "正常的值、数后面的连字符不当减项");
+  ok(currencyMentionOf("230 000 $ CA") === "CAD" && currencyMentionOf("$CAN 230,000") === "CAD" && currencyMentionOf("230 000 $ CAN") === "CAD", "「$ CA」「$CAN」认成加元");
+  const ctx = { buyer: null, quantity: null, refYear: 2026, specTokens: [] as string[] };
+  const g = (factType: string, value: string, excerpt: string, url = "https://www.city.example.ca/a"): FoundFact => ({ factType, value, url, excerpt, fetchedAt: "t", source: "web", group: "a1" });
+  const eur = assembleRecords([g("award_amount", "€230,000", "Total €230,000")], "comparable_award", ctx)[0]!;
+  ok(eur.currency === null && eur.currencyBasis === "unknown", "合同额写 €、网站是 .ca：币种不明，不按网站推断成加元", eur);
+  const eurFact = assembleRecords([g("award_amount", "230,000", "Total 230,000"), g("currency", "EUR", "All amounts in EUR")], "comparable_award", ctx)[0]!;
+  ok(eurFact.currency === null && eurFact.currencyBasis === "unknown", "币种事实写 EUR、网站是 .ca：不明，不按网站推断", eurFact);
+  ok(!scopeBasisOk("multi_year", "includes a 1-year warranty") && !scopeBasisOk("multi_year", "term of 1 year") && !scopeBasisOk("multi_year", "1 an"), "一年的写法不算多年期");
+  ok(!scopeBasisOk("multi_year", "contract 2024 to 2024") && scopeBasisOk("multi_year", "contract 2022–2025") && scopeBasisOk("multi_year", "3-year contract") && scopeBasisOk("multi_year", "10 ans"), "起止年份要不同；两年以上照认");
+  ok(!scopeBasisOk("freight", "bins delivered by March 2024") && !scopeBasisOk("freight", "delivery date: May 1"), "只写交货时间：不算含运费");
+  ok(scopeBasisOk("freight", "delivery included") && scopeBasisOk("freight", "price including delivery") && scopeBasisOk("freight", "FOB destination") && scopeBasisOk("freight", "livraison incluse") && scopeBasisOk("freight", "freight charges"), "写到含运费 / 送货费 / FOB 的照认");
+  ok(groupKeyOf("Lot 1 – North region") !== groupKeyOf("Lot 1 – South region"), "长组名截短后前缀相同：带原文哈希，不并", [groupKeyOf("Lot 1 – North region"), groupKeyOf("Lot 1 – South region")]);
+  ok(groupKeyOf("Lot 1A") !== groupKeyOf("Lot 1B") && groupKeyOf("Lot 1") === groupKeyOf("LOT 1"), "1A / 1B 不并；大小写不同的同一组照并");
+  ok(groupKeyOf("Lot 1/2") !== groupKeyOf("Lot 12"), "去掉符号后撞名（Lot 1/2 与 Lot 12）：带原文哈希，不并", [groupKeyOf("Lot 1/2"), groupKeyOf("Lot 12")]);
+}
+
 console.log("\n[审查后：条款引文存原文、段号仿冒、品牌措辞与矛盾、规则补漏]");
 {
   const pages: ClausePage[] = [
