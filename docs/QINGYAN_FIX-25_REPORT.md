@@ -104,6 +104,8 @@
 | 不改的文件（`prisma/`、`vercel.json`、`package*.json`、`.claude/`、`openspec/specs/`、`openspec/config.yaml`） | 与 `origin/main` 无差异 |
 | CHAIN-2d 的三个测试（合入后） | `memo-pricing` 52 过、`memo-legacy-db` 11 过、`memo-orchestrate-db` 8 过 |
 
+之后又合入 main `fbacf6bd`（#569 FIX-14 等，业务文件与本 change 不重叠；`8bafb1dc`）：typecheck 0 错误、CI 子集 PASS、测试注册 OK（715 / 66）、openspec validate valid，本 change 的 5 个测试照过（45 / 48 / 83 / 42 / 36）；没有再跑第三轮全量。
+
 第一轮（`ff602829`，合入 `c376be86` 后）：
 
 | 命令 | 结果 |
