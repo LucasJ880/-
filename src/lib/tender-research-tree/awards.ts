@@ -223,7 +223,7 @@ const SPEC_STOPWORDS = new Set(
     "county", "region", "regional", "municipality", "municipal", "government", "department", "ministry", "canada",
     "federal", "province", "provincial", "year", "years", "multi", "various", "new", "phase", "project", "program",
     "annual", "inclusive", "including", "install", "installation", "only", "all", "other", "per", "lot", "lots",
-    "item", "items", "fourniture", "fournitures", "livraison", "services", "contrat", "appel", "offres", "des", "les",
+    "item", "items", "goods", "good", "product", "products", "equipment", "fourniture", "fournitures", "livraison", "services", "contrat", "appel", "offres", "des", "les",
     "pour", "avec", "une", "aux",
   ],
 );

@@ -532,6 +532,11 @@ npx tsx src/lib/tender-research-tree/__tests__/research-tree-pure.test.ts
 npx tsx src/lib/web-reader/__tests__/tree2-research-branch.test.ts
 NODE_ENV=test npx tsx src/lib/tender-research-tree/__tests__/research-tree-start-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/web-reader/__tests__/tree2-research-tree-job-db.isolated.test.ts
+# 情报调研树（TREE-3）
+npx tsx src/lib/tender-research-tree/__tests__/research-branches-pure.test.ts
+npx tsx src/lib/web-reader/__tests__/tree3-research-branches.test.ts
+NODE_ENV=test npx tsx src/lib/tender-research-tree/__tests__/research-branches-db.isolated.test.ts
+npx tsx src/components/tender-analysis/__tests__/research-clauses-card.test.tsx
 npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx

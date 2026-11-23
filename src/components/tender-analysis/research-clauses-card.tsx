@@ -27,7 +27,19 @@ export const RESEARCH_CLAUSES_TEXT = {
   },
 } as const;
 
-type State = { kind: "loading" } | { kind: "hidden" } | { kind: "error" } | { kind: "ok"; view: ResearchTreeView };
+export type ClausesCardState = { kind: "loading" } | { kind: "hidden" } | { kind: "error" } | { kind: "ok"; view: ResearchTreeView };
+
+/** 接口的回应 → 卡片状态（404 = 开关关或项目没有组织 → 不显示） */
+export function clausesCardStateOf(status: number, view: ResearchTreeView | null): ClausesCardState {
+  if (status === 404) return { kind: "hidden" };
+  if (status < 200 || status >= 300 || !view) return { kind: "error" };
+  return { kind: "ok", view };
+}
+
+/** 卡片要显示的条款结果：只有读到了、有调研树、有条款一步时才显示；其余（开关关、读取中、出错、没有树）都是 null */
+export function visibleClausesOf(state: ClausesCardState): ResearchClausesView | null {
+  return state.kind === "ok" && state.view.job && state.view.clauses ? state.view.clauses : null;
+}
 
 function Cite({ c }: { c: ClauseCitation }) {
   return (
@@ -104,17 +116,15 @@ export function ResearchClausesPanel({ clauses }: { clauses: ResearchClausesView
 }
 
 export function ResearchClausesCard({ projectId }: { projectId: string }) {
-  const [state, setState] = useState<State>({ kind: "loading" });
+  const [state, setState] = useState<ClausesCardState>({ kind: "loading" });
 
   useEffect(() => {
     let cancelled = false;
     apiFetch(`/api/projects/${encodeURIComponent(projectId)}/research-tree`)
       .then(async (res) => {
         if (cancelled) return;
-        if (res.status === 404) return setState({ kind: "hidden" });
-        if (!res.ok) return setState({ kind: "error" });
-        const view = (await res.json()) as ResearchTreeView;
-        if (!cancelled) setState({ kind: "ok", view });
+        const view = res.ok ? ((await res.json()) as ResearchTreeView) : null;
+        if (!cancelled) setState(clausesCardStateOf(res.status, view));
       })
       .catch(() => !cancelled && setState({ kind: "error" }));
     return () => {
@@ -123,7 +133,8 @@ export function ResearchClausesCard({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   // 开关关、还没有调研树、读取中、读取出错：什么都不渲染
-  if (state.kind !== "ok" || !state.view.job || !state.view.clauses) return null;
+  const clauses = visibleClausesOf(state);
+  if (!clauses) return null;
 
   return (
     <section className="rounded-xl border border-border/70 bg-background/40 p-4" data-testid="research-clauses-card">
@@ -132,7 +143,7 @@ export function ResearchClausesCard({ projectId }: { projectId: string }) {
         {RESEARCH_CLAUSES_TEXT.title}
         <span className="text-[11px] font-normal text-muted">（{RESEARCH_CLAUSES_TEXT.readOnlyNote}）</span>
       </h3>
-      <ResearchClausesPanel clauses={state.view.clauses} />
+      <ResearchClausesPanel clauses={clauses} />
     </section>
   );
 }
