@@ -6,7 +6,7 @@
 | 起因 | CHAIN-2b（#532）留给 GATE 的第 ③ 条；Lucas 2026-11-20 答「可以」 |
 | OpenSpec change | `openspec/changes/strategy-memo-cost-strip/`（新能力 `tender/bid-strategy-memo`，4 条要求） |
 | 基线 | origin/main `91d928e4` |
-| 合入 main | `51865685`（2026-11-23，合并提交 `a908e6d7`，见 §8）；更早：`5a4d2760`（先合 `d94e4323`（合并提交 `4e58826f`，解决冲突），复核期间 main 又进了只改文档的 #565 / #566，再合 `5a4d2760`（合并提交 `545cd025`，无冲突）；复核见 §7） |
+| 合入 main | `325cbdc0`（2026-11-23，合并提交 `b54a1c30`；之前 `c376be86` → `9c3ba172`，见 §8.5）；更早：`51865685`（`a908e6d7`，见 §8）、`5a4d2760`（先合 `d94e4323`（合并提交 `4e58826f`，解决冲突），复核期间 main 又进了只改文档的 #565 / #566，再合 `5a4d2760`（合并提交 `545cd025`，无冲突）；复核见 §7） |
 | 合并顺序 | **须在 CHAIN-2b（#532）之后**：项目列表与调查室读取两个原样返回房间 JSON 的接口由 #532 处理，本 change 不改。#532 已于 2026-11-23 合并（`d9de8490`），已含在本次合入的 main 里 |
 | 开关 | 没有新开关，合并即生效 |
 
@@ -17,11 +17,11 @@
 | 外部情报运行时给策略备忘装配的报价演算 | 读调查室的 `pricingInputs`（对手价、**我方成本**、**目标毛利**），算出含「成本 + 目标毛利」/「成本价」情景与每个情景**毛利**的演算，原样交给模型 | 只取对手价（调查室人工填的 > 本次运行的联邦对标中位 > 现任价格带中位）；不读我方成本、成本来源、目标毛利、我方报价；没有成本底价情景与毛利；附一句 `我方成本、成本底价与毛利不在这里提供；不要推测。` |
 | 备忘提示词 | 第 2 条要求逐字引用每个情景的「price/total-score delta/margin」 | 第 2 条只引用价格与总分差；新增第 8 条：不得陈述、估算、推测我方成本、毛利、成本底价，不把缺成本列为缺口，不提成本被隐去或谁能看。提示词版本 3 → 4，备忘版本 `tender-bid-strategy-memo/v2` → `v3`（v3 = 输入里没有成本） |
 | 模型调用 | 每次运行一次合成（不合格时有界重试一次） | 不变；每一次请求（含重试）都不含成本 |
-| 已存的旧版备忘（v3 以前） | 情报页签、工作台摘要、投标文件草稿的输入、澄清问题文件原样使用 | 先过同一个裁剪：评分演算、报价策略置空；其余自由文字段（摘要、竞争格局、teaming、数据缺口、风险门名称与依据及任何别的字段）不看内容整段换成 `（内容涉及成本，已隐藏）`，风险门状态照旧；RFI 的理由去掉，问题按规则判断（归一后看成本类字眼与像金额 / 百分比的写法），碰到的去掉（交叉验证 F1 后的做法，见 §8） |
+| 已存的旧版备忘（v3 以前） | 情报页签、工作台摘要、投标文件草稿的输入、澄清问题文件原样使用 | 先过同一个裁剪：评分演算、报价策略置空；其余自由文字段（摘要、竞争格局、teaming、数据缺口、风险门名称与依据及任何别的字段）不看内容整段换成 `（内容涉及成本，已隐藏）`，风险门状态照旧；RFI 一律不列入、只记条数（交叉验证 F1 与独立复核 B1 后的做法，见 §8）；版本号逐字认 v3，形状不对的备忘不出 |
 | 情报页签卡片 | 显示摘要、风险门、「报价策略：」前 160 字 | 旧版：第一行说明旧版与怎样生成新版，摘要、数据缺口与名称被隐藏的风险门不显示，「报价策略：已隐藏（旧版）」；新版：报价策略之后对所有人写「成本与毛利情景见工作台「报价表助手」（需要财务查看权）。」 |
 | 工作台摘要 | 旧版摘要原样 | 旧版写固定说明、带 `legacyCostRedacted`，名称被隐藏的风险门不列（旧版一条都不列） |
 | 投标文件草稿的输入 | 旧版摘要、风险门依据、teaming 原样交给起草模型 | 裁剪后交，被隐藏的段落送 `null`、名称被隐藏的风险门不送（不送占位句） |
-| 澄清问题文件（对外） | 旧版 RFI 原样进表 | 碰到成本的问题去掉、理由不写；提交表外写「旧版策略备忘里有 N 条问题可能涉及我方成本，未列入；重新检索外部情报后再导出可补齐。」，此时不写「均未产出 RFI」 |
+| 澄清问题文件（对外） | 旧版 RFI 原样进表 | 旧版的 RFI 一律不列入；提交表外写「旧版策略备忘里有 N 条问题可能涉及我方成本，未列入；重新检索外部情报后再导出可补齐。」，此时不写「均未产出 RFI」 |
 
 没有开关，合并即生效。零 schema、零新增模型调用、没有新增出站。**须在 CHAIN-2b（#532）之后合并**：main 上项目列表与调查室读取两个接口原样返回房间 JSON（含旧版备忘与 `pricingInputs`），由 #532 去掉；本 change 不改这两个接口。
 
@@ -40,14 +40,14 @@
 | `src/lib/projects/generate/generate-docs.ts`、`rfi-export.ts` | 读备忘先裁剪；提交表外的内部说明 |
 | `src/components/tender-intel/org-award-intel-slots.tsx` | 旧版的第一行说明与报价策略一行、不列名称被隐藏的风险门、不显示被隐藏的数据缺口；新版的成本指引 |
 | `scripts/bid-strategy-memo-e2e.ts` | 认 v3；核对备忘文字里没有调查室的成本数字 |
-| 测试 | 新 `src/lib/tender-intel/__tests__/memo-pricing.test.ts`（55）、隔离库 `memo-legacy-db.isolated.test.ts`（11）与 `memo-orchestrate-db.isolated.test.ts`（8），都已注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；33 句探针在 `__tests__/fixtures/legacy-memo-probes.ts`（两个测试共用）；`intel-auto-flow.test.ts` 只改一个测试名里的 v2 |
+| 测试 | 新 `src/lib/tender-intel/__tests__/memo-pricing.test.ts`（52）、隔离库 `memo-legacy-db.isolated.test.ts`（11）与 `memo-orchestrate-db.isolated.test.ts`（8），都已注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；33 + 48 句探针在 `__tests__/fixtures/legacy-memo-probes.ts`（两个测试共用）；`intel-auto-flow.test.ts` 只改一个测试名里的 v2 |
 
 ## 3. 测试
 
 | 测试 | 结果 |
 |---|---|
-| `memo-pricing.test.ts`（新） | 55 通过（交叉验证前 40）：调查室带我方成本 87654.32、目标毛利 23.7、成本来源落地价 91234.56、我方报价 96543.21，由 `calc.ts` 现算的成本底价与各情景毛利一并列为禁出；演算结果与（假模型捕获的）每一次请求的整段输入里都搜不到；只请求一次，第一次不合格时两次请求都干净；对照组（复刻改动前的装配）恰好带出成本、目标毛利、成本底价与五个情景毛利这 8 个数；提示词逐字断言；旧版裁剪（整段替换、23 个探针句放进字段与 RFI、字符串 RFI、去掉条数、v3 原样；交叉验证后加：33 句探针 × 6 个位置经裁剪结果与澄清问题文件渲染都不出现、每一段「干净的话也整段换掉」、RFI 理由为 null、干净 RFI 留下、每条规则单独一句、形状不对的输入、归一、没有对手价时不顶替）；澄清问题文件渲染；卡片 / 工作台 / 草稿输入 / 编排源码断言；遍历 src 核对读备忘的文件 |
-| 隔离库 `memo-legacy-db.isolated.test.ts`（新） | 11 通过（交叉验证前 8）：经真实 `GET` 情报页签与工作台摘要（只读成员）与真实 `gatherBidDraftInputs`，v2 被裁剪、整个响应与草稿输入里搜不到成本数字、草稿输入里被隐藏的段落为 `null`；v3 原样；33 句探针 × 6 个位置 × 3 个读取处（18 份输出）一句都不出现 |
+| `memo-pricing.test.ts`（新） | 52 通过（交叉验证前 40，交叉验证后 55，独立复核后删掉只测规则判断的 5 条、加 2 条）：调查室带我方成本 87654.32、目标毛利 23.7、成本来源落地价 91234.56、我方报价 96543.21，由 `calc.ts` 现算的成本底价与各情景毛利一并列为禁出；演算结果与（假模型捕获的）每一次请求的整段输入里都搜不到；只请求一次，第一次不合格时两次请求都干净；对照组（复刻改动前的装配）恰好带出成本、目标毛利、成本底价与五个情景毛利这 8 个数；提示词逐字断言；旧版裁剪（整段替换、23 个探针句放进字段与 RFI、字符串 RFI、去掉条数、v3 原样；交叉验证与独立复核后加：33 + 48 句探针 × 6 个位置经裁剪结果与澄清问题文件渲染都不出现、每一段「干净的话也整段换掉」、旧版 RFI 全部不列入且条数计对、v3 的 RFI 照旧进澄清问题文件、像 v3 的版本号按旧版、不是对象的备忘不出、形状不对的输入、没有对手价时不顶替）；澄清问题文件渲染；卡片 / 工作台 / 草稿输入 / 编排源码断言；遍历 src 核对读备忘的文件 |
+| 隔离库 `memo-legacy-db.isolated.test.ts`（新） | 11 通过（交叉验证前 8）：经真实 `GET` 情报页签与工作台摘要（只读成员）与真实 `gatherBidDraftInputs`，v2 被裁剪、整个响应与草稿输入里搜不到成本数字、草稿输入里被隐藏的段落为 `null`；v3 原样；33 + 48 句探针 × 6 个位置 × 3 个读取处（18 份输出）一句都不出现，旧版 RFI 一条都不出、条数计对，v3 的 RFI 原样 |
 | 隔离库 `memo-orchestrate-db.isolated.test.ts`（新，交叉验证 F3） | 8 通过：真实跑 `runExternalIntelForProject`，模型地址换成 `.invalid`、`fetch` 被替换，截获交给备忘模型的请求；报价演算键集合恰好是允许的那些、与纯函数结果相同；没有对手价、联邦对标与价格带时对手价为 null，整段请求里搜不到我方报价与成本 |
 | 既有：`bid-strategy-memo` / `intel-auto-flow` / `intel-slots-p1p2` / `obs-p5-intel-loop` / `intel-ops` / `tender-detail-ia` / `rfi-export` / `import-leads` / `pricing-helper` / `bid-draft` / `b4-memory-gate-static` | 12 / 16 / 13 / 14 / 11 / 36 / 9 / 101 / 13 / 11 / 18 通过，期望不改 |
 | 既有隔离库：`room-summary-writers-db` / `b4-memory-gate` | 14 / 21 通过 |
@@ -86,7 +86,7 @@
 2. **已存的投标文件草稿**（`summaryJson.bidDraft`）若由旧版备忘生成，可能已经写进成本；草稿读取接口照旧返回——要不要清理或重生成，另立 change。
 3. **我方报价**（`pricing.ourPriceCad`，不是成本）照旧交给投标文件草稿的模型。
 4. **评分模型里人工填的各项依据**（`otherCriteria[].basisZh`，自由文字）照旧进备忘输入，不过滤。
-5. **旧版裁剪宁可多换**：交叉验证（§8）后，旧版备忘的自由文字段一律整段换掉，卡片上旧版只剩说明、「报价策略：已隐藏（旧版）」与导出按钮；RFI 的理由不进澄清问题文件。RFI 问题里提到「成本评分」「Cost Proposal」「下限」、含年份 / 编号（4 位以上数字）、金额或百分比的买方合理问题，在旧版备忘重跑之前也会被去掉（澄清问题文件写明去掉了几条）。只有备忘合成成功时才换成 v3。
+5. **旧版裁剪宁可多换**：交叉验证（§8）后，旧版备忘的自由文字段一律整段换掉，卡片上旧版只剩说明、「报价策略：已隐藏（旧版）」与导出按钮；独立复核（§8.5）后旧版的 RFI 一条都不进澄清问题文件，买方本身合理的问题也要等旧版备忘重跑后才补齐（澄清问题文件写明有几条未列入）。只有备忘合成成功时才换成 v3。
 6. **有财务查看权的人失去「改我方成本 → 重跑 → 备忘更新」**（Lane 3 的行为）；底价情景在报价表助手里看。
 7. **（交叉验证 F4，中，#532 范围，优先）项目读者可由「我方报价 + 目标毛利」反推我方成本**：调查室读取 `GET /api/projects/:id/bid-intelligence` 的 `room.summaryJson.pricingInputs` 仍带 `targetMarginPct` 与 `ourPriceCad`（`src/lib/tender-pricing/finance-view.ts:114` 只去掉 `ourCostCad` / `ourCostSource`），报价表助手 `GET`（`src/app/api/projects/[id]/pricing-helper/route.ts:97`）也给没有财务查看权的人 `targetMarginPct`，`Project.ourBidPrice` 同样可见。成本 87654.32、目标毛利 23.7、报价 114881.15 时，只读成员算 114881.15 × (1 − 0.237) = 87654.32；报价正好按「成本 + 目标毛利」底价情景定（`src/lib/tender-pricing/calc.ts:213-214`）时精确反推。与硬纪律第 4 条「Muse 不传目标毛利，避免用两价反推」相反。已登记为 TASKFLOW「待定」一行（依赖 CHAIN-2b），本 change 不改。
 8. **（交叉验证 F5，低）合并前用旧版备忘导出、已存进项目文件的澄清问题文件**（`src/lib/projects/generate/generate-docs.ts:338` `persistGeneratedHtml`）不会被重新裁剪；已登记为 TASKFLOW「待定」一行，本 change 不改。
@@ -140,7 +140,7 @@
 
 | 编号 | 交叉验证的发现 | 去向 |
 |---|---|---|
-| F1（合并前修） | 旧版备忘按字眼裁剪漏网严重：33 句探针放进竞争格局、teaming、数据缺口、风险门名称、RFI 问题、RFI 理由 6 个位置，26 句原样留在接口输出（`COST_WORDS` / `AMOUNT_LIKE` 列不全）；字符串形式的风险门、数组形式的段落、自由文字的风险门状态也原样留下 | **已修**（`src/lib/tender-intel/memo-pricing.ts`）：旧版备忘除版本、标签、生成时间、模型名外，所有字段不看内容整段换成 `（内容涉及成本，已隐藏）`；风险门只留对象，名称与依据换掉，状态只认「已满足 / 需解决 / 高风险」；RFI 理由一律 `null`；RFI 问题按加强后的规则判断（先 NFKC、去掉数字里的空格与千分位；补万 / k / 中文数字与大写数字、百分之 / 百分点 / 个点 / pts / bps、亏损 / 进货 / 采购价 / 供应商报价 / 盈利 / 赚 / 让利 / 让价 / 下限 / bottom line / mark-up / COGS / GP / 我方的报价 / 我们报价等字眼，含繁体），碰到的整条去掉并计数。卡片与投标文件草稿的输入不列名称被隐藏的风险门、卡片不显示被隐藏的数据缺口（不然旧版卡片满屏「（内容涉及成本，已隐藏）（需解决）」）；卡片与工作台的文案没改。规格「旧版备忘先裁剪再用」「旧版备忘的显示与导出」、design D3、proposal 同步 |
+| F1（合并前修） | 旧版备忘按字眼裁剪漏网严重：33 句探针放进竞争格局、teaming、数据缺口、风险门名称、RFI 问题、RFI 理由 6 个位置，26 句原样留在接口输出（`COST_WORDS` / `AMOUNT_LIKE` 列不全）；字符串形式的风险门、数组形式的段落、自由文字的风险门状态也原样留下 | **已修**（`src/lib/tender-intel/memo-pricing.ts`）：旧版备忘除版本、标签、生成时间、模型名外，所有字段不看内容整段换成 `（内容涉及成本，已隐藏）`；风险门只留对象，名称与依据换掉，状态只认「已满足 / 需解决 / 高风险」；RFI 理由一律 `null`；RFI 问题按加强后的规则判断（先 NFKC、去掉数字里的空格与千分位；补万 / k / 中文数字与大写数字、百分之 / 百分点 / 个点 / pts / bps、亏损 / 进货 / 采购价 / 供应商报价 / 盈利 / 赚 / 让利 / 让价 / 下限 / bottom line / mark-up / COGS / GP / 我方的报价 / 我们报价等字眼，含繁体），碰到的整条去掉并计数（**独立复核后改为旧版 RFI 一律不列入、规则判断删掉，见 §8.5**）。卡片与投标文件草稿的输入不列名称被隐藏的风险门、卡片不显示被隐藏的数据缺口（不然旧版卡片满屏「（内容涉及成本，已隐藏）（需解决）」）；卡片与工作台的文案没改。规格「旧版备忘先裁剪再用」「旧版备忘的显示与导出」、design D3、proposal 同步 |
 | F2（随 F1） | 去掉 whyZh / 数据缺口 / 风险门名称 / teaming 的裁剪（变异 X2 / X3 / X4 / X7）测试抓不住 | **已补测试**：每一段都断言「干净的话也整段换掉」、RFI 理由为 `null`；33 句探针 × 6 个位置经裁剪结果与澄清问题文件渲染（单测）、经情报页签 / 工作台摘要 / 草稿输入三个真实读取处（隔离库）都不出现；干净的 RFI 问题留下；每条规则单独一句。见 8.2 |
 | F3（合并前补测试） | 编排接线只有源码正则断言；变异 M4c（用拼出来的键名把整块 `pricingInputs` 塞进 `pricingAnalysis`）与 M6b（没有对手价、对标价、价格带时用 `ourPriceCad` 顶替）都存活 | **已补测试**，不改源码：新隔离库 `memo-orchestrate-db.isolated.test.ts` 真实跑 `runExternalIntelForProject`，模型地址换成 `.invalid` 的假地址、`fetch` 被替换（没有真实出站），截获交给备忘模型的请求：报价演算键集合恰好是允许的那些、与 `buildMemoPricingAnalysis` 的结果相同；调查室没有对手价、联邦对标与价格带时对手价为 `null`，整段请求里搜不到我方报价与成本。单测另加「没有对手价时不顶替」 |
 | F4（登记后续） | 项目读者可由「我方报价 + 目标毛利」反推我方成本（#532 范围） | **已登记** TASKFLOW「待定」一行（CHAIN-2d 行之后，依赖 CHAIN-2b，标「优先」）与 §6 第 7 条；不改代码 |
@@ -174,7 +174,7 @@
 ### 8.3 行为变化
 
 - **只影响旧版备忘（v3 以前）**；v3 备忘、模型输入、提示词都没变。
-- 旧版：情报页签返回的备忘里，竞争格局、teaming、数据缺口、风险门名称也换成短句（以前不碰成本的照旧给出）；卡片只剩旧版说明、「报价策略：已隐藏（旧版）」与导出按钮（风险门、数据缺口不再列出）；工作台摘要不再列风险门；投标文件草稿的输入不再带风险门与 teaming；澄清问题文件里旧版 RFI 不再带「为什么问」，碰到更多写法的问题被去掉（提交表外照旧写去掉几条）。
+- 旧版：情报页签返回的备忘里，竞争格局、teaming、数据缺口、风险门名称也换成短句（以前不碰成本的照旧给出）；卡片只剩旧版说明、「报价策略：已隐藏（旧版）」与导出按钮（风险门、数据缺口不再列出）；工作台摘要不再列风险门；投标文件草稿的输入不再带风险门与 teaming；澄清问题文件里旧版 RFI 一条都不列入（独立复核 B1 后；提交表外照旧写有几条、怎样补齐）。
 - 宁可多换的代价见 §6 第 5 条。
 
 ### 8.4 门禁（`2d36e638`；之后只改了本报告与 TASKFLOW）
@@ -193,3 +193,43 @@
 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json openspec/config.yaml .claude/launch.json` | 空 |
 | CI 子集 `npm run test:ci`（`ci` 假库、不带 `DATABASE_ENVIRONMENT`） | PASS（`memo-pricing` 55、守卫 98；两个隔离库测试按设计跳过） |
 | 全量 `npm test`（`qy_full_chain2d` 删库重建 + `migrate deploy`，`< /dev/null`） | `730/741 通过, 11 失败`：10 项与 main 基线逐条相同（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB 75 / 76）；另 1 项 Supplier Intel S1 审计脊柱 DB 是 T20 计时断言偶发（`holderCommittedAt` 比 `childSettledAt` 晚 1 毫秒），单独重跑两次都 86 通过 0 失败。全量里 `memo-pricing` 55、`memo-legacy-db` 11、`memo-orchestrate-db` 8、守卫 98 都过；网站询盘相关测试都过 |
+
+### 8.5 独立复核后修订（2026-11-23）
+
+独立复核（在 `4b22aab2` 上；协调会话把 main `2a0eb964` 合进本分支，含 #539 CHAIN-2c）的结论：其余修订都对，有 1 个阻断项 B1。按协调会话定的修法落实如下。之前先把 origin/main `c376be86`（含 #564 BIDPAGE-3）合进本分支（合并提交 `9c3ba172`，无冲突，TASKFLOW 两边的行都在，prisma 没有变化）；代码与四件套改动在 `790475de`。
+
+| 编号 | 复核的发现 | 去向 |
+|---|---|---|
+| B1（阻断） | 旧版备忘的 RFI 问题仍按规则判断，会进**对外**澄清问题文件（英文列标「可直接提交」）与情报页签接口；复核员自写 48 句成本句漏 30 句（裸数字、币种在后、量级、成数折扣、字眼），40 句正当买方问题误删 18 句（45%）；裸数字与「交货期 30 天」靠规则分不开 | **已修**：旧版备忘的 RFI 一律不列入（`strategicRfis` 为空数组，原来的条数记在 `legacyRfisRemoved`）。澄清问题文件提交表外的内部说明、表为空时「暂无可提交的问题。」、卡片「立即检索外部情报」提示都照旧。规则判断 `looksCostRelated`、`normalizeForCostCheck` 与 `COST_WORDS` / `AMOUNT_LIKE` / `PERCENT_LIKE` 再没有调用方（全仓 grep 只剩测试），连同只为它写的 5 条单测一起删掉。规格「旧版备忘先裁剪再用」改写（402 字）、新增场景「旧版 RFI 一律不列入，v3 照旧」；design 加被否决的备选 F「保留规则判断」及复核数字；proposal、tasks 同步 |
+| N2（应修） | v3 判定改成子串 / 前缀时三个测试都过 | **已补用例**：`tender-bid-strategy-memo/v3-draft`、`…/v30`、`…/v3 `（尾空格）、前空格、大写、带前缀等 8 种写法都按旧版处理；判定本身本来就是逐字相等，没改代码（加了注释） |
+| N3（可选→做） | 不是对象的备忘（数组 / 字符串）原样返回 | **已改**：`null` / `undefined` 原样，数组、字符串、数字返回 `null`（按旧版处理、不出）；加用例 |
+
+**探针（改后）**：
+- 交叉验证的 33 句 × 6 个位置（`redact-probe.ts`）：0 句留在输出里。
+- 复核的 48 句成本句（`probe.ts`，写成 RFI 问题）：改前漏 30 句，改后 0 句。40 句正当问题改前误删 18 句，改后 40 句都不列入——这是定下的做法（旧版 RFI 等重新检索后补齐），不算误删。
+- `probe2.ts` 的 23 句（原来直接调规则判断）改成经 `redactLegacyMemo` 跑：改前 14 句漏网，改后 0 句。
+- 单测与隔离库：33 + 48 句 × 6 个位置经裁剪结果与澄清问题文件渲染（单测）、经情报页签 / 工作台摘要 / 草稿输入三个真实读取处（隔离库，18 份输出）都是 0 句。
+
+**变异（改后，scratchpad 副本里改一处、跑 `memo-pricing` 与 `memo-legacy-db`）**：7 个全部被抓住。分别是：版本判定改成前缀、改成子串、去空格且不分大小写；不是对象的原样返回；旧版 RFI 原样留下；只去理由；条数不计。
+
+**行为变化**：只影响旧版备忘的 RFI（以前不碰成本的问题会进澄清问题文件，现在一条都不进，表外写明条数与补齐办法），以及形状不对的备忘（以前原样给出，现在不出）。v3 备忘及其 RFI 不变。
+
+**门禁（`790475de`；之后只改本报告与 TASKFLOW）**：
+
+| 项 | 结果 |
+|---|---|
+| `memo-pricing.test.ts` | 52 通过 |
+| 隔离库 `memo-legacy-db.isolated.test.ts`（`qy_iso_d`） | 11 通过 |
+| 隔离库 `memo-orchestrate-db.isolated.test.ts`（`qy_iso_d`） | 8 通过 |
+| `bid-strategy-memo.test.ts` | 12 通过 |
+| `project-routes-guard.test.ts`（FIX-21 守卫） | 98 通过 |
+| `bash scripts/check-test-registry.sh` | OK：已注册 711 个，历史欠账 66 条 |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS（current errors 38 / baseline 53，无新增指纹）；本 change 相对 main 改的 ts / tsx 单独跑 `eslint`：0 error、0 warning |
+| `openspec validate strategy-memo-cost-strip --strict` | valid（四条要求 281 / 218 / 402 / 427 字） |
+| 归档演练（scratchpad 副本，`b54a1c30`） | `openspec archive strategy-memo-cost-strip --yes` 后 `openspec validate --specs --strict` 158 过 0 不过（main `325cbdc0` 157 过 0 不过） |
+| `git diff origin/main -- prisma/ vercel.json package.json package-lock.json openspec/config.yaml .claude/launch.json` | 空 |
+| CI 子集 `npm run test:ci` | PASS（`memo-pricing` 52、守卫 98；两个隔离库测试按设计跳过） |
+| 全量 `npm test`（`qy_full_chain2d` 删库重建 + `migrate deploy`，`< /dev/null`，`790475de`） | `736/746 通过, 10 失败`，10 项与 main 基线逐条相同（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB 75 / 76）；这次 Supplier Intel S1、网站询盘并发认领、CAL-1 日历观察 DB（80 / 0）都过。全量里 `memo-pricing` 52、`memo-legacy-db` 11、`memo-orchestrate-db` 8、`bid-strategy-memo` 12、守卫 98 都过 |
+
+全量跑完后 main 又进了 `325cbdc0`（#572 BIDPAGE-3 归档与交接，只改 `docs/` 与 `openspec/`），已合进本分支（`b54a1c30`，无冲突）；它与 `790475de` 的 src / scripts / prisma / package 逐字相同，全量与 CI 结果对它同样成立，归档演练与校验在它上面重跑过。
