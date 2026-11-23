@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { formatTenderProfileContext, isTenderProfileUsable } from "@/lib/tender-profile/contract";
 import { getTenderProfile } from "@/lib/tender-profile/store";
 import { complianceStatusFromFit, type BidDraftInputs, type BidDraftRequirement } from "./contract";
-import { placeholderToNull, redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
+import { LEGACY_MEMO_REDACTED_ZH, placeholderToNull, redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
 /**
  * B4（安全修复）：企业记忆已验证事实只能经 canonical 访问门读取。
@@ -204,7 +204,11 @@ async function gatherInto(
     memo: memoRaw
       ? {
           summaryZh: placeholderToNull(memoRaw.summaryZh),
-          riskGates: (memoRaw.riskGates ?? []).slice(0, 8).map((g) => ({ ...g, gateZh: placeholderToNull(g.gateZh) ?? "", basisZh: placeholderToNull(g.basisZh) })),
+          // 名称被隐藏的风险门（旧版备忘）不送
+          riskGates: (memoRaw.riskGates ?? [])
+            .filter((g) => g.gateZh !== LEGACY_MEMO_REDACTED_ZH)
+            .slice(0, 8)
+            .map((g) => ({ ...g, gateZh: placeholderToNull(g.gateZh) ?? "", basisZh: placeholderToNull(g.basisZh) })),
           teamingAdviceZh: placeholderToNull(memoRaw.teamingAdviceZh),
         }
       : null,

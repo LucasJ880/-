@@ -498,6 +498,7 @@ npx tsx src/lib/tender-rfq/__tests__/intel-recipients.test.ts
 npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-orchestrate-db.isolated.test.ts
 npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts
 NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/alias-decisions-db.isolated.test.ts

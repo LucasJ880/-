@@ -389,7 +389,8 @@ export function OrgAwardIntelSlots({
             <>
               {memo.legacyCostRedacted ? <p className="text-amber-700" data-testid="memo-legacy-note">{LEGACY_MEMO_CARD_NOTE_ZH}</p> : null}
               {memo.summaryZh && memo.summaryZh !== LEGACY_MEMO_REDACTED_ZH ? <p className="text-foreground/70">{memo.summaryZh}</p> : null}
-              {memo.riskGates.slice(0, 4).map((g, i) => (
+              {/* CHAIN-2d：旧版备忘的风险门名称已隐藏，不列 */}
+              {memo.riskGates.filter((g) => g.gateZh !== LEGACY_MEMO_REDACTED_ZH).slice(0, 4).map((g, i) => (
                 <p key={i} className="truncate">
                   · {g.gateZh}
                   <span
@@ -407,7 +408,7 @@ export function OrgAwardIntelSlots({
               ))}
               <p className="text-muted/80">{memo.legacyCostRedacted ? LEGACY_MEMO_PRICING_LINE_ZH : `报价策略：${memo.pricingStrategyZh.slice(0, 160)}`}</p>
               {memo.legacyCostRedacted ? null : <p className="text-[11px] text-muted/70">{MEMO_COST_POINTER_ZH}</p>}
-              {memo.dataGapsZh ? (
+              {memo.dataGapsZh && memo.dataGapsZh !== LEGACY_MEMO_REDACTED_ZH ? (
                 <p className="text-muted/80">数据缺口：{memo.dataGapsZh.slice(0, 120)}</p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">

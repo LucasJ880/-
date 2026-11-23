@@ -693,6 +693,7 @@ run_test "招标询价 情报推荐并入自动起草收件人：合并规则与
 run_test "寻源建议：开关 / 推荐型号 / 价格三栏 / 不合并（CHAIN-2）" "npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions.test.ts"
 run_test "寻源建议 DB 端到端（自动建候选池 / 推荐 / 财务权限 / 并入收件人，隔离库执行，否则跳过，CHAIN-2）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/sourcing-suggestions-db.isolated.test.ts"
 run_test "旧版策略备忘裁剪 DB 端到端（情报页签 / 工作台摘要 / 投标文件草稿输入，隔离库执行，否则跳过，CHAIN-2d）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts"
+run_test "策略备忘编排接线 DB 端到端（截获交给模型的报价演算，隔离库执行，否则跳过，CHAIN-2d）" "NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-orchestrate-db.isolated.test.ts"
 run_test "进口线索：开关 / 解析与逐条校验 / 比对三档 / 汇总 / 接线（CHAIN-3）" "npx tsx src/lib/tender-import-leads/__tests__/import-leads.test.ts"
 run_test "进口线索 DB 端到端（导入 / 裁决 / 汇总 / 加入供应商库 / 权限，隔离库执行，否则跳过，CHAIN-3）" "NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/import-leads-db.isolated.test.ts"
 run_test "「是不是同一家」裁决与撤回 DB 对抗用例（两个组织同一对 / 并发 / 锁内重读 / 裁决人，隔离库执行，否则跳过，CHAIN-3c）" "NODE_ENV=test npx tsx src/lib/tender-import-leads/__tests__/alias-decisions-db.isolated.test.ts"

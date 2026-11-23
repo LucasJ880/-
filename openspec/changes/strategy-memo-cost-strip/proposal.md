@@ -10,7 +10,7 @@ TASKFLOW：CHAIN-2d（新增一行；Phase F（续）— 情报串联的后续�
 
 - 修改备忘的报价演算：从调查室只取对手价，不读我方成本、成本来源、目标毛利与我方报价；送进模型的演算不含这些值、「成本 + 目标毛利」「成本价」两种情景与每个情景的毛利；评分模型、对手价、打平价与相对对手价的四个情景照旧。
 - 修改备忘提示词：不再要求引用毛利，写明不得陈述、估算或推测我方成本、毛利与成本底价，也不得把缺成本列为数据缺口；提示词版本 3 → 4，备忘版本 `tender-bid-strategy-memo/v2` → `v3`（v3 表示输入里没有成本）。
-- 裁剪旧版备忘：情报页签读取、工作台摘要、投标文件草稿的输入、澄清问题文件都先过同一个裁剪——「评分演算」「报价策略」置空并带标记，摘要与风险门依据整段换成短句，其余段落碰到成本类字眼或像金额的数字整段换掉，碰到的 RFI 去掉。
+- 裁剪旧版备忘：情报页签读取、工作台摘要、投标文件草稿的输入、澄清问题文件都先过同一个裁剪——「评分演算」「报价策略」置空并带标记，其余自由文字段（摘要、竞争格局、teaming、数据缺口、风险门名称与依据）一律整段换成短句，RFI 的理由去掉，RFI 的问题按规则判断（归一后看成本类字眼与像金额 / 百分比的写法），碰到的去掉。
 - 修改显示与导出：卡片第一行说明旧版、怎样生成新版；工作台摘要写固定说明；投标文件草稿的输入里被隐藏的段落送空值；澄清问题文件在提交表外写明去掉了几条。新版备忘的卡片指向报价表助手看成本情景。
 - 加测试：调查室里放少见的成本、落地价、我方报价，用假模型捕获每一次请求，核对整段输入里搜不到它们和由成本算出的数字（另用改动前的装配作对照）；经真实路由与投标文件草稿的输入装配核对旧版备忘被裁剪。
 
@@ -37,5 +37,5 @@ TASKFLOW：CHAIN-2d（新增一行；Phase F（续）— 情报串联的后续�
 
 - 新增：`src/lib/tender-intel/memo-pricing.ts`（纯函数：给备忘用的报价演算、「输入里没有成本」的版本集合、旧版备忘的裁剪）。
 - 修改：`src/lib/tender-intel/orchestrate.ts`（报价演算改用纯函数）、`src/lib/tender-intel/strategy.ts`（提示词第 2 条与新的第 8 条、两个版本号、类型名 `BidStrategyMemoV3`）、`src/app/api/projects/[id]/external-intel/award-history/route.ts`、`src/app/api/projects/[id]/workbench-summary/route.ts`、`src/lib/projects/generate/generate-docs.ts`、`src/lib/tender-bid-draft/gather.ts`、`src/lib/tender-bid-draft/contract.ts`（读备忘先裁剪、被隐藏的段落送空值）、`src/lib/projects/generate/rfi-export.ts`（提交表外的内部说明）、`src/components/tender-intel/org-award-intel-slots.tsx`（旧版的报价策略一行）、`scripts/bid-strategy-memo-e2e.ts`（认 v3）。
-- 测试：新增 `src/lib/tender-intel/__tests__/memo-pricing.test.ts` 与隔离库 `memo-legacy-db.isolated.test.ts`（都注册进 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`）；`bid-strategy-memo.test.ts` 的 MEMO-07 / MEMO-08 原样通过。
+- 测试：新增 `src/lib/tender-intel/__tests__/memo-pricing.test.ts` 与隔离库 `memo-legacy-db.isolated.test.ts`、`memo-orchestrate-db.isolated.test.ts`（都注册进 `scripts/test-all.sh`、`scripts/test-ci-unit.sh`）；`bid-strategy-memo.test.ts` 的 MEMO-07 / MEMO-08 原样通过。
 - 零 schema、零依赖、零新增模型调用。

@@ -40,23 +40,28 @@
 
 ### D3：旧版备忘在每一个读取的地方先过同一个裁剪
 
-纯函数 `redactLegacyMemo(memo)`：不是对象、或版本在 `BID_STRATEGY_MEMO_NO_COST_VERSIONS` 里 → 原样（同一个对象）；否则返回副本：
-- `scoringAnalysisZh`、`pricingStrategyZh` 置空串，加 `legacyCostRedacted: true`；
-- `summaryZh` 与每条风险门的 `basisZh` 整段换成 `（内容涉及成本，已隐藏）`，不看字眼——旧版提示词要求它们结合评分与报价演算写，最可能复述成本；
-- `competitiveLandscapeZh`、`teamingAdviceZh`、`dataGapsZh` 与风险门的 `gateZh`，碰到成本类字眼（简繁：成本、毛利、底价 / 底價、底线 / 底線、利润 / 利潤、保本、盈亏 / 盈虧、会亏 / 會虧、落地价 / 落地價、进价 / 進價、加价 / 加價、加成、我方报价、我们的报价、我司报；英文不分大小写：margin、cost、profit、markup、floor、landed）或像金额 / 百分比的数字（带币种前缀、带千分位逗号、4 位以上数字、数字后跟 % / ％）时整段换掉；
-- 碰到同样字眼或数字的 RFI 整条去掉（对象或字符串元素都算），去掉几条记在 `legacyRfisRemoved`。
+纯函数 `redactLegacyMemo(memo)`：不是对象、或版本在 `BID_STRATEGY_MEMO_NO_COST_VERSIONS` 里 → 原样（同一个对象）；否则返回副本，加 `legacyCostRedacted: true`：
+- `version`、`label`、`generatedAt`、`model`（系统写的结构化字段）照旧；`scoringAnalysisZh`、`pricingStrategyZh` 置空串；
+- 其余字段——`summaryZh`、`competitiveLandscapeZh`、`teamingAdviceZh`、`dataGapsZh` 以及任何别的字段（不论是字符串、数组还是对象）——**不看内容**整段换成 `（内容涉及成本，已隐藏）`；原本是空值的保持空值；
+- `riskGates` 总是数组：只留对象元素，`gateZh` 与 `basisZh` 换成同一句，`statusZh` 是「已满足 / 需解决 / 高风险」之一的照旧、否则也换掉；
+- `strategicRfis` 总是数组：理由 `whyZh` 一律置 `null`（对象元素重建为 `{ questionZh, whyZh: null }`，字符串元素就是问题）；问题按 `looksCostRelated` 判断，碰到的整条去掉，去掉几条记在 `legacyRfisRemoved`；没有问题文字的元素丢掉、不计数。
+
+`looksCostRelated` 只用在旧版 RFI 的问题上。判断前先归一（`normalizeForCostCheck`）：NFKC（全角转半角：`８７６５４` → `87654`、`１８％` → `18%`），去掉数字里的空格、千分位逗号 / 撇号与三位一组的点（`87 654`、`87,654`、`87.654` → `87654`；`9.6` 不动）。然后任一命中就算：
+- 字眼（简繁、英文不分大小写）：成本、毛利、底价 / 底價、底线 / 底線、利润 / 利潤、盈利、盈亏 / 盈虧、保本、亏损 / 虧損、亏本 / 虧本、会亏 / 會虧、赚 / 賺、落地价 / 落地價、进价 / 進價、进货 / 進貨、采购价 / 採購價、供应商（的）报价 / 供應商（的）報價、加价 / 加價、加成、让利 / 讓利、让价 / 讓價、下限、我方（的）报价 / 報價、我们（的）报价 / 我們（的）報價、我司报；margin、cost、COGS、profit、markup / mark-up、floor、landed、bottom line；`GP`（区分大小写、整词）；
+- 金额：带币种前缀（CAD、USD、C$、US$、$、¥）的数字；4 位以上的数字；数字后跟 万 / 萬 / 亿 / 億 / 元 / 块 / 塊 / 加元 / 加币 / 美元；两位以上或带小数的数字后跟 k（`95k`、`87.6k`；`4K` 不算）；数字后跟 dollars / bucks；中文数字（零一二…十开头）或大写数字（壹贰叁…拾）后跟 万 / 亿 / 元 / 块；两个以上连着的大写数字（`捌万柒仟…`）；
+- 百分比：数字后跟 %；「百分之」「百分点」；数字或中文数字（含几）后跟「个点 / 個點」；数字后跟 pt / pts / bps / percent。
 
 四个读取处都先过它（对所有人，不按财务权限分），各自再做：
-- 情报页签卡片：第一行写 `旧版备忘可能写了我方成本或毛利，部分内容已隐藏。有编辑权限的成员可在本页上方「历史授标检索」点「立即检索外部情报」生成新版，完成后刷新页面。`；被换掉的摘要不显示；报价策略一行写 `报价策略：已隐藏（旧版）`。新版（v3）备忘在报价策略一行之后对所有人写 `成本与毛利情景见工作台「报价表助手」（需要财务查看权）。`。
+- 情报页签卡片：第一行写 `旧版备忘可能写了我方成本或毛利，部分内容已隐藏。有编辑权限的成员可在本页上方「历史授标检索」点「立即检索外部情报」生成新版，完成后刷新页面。`；被换掉的摘要与数据缺口不显示，名称被换掉的风险门不列（旧版时一条都不列——不然满屏「（内容涉及成本，已隐藏）（需解决）」）；报价策略一行写 `报价策略：已隐藏（旧版）`。新版（v3）备忘在报价策略一行之后对所有人写 `成本与毛利情景见工作台「报价表助手」（需要财务查看权）。`。
 - 工作台摘要：策略写 `旧版策略备忘可能写了我方成本或毛利，摘要已隐藏；到情报页点「立即检索外部情报」生成新版。`，名称被换掉的风险门不列，带 `legacyCostRedacted`。
-- 投标文件草稿的输入（`gather.ts`）：被换掉的段落送 `null`（`placeholderToNull`），不把占位句交给起草模型；`BidDraftInputs.memo.riskGates[].basisZh` 类型放宽为 `string | null`。
+- 投标文件草稿的输入（`gather.ts`）：被换掉的段落送 `null`（`placeholderToNull`），名称被换掉的风险门不送，不把占位句交给起草模型；`BidDraftInputs.memo.riskGates[].basisZh` 类型放宽为 `string | null`。
 - 澄清问题文件：去掉的条数交给 `renderRfiHtml`，在提交表之外写一行内部说明 `旧版策略备忘里有 N 条问题可能涉及我方成本，未列入；重新检索外部情报后再导出可补齐。`；这时表里没有问题写 `暂无可提交的问题。`，不写「备忘录与分析均未产出 RFI」。
 
 - 备选 A：不管旧版，等下次运行自然覆盖。否决：没重跑的项目会一直给所有读者看、交给起草模型含成本的段落。
 - 备选 B：只隐藏「评分演算」「报价策略」两段。否决：旧版摘要与风险门依据也会复述成本，而且被交给投标文件草稿的模型、显示在卡片上。
-- 备选 C：全部字段都只按字眼匹配。否决：探针显示「底线」「保本」「落地价」「不低于 CAD 114,881」之类写法挡不住；摘要与依据整段换掉最稳。
+- 备选 C：全部字段都只按字眼匹配（本 change 最初的做法：竞争格局、teaming、数据缺口、风险门名称与 RFI 按字眼）。否决：合并前交叉验证（F1）用 33 句探针放进这 6 个位置，26 句原样留在接口输出里（「建议报价不低于 9.6 万加元」「报价下限 ８７６５４」「最多让价百分之十五」「We can go as low as 95k」等）；字眼与数字写法列不全，自由文字只能整段换掉。RFI 的问题例外：澄清问题文件要用它，只能按规则判断，所以规则加强（归一、万 / k / 中文数字、百分之 / 个点 / pts、更多字眼）、理由一律去掉。
 - 备选 D：旧版按财务查看权分人隐藏。否决：四个读取处里有两处是交给模型或写进文件，不是按人显示。
-- 备选 E：旧版整份不用。否决：竞争格局、teaming、不碰成本的风险门名称与 RFI 照旧有用。
+- 备选 E：旧版整份不用。否决：不碰成本的 RFI 问题照旧要进澄清问题文件；风险门状态与「这是旧版、怎样生成新版」的提示照旧有用。
 
 ## 与八条硬纪律的关系
 
@@ -67,12 +72,13 @@
 5. 不爬登录页：不涉及。
 6. 邮箱分离：不涉及。
 7. 确定性优先：遵守（零新增模型调用；成本裁剪在纯函数里，模型调用次数不变）。
-8. 测试注册：新测试 `memo-pricing.test.ts`、`memo-legacy-db.isolated.test.ts` 登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`。
+8. 测试注册：新测试 `memo-pricing.test.ts`、`memo-legacy-db.isolated.test.ts`、`memo-orchestrate-db.isolated.test.ts` 登记进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`（33 句探针在 `__tests__/fixtures/legacy-memo-probes.ts`，两个测试共用）。
 
 ## 验证方式
 
 - `npx tsx src/lib/tender-intel/__tests__/memo-pricing.test.ts`：调查室 `summaryJson` 带我方成本 87654.32、目标毛利 23.7、成本来源（落地价 91234.56）、我方报价 96543.21；由 `calc.ts` 现算出的成本底价与各情景毛利（不手写）一并列为禁出数字。`buildMemoPricingAnalysis` 的结果里一个都搜不到；用假 invoker 调 `synthesizeBidStrategyMemo` 捕获每一次请求，模型只被调用一次，整段系统提示与用户输入里一个都搜不到；对照组（复刻改动前的装配）里搜得到；四个对手价情景与打平价等于不传成本时的结果；提示词逐字断言；`redactLegacyMemo` 对 v2 / 无版本 / v3 / 非对象各一例；源码断言编排不读成本、四个读取处都先裁剪、src 下读备忘的文件就这五个、卡片那句话、E2E 脚本认 v3。
-- `NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts`（隔离库）：经真实 `GET` 情报页签与工作台摘要（只读成员）、真实 `gatherBidDraftInputs`，v2 备忘被裁剪、整个响应与草稿输入里搜不到成本数字，v3 原样。
+- `NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-legacy-db.isolated.test.ts`（隔离库）：经真实 `GET` 情报页签与工作台摘要（只读成员）、真实 `gatherBidDraftInputs`，v2 备忘被裁剪、整个响应与草稿输入里搜不到成本数字，v3 原样；33 句探针 × 6 个位置 × 3 个读取处一句都不出现。`memo-pricing.test.ts` 另有同一组探针经裁剪结果与澄清问题文件渲染的断言、每一段「干净的话也整段换掉」的断言（去掉任一段的整段替换就失败）。
+- `NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/memo-orchestrate-db.isolated.test.ts`（隔离库，交叉验证 F3）：真实跑 `runExternalIntelForProject`，模型地址换成 `.invalid` 的假地址、`fetch` 被替换，截获交给备忘模型的请求；报价演算键集合恰好是允许的那些、与纯函数结果相同；调查室没有对手价、联邦对标与价格带时对手价为空，整段请求里搜不到我方报价与成本。
 - 既有：`bid-strategy-memo.test.ts`、`intel-auto-flow.test.ts`、`intel-slots-p1p2.test.ts`、`obs-p5-intel-loop.test.ts`、`intel-ops.test.ts`、`tender-detail-ia.test.ts`、`rfi-export.test.ts`、`import-leads.test.ts`、`pricing-helper.test.ts`、`bid-draft.test.ts`、隔离库 `room-summary-writers-db.isolated.test.ts` 原样通过。
 - 全量：`npm test`、`npm run test:ci`、`npm run typecheck`、`npm run lint:baseline`。
 
