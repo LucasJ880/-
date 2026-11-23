@@ -10,7 +10,7 @@ import { resolveOrgTimezone } from "@/lib/automation/registry";
 import type { IdentityHit, ProjectIdentityDenyList } from "@/lib/bid-workflow/project-identity-deny";
 import { buildRfqDocument, rfqTemplateOnlyDocument, type RfqDocument, type RfqFactInput, type RfqRequirementInput } from "./build";
 import { rfqAttachmentDraftedOn } from "./attachment";
-import { readTenderRfqSettings } from "./round-pure";
+import { readRfqContactName, readTenderRfqSettings } from "./round-pure";
 
 /** 不生成的情形（招标身份命中另由 SupplierIdentityLeakError 表达，接口同样回 422） */
 export type RfqSheetFailureCode = "NO_CONFIRMED_REQUIREMENTS" | "SENSITIVE_LEAK" | "RFQ_SHEET_RENDER_FAILED" | "RFQ_SHEET_TOO_LARGE";
@@ -22,7 +22,8 @@ export type RfqSheetFailureCode = "NO_CONFIRMED_REQUIREMENTS" | "SENSITIVE_LEAK"
  * - PDF 没生成出来是 503：不是内容问题，稍后重试可能成功（与询价附件预览接口同一口径）。
  */
 export const RFQ_SHEET_FAILURES: Readonly<Record<RfqSheetFailureCode, { status: 422 | 503; message: string }>> = {
-  NO_CONFIRMED_REQUIREMENTS: { status: 422, message: "没有已确认且属于供应商侧的要求，先在青砚「招标要求」里逐条确认后再生成询价。" },
+  // 不用询价单生成器的原句：它在「都确认了但没有一条属于供应商侧」时把人引去逐条确认，也没说有没有保存
+  NO_CONFIRMED_REQUIREMENTS: { status: 422, message: "询价单没有生成，也没有保存文件：还没有已确认的、要问供应商的要求（规格、样品、质保这类）。请到「招标要求」确认后再生成；都确认过仍这样提示，请联系管理员。" },
   SENSITIVE_LEAK: { status: 422, message: "询价单没有生成，也没有保存文件：内容里有不能发给供应商的字样（如毛利、利润率、底价、我方预算）。请到「招标要求」在已确认的要求里找这些字样；组织管理员另请检查「询价与落地价设置」里的「发件显示名」。改不了的请联系管理员。" },
   RFQ_SHEET_RENDER_FAILED: { status: 503, message: "询价单 PDF 没能生成，没有保存任何文件。请稍后再试；一直不行请联系管理员。" },
   RFQ_SHEET_TOO_LARGE: { status: 422, message: "询价单 PDF 超过 5 MB，没有保存。通常是要问供应商的已确认要求太多，请联系管理员处理。" },
@@ -41,6 +42,14 @@ export class SupplierRfqSheetError extends Error {
 /** PDF 检查的结果 → 不生成的情形 */
 export function rfqSheetRenderFailureCode(reason: "render_failed" | "too_large"): RfqSheetFailureCode {
   return reason === "too_large" ? "RFQ_SHEET_TOO_LARGE" : "RFQ_SHEET_RENDER_FAILED";
+}
+
+/**
+ * 生成成功后带回菜单的提醒（不影响生成结果）。目前只有一种：有要求没有中文译文。
+ */
+export function rfqSheetNoticesZh(input: { missingTranslationCount: number }): string[] {
+  const n = Math.floor(input.missingTranslationCount);
+  return n > 0 ? [`有 ${n} 条要求还没有中文译文，询价单里按原文印出并注明了。可以到「招标要求」的投标合规矩阵点「翻译成中文」后重新生成。`] : [];
 }
 
 /** 生成记录的标题（菜单用它拼下载文件名，所以文件名里有询价编号） */
@@ -80,11 +89,15 @@ export type ComposeRfqSheetResult =
  */
 export function composeRfqSheet(input: ComposeRfqSheetInput): ComposeRfqSheetResult {
   const settings = readTenderRfqSettings(input.orgSettingsJson, input.env);
+  const timeZone = resolveOrgTimezone(input.orgSettingsJson);
   const built = buildRfqDocument({
     identity: input.identity,
     buyerDisplayName: settings.fromName,
+    contactName: readRfqContactName(input.orgSettingsJson),
+    contactEmail: settings.fromEmail,
     closeDate: input.closeDate ? input.closeDate.toISOString() : null,
     now: input.now,
+    timeZone,
     requirements: input.requirements,
     facts: input.facts,
     incoterm: null,
@@ -101,7 +114,7 @@ export function composeRfqSheet(input: ComposeRfqSheetInput): ComposeRfqSheetRes
     doc: built.doc,
     templateOnlyDoc: rfqTemplateOnlyDocument(built.doc, null),
     draftedAt: input.now.toISOString(),
-    draftedOn: rfqAttachmentDraftedOn(input.now, resolveOrgTimezone(input.orgSettingsJson)),
+    draftedOn: rfqAttachmentDraftedOn(input.now, timeZone),
     replyLeadDays: settings.replyLeadDays,
   };
 }

@@ -11,6 +11,7 @@
 import { db } from "@/lib/db";
 import { describeIdentityHits, scanIdentity, type IdentityHit, type ProjectIdentityDenyList } from "@/lib/bid-workflow/project-identity-deny";
 import { loadProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
+import { resolveOrgTimezone } from "@/lib/automation/registry";
 import { buildRfqDocument, type RfqDocument } from "./build";
 import {
   RFQ_ATTACHMENT_CHANGED_CARD_ZH,
@@ -130,14 +131,15 @@ export type RebuildRfqAttachmentResult =
 /**
  * 按「执行时的项目资料 + 载荷里定格的起草参数与发件抬头」重排附件内容，比对内容指纹（不生成 PDF）。
  * 与 prepareRfqRound 的 buildRfqDocument 入参一一对应（design D2）：项目资料现读（截标日期、禁出清单、当前可用分析的
- * 要求与关键事实），起草参数（询价编号、起草时刻与日期、回复截止提前量、发起人填写的栏目）与发件抬头、贸易条款取载荷。
+ * 要求与关键事实），起草参数（询价编号、起草时刻与日期、时区、回复截止提前量、联系人、发起人填写的栏目）与发件抬头、
+ * 展示发件人、贸易条款取载荷。
  */
 export async function rebuildRfqAttachment(
-  payload: Pick<TenderSendRfqPayload, "projectId" | "fromName" | "incoterm">,
+  payload: Pick<TenderSendRfqPayload, "projectId" | "fromName" | "fromEmail" | "incoterm">,
   attachment: RfqPayloadAttachment,
 ): Promise<RebuildRfqAttachmentResult> {
   if (attachment.templateVersion !== RFQ_ATTACHMENT_TEMPLATE_VERSION) return { ok: false, stale: "template" };
-  const project = await db.project.findUnique({ where: { id: payload.projectId }, select: { closeDate: true } });
+  const project = await db.project.findUnique({ where: { id: payload.projectId }, select: { closeDate: true, org: { select: { settingsJson: true } } } });
   const identity = await loadProjectIdentity(payload.projectId);
   if (!project || !identity) return { ok: false, stale: "changed" };
   // 动态导入：service.ts 起草时会调本模块，静态互相导入会成环
@@ -147,8 +149,12 @@ export async function rebuildRfqAttachment(
   const built = buildRfqDocument({
     identity: { denyList: identity.denyList, reference: d.reference },
     buyerDisplayName: payload.fromName,
+    // RFQ-PDF-2：联系人与邮箱取载荷里定格的（档案里的经办人起草后改了，不该让这张卡以「资料有改动」被拒发）
+    contactName: d.contactName ?? null,
+    contactEmail: payload.fromEmail,
     closeDate: project.closeDate ? project.closeDate.toISOString() : null,
     now: new Date(d.draftedAt),
+    timeZone: d.timeZone ?? resolveOrgTimezone(project.org?.settingsJson),
     requirements,
     facts,
     quantityTiers: d.quantityTiers.length ? d.quantityTiers : undefined,

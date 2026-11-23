@@ -58,6 +58,8 @@ export type RfqEntryFacts = {
   identityHits?: IdentityHit[] | null;
   sender: { ok: true } | { ok: false; errorCode: "SENDER_NOT_CONNECTED" | "SENDER_NO_COMPOSE_SCOPE" };
   hasReadScope: boolean;
+  /** RFQ-PDF-2：预构建的询价单里没有中文译文的要求条数（只用来提醒，不影响可发与否） */
+  missingTranslationCount?: number;
   mailboxEmail: string;
   fromEmail: string;
   /** YYYY-MM-DD 或 null（没有截标日） */
@@ -122,9 +124,19 @@ function monthDayTime(d: Date, timeZone: string): string {
 
 const READ_SCOPE_WARNING = "授权邮箱缺少读信权限：回信不会自动进表，需要手工录入（重新授权 Gmail 即可恢复）。";
 
+/**
+ * RFQ-PDF-2：有要求没有中文译文时的提醒（不阻断）。补翻入口是「招标要求」页签里「投标合规矩阵」的「翻译成中文」。
+ * 没有这样的要求返回 null。
+ */
+export function missingTranslationWarningZh(count: number | null | undefined): string | null {
+  const n = Math.floor(count ?? 0);
+  return n > 0 ? `有 ${n} 条要求还没有中文译文，询价单里会按原文印出并注明。可以先到「招标要求」的投标合规矩阵点「翻译成中文」再发。` : null;
+}
+
 /** 不可发原因按优先级取第一个；全都没有 → 可发。 */
 export function decideRfqEntryState(f: RfqEntryFacts): RfqEntryState {
-  const warnings = f.sender.ok && !f.hasReadScope ? [READ_SCOPE_WARNING] : [];
+  const missingZh = missingTranslationWarningZh(f.missingTranslationCount);
+  const warnings = [...(f.sender.ok && !f.hasReadScope ? [READ_SCOPE_WARNING] : []), ...(missingZh ? [missingZh] : [])];
   const block = (reason: EntryBlockReason, message: string, action: EntryAction | null): RfqEntryState => ({
     enabled: false,
     reason,

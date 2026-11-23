@@ -28,6 +28,8 @@ export type ProjectRfqSheet = {
   draftedAt: string;
   draftedOn: string;
   replyLeadDays: number;
+  /** 没有中文译文的要求条数（生成结果里据此带一句提醒） */
+  missingTranslationCount: number;
 };
 
 export async function buildProjectRfqSheet(input: { projectId: string; now?: Date }): Promise<ProjectRfqSheet> {
@@ -74,5 +76,6 @@ export async function buildProjectRfqSheet(input: { projectId: string; now?: Dat
     draftedAt: composed.draftedAt,
     draftedOn: composed.draftedOn,
     replyLeadDays: composed.replyLeadDays,
+    missingTranslationCount: composed.doc.missingTranslationCount,
   };
 }

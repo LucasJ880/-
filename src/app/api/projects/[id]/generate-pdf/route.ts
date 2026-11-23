@@ -97,13 +97,16 @@ export const POST = withAuth(async (request, ctx, user) => {
         { status: 500 },
       );
     }
+    // RFQ-PDF-2：供应商询价单的成功响应带 notices（生成成功但值得知道的事，如有要求没有中文译文）
+    const { notices, ...row } = { notices: null as string[] | null, ...doc };
     return NextResponse.json({
       document: {
-        ...doc,
+        ...row,
         id: doc.id,
         fileUrl,
         blobUrl,
       },
+      ...(notices ? { notices } : {}),
     });
   } catch (e) {
     // CHAIN-4b：供应商侧文件含招标身份信息——是内容问题，不是服务器错误

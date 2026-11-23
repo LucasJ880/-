@@ -61,6 +61,8 @@ export function ProjectGenerateMenu({
   const [docs, setDocs] = useState<GenDoc[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [progressZh, setProgressZh] = useState<string | null>(null);
+  // RFQ-PDF-2：生成成功但值得知道的事（如供应商询价单里有要求没有中文译文），显示在原来显示错误的位置
+  const [notice, setNotice] = useState<string | null>(null);
   const [draftGates, setDraftGates] = useState<BidDraftGates | undefined>(undefined);
 
   const load = async () => {
@@ -85,12 +87,13 @@ export function ProjectGenerateMenu({
   const generate = async (docType: string) => {
     setBusy(docType);
     setError(null);
+    setNotice(null);
     setProgressZh(null);
     try {
       // 分析师备忘录 v2 是多轮管线：服务端每轮跑到时间预算即返回 inProgress，
       // 前端自动续点直到完成（状态服务端落盘，中断可续），一次点击等到结果。
       for (let round = 0; round < 12; round++) {
-        const res = await apiJson<{ inProgress?: boolean; statusZh?: string }>(
+        const res = await apiJson<{ inProgress?: boolean; statusZh?: string; notices?: string[] }>(
           `/api/projects/${projectId}/generate-pdf`,
           {
             method: "POST",
@@ -98,7 +101,10 @@ export function ProjectGenerateMenu({
             body: JSON.stringify({ docType }),
           },
         );
-        if (!res.inProgress) break;
+        if (!res.inProgress) {
+          if (Array.isArray(res.notices) && res.notices.length) setNotice(res.notices.join(" "));
+          break;
+        }
         setProgressZh(res.statusZh ?? "多轮推理进行中…");
         if (round === 11) throw new Error("多轮生成超出轮次上限，请再点一次继续");
       }
@@ -168,6 +174,9 @@ export function ProjectGenerateMenu({
       ) : null}
       {error ? (
         <p role="alert" className="mt-2 text-xs leading-relaxed text-red-500">{error}</p>
+      ) : null}
+      {notice ? (
+        <p role="status" className="mt-2 text-xs leading-relaxed text-amber-700">{notice}</p>
       ) : null}
 
       {docs.length > 0 ? (

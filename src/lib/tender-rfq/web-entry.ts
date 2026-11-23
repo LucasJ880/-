@@ -21,7 +21,7 @@ import { hasGmailComposeScope, hasGmailReadScope } from "@/lib/google-email";
 import { pickRfqIncoterm, readUserPrefs } from "@/lib/muse-bridge/prefs-pure";
 import { buildRfqDocument } from "./build";
 import { chaseTemplateHash, resolveChaseAfterDays } from "./chase-pure";
-import { readTenderRfqSettings, resolveSender } from "./round-pure";
+import { readRfqContactName, readTenderRfqSettings, resolveSender } from "./round-pure";
 import { loadRfqRequirementInputs, loadRfqRoundLockState } from "./service";
 import { loadProjectIdentity } from "@/lib/bid-workflow/project-identity-sources";
 import { buildSupplierGroupsEntry, supplierIdsInGroups, type SupplierGroupsEntry } from "./supplier-groups";
@@ -179,8 +179,11 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
   const built = buildRfqDocument({
     identity: { denyList: identity.denyList, reference: identity.reference },
     buyerDisplayName: settings.fromName,
+    contactName: readRfqContactName(orgSettings),
+    contactEmail: settings.fromEmail,
     closeDate: project.closeDate ? project.closeDate.toISOString() : null,
     now,
+    timeZone,
     requirements: reqInputs.requirements,
     facts: reqInputs.facts,
     incoterm: term.incoterm,
@@ -224,6 +227,7 @@ export async function loadRfqWebEntry(input: { projectId: string; orgId: string;
     identityHits: !built.ok && built.errorCode === "IDENTITY_LEAK" ? built.hits : null,
     sender: sender.ok ? { ok: true } : { ok: false, errorCode: sender.errorCode },
     hasReadScope,
+    missingTranslationCount: built.ok ? built.doc.missingTranslationCount : 0,
     mailboxEmail: settings.mailboxEmail,
     fromEmail: settings.fromEmail,
     replyBy,

@@ -38,6 +38,17 @@ export function readTenderRfqSettings(settingsJson: unknown, env: NodeJS.Process
   };
 }
 
+/**
+ * RFQ-PDF-2：询价单抬头的联系人 = 组织投标档案报价抬头里的默认经办人
+ * （Organization.settingsJson.tenderProfile.quoteHeader.preparedByDefault）。没填返回 null（抬头不印这一项）。
+ * 只读这一个字段：电话、地址等不印在询价单上。
+ */
+export function readRfqContactName(settingsJson: unknown): string | null {
+  const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+  const name = obj(obj(obj(settingsJson)?.tenderProfile)?.quoteHeader)?.preparedByDefault;
+  return typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : null;
+}
+
 /* ---------------------------------- 轮次锁 ---------------------------------- */
 
 export type ExistingRound = {

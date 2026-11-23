@@ -30,6 +30,10 @@ export type RfqAttachmentDraftParams = {
   extraQuestions: string[];
   destination: string | null;
   quantityTiers: number[];
+  /** RFQ-PDF-2：起草时的组织时区（回复截止按它的日期算）；旧卡没有 → 重排时按组织当前时区 */
+  timeZone?: string | null;
+  /** RFQ-PDF-2：起草时印在抬头的联系人（投标档案里的默认经办人）；之后档案改了不影响这张卡 */
+  contactName?: string | null;
 };
 
 /**
@@ -67,6 +71,8 @@ export function readPayloadAttachment(payload: unknown): RfqPayloadAttachment | 
       extraQuestions: Array.isArray(d.extraQuestions) ? d.extraQuestions.filter((q): q is string => typeof q === "string") : [],
       destination: typeof d.destination === "string" ? d.destination : null,
       quantityTiers: Array.isArray(d.quantityTiers) ? d.quantityTiers.filter((n): n is number => typeof n === "number" && Number.isFinite(n)) : [],
+      timeZone: typeof d.timeZone === "string" && d.timeZone ? d.timeZone : null,
+      contactName: typeof d.contactName === "string" && d.contactName ? d.contactName : null,
     },
   };
 }

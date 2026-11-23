@@ -21,6 +21,7 @@ import {
   partitionSuppliers,
   previewRfqPayload,
   readCriticalFactSlot,
+  readRfqContactName,
   readTenderRfqSettings,
   type ExistingRound,
   type RoundLockVerdict,
@@ -174,11 +175,17 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
   // Web 表单总是提交用户的显式选择（默认值已预填进下拉框），null = 用户选了「不指定」，不能再回退到个人默认；
   // Muse 不带 incoterm 时仍按偏好补齐（P1-8 行为不变）。
   const term = input.source === "web" ? { incoterm: input.incoterm ?? null, fromPrefs: false } : pickRfqIncoterm(input.incoterm, prefs);
+  // RFQ-PDF-2：抬头的联系人与邮箱（展示发件人，不是授权邮箱）、回复截止用的组织时区
+  const timeZone = resolveOrgTimezone(project.org?.settingsJson);
+  const contactName = readRfqContactName(project.org?.settingsJson);
   const built = buildRfqDocument({
     identity: { denyList: identity.denyList, reference: identity.reference },
     buyerDisplayName: settings.fromName,
+    contactName,
+    contactEmail: settings.fromEmail,
     closeDate: project.closeDate ? project.closeDate.toISOString() : null,
     now,
+    timeZone,
     requirements,
     facts,
     quantityTiers: input.quantityTiers,
@@ -223,7 +230,9 @@ export async function prepareRfqRound(input: PrepareRfqInput): Promise<PrepareRf
       draft: {
         reference: doc.reference,
         draftedAt: now.toISOString(),
-        draftedOn: rfqAttachmentDraftedOn(now, resolveOrgTimezone(project.org?.settingsJson)),
+        draftedOn: rfqAttachmentDraftedOn(now, timeZone),
+        timeZone,
+        contactName,
         replyLeadDays: settings.replyLeadDays,
         scopeNote: input.scopeNote ?? null,
         extraQuestions: input.extraQuestions ?? [],

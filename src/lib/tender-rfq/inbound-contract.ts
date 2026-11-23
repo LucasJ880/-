@@ -98,6 +98,7 @@ export function parseRfqThreadId(contactNotes: string | null | undefined): strin
 /**
  * 从已发出的 RFQ 正文（renderRfqEmail 的输出，存于 tender.send_rfq PendingAction payload）
  * 取第一档数量与强制要求编号。零 schema：数量阶梯没有单独落库，发出去的正文就是事实来源。
+ * 数量行以「- 数量：」开头；写着「未明确」时当作正文没给数量（build.ts RFQ_QUANTITY_UNKNOWN_ZH）。
  */
 export function rfqContextFromBody(body: string | null | undefined): { firstTierQty: number | null; mandatoryCodes: string[] } {
   if (!body) return { firstTierQty: null, mandatoryCodes: [] };
@@ -105,6 +106,10 @@ export function rfqContextFromBody(body: string | null | undefined): { firstTier
   const firstTierQty = qtyLine && /\d/.test(qtyLine) && !qtyLine.includes("未明确")
     ? numbersIn(qtyLine.replace(/^-\s*数量：/, ""))[0] ?? null
     : null;
-  const mandatoryCodes = [...body.matchAll(/【强制】(\S+)/g)].map((m) => m[1]);
+  // 两种写法都认：RFQ-PDF-2 之前发出的正文是「【强制】{编号}」，之后是每行以编号开头的「{编号} 【必须】」
+  const mandatoryCodes = [
+    ...[...body.matchAll(/【强制】(\S+)/g)].map((m) => m[1]),
+    ...[...body.matchAll(/^(\S+) 【必须】/gm)].map((m) => m[1]),
+  ];
   return { firstTierQty, mandatoryCodes: [...new Set(mandatoryCodes)] };
 }

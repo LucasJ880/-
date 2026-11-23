@@ -7,7 +7,7 @@ import { putPrivateBlob } from "@/lib/files/blob-access";
 import { buildProjectAiContextBlock } from "@/lib/projects/project-ai-context";
 import { computePriceGap } from "@/lib/projects/price-gap";
 import { buildProjectRfqSheet } from "@/lib/tender-rfq/sheet-download-service";
-import { rfqSheetRecordTitle } from "@/lib/tender-rfq/sheet-download";
+import { rfqSheetNoticesZh, rfqSheetRecordTitle } from "@/lib/tender-rfq/sheet-download";
 
 /**
  * RFQ-PDF-1：发给供应商的文件只有 supplier_rfq（供应商询价单）一种，内容与检查全在 tender-rfq
@@ -46,7 +46,7 @@ export async function generateProjectDocument(input: {
   // 此时还没有写任何东西：不存文件、不建记录、不动旧记录的过期标记，也不回落成 HTML。
   if (input.docType === "supplier_rfq") {
     const sheet = await buildProjectRfqSheet({ projectId: input.projectId, now: input.now });
-    return persistGeneratedFile({
+    const row = await persistGeneratedFile({
       projectId: input.projectId,
       orgId: input.orgId,
       userId: input.userId,
@@ -64,6 +64,8 @@ export async function generateProjectDocument(input: {
         pages: sheet.pages,
       },
     });
+    // RFQ-PDF-2：生成成功后带回菜单的提醒（如有要求没有中文译文）；不影响已保存的文件
+    return { ...row, notices: rfqSheetNoticesZh({ missingTranslationCount: sheet.missingTranslationCount }) };
   }
   const docType = input.docType;
 
