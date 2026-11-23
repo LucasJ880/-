@@ -231,6 +231,20 @@ async function inquirySection() {
       "邮件正文里的 U+0000：送进模型前换成空格、价格通过核对；正文不计数，报价备注里没有那句提示", { notes: p.notesAppend });
   }
 
+  // 8e. 正文带 U+0000、两个附件：a.pdf 首字符就是 U+0000、另有 2 处，b.pdf 干净（逐字断言个数只记在对的附件上）
+  {
+    const texts: Record<string, string> = { "a.pdf": `${NUL} Option A${NUL}${NUL} Unit price USD 5 per pc`, "b.pdf": "clean text Delivery 10 days" };
+    const m = fakeModel(() => ({}));
+    const parsed = await parseInboundQuote(
+      { bodyText: `body${NUL}with nul`, attachments: Object.keys(texts).map((f) => ({ filename: f, mimeType: "application/pdf", data: Buffer.from(f) })), emailDate: EMAIL_DATE, mandatoryCodes: [] },
+      { complete: m.complete, extractPdfText: async (b: Buffer) => texts[b.toString()] },
+    );
+    ok(JSON.stringify(parsed.attachmentsSeen) === JSON.stringify([{ filename: "a.pdf", parsed: true, nulCount: 3 }, { filename: "b.pdf", parsed: true }]),
+      "两个附件：a.pdf 的个数为 3（含第 0 位那个，不含正文里的），b.pdf 没有个数字段", parsed.attachmentsSeen);
+    const p = plan(parsed);
+    ok(p.notesAppend.endsWith(`附件：a.pdf 已解析${symbolsNote(3)}、b.pdf 已解析`), "备注附件一栏：a.pdf 带提示句，b.pdf 只写「已解析」", JSON.stringify(p.notesAppend));
+  }
+
   // 9. 比价回读不受这句话影响
   {
     const base: ParsedQuote = {
@@ -324,6 +338,11 @@ async function chatSection() {
   {
     const r = parseAttachmentsInput([{ name: "a.pdf", size: 10, text: NUL.repeat(12) }]);
     ok(!r.ok && r.error === "附件「a.pdf」没有可提取的文字（扫描件请直接传图片）", "新方式：正文只由 U+0000 组成 → 「附件「a.pdf」没有可提取的文字（扫描件请直接传图片）」（改动前校验通过、写消息 500）", r);
+    const blank = parseAttachmentsInput([{ name: "scan.pdf", size: 1, text: " \n " }]);
+    const image = parseAttachmentsInput([{ name: "pic.png", kind: "image", size: 1, text: "" }]);
+    const missing = parseAttachmentsInput([{ name: "doc.pdf", size: 1 }]);
+    ok(!blank.ok && blank.error === "附件「scan.pdf」没有可分析的文本内容" && !image.ok && image.error === "附件「pic.png」没有可分析的文本内容" && !missing.ok && missing.error === "附件「doc.pdf」没有可分析的文本内容",
+      "新方式：没有这两类字符、正文本来就是空白 / 图片正文为空 / 没有正文字段 → 照旧「没有可分析的文本内容」（与改动前逐字相同）", { blank, image, missing });
     const r1 = parseAttachmentsInput([{ name: NUL.repeat(3), size: 1, text: "x" }]);
     ok(!r1.ok && r1.error === "附件缺少文件名", "新方式：文件名只有 U+0000 → 「附件缺少文件名」（先清理再去首尾空白）", r1);
     const r2 = parseAttachmentsInput([{ name: `a.pdf${NUL}`, size: 1, text: "x" }]);

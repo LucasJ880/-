@@ -95,8 +95,9 @@ export type ParseAttachmentsResult =
  * 校验请求体里的 attachments（来自浏览器，不可信）。
  * FIX-14：文件名与正文先清掉写不进库的字符（U+0000 → 空格、落单代理字符 → U+FFFD），
  * 再做「有没有可分析的文本」与长度校验——存进消息记录的与送进模型的都是清理后的这一份。
- * 替换是一个换一个，长度校验的结果不变；正文清理后只剩空白的附件按「没有可提取的文字（扫描件请直接传图片）」拒绝
- * （与浏览器上传时的提示同一句）。
+ * 替换是一个换一个，长度校验的结果不变。正文清理掉了这两类字符、清理后只剩空白的（只有勾选框之类抽不出的字形），
+ * 按「没有可提取的文字（扫描件请直接传图片）」拒绝（与浏览器上传时的提示同一句）；没有这两类字符、
+ * 正文本来就是空白或缺字段的（含图片附件），照旧按「没有可分析的文本内容」拒绝，与改动前逐字相同。
  */
 export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
   if (raw === undefined || raw === null) return { ok: true, attachments: [] };
@@ -113,8 +114,17 @@ export function parseAttachmentsInput(raw: unknown): ParseAttachmentsResult {
     if (name.length > MAX_ATTACHMENT_NAME_CHARS) {
       return { ok: false, error: `文件名过长：${name.slice(0, 40)}…` };
     }
-    const text = typeof rec.text === "string" ? toStorableText(rec.text) : "";
-    if (!text.trim()) return { ok: false, error: `附件「${name}」没有可提取的文字（扫描件请直接传图片）` };
+    const rawText = typeof rec.text === "string" ? rec.text : "";
+    const text = toStorableText(rawText);
+    if (!text.trim()) {
+      return {
+        ok: false,
+        error:
+          text !== rawText
+            ? `附件「${name}」没有可提取的文字（扫描件请直接传图片）`
+            : `附件「${name}」没有可分析的文本内容`,
+      };
+    }
     if (text.length > MAX_ATTACHMENT_TEXT_CHARS) {
       return {
         ok: false,
