@@ -29,18 +29,23 @@ function trimDecimal(x: number, digits: number): string {
   return x.toFixed(digits).replace(/\.?0+$/, "");
 }
 
-/** 内部数字的缩写写法（只取精确相等的）：230k、1.25m、1.25million、125万 */
+/** 内部数字的缩写写法（只取精确相等的）：230k、230 thousand、1.25m、1.25million、125万、2.3e5（英文拼出来的数字不认） */
 function abbreviations(token: string): string[] {
   const n = Number(token);
   if (!Number.isFinite(n) || n < 1000) return [];
   const out: string[] = [];
   const exact = (x: number, d: number) => (Math.abs(Number(trimDecimal(x, d)) - x) < 1e-9 ? trimDecimal(x, d) : null);
   const k = exact(n / 1_000, 3);
-  if (k) out.push(`${k}k`);
+  if (k) out.push(`${k}k`, `${k}thousand`);
   const m = exact(n / 1_000_000, 6);
   if (m && n >= 100_000) out.push(`${m}m`, `${m}mm`, `${m}million`);
   const w = exact(n / 10_000, 4);
   if (w) out.push(`${w}万`);
+  // 科学计数写法（2.3e5、2.3e+5）
+  for (let e = 3; e <= 12; e++) {
+    const mant = exact(n / 10 ** e, 6);
+    if (mant && Number(mant) >= 1 && Number(mant) < 10) out.push(`${mant}e${e}`, `${mant}e+${e}`);
+  }
   return out;
 }
 

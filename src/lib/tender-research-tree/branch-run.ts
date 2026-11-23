@@ -503,7 +503,12 @@ class BranchLoop {
     };
     if (blockedZh) decision.blocked = true;
     else if (next.action === "search") decision.query = next.query.trim();
-    else if (next.action === "read") decision.url = next.url.trim();
+    else if (next.action === "read") {
+      // 只记本支可读网址里的（模型乱写的网址不进审计，免得网页借网址字段把文字带进去）
+      const key = normalizeReadableUrl(next.url.trim());
+      if (key && this.st.readable.has(key)) decision.url = key;
+      else decision.urlNotAllowed = true;
+    }
     await this.record("decision", decision);
     this.st.facts.push(...fresh);
     this.st.rejectedFacts += rejected;

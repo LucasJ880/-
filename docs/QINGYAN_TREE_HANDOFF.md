@@ -64,7 +64,7 @@
 - **D-20（TREE-2）树干摘要不放模型自由文字**：未追线索只存类别；待反查只收不带数字 / 货币 / @ / 域名的名字（带数字的公司名会被漏掉，详情在交接单）。design D12。
 - **D-21（TREE-2）「在查」= 排队或运行中**：停在「需要人工处理」的调研 Job 不挡新树（本批没有取消入口）。发起用不阻塞的咨询锁。design D13。
 - **D-22（TREE-2）条款一支本批交「未接通」**（不联网查条款，等 TREE-3 的条款员）。design D15。
-- **D-23（TREE-2）「任何定时任务都不发起」的口径**：只有「开始调研」接口能建调研 Job；建好之后每一片都由既有 agent-runs 处理器执行（config 例外二登记的实现者解释，本 change 第一次用上）。**打开开关前请 Evan 确认**。design D20。
+- **D-23（TREE-2）「任何定时任务都不发起」的口径**：只有「开始调研」接口能建调研 Job；建好之后每一片都由既有 agent-runs 处理器执行（config 例外二登记的实现者解释，本 change 第一次用上）。**打开开关前请 Evan 确认**。另：agent-runs 每次只取 2 条 Job、与一键分析共用，一棵树跑满额度要几十片（挑错实测 29 片），开关打开后一键分析排队可能变慢（生产影响**未核实**）。design D20。
 - **D-24（TREE-2）两份测试放在 `src/lib/web-reader/__tests__/tree2-*`**：要用 TREE-1 真读页层 + 假网络，TREE-1 的守卫只许那个目录引用内部模块；不改守卫。design D17。
 - **D-25（TREE-2）四份既有测试的工具数断言**改为「原 9 个分析工具逐个不变 + 两个调研工具」，`t5-seg2-v2-spine` 的 `runFence` 名单加两项并加更严的 14d。design D18。
 
@@ -119,6 +119,7 @@
 - **TREE-2 留下的（给 TREE-3 / TREE-4 / TREE-5）**：
   - 交接单字段见 `src/lib/tender-research-tree/types.ts`：`status` 七种（found / none / blocked / limit / unavailable / not_needed / flag_off），`statusZh` 是短标签，整句在 `notFound[].messageZh`，第二波理由在 `reasonZh`，被挡明细 `blockedSites[{site, messageZh}]`，事实有 `requestedUrl`（跳转过时）。
   - TREE-3：分支定义在 `fork-rules.ts` 的 `BRANCH_DEFS`（目标句、允许的事实类型、额度缩放）；条款一支 `notWired: true` 要换成条款员；「查到 N 条」现在数的是事实，「同类授标」的条数按 `comparable_award` 事实计——TREE-3 定义结构化记录后，分叉规则里「③ 不足 3 条」要改成按记录数。
+  - TREE-4：待反查的中标方名与「同类授标」都只核对了「逐字在页上」——网页自己写的一句「winner is Fake Corp」也会被收下、进 `summaryJson.researchTree.pendingReverse`（挑错实测）。真假由 TREE-4 核对；TREE-4 / TREE-5 要把没过核对的标「未核实」或不进摘要。未追线索的类别是模型写的英文词（只收小写英文与下划线），也可能是 `exfiltrate_secrets` 这种——TREE-5 只认识的类别显示中文名，其余显示「其它建议」。
   - TREE-4：核对员重读网址时，同一网址一棵树只请求一次（D7）会挡住它——核对员的读页要另开一个分支键并在设计里写明「复读」不受树级拒读（或复读走缓存的读页结果）；事实的 `url` 是跳转后的网址。
   - TREE-5：情报室 `summaryJson.researchTree` 只在树干那一步最后写，没有「在查」状态——读取接口要查 Job 与步骤；没有情报室的项目要回退到树干步骤的结果（`researchTree` 在 `outputJson` 里）；状态要显示「未接通」「无需追查」「未开启」；未追线索只有英文类别，页面要映射中文；「确认招标要求时自动起一次」在 TREE-5 做。
   - 同一支只扛得住一次崩溃（运行时每步 2 次尝试）；Job 停在「需要人工处理」后同项目可以再发起，但旧 Job 没有取消入口（TREE-5 的「重新查」要处理）。

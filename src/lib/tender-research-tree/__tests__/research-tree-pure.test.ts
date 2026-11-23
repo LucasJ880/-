@@ -247,6 +247,9 @@ console.log("\n[搜索词与网址的外发闸]");
     "bins 230/000",
     "bins 2\u200b30000",
     "bins &#50;30000",
+    "bins 230 thousand",
+    "bins 2.3e5",
+    "bins 1.25e+6",
   ]) {
     ok(gate(q) === "internal_number", `内部数字拦下：${JSON.stringify(q)}`);
   }
@@ -408,7 +411,7 @@ console.log("\n[工具登记与守卫]");
       } else if (/\.(ts|tsx|js|mjs)$/.test(name)) {
         const src = readFileSync(p, "utf8");
         // 各种写法：researchTree: true、"researchTree": true、["researchTree"]: true
-        if (/\[?\s*["'`]?researchTree["'`]?\s*\]?\s*:\s*true/.test(src)) hits.push(relative(process.cwd(), p));
+        if (/\[?\s*["'`]?researchTree["'`]?\s*\]?\s*[:=]\s*true/.test(src)) hits.push(relative(process.cwd(), p));
         if (/\bstartResearchTree\b/.test(src)) starters.push(relative(process.cwd(), p));
       }
     }
@@ -428,8 +431,11 @@ console.log("\n[工具登记与守卫]");
     "发起服务只被「开始调研」接口引用（定时任务不发起）",
     starters,
   );
-  const probe = (code: string) => /\[?\s*["'`]?researchTree["'`]?\s*\]?\s*:\s*true/.test(code);
-  ok(probe('{ researchTree: true }') && probe('{ "researchTree": true }') && probe('{ ["researchTree"]: true }') && !probe('{ researchTreeVersion: 1 }'), "守卫认得出几种写法");
+  const probe = (code: string) => /\[?\s*["'`]?researchTree["'`]?\s*\]?\s*[:=]\s*true/.test(code);
+  ok(
+    probe('{ researchTree: true }') && probe('{ "researchTree": true }') && probe('{ ["researchTree"]: true }') && probe("meta.researchTree = true") && probe('meta["researchTree"]=true') && !probe('{ researchTreeVersion: 1 }'),
+    "守卫认得出几种写法（含赋值）",
+  );
 }
 
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
