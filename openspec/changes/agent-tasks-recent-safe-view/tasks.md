@@ -61,7 +61,7 @@
 
 ## 3. 验收
 
-- [ ] 3.1 全部门禁。verify：
+- [x] 3.1 全部门禁。verify：
   - `npm test` 对照既有失败清单无新增；
   - `npm run test:ci` PASS（含新加进去的两个测试）；
   - `npm run typecheck` 退出码 0；
@@ -70,7 +70,7 @@
   - `npm run test:runtime-architecture` PASS；
   - `OPENSPEC_TELEMETRY=0 openspec validate agent-tasks-recent-safe-view --strict` valid；
   - 开工前提第 3 条记下的通过数不减。
-- [ ] 3.2 写 `docs/QINGYAN_FIX-23_REPORT.md` + 更新 TASKFLOW 状态列。
+- [x] 3.2 写 `docs/QINGYAN_FIX-23_REPORT.md` + 更新 TASKFLOW 状态列。
   - 报告内容：
     - 开工前复核：合入 main 后逐处复核行号的结果，对不上的地方与四件套怎么改的；
     - 改动前 / 改动后，谁在这个接口上少看到了什么（按 design Context「谁的任务会出现在谁的列表里」的几类人）；
