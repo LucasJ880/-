@@ -62,7 +62,7 @@ import { AutoAiPanelsRunner } from "@/components/project-create/auto-ai-panels-r
 import { WorkbenchTab } from "@/components/project-detail/tabs/workbench-tab";
 import { PROJECT_DISCUSSION_HASH } from "@/lib/notifications/href";
 import { RequirementsTab } from "@/components/project-detail/tabs/requirements-tab";
-import { BidTab } from "@/components/project-detail/tabs/bid-tab";
+import { BidTabEntry } from "@/components/bid-page-v2/bid-tab-entry";
 import { IntelTab } from "@/components/project-detail/tabs/intel-tab";
 import { SubmissionTab } from "@/components/project-detail/tabs/submission-tab";
 import { InternalAgentToolsSection } from "@/components/project-detail/internal-agent-tools";
@@ -728,7 +728,7 @@ function ProjectDetailContent() {
       )}
 
       {activeTab === "bid" && (
-        <BidTab projectId={id} orgId={project.orgId} canManage={canManage} />
+        <BidTabEntry projectId={id} orgId={project.orgId} canManage={canManage} />
       )}
 
       {activeTab === "intel" && (

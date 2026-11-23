@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
+import { requireProjectReadAccess } from "@/lib/projects/access";
 
 const VALID_STATUSES = [
   "draft",
@@ -17,9 +18,13 @@ type ReviewStatus = (typeof VALID_STATUSES)[number];
  * GET /api/projects/:id/intelligence/review
  *
  * 获取情报报告的审核状态及 report_meta。
+ *
+ * 权限（FIX-21）：项目读权限，处理函数第一步。
  */
-export const GET = withAuth(async (_request, ctx) => {
+export const GET = withAuth(async (request, ctx) => {
   const { id: projectId } = await ctx.params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
 
   const intel = await db.projectIntelligence.findUnique({
     where: { projectId },
@@ -73,9 +78,13 @@ export const GET = withAuth(async (_request, ctx) => {
  *   reportStatus: "in_review" | "approved" | "needs_revision" | "delivered"
  *   reviewNotes?: string
  *   reviewScore?: number (1-5)
+ *
+ * 权限（FIX-21，GATE 2 已定读权限）：项目读权限，处理函数第一步，在读请求体之前。
  */
 export const PATCH = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
 
   const intel = await db.projectIntelligence.findUnique({
     where: { projectId },
