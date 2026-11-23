@@ -209,11 +209,12 @@ console.log("\n━━━ 1. 词表、做法字段与模板对照 ━━━");
   const hdr = quoteHeaderSchema.parse({ engine: { entryMode: "LINE", tax: { hstPct: 13 } } }).engine as Record<string, unknown>;
   ok(!Object.keys(hdr).includes("entryMode") && (hdr.tax as { hstPct: number }).hstPct === 13, "专业模式保存（报价表头）不收做法字段：手工请求带 entryMode 也写不进去（开关关时与改前相同）", hdr);
   const dbEngine = engineConfigSchema.parse({ tax: { hstPct: 13 }, entryMode: "LINE" });
-  const patched = [{ entryMode: null }, { entryMode: "LUMP_SUM" }, {}].map((e) => engineConfigSchema.parse({ ...dbEngine, ...quoteHeaderSchema.parse({ engine: e }).engine }).entryMode);
-  ok(patched.every((m) => m === "LINE"), "库里已是逐行报价：专业模式保存传 null / 不认识的值 / 空配置，合并后做法都还在", patched);
+  const patched = [{ entryMode: null }, { entryMode: "LUMP_SUM" }, { entryMode: "FREESTYLE" }, {}].map((e) => engineConfigSchema.parse({ ...dbEngine, ...quoteHeaderSchema.parse({ engine: e }).engine }).entryMode);
+  ok(patched.every((m) => m === "LINE"), "库里已是逐行报价：专业模式保存传 null / 只报总价 / 不认识的值 / 空配置，合并后做法都还在（表头不收做法字段）", patched);
   ok(engineConfigSchema.parse({ tax: {}, entryMode: "LINE" }).entryMode === "LINE", "做法字段 LINE 被接受并保留");
-  const unknown = engineConfigSchema.safeParse({ tax: { hstPct: 13 }, scenarios: [{ key: "a", labelZh: "进攻", method: "MARGIN_ON_REVENUE", rate: 8 }], entryMode: "LUMP_SUM" });
-  ok(unknown.success && unknown.data.entryMode === undefined && unknown.data.tax?.hstPct === 13 && unknown.data.scenarios?.length === 1, "不认识的做法值（如回退后留下的 LUMP_SUM）：只丢掉这个字段，税与情景照旧，整份配置不失败", unknown);
+  // BIDPAGE-4 起 LUMP_SUM 是认识的做法（只报总价）；「不认识的做法」改用另一个未知值，被断言的行为不变
+  const unknown = engineConfigSchema.safeParse({ tax: { hstPct: 13 }, scenarios: [{ key: "a", labelZh: "进攻", method: "MARGIN_ON_REVENUE", rate: 8 }], entryMode: "FREESTYLE" });
+  ok(unknown.success && unknown.data.entryMode === undefined && unknown.data.tax?.hstPct === 13 && unknown.data.scenarios?.length === 1, "不认识的做法值（如回退后留下的未知值）：只丢掉这个字段，税与情景照旧，整份配置不失败", unknown);
   const merged = engineConfigSchema.parse({ ...engineConfigSchema.parse({ tax: {}, entryMode: "LINE" }), ...engineConfigSchema.parse({}) });
   ok(merged.entryMode === "LINE", "专业模式保存时回写空配置 {}：合并后做法字段还在（updateEngineQuote 的合并顺序）");
   ok(

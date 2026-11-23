@@ -717,6 +717,10 @@ run_test "读公开网页 入口：六条规则与安全护栏（假网络，TRE
 run_test "读公开网页 调研 Job 校验与审计 DB（隔离库执行，否则跳过，TREE-1）" "NODE_ENV=test npx tsx src/lib/web-reader/__tests__/web-reader-context-db.isolated.test.ts"
 run_test "读公开网页 边界与回归（假网络，TREE-1）" "npx tsx src/lib/web-reader/__tests__/web-reader-edges.test.ts"
 run_test "读公开网页 真实传输层（只连本机服务，TREE-1）" "npx tsx src/lib/web-reader/__tests__/web-reader-transport.test.ts"
+run_test "调研树骨架 纯函数：额度只能调低、分叉规则真值表、收尾状态与文案、六步图、外发闸、事实核对、提示、树干摘要、调研标记守卫（TREE-2）" "npx tsx src/lib/tender-research-tree/__tests__/research-tree-pure.test.ts"
+run_test "调研树分支循环：额度与到上限、被挡换来源、提示注入、外发闸、事实核对、跨片续跑、先写后发、开关关零动作（假搜索 / 假模型 / 假网络，TREE-2）" "npx tsx src/lib/web-reader/__tests__/tree2-research-branch.test.ts"
+run_test "调研树发起接口 DB：守卫、开关关 404 不建 Job、复用与并发双击、requestId 重放、非招投标 409（隔离库执行，否则跳过，TREE-2）" "NODE_ENV=test npx tsx src/lib/tender-research-tree/__tests__/research-tree-start-db.isolated.test.ts"
+run_test "调研树整棵经处理器跑完 DB：六步完成、树干写情报室、零出站、一支失败不连累、不标 AI 分析未完成、租约只给一处、开关关零变化（隔离库执行，否则跳过，TREE-2）" "NODE_ENV=test npx tsx src/lib/web-reader/__tests__/tree2-research-tree-job-db.isolated.test.ts"
 run_test "询价追踪页（T-2）" "npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx"
 run_test "询价追踪页 DB（隔离库执行，否则跳过，T-2）" "NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts"
 run_test "组织页 询价与落地价设置（W-2）" "npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx"
@@ -775,6 +779,9 @@ run_test "BIDPAGE-1 标书与报价页汇总接口 DB（隔离库执行，否则
 run_test "BIDPAGE-3 逐行报价：词表与模板对照、状态 ↔ 成本行往返、只动自己的行、四个数取引擎、分摊不变量与差额上限、校验、粘贴、旧草稿导入、接口写法（纯函数）" "npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts"
 run_test "BIDPAGE-3 ② 定报价新区块：列表与专业模式入口、新建两问、逐行表 7 列、四个数与差额说明、预置说明、导出（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx"
 run_test "BIDPAGE-3 逐行报价 DB+HTTP（开关 / 新建 / 存取 / 换人看到同样的数 / 金额门与各种身份 / 专业模式改过以后 / 并发 / 导出 / 另起新版 / 不写客户报价单与投标工作区；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts"
+run_test "BIDPAGE-4 只报总价：判定、类别对照、范围、销售税、验收 3 的数、算式、往返、专业模式改过以后、互转前后引擎结果相同与拒绝、接口写法（纯函数）" "npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts"
+run_test "BIDPAGE-4 ② 总价构成表：开始的 4 行、添加一项、默认填法与基数说明、六个数与算式、成本加成、算不出、明细与改回总数、其它成本行、互转入口、不写浏览器（渲染 + 源码断言）" "npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx"
+run_test "BIDPAGE-4 只报总价 DB+HTTP（开关 / 新建 / 验收 3 与 4 / 换人看到同样的数 / 明细与点选 / 其它成本行 / 并发 / 专业模式改过以后 / 金额门与各种身份 / 跨项目 / 互转往返与拒绝 / 导出原因 / 另起新版；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"

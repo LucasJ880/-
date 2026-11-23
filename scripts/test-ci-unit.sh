@@ -528,6 +528,11 @@ npx tsx src/lib/web-reader/__tests__/web-reader.test.ts
 NODE_ENV=test npx tsx src/lib/web-reader/__tests__/web-reader-context-db.isolated.test.ts
 npx tsx src/lib/web-reader/__tests__/web-reader-edges.test.ts
 npx tsx src/lib/web-reader/__tests__/web-reader-transport.test.ts
+# 情报调研树（TREE-2）
+npx tsx src/lib/tender-research-tree/__tests__/research-tree-pure.test.ts
+npx tsx src/lib/web-reader/__tests__/tree2-research-branch.test.ts
+NODE_ENV=test npx tsx src/lib/tender-research-tree/__tests__/research-tree-start-db.isolated.test.ts
+NODE_ENV=test npx tsx src/lib/web-reader/__tests__/tree2-research-tree-job-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx
@@ -585,6 +590,9 @@ NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/bid-page-summary-db.isolated
 npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts
 npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx
 NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts
+npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts
+npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx
+NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts
 # FIX-26a（openspec change quote-pdf-no-margin）：报价单 PDF 永远不印利润率
 npx tsx src/lib/quote/__tests__/export-customer-pdf.test.ts
 

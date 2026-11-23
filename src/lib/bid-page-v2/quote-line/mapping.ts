@@ -20,14 +20,17 @@ import {
   piecesPerUnit,
   readBidLineMeta,
   type BidLineMeta,
+  type FxEntry,
   type GoodsLineMeta,
   type LineModeState,
   type LineQuoteBasis,
   type LineRow,
   type LineRowSource,
   type PresetKey,
+  type PresetState,
   type SharedKey,
 } from "./contract";
+import { readLumpMeta } from "../lump-sum/contract";
 
 /** 成本行（库里的一行；与 `QuoteRecord["costLines"][number]` 字段相同，只取用到的） */
 export type DbCostLine = {
@@ -205,13 +208,14 @@ export function indexManagedLines(lines: readonly DbCostLine[]): ManagedIndex {
   return idx;
 }
 
-function fxFor(state: LineModeState, currency: string): { fxRate: number | null; fxRateSource: string | null } {
+function fxFor(state: { fx: Record<string, FxEntry> }, currency: string): { fxRate: number | null; fxRateSource: string | null } {
   if (currency === "CAD") return { fxRate: null, fxRateSource: null };
   const e = state.fx[currency];
   return { fxRate: e?.rate ?? null, fxRateSource: e?.source ?? null };
 }
 
-function goodsWrite(state: LineModeState, row: LineRow, lineNo: number, existing: DbCostLine | null): CostLineWrite {
+/** 一条货品行要写的内容（逐行表与总价表的明细共用；汇率取 state.fx） */
+export function goodsWrite(state: { fx: Record<string, FxEntry> }, row: LineRow, lineNo: number, existing: DbCostLine | null): CostLineWrite {
   const t = lineModeTemplate().goods;
   const meta: GoodsLineMeta = {
     v: 1,
@@ -249,7 +253,8 @@ function goodsWrite(state: LineModeState, row: LineRow, lineNo: number, existing
   };
 }
 
-function sharedWrite(state: LineModeState, key: SharedKey, existing: DbCostLine | null): CostLineWrite {
+/** 一条共用参数行要写的内容（总价 → 逐行的转换也用它补齐共用参数，design D9） */
+export function sharedWrite(state: LineModeState, key: SharedKey, existing: DbCostLine | null): CostLineWrite {
   const t = lineModeTemplate().shared[key];
   const meta: BidLineMeta = { v: 1, role: "shared", key };
   const s = state.shared;
@@ -293,7 +298,8 @@ function sharedWrite(state: LineModeState, key: SharedKey, existing: DbCostLine 
   };
 }
 
-function presetWrite(state: LineModeState, key: PresetKey, existing: DbCostLine | null): CostLineWrite {
+/** 一条预置行要写的内容（逐行表与总价表共用） */
+export function presetWrite(state: { presets: PresetState }, key: PresetKey, existing: DbCostLine | null): CostLineWrite {
   const t = lineModeTemplate().preset[key];
   const meta: BidLineMeta = { v: 1, role: "preset", key };
   const p = state.presets;
@@ -355,20 +361,11 @@ export function stateToWrites(state: LineModeState, current: readonly DbCostLine
 
 /* --------------------------------- 读 --------------------------------- */
 
-export function costLinesToState(
-  lines: readonly DbCostLine[],
-  quote: { pricingMethod: string; pricingRate: Prisma.Decimal | null },
-): { state: LineModeState; goodsIds: string[]; others: DbCostLine[]; notices: string[] } {
-  const idx = indexManagedLines(lines);
-  const notices: string[] = [];
-  const t = lineModeTemplate();
-  const goods = [...idx.goods.values()]
-    .map((l) => ({ l, meta: readBidLineMeta(l.metadata) as GoodsLineMeta }))
-    .sort((a, b) => a.meta.lineNo - b.meta.lineNo || a.l.sortOrder - b.l.sortOrder);
-
-  const fx: LineModeState["fx"] = {};
+/** 汇率读取：一种币取第一条带汇率的行；同一币种不同汇率时给一句提示（逐行表与总价表共用） */
+export function createFxReader() {
+  const fx: Record<string, FxEntry> = {};
   const fxSeen = new Map<string, Set<number>>();
-  const noteFx = (l: DbCostLine) => {
+  const note = (l: DbCostLine) => {
     if (l.sourceCurrency === "CAD") return;
     const r = num(l.fxRate);
     if (!fx[l.sourceCurrency]) fx[l.sourceCurrency] = { rate: r, source: l.fxRateSource };
@@ -379,10 +376,21 @@ export function costLinesToState(
       fxSeen.set(l.sourceCurrency, s);
     }
   };
+  const conflictNotices = () =>
+    [...fxSeen].filter(([, rates]) => rates.size > 1).map(([ccy, rates]) => `${currencyLabelZh(ccy)}在不同的行上填了不同的汇率（${[...rates].join("、")}），这里显示第一个，保存后统一成一个`);
+  return { fx, note, conflictNotices };
+}
 
+/** 货品行（逐行行身份 goods）→ 行；专业模式里改过的照实读出并提示（逐行表与总价表的明细共用） */
+export function readGoodsRows(goodsLines: Iterable<DbCostLine>, fxr: { note: (l: DbCostLine) => void }, notices: string[], rowWord = "第"): { rows: LineRow[]; ids: string[] } {
+  const t = lineModeTemplate();
+  const goods = [...goodsLines]
+    .map((l) => ({ l, meta: readBidLineMeta(l.metadata) as GoodsLineMeta }))
+    .sort((a, b) => a.meta.lineNo - b.meta.lineNo || a.l.sortOrder - b.l.sortOrder);
   const rows: LineRow[] = goods.map(({ l, meta }, i) => {
     const rowNo = i + 1;
-    noteFx(l);
+    const at = `${rowWord} ${rowNo} 行`;
+    fxr.note(l);
     const stored = num(l.unitCost);
     let unitPrice = meta.enteredUnitPrice;
     let basis: LineQuoteBasis = meta.basis;
@@ -391,12 +399,12 @@ export function costLinesToState(
       // 专业模式里直接改了单价：按改后的价（招标单位）读出
       unitPrice = stored;
       basis = "PER_TENDER_UOM";
-      if (stored != null || expected != null) notices.push(`第 ${rowNo} 行的供应商报价在专业模式里改过，这里按改后的价显示（已换成按招标单位）`);
+      if (stored != null || expected != null) notices.push(`${at}的供应商报价在专业模式里改过，这里按改后的价显示（已换成按招标单位）`);
     }
     const description = clip(meta.description, COST_LINE_DESCRIPTION_MAX) === l.description ? meta.description : l.description;
-    if (description !== meta.description) notices.push(`第 ${rowNo} 行的品名在专业模式里改过，这里按改后的显示`);
-    if (!l.included) notices.push(`第 ${rowNo} 行在专业模式里设成了不计入；在这里保存时会重新计入`);
-    if (l.category !== t.goods.category || l.calculationType !== t.goods.calculationType) notices.push(`第 ${rowNo} 行的类别或算法在专业模式里改过；在这里保存时会改回「货品：数量 × 单价」`);
+    if (description !== meta.description) notices.push(`${at}的品名在专业模式里改过，这里按改后的显示`);
+    if (!l.included) notices.push(`${at}在专业模式里设成了不计入；在这里保存时会重新计入`);
+    if (l.category !== t.goods.category || l.calculationType !== t.goods.calculationType) notices.push(`${at}的类别或算法在专业模式里改过；在这里保存时会改回「货品：数量 × 单价」`);
     return {
       costLineId: l.id,
       description,
@@ -413,20 +421,82 @@ export function costLinesToState(
       rowSource: meta.rowSource,
     };
   });
+  return { rows, ids: goods.map((g) => g.l.id) };
+}
+
+const algoChanged = (l: DbCostLine, tpl: TemplateSeed) => l.category !== tpl.category || l.calculationType !== tpl.calculationType || (l.calculationBase ?? null) !== (tpl.calculationBase ?? null);
+/** 共用参数行的类别 / 算法 / 基数在专业模式里改过（总价转换前要先判它，design D9） */
+export function sharedAlgoChanged(key: SharedKey, l: DbCostLine): boolean {
+  return algoChanged(l, lineModeTemplate().shared[key]);
+}
+
+/** 四条预置行 → 预置状态；删掉的按关掉读出、改了算法的提示（逐行表与总价表共用） */
+export function readPresets(preset: Partial<Record<PresetKey, DbCostLine>>, notices: string[]): PresetState {
+  const t = lineModeTemplate();
+  for (const key of ["financing", "admin", "cash_allowance", "commission"] as const) {
+    const l = preset[key];
+    if (l && algoChanged(l, t.preset[key])) notices.push(`「${PRESET_SHORT_ZH[key]}」的类别或算法在专业模式里改过；在这里保存时会改回原来的算法`);
+  }
+  const presetOf = (key: PresetKey) => {
+    const l = preset[key];
+    if (!l) {
+      notices.push(`「${PRESET_SHORT_ZH[key]}」这一行在专业模式里删掉了，这里先按关掉显示`);
+      return { ratePct: t.preset[key].rate ?? null, included: false, months: t.preset[key].duration ?? null };
+    }
+    return { ratePct: num(l.rate), included: l.included, months: num(l.duration) };
+  };
+  const fin = presetOf("financing");
+  const pick = ({ ratePct, included }: { ratePct: number | null; included: boolean }) => ({ ratePct, included });
+  return {
+    financing: { ratePct: fin.ratePct, months: fin.months, included: fin.included },
+    admin: pick(presetOf("admin")),
+    cashAllowance: pick(presetOf("cash_allowance")),
+    commission: pick(presetOf("commission")),
+  };
+}
+
+/** 专业模式里加的其它成本行用了另一个汇率时照实说，保存不会改它们 */
+export function othersFxNotices(others: readonly DbCostLine[], fx: Record<string, FxEntry>, word = "这里"): string[] {
+  const out: string[] = [];
+  for (const o of others) {
+    if (!o.included || o.sourceCurrency === "CAD") continue;
+    const r = num(o.fxRate);
+    const mine = fx[o.sourceCurrency]?.rate ?? null;
+    if (r != null && mine != null && r !== mine) out.push(`专业模式里加的「${o.description}」用的${currencyLabelZh(o.sourceCurrency)}汇率是 ${r}，和${word}的 ${mine} 不一样；在${word}保存不会改它，需要统一的话在专业模式里改`);
+  }
+  return out;
+}
+
+export function costLinesToState(
+  lines: readonly DbCostLine[],
+  quote: { pricingMethod: string; pricingRate: Prisma.Decimal | null },
+): { state: LineModeState; goodsIds: string[]; others: DbCostLine[]; notices: string[] } {
+  const idx = indexManagedLines(lines);
+  const notices: string[] = [];
+  const t = lineModeTemplate();
+  const fxr = createFxReader();
+  const fx = fxr.fx;
+  const { rows, ids: goodsIds } = readGoodsRows(idx.goods.values(), fxr, notices);
 
   const sh = idx.shared;
-  const algoChanged = (l: DbCostLine, tpl: TemplateSeed) => l.category !== tpl.category || l.calculationType !== tpl.calculationType || (l.calculationBase ?? null) !== (tpl.calculationBase ?? null);
+  // 总价报价转成逐行后留下的同名项（海运费金额等）：照样计入，提醒不要在共用参数里再填一遍（design D9）
+  const lumpSame = new Set(
+    idx.others.flatMap((o) => {
+      const m = readLumpMeta(o.metadata);
+      return o.included && m && (["ocean_freight", "customs", "duty", "domestic_freight"] as const).includes(m.key as SharedKey) ? [m.key as SharedKey] : [];
+    }),
+  );
   for (const key of ["ocean_freight", "customs", "duty", "domestic_freight"] as const) {
     const l = sh[key];
     if (!l) notices.push(`「${SHARED_SHORT_ZH[key]}」这一行在专业模式里删掉了，在这里保存时会重新建一条（空着就不计入）`);
     else {
-      if (l.included) noteFx(l);
+      if (l.included) fxr.note(l);
       if (algoChanged(l, t.shared[key])) notices.push(`「${SHARED_SHORT_ZH[key]}」的类别或算法在专业模式里改过；在这里保存时会改回原来的算法`);
     }
-  }
-  for (const key of ["financing", "admin", "cash_allowance", "commission"] as const) {
-    const l = idx.preset[key];
-    if (l && algoChanged(l, t.preset[key])) notices.push(`「${PRESET_SHORT_ZH[key]}」的类别或算法在专业模式里改过；在这里保存时会改回原来的算法`);
+    if (lumpSame.has(key)) {
+      const tail = key === "ocean_freight" ? "不要再在这里填柜数" : key === "duty" ? "不要再在这里填关税率" : "不要再在这里填一遍";
+      notices.push(`「${SHARED_SHORT_ZH[key]}」按金额算在下面「从只报总价转来的项」里（照样计入），${tail}，否则会算两遍`);
+    }
   }
   // 海运按柜：引擎算的是 数量（缺省 1）× 柜数 × 每柜；专业模式里改了「数量」时，这里按两者相乘读成柜数，保存后金额不变
   const oceanRaw = sh.ocean_freight ?? null;
@@ -441,27 +511,9 @@ export function costLinesToState(
   const dom = on(sh.domestic_freight);
   const duty = on(sh.duty);
 
-  const pr = idx.preset;
-  const presetOf = (key: PresetKey) => {
-    const l = pr[key];
-    if (!l) {
-      notices.push(`「${PRESET_SHORT_ZH[key]}」这一行在专业模式里删掉了，这里先按关掉显示`);
-      return { ratePct: t.preset[key].rate ?? null, included: false, months: t.preset[key].duration ?? null };
-    }
-    return { ratePct: num(l.rate), included: l.included, months: num(l.duration) };
-  };
-  const fin = presetOf("financing");
-
-  for (const [ccy, rates] of fxSeen) {
-    if (rates.size > 1) notices.push(`${currencyLabelZh(ccy)}在不同的行上填了不同的汇率（${[...rates].join("、")}），这里显示第一个，保存后统一成一个`);
-  }
-  // 专业模式里加的其它成本行不归逐行表管：它们用了另一个汇率时照实说，保存不会改它们
-  for (const o of idx.others) {
-    if (!o.included || o.sourceCurrency === "CAD") continue;
-    const r = num(o.fxRate);
-    const mine = fx[o.sourceCurrency]?.rate ?? null;
-    if (r != null && mine != null && r !== mine) notices.push(`专业模式里加的「${o.description}」用的${currencyLabelZh(o.sourceCurrency)}汇率是 ${r}，和这里的 ${mine} 不一样；在这里保存不会改它，需要统一的话在专业模式里改`);
-  }
+  const presets = readPresets(idx.preset, notices);
+  notices.push(...fxr.conflictNotices());
+  notices.push(...othersFxNotices(idx.others, fx));
   if (quote.pricingMethod !== "MARGIN_ON_REVENUE") notices.push("定价方式在专业模式里改成了成本加成率（按成本）；逐行报价只按目标毛利率（按售价）定价：请先填目标毛利率再保存，保存后会改回");
 
   return {
@@ -475,15 +527,10 @@ export function costLinesToState(
         domesticFreight: { amount: num(dom?.unitCost), currency: dom?.sourceCurrency ?? "CAD" },
         dutyPct: num(duty?.rate),
       },
-      presets: {
-        financing: { ratePct: fin.ratePct, months: fin.months, included: fin.included },
-        admin: (({ ratePct, included }) => ({ ratePct, included }))(presetOf("admin")),
-        cashAllowance: (({ ratePct, included }) => ({ ratePct, included }))(presetOf("cash_allowance")),
-        commission: (({ ratePct, included }) => ({ ratePct, included }))(presetOf("commission")),
-      },
+      presets,
       targetMarginPct: quote.pricingMethod === "MARGIN_ON_REVENUE" ? num(quote.pricingRate) : null,
     },
-    goodsIds: goods.map((g) => g.l.id),
+    goodsIds,
     others: idx.others,
     notices,
   };
