@@ -33,6 +33,8 @@ export type WorkspaceContext = {
   submission?: SubmissionRecord | null;
   /** FLOW-H4c：这个组织开了提交记录（「提交」页签上有「提交记录」可以补回执编号） */
   submissionRecordEnabled?: boolean;
+  /** CHAIN-3b：组织开了进口线索导入，且本项目至少有一条导入的进口记录（未被标为不采用）；缺省按没有 */
+  hasImportLeads?: boolean;
 };
 
 export type LineCheck = {
@@ -73,11 +75,13 @@ function checkLines(stored: StoredWorkspace | null, now: Date): LineCheck[] {
 }
 
 /** 「手头材料」由实际数据推导，不让用户勾选。 */
-export function deriveMaterials(stored: StoredWorkspace | null, ctx: Pick<WorkspaceContext, "documentCount" | "quotedSupplierCount">): MaterialKey[] {
+export function deriveMaterials(stored: StoredWorkspace | null, ctx: Pick<WorkspaceContext, "documentCount" | "quotedSupplierCount" | "hasImportLeads">): MaterialKey[] {
   const out: MaterialKey[] = [];
   if (ctx.documentCount > 0 || linesOf(stored).length > 0) out.push("TENDER_DOCUMENTS");
   if (stored?.documentHolders) out.push("DOCUMENT_HOLDER_LIST");
   if (ctx.quotedSupplierCount > 0) out.push("SUPPLIER_QUOTES");
+  // CHAIN-3b：CHAIN-3 导入的进口记录 = 人工提供的进口线索（「进口线索」阶段因此执行，只处理已导入的）
+  if (ctx.hasImportLeads === true) out.push("IMPORT_LEADS");
   return out;
 }
 
