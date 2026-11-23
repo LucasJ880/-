@@ -129,7 +129,7 @@ export function RfqWebEntryDrawer({ open, onClose, projectId, entry, onChanged, 
     }
   }
 
-  const replyText = entry.preview.replyBy ? `${monthDay(entry.preview.replyBy, entry.timeZone)}（截标日前留出余量）` : "请尽快（项目没有截标日）";
+  const replyText = entry.preview.replyBy ? `${monthDay(entry.preview.replyBy, entry.timeZone)}（截标日前留出余量）` : "请尽快（项目没有截标日，或离截标不到一天）";
   const title = created ? `第 ${created.roundNumber} 轮询价已生成` : "问供应商要价";
 
   const footer = created ? (

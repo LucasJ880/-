@@ -16,6 +16,39 @@
 - **WHEN** 读菜单、页签与情报室默认清单的源码
 - **THEN** 菜单选项里有 `supplier_rfq` 与「供应商询价单 PDF」，没有 `tech_confirm`、`china_supplier_brief`；失败时显示的是接口响应里的 `error`，生成结束后无论成败都收起下拉层；列表里已停用类型的记录带「已停用」，标记不在被截断的标题里；页签不再引用简报面板；默认交付物清单里没有 `china_supplier_brief`，仍有「厂家询价表」（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts` 源码断言）
 
+### Requirement: 询价单文件的内容来源
+`POST /api/projects/{id}/generate-pdf`（`docType: "supplier_rfq"`）SHALL 生成一份供应商询价单 PDF，内容与发询价时的询价单用同一套规则排出：当前可用招标分析（该项目最新一份等待审核或已批准的分析）里已确认的供应商侧要求与可用的关键事实（人工确认或高置信）、组织询价设置里的发件抬头、展示发件人与回复截止提前量、组织投标档案里的默认经办人（像人名时）、项目的截标日期、对供应商的中性询价编号。发起人填写项（数量阶梯、目的地、范围说明、附加问题）与贸易条款 SHALL 一律为空。起草日期 SHALL 取生成当时组织时区的日期。
+
+#### Scenario: 只收已确认的供应商侧要求
+- **WHEN** 项目的当前可用分析里有 3 条已确认的供应商侧要求、1 条已确认的保险类要求、1 条未确认的要求，生成 `supplier_rfq`
+- **THEN** 200，询价单里有那 3 条要求的编号与规格，没有保险类与未确认的那两条；抬头是组织询价设置里的发件抬头；贸易条款一栏是「请注明报价贸易条款」（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
+
+#### Scenario: 组织没有配置询价设置或项目没有组织
+- **WHEN** 项目所属组织没有保存过询价设置，或项目没有所属组织，生成 `supplier_rfq`
+- **THEN** 发件抬头与回复截止提前量用询价设置的默认值（与起草询价读同一份设置、同一个回落），起草日期用系统默认时区；照常生成（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`）
+
+#### Scenario: 起草日期按组织时区
+- **WHEN** 组织时区为 `America/Toronto`，在 UTC `2026-12-02T03:30:00Z` 生成
+- **THEN** 询价单上的起草日期是 `2026-12-01`（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`）
+
+### Requirement: 询价单文件不输出什么
+询价单文件 SHALL NOT 含 AI 分析综合里的任何文字（要求标题与说明、风险、报价关注、澄清问题），SHALL NOT 含项目 AI 上下文与项目描述，我方撰写的部分（标题、栏目名、固定文字、我方抬头）SHALL NOT 含项目名称。系统 SHALL NOT 读取项目记录上的我方报价、中标价、项目估值与预算，SHALL NOT 读取供应商库；询价设置里的展示发件人印在抬头；授权邮箱只用作邮箱格式检查的白名单，SHALL NOT 印出。要求的原文与译文是人工确认过的招标文本，照原样印出；关键事实按询价单生成规则取用（人工确认或高置信的；地点只印「城市, 省」）。这些招标文本只按「命中内部财务信息时不生成」里的既有检查把关，本能力不另加词表。招标身份（招标编号、采购方名称、截标日期、精确交货地址）与招标要求原文里恰好和项目名称相同的词，按 `tender/supplier-identity-guard` 处理。
+
+#### Scenario: 分析综合里写着毛利与预算
+- **WHEN** 项目的分析综合在技术要求说明里写着「毛利」「预算」与采购方名称，已确认的要求里没有这些词，生成 `supplier_rfq`
+- **THEN** 200，询价单的渲染内容里没有「毛利」「预算」与采购方名称（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
+
+#### Scenario: 生成代码不再读分析综合
+- **WHEN** 读生成文件的源码
+- **THEN** 供应商询价单的生成路径不引用分析综合的供应商询价表模板与简报正文拼装，也不拼接项目 AI 上下文（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts` 源码断言）
+
+### Requirement: 命中内部财务信息时不生成
+询价单内容命中询价单生成规则里的内部财务信息检查（发件抬头按全量敏感词表；要求的原文、译文与编号、交付要求、数量事实按「只属于我方内部的字段与词」，见 `tender/rfq-requirement-selection`「招标原文的内部字段检查」）时，接口 SHALL 返回 422、`errorCode: "SENSITIVE_LEAK"` 与说明「询价单没有生成，也没有保存文件：内容里有不能发给供应商的字样（如毛利、利润率、底价、我方预算）。请到「招标要求」在已确认的要求里找这些字样；组织管理员另请检查「询价与落地价设置」里的「发件显示名」。改不了的请联系管理员。」；SHALL NOT 写文件、SHALL NOT 建记录。说明 SHALL NOT 含命中的原文。
+
+#### Scenario: 已确认的要求里写着底价
+- **WHEN** 一条已确认的供应商侧要求的译文含「我方底价 12 元」，生成 `supplier_rfq`
+- **THEN** 422、`SENSITIVE_LEAK` 与上面那句说明，响应里没有「12 元」；生成记录数不变（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
+
 ## ADDED Requirements
 
 ### Requirement: 生成结果里的缺译文提醒

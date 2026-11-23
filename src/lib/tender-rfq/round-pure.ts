@@ -38,15 +38,23 @@ export function readTenderRfqSettings(settingsJson: unknown, env: NodeJS.Process
   };
 }
 
+/** 询价单抬头的联系人最多这么长；更长的多半不是一个人名（带了职务、电话、地址） */
+export const RFQ_CONTACT_NAME_MAX = 40;
+
 /**
  * RFQ-PDF-2：询价单抬头的联系人 = 组织投标档案报价抬头里的默认经办人
- * （Organization.settingsJson.tenderProfile.quoteHeader.preparedByDefault）。没填返回 null（抬头不印这一项）。
- * 只读这一个字段：电话、地址等不印在询价单上。
+ * （Organization.settingsJson.tenderProfile.quoteHeader.preparedByDefault）。只读这一个字段：电话、地址等不印在询价单上。
+ *
+ * 这个字段是给客户报价单用的 120 字自由文本，可能带电话或邮箱。询价单抬头只印「看起来是人名」的：
+ * 没填、超过 40 字、含「@」、或含 5 位以上连续数字（电话）→ 返回 null，抬头不印联系人这一项——
+ * 不因为档案里这一栏的写法让整份询价发不出去，也不会把授权邮箱或电话带到供应商面前。
  */
 export function readRfqContactName(settingsJson: unknown): string | null {
   const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
-  const name = obj(obj(obj(settingsJson)?.tenderProfile)?.quoteHeader)?.preparedByDefault;
-  return typeof name === "string" && name.trim() ? name.trim().slice(0, 120) : null;
+  const raw = obj(obj(obj(settingsJson)?.tenderProfile)?.quoteHeader)?.preparedByDefault;
+  const name = typeof raw === "string" ? raw.trim() : "";
+  if (!name || name.length > RFQ_CONTACT_NAME_MAX || name.includes("@") || /\d[\d\s().+-]{3,}\d/.test(name)) return null;
+  return name;
 }
 
 /* ---------------------------------- 轮次锁 ---------------------------------- */

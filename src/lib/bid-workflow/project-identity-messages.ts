@@ -46,5 +46,5 @@ export function identityLeakFieldMessageZh(hit: IdentityHit, hits: readonly Iden
 
 /** 供应商侧生成文件的说法 */
 export function identityLeakDocMessageZh(hits: readonly IdentityHit[]): string {
-  return `询价单没有生成，也没有保存文件：里面会出现招标身份信息（命中：${describeIdentityHits(hits)}）。请到「招标要求」核对已确认的要求；改不了的请联系管理员。`;
+  return `询价单没有生成，也没有保存文件：里面会出现招标身份信息（命中：${describeIdentityHits(hits)}）。命中在要求或数量的，请到「招标要求」核对；命中在抬头、联系人或询价附件的，请联系组织管理员。`;
 }

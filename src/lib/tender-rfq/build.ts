@@ -94,15 +94,19 @@ export type RfqBuildInput = {
   identity: { denyList: ProjectIdentityDenyList; reference: string };
   /** 我方对供应商的抬头（组织询价设置里的发件抬头） */
   buyerDisplayName: string;
-  /** RFQ-PDF-2：联系人（组织投标档案报价抬头里的默认经办人）；为空不印 */
+  /**
+   * RFQ-PDF-2：联系人（组织投标档案报价抬头里的默认经办人，round-pure.ts readRfqContactName 读出并筛过）；为空不印。
+   * 只印在询价单 PDF 的抬头，邮件正文不印——所以它不在这里过敏感词与身份检查，而是随附件的模板文字一起查
+   * （attachment.ts rfqAttachmentTemplateSegments：要印的时候才查；不带附件的询价不会因为它被拦）。
+   */
   contactName?: string | null;
   /** RFQ-PDF-2：印在询价单抬头的邮箱 = 询价设置里的展示发件人（不是授权邮箱）；不传则不印 */
   contactEmail?: string | null;
   /** 投标截标日（ISO）；回复截止见 computeReplyBy */
   closeDate: string | null;
   now: Date;
-  /** RFQ-PDF-2：组织时区（回复截止按当地日期算，与禁出清单里的截标日期同一口径）；缺省 UTC */
-  timeZone?: string;
+  /** RFQ-PDF-2：组织时区（回复截止按当地日期算，与禁出清单里的截标日期同一口径）。必填：漏传会让回复截止与禁出清单差一天 */
+  timeZone: string;
   requirements: RfqRequirementInput[];
   facts: RfqFactInput[];
   /** 希望供应商报价的数量阶梯（人填的）；为空时照印数量事实的原文，再没有则留给供应商注明 */
@@ -159,6 +163,11 @@ export type RfqDocument = {
   quantityTiers: number[] | null;
   /** 没填阶梯而有可用的数量事实时：事实的中文原文（带单位） */
   quantityFactZh: string | null;
+  /**
+   * 没填阶梯时从数量事实里解析出的数量（取原文里的第一个数字，与 RFQ-PDF-2 之前同一个解析）。
+   * 只用在邮件正文的数量行开头，让回信解析与落地价取到的「首档数量」和之前一样；不进附件。
+   */
+  quantityFactQty: number | null;
   /** 两者都没有时的那句话 */
   quantityNote: string | null;
   incoterm: string | null;
@@ -206,6 +215,14 @@ export const RFQ_COMPLIANCE_EVIDENCE_ZH = [
 
 /** 没有数量阶梯也没有数量事实时的那句话（保留「未明确」三个字：回信解析靠它判断正文没给数量） */
 export const RFQ_QUANTITY_UNKNOWN_ZH = "客户未明确数量，请按贵司常规阶梯（如 100 / 500 / 1000）分别报价。";
+
+function parseQuantity(text: string | null): number | null {
+  if (!text) return null;
+  const m = text.replace(/,/g, "").match(/(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 function fact(facts: RfqFactInput[], type: string): RfqFactInput | null {
   const ok = facts.filter(
@@ -304,7 +321,11 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
     }
     const group = GROUP_OF.get(category)!;
     const specOriginal = r.originalRequirement.trim();
-    const specZh = (r.chineseTranslation ?? "").trim() || specOriginal;
+    const translation = (r.chineseTranslation ?? "").trim();
+    const specZh = translation || specOriginal;
+    // 缺译文 = 没有译文（或译文就是原文）且原文不是中文。有译文就照印——中英混排的真译文（带标准号、缩写）
+    // 中文占比可能很低，不能按占比把它当成「没有译文」藏起来。
+    const missingZh = (!translation || translation === specOriginal) && needsChineseTranslation(specOriginal);
     items.push({
       requirementCode: r.requirementCode,
       category,
@@ -314,7 +335,7 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
       specZh,
       specOriginal,
       mandatory: r.mandatory,
-      missingZh: needsChineseTranslation(specZh),
+      missingZh,
     });
   }
   if (items.length === 0) {
@@ -335,6 +356,7 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
   const tiers = humanTiers.length ? humanTiers : null;
   const qtyFact = tiers ? null : fact(input.facts, "quantity");
   const quantityFactZh = qtyFact ? (qtyFact.contentZh.trim() || (qtyFact.contentOriginal ?? "").trim() || null) : null;
+  const quantityFactQty = quantityFactZh ? parseQuantity(qtyFact?.contentOriginal ?? qtyFact?.contentZh ?? null) : null;
   const quantityNote = tiers || quantityFactZh ? null : RFQ_QUANTITY_UNKNOWN_ZH;
 
   const deliveryFact = fact(input.facts, "delivery");
@@ -357,6 +379,7 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
     missingTranslationCount: lineItems.filter((i) => i.missingZh).length,
     quantityTiers: tiers,
     quantityFactZh,
+    quantityFactQty,
     quantityNote,
     incoterm: input.incoterm ?? null,
     destination,
@@ -369,11 +392,11 @@ export function buildRfqDocument(input: RfqBuildInput): RfqBuildResult {
   };
 
   // 出站硬闸（两档）：
-  //  - 人工自由文本（范围说明/自定义问题/抬头/联系人/目的地）用 china-supplier-brief 的全量模式（含 cost/budget/金额）；
+  //  - 人工自由文本（范围说明/自定义问题/抬头/目的地）用 china-supplier-brief 的全量模式（含 cost/budget/金额）；
   //  - 招标原文（规格、译文、要求编号、交付要求、数量事实）只用"我方内部字段"窄模式——招标文件本身常含
   //    "at no additional cost" / "$" 这类合法词，不能因此拒发；而估值/我方报价/毛利/预算这些永远不该出现在
   //    招标原文里，出现即说明数据被污染。
-  const freeText = [doc.buyerDisplayName, doc.contactName ?? "", doc.scopeNote ?? "", humanDestination ?? "", ...(input.extraQuestions ?? [])];
+  const freeText = [doc.buyerDisplayName, doc.scopeNote ?? "", humanDestination ?? "", ...(input.extraQuestions ?? [])];
   const specText = [doc.requiredLeadTimeNote ?? "", doc.quantityFactZh ?? "", ...doc.lineItems.flatMap((i) => [i.requirementCode, i.specZh, i.specOriginal])];
   const offending = [
     ...freeText.filter((t) => containsSensitiveSupplierBriefText(t)),
@@ -399,8 +422,6 @@ function rfqIdentitySegments(doc: RfqDocument, input: RfqBuildInput, humanDestin
   const segs: IdentitySegment[] = [
     { where: "询价编号", text: doc.reference, kind: "authored" },
     { where: "我方抬头", text: doc.buyerDisplayName, kind: "authored" },
-    { where: "联系人", text: doc.contactName ?? "", kind: "authored" },
-    { where: "联系邮箱", text: doc.contactEmail ?? "", kind: "authored" },
     { where: "补充说明", text: doc.scopeNote ?? "", kind: "human" },
     { where: "目的地", text: doc.destination ?? "", kind: humanDestination ? "human" : "tender" },
     ...(input.extraQuestions ?? []).map((q, i): IdentitySegment => ({ where: `第 ${i + 1} 条附加问题`, text: q, kind: "human" })),
@@ -422,6 +443,7 @@ export function rfqTemplateOnlyDocument(doc: RfqDocument, humanDestination: stri
     lineItems: doc.lineItems.map((li) => ({ ...li, specZh: "", specOriginal: "" })),
     requiredLeadTimeNote: null,
     quantityFactZh: null,
+    quantityFactQty: null,
     destination: humanDestination?.trim() || null,
   };
 }
@@ -439,10 +461,20 @@ export function rfqTradeTermsZh(doc: RfqDocument): string {
   return `${doc.incoterm ?? "请注明报价贸易条款"}${doc.destination ? `，目的地 ${doc.destination}` : ""}`;
 }
 
-/** 商务条件（邮件正文用；附件的「询价内容」用同样的写法，回复截止印在抬头） */
+/**
+ * 邮件正文数量行的写法。没填阶梯而有数量事实时，开头先写解析出的数量、括号里是事实原文：
+ * 回信解析（inbound-contract.ts rfqContextFromBody）取这一行的第一个数字当「首档数量」，落地价与比价都用它——
+ * 这样取到的数与 RFQ-PDF-2 之前相同；供应商同时看得到带单位的原文。解析不出数字时只写原文。
+ */
+export function rfqEmailQuantityZh(doc: RfqDocument): string {
+  if (!doc.quantityTiers && doc.quantityFactZh && doc.quantityFactQty !== null) return `${doc.quantityFactQty}（${doc.quantityFactZh}）`;
+  return rfqQuantityZh(doc);
+}
+
+/** 商务条件（邮件正文用；附件的「询价内容」只印前三项里有的，数量照印事实原文，回复截止印在抬头） */
 export function rfqCommercialTermsZh(doc: RfqDocument): Array<{ label: string; value: string }> {
   const out = [
-    { label: "数量", value: rfqQuantityZh(doc) },
+    { label: "数量", value: rfqEmailQuantityZh(doc) },
     { label: "贸易条款", value: rfqTradeTermsZh(doc) },
   ];
   if (doc.requiredLeadTimeNote) out.push({ label: "交付要求", value: doc.requiredLeadTimeNote });

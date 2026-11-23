@@ -16,7 +16,7 @@
 ### Requirement: 供应商侧生成文件
 「供应商询价单」（「一键生成文档」里的 `supplier_rfq`）是唯一的供应商侧生成文件，系统 SHALL 按以下规则生成：
 - 抬头只有标题「询价单」、我方抬头、联系人、展示发件人邮箱、询价编号、起草日期与回复截止；SHALL NOT 印项目名称、项目编号、采购方与投标截止。起草日期不参与禁出清单比对。
-- 内容只取自询价单本身（见 `tender/rfq-sheet-download`）；SHALL NOT 含项目 AI 上下文、项目描述与 AI 分析综合的文字，我方撰写的部分 SHALL NOT 含项目名称。
+- 内容只取自询价单本身（见 `tender/rfq-sheet-download`）；SHALL NOT 含项目 AI 上下文、项目描述与 AI 分析综合的文字，我方撰写的部分 SHALL NOT 含项目名称，因而不含客户、标号、预估金额、我方报价与中标价。
 - 目的地只取分析地点里的「城市, 省」，取不出就不写。
 - 生成之前，每一处供应商看得到的文字按询价邮件同样的口径过禁出清单与格式检查，模板固定文字另按我方撰写再查一遍，命中即不生成。
 
@@ -43,11 +43,11 @@
 - **THEN** 照常生成，渲染内容里没有采购方名称（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
 
 ### Requirement: 供应商侧文件命中时不生成
-供应商询价单生成之前，系统 SHALL 让整份内容过禁出清单与格式检查，项目名称类只查我方撰写的部分（标题、栏目名、固定文字与我方抬头）。命中时 SHALL NOT 写文件、SHALL NOT 建文件记录；生成接口 `POST /api/projects/{id}/generate-pdf` SHALL 返回 422、`errorCode: "IDENTITY_LEAK"` 与写明类别与位置的说明（「询价单没有生成，也没有保存文件：里面会出现招标身份信息（命中：{类别}·{位置}）。请到「招标要求」核对已确认的要求；改不了的请联系管理员。」）。说明 SHALL NOT 含命中的原文。
+供应商询价单生成之前，系统 SHALL 让整份内容过禁出清单与格式检查，项目名称类只查我方撰写的部分（标题、栏目名、固定文字与我方抬头）。命中时 SHALL NOT 写文件、SHALL NOT 建文件记录；生成接口 `POST /api/projects/{id}/generate-pdf` SHALL 返回 422、`errorCode: "IDENTITY_LEAK"` 与写明类别与位置的说明（「询价单没有生成，也没有保存文件：里面会出现招标身份信息（命中：{类别}·{位置}）。命中在要求或数量的，请到「招标要求」核对；命中在抬头、联系人或询价附件的，请联系组织管理员。」）。说明 SHALL NOT 含命中的原文。
 
 #### Scenario: 分析里的要求写了采购方
 - **WHEN** 当前可用分析里一条已确认的供应商侧要求 `R-07` 的原文写着采购方名称，生成供应商询价单
-- **THEN** 422、`IDENTITY_LEAK`，说明为「询价单没有生成，也没有保存文件：里面会出现招标身份信息（命中：采购方名称·要求 R-07）。请到「招标要求」核对已确认的要求；改不了的请联系管理员。」；生成记录数不变（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`；错误类型与说明见 `npx tsx src/lib/bid-workflow/__tests__/project-identity-deny.test.ts`）
+- **THEN** 422、`IDENTITY_LEAK`，说明为「询价单没有生成，也没有保存文件：里面会出现招标身份信息（命中：采购方名称·要求 R-07）。命中在要求或数量的，请到「招标要求」核对；命中在抬头、联系人或询价附件的，请联系组织管理员。」；生成记录数不变（`NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`；错误类型与说明见 `npx tsx src/lib/bid-workflow/__tests__/project-identity-deny.test.ts`）
 
 #### Scenario: 截标当天生成
 - **WHEN** 起草日期恰好等于截标日期
@@ -56,6 +56,17 @@
 #### Scenario: 回复截止落在截标当天
 - **WHEN** 在截标前 2 天生成供应商询价单（本次之前回复截止会落在截标当天并被拦下）
 - **THEN** 回复截止取截标前一天，照常生成，文件里没有截标日期（`npx tsx src/lib/tender-rfq/__tests__/sheet-download.test.ts`；经菜单路径端到端见 `NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/sheet-download-db.isolated.test.ts`）
+
+### Requirement: 项目名称只在我方撰写的部分比对
+项目名称类词条 SHALL 只在我方撰写的部分里比对：邮件标题、正文里由模板写的句子、发起人填写的栏目（补充说明、目的地、附加问题）、生成文件的抬头（含联系人）与固定文字。项目名称类词条 SHALL NOT 在招标要求的原文与译文、分析的交付要求事实与数量事实里比对。其余四类词条与格式检查 SHALL 在全部供应商可见内容里比对。
+
+#### Scenario: 要求原文与项目名称相同的词不拦
+- **WHEN** 项目名称为 `Sleeping Bags and Mats`，一条已确认的产品类要求写着 `Sleeping bags and mats shall be rated to -20C`
+- **THEN** 询价单生成成功，这条要求在行项里（`npx tsx src/lib/tender-rfq/__tests__/build.test.ts`）
+
+#### Scenario: 自己填的栏目写了项目名称
+- **WHEN** 同一项目，发起人在补充说明里写 `本轮只询 Sleeping Bags and Mats`
+- **THEN** 询价单生成失败，命中项目名称，位置为补充说明（同一测试）
 
 ## ADDED Requirements
 
