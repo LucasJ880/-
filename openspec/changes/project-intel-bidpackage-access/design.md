@@ -168,14 +168,15 @@
 
 新文件 `src/lib/projects/__tests__/project-routes-guard.test.ts`，不用数据库，进 CI 子集。用 TypeScript 编译器解析源码，按语法树判断，注释里的字不算数；不用正则扫文本。
 
-**枚举**：目录下所有名为 `route.ts` 或 `route.tsx` 的文件（与 FIX-17 的 `files-route-guard.test.ts` 一致），每个文件导出的每个 `GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS`。
+**枚举**：目录下所有名为 `route.ts`、`route.tsx`、`route.js`、`route.jsx`、`route.mjs` 的文件（`tsconfig` 是 `allowJs: true`，`next.config.ts` 没设 `pageExtensions`；交叉验证 F4 加了后三种，按扩展名选解析方式），每个文件导出的每个 `GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS`。
 
 **规则**（多维审查后收紧，Lucas 2026-11-23 的修订清单第 1、14 条）：
 
 1. 认不出处理函数正文的导出写法判失败：
    - `export { … }`、`export * from`、解构的 `export const { GET, POST } = handlers`；
    - `export const GET = 某个变量`、`withAuth(某个函数名)` 这类正文不在导出语句里的写法；
-   - 包装函数只认从 `@/lib/common/api-helpers` 导入的 `withAuth`，别的包装函数（如 `withRateLimit(async …)`）判失败。
+   - 包装函数只认从 `@/lib/common/api-helpers` 导入的 `withAuth`，别的包装函数（如 `withRateLimit(async …)`）判失败；
+   - 导出的处理函数必须是 `const`（`export let POST = …` 判失败），模块顶层对它重新赋值也判失败（交叉验证 F3）。
 2. 处理函数里必须调用名单里的一个守卫。守卫、守卫结果的判定函数（`isAccessError`，只认 `@/lib/tender-auto-analysis/api-access` 导出的）、`NextResponse`（只认 `next/server` 导出的）都按导入的来源模块与原始导出名认定：
    - `import { requireDiagnosticProjectReadAccess as requireProjectReadAccess }` 按 diagnostic-access 认；
    - 从别处导入的同名函数、文件里自己定义的同名函数不算；
@@ -185,17 +186,19 @@
    - 取路由参数：`const { id } = await ctx.params`、`const p = await params`（`ctx` 是处理函数的第二个参数，名字不限；`params` 是第二个参数写成 `{ params }` 时解构出来的，如 `src/app/api/projects/[id]/route.ts`）；
    - 读请求体：`const body = await request.json() / formData() / text()`（`request` 是处理函数的第一个参数，名字不限），可接 `.catch(() => 常量)`，例如 `await request.json().catch(() => ({}))`；先 `let body;` 再 `body = await request.json()`；以及 `join-brief` 的 `try { body = await request.json(); } catch { return 400 }`（读失败只回一个内容由常量构成的 400）；
    - 常量别名：`const M = 文件顶层常量`（`tender-rfq/attachment` 的写法），不含调用、`await`、`new`、赋值。
-   其余一律判失败：任何表达式语句（不 `await` 的调用、`void …`、`after(…)`、`.catch(…)`）、`if`、提前 `return`、`await` 别的调用、`.catch` 里不是返回常量。数据库按导入来源认：`@/lib/db` 的 `db` 及其别名导入（`import { db as prisma }`），出现在守卫之前就点名「碰了数据库」。
+   其余一律判失败：任何表达式语句（不 `await` 的调用、`void …`、`after(…)`、`.catch(…)`）、`if`、提前 `return`、`await` 别的调用、`.catch` 里不是返回常量。数据库按导入来源认：`@/lib/db` 的 `db` 及其别名导入（`import { db as prisma }`）、命名空间导入（`import * as m from "@/lib/db"`）、路径以 `/db` 或 `/prisma` 结尾的模块、`@prisma/client` 的 `PrismaClient` 与名为 `prisma` / `prismaClient` 的导入，出现在守卫之前就点名「碰了数据库」——不论严格还是第 11 条的名单（交叉验证 F1、F2）。
+   允许的语句里嵌着的代码也算（交叉验证 F1）：守卫之前的解构不许带默认值或计算键（`const { id, _x = await db.… } = await ctx.params`、`const { [String(await f())]: x } = …` 判失败）；处理函数的参数不许带默认值（`(request, ctx, user, _p = db.…)` 判失败），解构参数同样；`catch` 的变量只能是一个名字。
 4. （并入第 3 条。）
 5. 守卫的返回值必须赋给一个变量，并且下一条语句就检查它，不通过就直接返回，中间不做别的事（`if` 分支里只有这一条 `return`，没有 `else`）：
    - 返回响应的守卫：`if (x instanceof NextResponse) return …` 或 `if (isAccessError(x)) return …`；
    - 返回布尔的守卫：`if (!x) return …`；
-   - 返回的只能是：守卫结果 `x` 本身；`NextResponse.json(常量, { status: 401 | 403 | 404, … })`；文件里由常量构造拒绝页的辅助函数（第一个参数是 401 / 403 / 404，其余参数是常量，如 `tender-rfq/attachment` 的 `messagePage(404, M.notFound)`；或没有参数、正文直接返回一个上面那种响应的 `const notFound = () => …`）；三元的两边各自满足（条件里不得有调用），如 `tender-intel/sourcing` 的 `access.status === 401 ? access : NextResponse.json({ … }, { status: 404 })`。返回 200、先调用别的函数再返回，都判失败。
+   - 返回的只能是：守卫结果 `x` 本身；`NextResponse.json(常量, { status: 401 | 403 | 404, … })`；文件里由常量构造拒绝页的辅助函数（实参都是常量）；三元的两边各自满足（条件里不得有调用），如 `tender-intel/sourcing` 的 `access.status === 401 ? access : NextResponse.json({ … }, { status: 404 })`。返回 200、先调用别的函数再返回，都判失败。
+   - 拒绝页辅助函数要检查它的正文（交叉验证 F5）：不 `await`、不碰数据、没有内层函数，只调用字符串的 `replace(…)`、`NextResponse.json(…)` 与 `new NextResponse(…)`；参数没有默认值；每个返回值都是 `NextResponse.json(…, { status })` 或 `new NextResponse(…, { status })`，`status` 是 401 / 403 / 404 字面量，或是它的某个参数、调用处对应的实参是 401 / 403 / 404（`tender-rfq/attachment` 的 `messagePage(status, message)` 是这样）。探针 N20（`page(404)` 里先删库再返回 200）判失败。
 6. 第一次调用守卫的那条语句，必须是处理函数正文的顶层语句，形如 `const x = await 守卫(…)`；不能在 `if`、`try`、循环、三元、`&&` / `||` / `??`、内层函数里。
 7. 紧接着的下一条语句就是第 5 条的检查。先调守卫、读完库再检查结果，判失败。
 8. 检查的是地址里的项目，也是这个请求：
    - 守卫的项目参数（第二个参数）必须是 `const` 解构路由参数里 `id` 这个键得到的变量（`const { id } = await ctx.params` 的 `id`，或 `const { id: projectId } = await params` 这类改名后的变量），或 `const p = await ctx.params` 的 `p.id`；`let` 绑定、处理函数里任何地方对它重新赋值（含解构赋值、`++`）都判失败；
-   - 守卫之后不得再取一次路由参数（防止「守卫查一个、后面用另一个」）；
+   - 守卫之后不得以任何方式再用路由参数（防止「守卫查一个、后面用另一个」，交叉验证 F6）：守卫之后的语句里出现处理函数第二个参数（`ctx`，含 `await ctx.params.then(…)`、把 `ctx` 交给别的函数）或解构出的 `params`，都判失败；
    - 传的是嵌套路由的其它参数（`quoteId`、`runId` 等），或请求体、查询串里的另一个项目，判失败；
    - 返回响应的守卫，第一个参数必须是处理函数收到的请求本身（第一个参数），伪造的请求判失败。
 9. 例外名单里的文件按「已下线」检查：只导入 `next/server`，不出现 `db`，不出现 `await`，正文里返回 410。例外名单里的文件不存在也判失败，提示删掉这条例外。
@@ -204,7 +207,10 @@
     - `src/app/api/projects/[id]/route.ts` `PATCH`：鉴权前先过运行环境隔离闸 `assertNonProdSideEffectsAllowed("write")`，非生产环境禁写时直接返回它的响应；
     - `finance/expenses/[expenseId]/route.ts` `PATCH`：按请求体里的动作算出 `requireCostAccess` 要的权限；
     - `quote-engine/[quoteId]/status/route.ts` `POST`：先校验请求体里的目标状态（无效回 400「无效状态」），再按目标状态选 `requireQuoteAccess` 的级别。
-    改它们不在本 change 范围（不顺手改别的接口），所以列进名单：名单里的处理函数在守卫之前额外允许不含 `await`、不碰数据的 `const` 声明与 `if (…) return …`，其余规则照旧；它们改成守卫第一步之后测试会提示删掉对应条目（名单只减不增）；名单里的文件或方法不在了也判失败。新接口不进这个名单。改它们登记为后续任务。
+    改它们不在本 change 范围（不顺手改别的接口），所以列进名单。名单里的处理函数在守卫之前额外允许（交叉验证 F2 收紧后）：
+    - `const` 声明与没有 `else` 的 `if (…) return …`，里面不 `await`、不赋值、没有内层函数、不碰数据，调用的只能是这一份明确的函数名单（就是这 3 个处理函数实际用到的）：从 `@/lib/env/runtime-isolation` 导入的 `assertNonProdSideEffectsAllowed`、`String(…)`、`new Set(…)`、`x.has(…)`、`x.includes(…)`；
+    - 守卫前的 `return` 只许返回闸的结果（赋给 `const` 的 `assertNonProdSideEffectsAllowed(…)` 的返回值），或 4xx / 5xx 的 `NextResponse.json(常量, { status })`，不许 200；
+    - 其余规则照旧；名单是冻结的 3 项集合 `PRE_GUARD_PREP_FROZEN` 的子集（新接口加进名单就失败）；它们改成守卫第一步之后测试会提示删掉对应条目；名单里的文件或方法不在了也判失败。改它们登记为后续任务。
     - 被否决：照修订清单的字面「守卫之前一律不允许 return / 表达式」直接收紧。这 3 个既有处理函数会不过（审查时以为 0 个），要么本 change 去改它们（超范围），要么测试一直红。
     - 被否决：对所有处理函数放宽成「守卫之前允许不 `await`、不碰数据的预处理」。新接口就又能先判开关再调守卫，修订清单要堵的正是这个。
 12. 检查器自测。下面每一种写法都必须被指出：
@@ -215,7 +221,8 @@
     - 守卫只在 `if` / `try` / 三元里调用；
     - 守卫查的是请求体里的另一个项目 ID（`body.projectId`、从请求体解构出的 `projectId`）、嵌套路由的另一个参数；项目 ID 用 `let` 绑定；守卫之后对它重新赋值；守卫之后又从 `ctx.params` 取一次 `id`；守卫的第一个参数不是处理函数收到的请求；
     - 例外接口被改回干活（读库、`await`、不再返回 410）；例外名单里的文件不存在、方法不存在；
-    - 预处理名单：同一写法不在名单里判失败；名单里的处理函数在守卫之前 `await` 别的调用、碰数据库仍判失败；名单里的处理函数改成守卫第一步后提示删掉这一条；名单里的方法不存在。
+    - 预处理名单：同一写法不在名单里判失败；名单里的处理函数在守卫之前 `await` 别的调用、碰数据库仍判失败；名单里的处理函数改成守卫第一步后提示删掉这一条；名单里的方法不存在；审查员的 L01–L06（不 `await` 地调写函数、`if (写函数()) return`、命名空间导入 `db`、别的 prisma 客户端、守卫前 return 200、新接口加进名单）；
+    - 交叉验证补的：取路由参数 / 读请求体的解构默认值里写库、解构默认值调用别的函数、计算键藏调用、处理函数参数默认值（含解构参数的默认值）；`export let POST`、模块顶层对处理函数重新赋值；拒绝页辅助函数里删库再返回 200（N20）、状态码来自参数而调用处传 200、辅助函数里调用别的函数；守卫之后 `ctx.params.then(…)`、把 `ctx` 交给别的函数、再用 `params`；`route.mjs` 里漏了检查；枚举认 `route.js / .jsx / .mjs`、不认 `page.tsx` 与 `route.test.ts`。
 
     下面几种正例必须通过（正例都是合成的、不在任何名单里的路由源码，同时覆盖规格「新加的接口不用登记」）：
     - 先过守卫再碰数据的 `withAuth` 写法与 `export async function` 写法；第二个参数解构出 `{ params }` 再 `await params`；
@@ -435,10 +442,10 @@
   - 改用名单里的守卫，或把新守卫连同出处加进名单；
   - 按内容选级别时，先不带条件地调读权限守卫，再在分支里调写权限守卫，照 `join-brief/route.ts:104-111` 的写法。
   - 名单故意不认「任意名字里带 Access 的函数」。
-- [守卫测试靠读源码判断，仍有认不出的写法（已知盲区）] 收紧后（第 3、5、8 条），守卫之前不 `await` 地调用导入的写库函数、`const { projectDocument } = db` 再用、伪造第一个参数都会被指出。仍认不出的：
+- [守卫测试靠读源码判断，仍有认不出的写法（已知盲区）] 收紧后（第 3、5、8、11 条与交叉验证 F1–F6），守卫之前不 `await` 地调用导入的写库函数、`const { projectDocument } = db` 再用、解构默认值 / 计算键 / 参数默认值里藏调用、伪造第一个参数、拒绝页辅助函数里写库都会被指出。仍认不出的：
   - 名单里的守卫函数本身写错（测试只认来源，不查守卫内部）；守卫结果检查通过之后的行为（例如只按 `access.user` 再查一次别的项目）；
-  - 守卫前预处理名单里那 3 个处理函数在守卫之前的不 `await` 调用里藏副作用（第 11 条，名单只减不增，改它们是后续任务）；
-  - 常量表达式里的属性读取若是有副作用的 getter；
+  - 按名字认的调用：守卫前预处理名单里的 `x.has(…)` / `x.includes(…)`、拒绝页辅助函数里的 `x.replace(…)` 只看方法名，接收者若是自己写的、带副作用的对象认不出；`String(x)` 触发的自定义 `toString`、常量表达式里属性读取触发的 getter 也认不出；
+  - 名为 `prisma` 以外、也不从 `/db`、`/prisma`、`@prisma/client` 导入的数据库客户端（例如别的名字的包装模块），在守卫之前用到时只会被「做了取路由参数、读请求体以外的事」指出，不会点名「碰了数据库」——严格规则下仍判失败，只是说明不一样；
   - 不在 `src/app/api/projects/[id]/` 下、却按项目 ID 读写的接口（如 `/api/agent/tasks/recent`，后续任务 FIX-23）。
   行为由隔离库测试兜底（本次 6 个处理函数）。
 - [依赖 FIX-17] FIX-17 没合并时，目录守卫测试会指出 `files/` 下那 2 个处理函数。FIX-17（#548）合并后把 main 合入本分支再开工（tasks 开头的开工前提与 1.1）。

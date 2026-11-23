@@ -57,7 +57,7 @@
 
 ### 2.3 新增测试
 
-- `src/lib/projects/__tests__/project-routes-guard.test.ts`（不用数据库，进 CI 子集），共 74 项。它用 TypeScript 编译器按语法树检查整个 `src/app/api/projects/[id]/` 下每个 `route.ts` / `route.tsx` 的每个处理函数，规则见 design D9 第 1–13 条，多维审查后收紧：
+- `src/lib/projects/__tests__/project-routes-guard.test.ts`（不用数据库，进 CI 子集），共 98 项（交叉验证 F1–F6 补齐后；多维审查后是 74 项）。它用 TypeScript 编译器按语法树检查整个 `src/app/api/projects/[id]/` 下每个 `route.ts` / `route.tsx` 的每个处理函数，规则见 design D9 第 1–13 条，多维审查后收紧：
   - **取路由参数、读请求体之后的第一步就是守卫**：
     - 守卫之前只允许取路由参数、读请求体（含 `.catch(() => 常量)` 与 `join-brief` 的 `try` / 400）、取文件常量的别名；
     - 任何表达式语句、提前 `return`、`if`、`await` 别的调用都判失败；
@@ -75,8 +75,16 @@
     - 例外名单 1 个（已下线的 `inquiries/batch-followup` `POST`）；
     - **守卫前预处理名单 3 个**（§3、§4 第 5 条），名单只减不增。
   - **自测与比较**：
-    - 检查器自测 63 项；真实目录 8 项；
+    - 检查器自测 86 项；真实目录 9 项；
     - 一键投标方案两个路由照抄的固定提示与 `dto.ts` 按源码文本比较 3 项。
+  - **交叉验证补的**（F1–F6，只改测试与文档，没有改路由）：
+    - 守卫之前的解构不许带默认值或计算键，处理函数参数不许带默认值；碰了数据，不论严格还是名单都判失败；
+    - 守卫前预处理名单冻结成 3 项集合（新接口加进去就失败），名单里的处理函数守卫前只许调用运行环境闸、`String`、`new Set`、`.has`、`.includes`，守卫前只许返回闸的结果或 4xx / 5xx；
+    - 命名空间导入 `db`、别的模块的 prisma 客户端、`PrismaClient` 都算数据库；
+    - 导出的处理函数必须 `const`，模块顶层不许重新赋值；
+    - 拒绝页辅助函数查正文（不碰数据、不调别的函数、只返回 401 / 403 / 404）；
+    - 守卫之后不以任何方式再用路由参数（含 `.then(…)`、把 `ctx` 交给别的函数）；
+    - 枚举 `route.ts / .tsx / .js / .jsx / .mjs`。
   - **以后新加的接口写法合规就通过，不用改测试里的任何名单**：测试每次现场枚举目录，数目只断言下限（≥ 170 个文件、≥ 240 个处理函数）。
     - 认 `{ params }` 解构后 `await params` 的写法（`src/app/api/projects/[id]/route.ts`）。FIX-17 那份检查器会把它误判成「第一个 await 不是守卫」；那份只扫 `files/`，这份扫全目录，没有这个误报。
     - 认 BIDPAGE `bid-page-summary` 现行版本（`9b0828ac`）的写法：守卫第一步，之后才判开关。
@@ -167,6 +175,18 @@
 7. **design D13（新）**：一键投标方案两个接口只认 `ai_bid_package` 任务。
 8. **design D10、Risks、验证方式**：按新夹具、已知盲区、变异与归档演练改写。tasks 3.2 的后续任务第 6、7 条行号改成改动后的（`review/route.ts:84`、`:133-140`，`ai-bid-package/route.ts:29-35`），并新增第 9–13 条。
 
+9. **交叉验证（F1–F6）后又改了**：
+   - 守卫测试按 F1–F6 收紧（只改测试文件）；
+   - 规格 `route-access-guard` 措辞对齐检查器真正做到的：
+     - 守卫之前的解构不带默认值 / 计算键、参数不带默认值；
+     - 拒绝页辅助函数本身不读写数据、只返回 401 / 403 / 404；
+     - 检查之后不以任何方式再用路由参数；
+     - 导出必须 `const`；
+     - 命名空间导入与别的 prisma 客户端算数据库；
+     - 预处理名单是那 3 个的子集，名单里守卫前只调用列明的函数、只返回闸的结果或 4xx / 5xx；
+     - 补了 4 个 Scenario。
+   - design D9 与「已知盲区」改写。盲区里新写了这几种：按方法名认的 `.has` / `.includes` / `.replace`、`toString` / getter 副作用、别的名字的数据库包装模块（严格规则下仍判失败，只是不点名「碰了数据库」）。
+
 除第 5 条的预处理名单（不改对外行为，但和清单的前提不一样，已标出）外，都不改变范围或对外行为。`OPENSPEC_TELEMETRY=0 openspec validate project-intel-bidpackage-access --strict` 仍 valid。
 
 ## 5. 验证
@@ -180,7 +200,7 @@
 
 **改动前**：
 - 怎么跑的：最终版测试文件，对 origin/main 版本的 4 个路由文件跑（临时换回、跑完还原）。
-- 结果：退出码 1，**71 通过、3 失败**；检查器自测 63 项全部通过。
+- 结果：退出码 1，**95 通过、3 失败**（交叉验证补齐后；多维审查后那一版是 71 / 3）；检查器自测 86 项全部通过。
 - 真实目录 176 个文件、251 个处理函数：
   - 失败清单**只点名本次 6 个**；
   - 严格通过 241 个，守卫前预处理名单 3 个，例外 1 个，零误报。
@@ -196,11 +216,11 @@
   - src/app/api/projects/[id]/intelligence/review/route.ts PATCH：没有调用名单里的项目权限守卫（守卫按导入它的模块与原始导出名认定）
   ✗ src/app/api/projects/[id]/ai-bid-package/route.ts 照抄的 SAFE_STEP_ERROR_MESSAGE 与 dto.ts 一字不差 {"copied":null,…}
   ✗ src/app/api/projects/[id]/ai-bid-package/run-step/route.ts 照抄的 SAFE_STEP_ERROR_MESSAGE 与 dto.ts 一字不差 {"copied":null,…}
-FIX-21 project routes guard: 71 passed, 3 failed
+FIX-21 project routes guard: 95 passed, 3 failed
 ```
 
 **改动后**：
-- 结果：退出码 0，**74 通过、0 失败**；
+- 结果：退出码 0，**98 通过、0 失败**（多维审查后那一版是 74 / 0）；
 - 真实目录：`✓ 每个处理函数都先过项目级权限检查（严格通过 247 个，守卫前预处理名单 3 个，例外 1 个，不过 0 个）`。
 
 **收紧前的版本**（第一轮，提交 `f462a463` 及以前）：改动前 44 / 1，改动后 45 / 0。
@@ -298,6 +318,12 @@ FIX-17 两个测试改动后仍通过：守卫 17 / 0，隔离库 60 / 0。
 
 - **全量库的建法**：按 impl 约定，全量库应先跑 `prisma migrate reset --force --skip-seed`。Prisma 对 AI 代理执行 `migrate reset` 要求人当面同意，所以改为删掉并重建这个只给本 change 用的库 `qy_full_fix21`，再跑 `prisma migrate deploy`（42 个迁移全部应用）。效果等同于 reset 后的空库。
 - **第一轮全量**：在 `5d3032b9` 上 709 / 719，失败的同样是这 10 项。
+- **交叉验证（F1–F6）后**：只改了守卫测试文件与文档，路由代码自 `dcf9f9a3` 起没有变，按协调会话的口径不重跑全量。合入 main `f332dd91`（`882f696f`）后重跑：
+  - 目录守卫 98 / 0（176 个文件、251 个处理函数：严格 247 + 名单 3 + 例外 1，不过 0）；
+  - 隔离库 148 / 0（`qy_iso_d`）；FIX-17 守卫 17 / 0；
+  - `npm run test:ci` PASS（目录守卫 98 / 0）；`npm run typecheck` 0；`npm run lint:baseline` PASS；
+  - `check-test-registry` OK（已注册 691 个，基线 66 条不变）；`test-runtime-architecture` PASS；
+  - `openspec validate --strict` valid；归档演练 149 / 0 → 151 / 0，要求正文最长 462 字。
 - **多维审查修订后的全量**：
   - 先合入 main `22a87fb7`（`56e91b05`），再在 `dcf9f9a3` 上跑；
   - 之后只改了文档（报告、proposal），没有再改代码或测试。
@@ -395,7 +421,9 @@ TASKFLOW 后续任务的行数：
 | `56e91b05` | 合入 main `22a87fb7`（#544、#552、#553 等），没有冲突 |
 | `9ad0b8d8` | 多维审查修订 A1–A3：目录守卫收紧；守卫前预处理名单；一键投标方案只认 `ai_bid_package` 任务；固定提示一致性挪进守卫测试；隔离库测试 114 → 148；规格与 design 改写 |
 | `dcf9f9a3` | 多维审查修订 A4 / A2-13 / B：生产只读核查 SQL；tasks 3.2 后续任务第 9–13 条与行号；TASKFLOW 登记 |
-| （本提交） | 报告按多维审查修订改写，门禁复跑结果 |
+| `8da9e2d5` | 报告按多维审查修订改写，门禁复跑结果 |
+| `882f696f` | 合入 main `f332dd91`（#555 等），没有冲突 |
+| （本提交） | 交叉验证 F1–F6：守卫测试补洞（74 → 98 项），规格 `route-access-guard` 与 design D9 / 已知盲区措辞对齐；没有改路由代码，按协调会话的口径不重跑全量 |
 
 ## 12. 多维审查
 
