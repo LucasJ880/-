@@ -393,6 +393,8 @@ npx tsx src/lib/project-finance/__tests__/finance-access.test.ts
 # CHAIN-2c：更换项目负责人（纯判定 + 四个入口与卡片的源码断言；DB 用例无隔离库时跳过）
 npx tsx src/lib/projects/__tests__/owner-change.test.ts
 NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts
+# CHAIN-2e：比价落地价与报价引擎按财务查看权（隔离库执行，CI 无隔离库时跳过）
+NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-view-compare-quote-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts
@@ -482,6 +484,8 @@ NODE_ENV=test npx tsx src/lib/procurement-records/__tests__/closing-tz-db.isolat
 npx tsx src/lib/procurement-records/__tests__/disclosure-analysis-pure.test.ts
 
 # P1-6G：比价解读数字校验（纯逻辑，无 DB / 无 AI）
+# CHAIN-2e：比价矩阵财务查看权裁剪、无金额结论、模型输入，以及两条比价接口与追踪页的接线（源码断言）
+npx tsx src/lib/tender-rfq/__tests__/compare.test.ts
 npx tsx src/lib/tender-rfq/__tests__/interpretation-guard.test.ts
 
 # W-1：询价 Web 入口（纯逻辑，无 DB / 无 AI）

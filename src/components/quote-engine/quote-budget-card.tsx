@@ -3,12 +3,14 @@
 /**
  * 工作台「报价与成本」卡（任务书 §17 最小入口，不改 Tab IA）：
  * 当前报价 / 已批准或已 award 报价 / 版本 / Bid / 估算成本 / 毛利率 / 状态 → 一键进 Pricing Control Center。
- * flag OFF → API 404 → 自渲染 null。内部 KPI 仅 internal_cost 权限可见。
+ * flag OFF → API 404 → 自渲染 null。内部 KPI 仅 internal_cost 权限（财务查看权）可见；没有时写一句谁能看、找谁（CHAIN-2e）。
+ * CHAIN-2e：不能新建的人不显示「去创建报价」与「在「投标」tab 新建…」，还没有报价时改写为什么、下一步。
  */
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Calculator } from "lucide-react";
 import { apiJson } from "@/lib/api-fetch";
+import { quoteHintLinesZh } from "@/lib/quote-engine/finance-hint";
 import { money, type QuoteEngineListPayload, type QuoteEngineRow } from "./quote-engine-section";
 
 export function QuoteBudgetCard({ projectId, onOpenBid }: { projectId: string; onOpenBid?: () => void }) {
@@ -35,10 +37,11 @@ export function QuoteBudgetCard({ projectId, onOpenBid }: { projectId: string; o
     <div className="rounded-xl border border-border bg-card-bg p-4 sm:p-5" data-testid="quote-budget-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Calculator size={16} className="text-accent/60" />报价与成本<span className="text-[10px] font-normal text-muted">Budget / Quote · 成本与卖价分离</span></h3>
-        {onOpenBid ? <button type="button" onClick={onOpenBid} className="rounded border border-border px-2 py-1 text-[11px] text-foreground/80 hover:bg-accent/5">{live.length === 0 ? "去创建报价" : "打开报价区"}</button> : null}
+        {onOpenBid && (live.length > 0 || data.capabilities.canEdit) ? <button type="button" onClick={onOpenBid} className="rounded border border-border px-2 py-1 text-[11px] text-foreground/80 hover:bg-accent/5">{live.length === 0 ? "去创建报价" : "打开报价区"}</button> : null}
       </div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2">{row("当前报价", current)}{row("已批准 / Awarded", approved)}</div>
-      {live.length === 0 ? <p className="mt-2 text-[11px] text-muted">尚无招投标报价——在「投标」tab 新建 Supply + Install 或 Standing Offer。</p> : null}
+      {quoteHintLinesZh(data.capabilities, { edit: live.length === 0, cost: live.length > 0 }).map((l) => <p key={l.kind} className="mt-2 text-[11px] text-muted" data-testid={`quote-${l.kind}-hidden-hint`}>{l.text}</p>)}
+      {live.length === 0 && data.capabilities.canEdit ? <p className="mt-2 text-[11px] text-muted">尚无招投标报价——在「投标」tab 新建 Supply + Install 或 Standing Offer。</p> : null}
     </div>
   );
 }

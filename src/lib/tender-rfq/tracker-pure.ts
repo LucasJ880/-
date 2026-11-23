@@ -10,6 +10,7 @@
 import { CHASE_MAX, chaseSlot, currentMissingFields, deadlinePassed, type ChaseItemSnapshot } from "./chase-pure";
 import { TENDER_SEND_CHASE_TYPE } from "./types";
 import type { CompareRow } from "./compare";
+import type { FinanceHintReason } from "@/lib/project-finance/view-hint";
 import type { InboundMissingField } from "./inbound-contract";
 import { monthDay } from "./web-entry-pure";
 import type { TrackerSummary } from "./tracker-view";
@@ -218,14 +219,38 @@ export type QuoteCell = {
 
 const money = (n: number, maxFrac: number) => n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: maxFrac });
 
+/** CHAIN-2e：对这一行所在项目没有财务查看权的人，落地价那一格写这一句 */
+export const LANDED_HIDDEN_CELL_ZH = "落地价只给有财务查看权的人看";
+/** CHAIN-2e：授权查询出错、按兜底收紧时那一格写这一句（「暂时无法确认你的查看权限，请稍后刷新。」的短版，不说成没有权限） */
+export const LANDED_UNCONFIRMED_CELL_ZH = "暂时无法确认查看权限，请稍后刷新";
+
+/** 这一格是不是因为权限被隐藏（只认上面两句；换算不出、超过上限没取矩阵（有权）、没有报价都不算） */
+export function isPermissionHiddenCell(cell: { landedText: string | null } | null | undefined): boolean {
+  return !!cell && (cell.landedText === LANDED_HIDDEN_CELL_ZH || cell.landedText === LANDED_UNCONFIRMED_CELL_ZH);
+}
+
+/**
+ * 整页提示用哪一句：没有因权限被隐藏的格子 → 不提示（null）；授权查询出错优先；
+ * 其余按被隐藏的项目里有真人负责人的个数分 no_access（都有）/ no_owner（都没有）/ mixed。
+ */
+export function trackerLandedHiddenReason(input: { unconfirmed: boolean; hiddenProjects: number; hiddenWithOwner: number }): FinanceHintReason | null {
+  if (input.hiddenProjects === 0) return null;
+  if (input.unconfirmed) return "unconfirmed";
+  if (input.hiddenWithOwner === input.hiddenProjects) return "no_access";
+  return input.hiddenWithOwner === 0 ? "no_owner" : "mixed";
+}
+
 /**
  * matrixRow：该轮比价矩阵里对上的那一行；matrixLoaded = false 表示这一轮没算矩阵（超过上限），写「请到比价面板查看」。
  * 落地价、最便宜、换算不出的原因都只取 matrixRow，不自己算。
+ * canViewCost（CHAIN-2e）= 对这一行所在项目有财务查看权。没有时：换算不出照旧写原因；其余（换算出了、超过上限没取矩阵）
+ * 写 LANDED_HIDDEN_CELL_ZH、不给去比价链接（比价面板对他同样不显示落地价）；「最便宜」照旧取矩阵标记；不读 landedCad。
+ * costUnconfirmed（审查 F5）= 看不到是因为授权查询出错：那一句换成 LANDED_UNCONFIRMED_CELL_ZH。
  */
 export function quoteCellView(
   q: QuoteFields,
   matrixRow: Pick<CompareRow, "landedCad" | "flags" | "blockers"> | null,
-  opts: { matrixLoaded: boolean; timeZone: string },
+  opts: { matrixLoaded: boolean; timeZone: string; canViewCost: boolean; costUnconfirmed?: boolean },
 ): QuoteCell {
   const cur = (q.currency ?? "").trim().toUpperCase() || "币种未注明";
   const parts: string[] = [];
@@ -235,6 +260,15 @@ export function quoteCellView(
   if (q.validUntil) parts.push(`有效至 ${monthDay(q.validUntil, opts.timeZone)}`);
   const quoteText = parts.length ? parts.join(" · ") : null;
 
+  if (!opts.canViewCost) {
+    const hiddenText = opts.costUnconfirmed ? LANDED_UNCONFIRMED_CELL_ZH : LANDED_HIDDEN_CELL_ZH;
+    if (!opts.matrixLoaded) return { quoteText, landedText: hiddenText, cheapest: false, needsCompareLink: false };
+    if (!matrixRow) return { quoteText, landedText: null, cheapest: false, needsCompareLink: false };
+    if (matrixRow.flags.includes("not_normalized")) {
+      return { quoteText, landedText: `落地价未换算（${matrixRow.blockers[0] ?? "缺换算参数"}）`, cheapest: false, needsCompareLink: true };
+    }
+    return { quoteText, landedText: hiddenText, cheapest: matrixRow.flags.includes("cheapest"), needsCompareLink: false };
+  }
   if (!opts.matrixLoaded) return { quoteText, landedText: "落地价请到比价面板查看", cheapest: false, needsCompareLink: true };
   if (!matrixRow) return { quoteText, landedText: null, cheapest: false, needsCompareLink: false };
   if (matrixRow.landedCad.total == null) {

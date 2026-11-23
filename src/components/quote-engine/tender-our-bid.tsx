@@ -12,8 +12,9 @@ import { Target } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { apiFetch, apiJson } from "@/lib/api-fetch";
 import type { TenderBidResolution } from "@/lib/quote-engine/tender-bid";
+import { quoteHintLinesZh, type QuoteHintReason } from "@/lib/quote-engine/finance-hint";
 
-type Payload = { bid: TenderBidResolution; capabilities: { canViewInternal: boolean; canApprove: boolean } };
+type Payload = { bid: TenderBidResolution; capabilities: { canViewInternal: boolean; canApprove: boolean; hintReason?: QuoteHintReason } };
 const money = (n: number | null | undefined, ccy: string) => (n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-CA", { style: "currency", currency: ccy, maximumFractionDigits: 0 }));
 const pct = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(1)}%`);
 const METHOD_ZH: Record<string, string> = { MARKUP_ON_COST: "Markup on Cost（成本加成）", MARGIN_ON_REVENUE: "Margin on Selling Price（按售价毛利率）" };
@@ -49,7 +50,7 @@ export function TenderOurBidCard({ projectId }: { projectId: string }) {
               <div><div className="text-muted">Gross Margin</div><div className="font-mono">{pct(q.grossMarginPct)}</div></div>
               <div><div className="text-muted">Pricing Method</div><div>{METHOD_ZH[q.pricingMethod] ?? q.pricingMethod}{q.pricingRate != null ? ` ${q.pricingRate}%` : ""}</div></div>
             </div>
-          ) : null}
+          ) : quoteHintLinesZh(data.capabilities, { edit: false, cost: true }).map((l) => <p key={l.kind} className="mt-2 text-[11px] text-muted" data-testid={`quote-${l.kind}-hidden-hint`}>{l.text}</p>)}
         </button>
       ) : (
         <p className="mt-2 text-[11px] text-muted">{bid.reason}{bid.candidates.length > 0 ? `（可选：${bid.candidates.map((c) => `V${c.version} ${money(c.sellingPrice, c.currency)}`).join(" / ")}）` : ""}</p>

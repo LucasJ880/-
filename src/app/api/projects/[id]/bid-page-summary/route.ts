@@ -37,9 +37,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     (!!projectRole && hasProjectRole(projectRole, "project_admin"));
 
   // 金额门：财务查看权 + 报价内部成本权限（与 requireQuoteAccess 同一个判定函数；特权 = 超级管理员 / ORG 持
-  // project.finance.manage / 项目负责人，与 resolveFinancePrivilege 的 privileged 同一组条件）。与报价引擎开关无关
+  // project.finance.manage / 项目负责人，与 resolveFinancePrivilege 的 privileged 同一组条件）。与报价引擎开关无关。
+  // CHAIN-2e 起报价内部成本权限本身就是财务查看权（不再认项目角色的成本读权限），两项在这里是同一个判定
   const finance = await resolveFinancePrivilege(user, orgId, project.ownerId);
-  const caps = resolveQuoteCapabilities(access, { financeManage: finance.privileged });
+  const caps = resolveQuoteCapabilities(access, { finance });
   const canViewAmounts = canViewBidAmounts({ canViewInternal: caps.canViewInternal, financeCanReadAll: finance.canReadAll });
   // 报价功能（引擎开关）没开：不取报价、不出我方报价金额
   const quoteAvailable = isQuoteEngineEnabled();

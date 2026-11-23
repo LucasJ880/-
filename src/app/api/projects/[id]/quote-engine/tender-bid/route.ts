@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireQuoteAccess } from "@/lib/quote-engine/access";
+import { capabilityHint, requireQuoteAccess } from "@/lib/quote-engine/access";
 import { QuoteEngineError } from "@/lib/quote-engine/service";
 import { resolveTenderBid } from "@/lib/quote-engine/tender-bid";
 
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   if (access instanceof NextResponse) return access;
   try {
     const bid = await resolveTenderBid({ projectId: id, orgId: access.orgId, internal: access.canViewInternal });
-    return NextResponse.json({ bid, capabilities: { canViewInternal: access.canViewInternal, canApprove: access.canApprove } });
+    return NextResponse.json({ bid, capabilities: { canViewInternal: access.canViewInternal, canApprove: access.canApprove, ...capabilityHint(access) } });
   } catch (e) {
     if (e instanceof QuoteEngineError) return NextResponse.json({ error: e.message, code: e.code }, { status: e.status });
     throw e;

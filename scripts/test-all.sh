@@ -447,6 +447,7 @@ run_test "项目财务 / 报价引擎按岗位（PERM-4c1）" "npx tsx src/lib/p
 run_test "项目财务按岗位 DB 端到端（PERM-4c1；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-access-db.isolated.test.ts"
 run_test "更换项目负责人（CHAIN-2c）" "npx tsx src/lib/projects/__tests__/owner-change.test.ts"
 run_test "更换项目负责人 DB 端到端（CHAIN-2c；隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts"
+run_test "比价落地价与报价引擎按财务查看权 DB 端到端（七种身份；本机假模型；隔离库执行，否则跳过，CHAIN-2e）" "NODE_ENV=test npx tsx src/lib/project-finance/__tests__/finance-view-compare-quote-db.isolated.test.ts"
 run_test "Postiz Cloud 自动发布" "npx tsx src/lib/operations/__tests__/postiz.test.ts"
 run_test "Aivora 契约适配器" "npx tsx src/lib/operations/__tests__/aivora.test.ts"
 run_test "青砚营销分析 Skill 接入" "npx tsx src/lib/agent-core/skills/__tests__/qingyan-marketing-analysis.test.ts"

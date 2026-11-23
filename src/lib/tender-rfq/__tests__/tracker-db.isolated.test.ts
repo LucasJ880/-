@@ -278,6 +278,61 @@ async function main() {
     ok(trunc.truncated === true && tr.length === 3 && tr.every((r) => r.needsAction != null), "行数上限 3：标明截断，留下的都是需要我处理的", tr.map((r) => [r.supplierName, r.needsAction]));
     ok(JSON.stringify(trunc.summary) === JSON.stringify((await loadTracker({ request: req, user: ownerUser as never, orgId: ORG })).summary), "截断不影响顶部计数");
 
+    /* ---------- 8c. CHAIN-2e 落地价只给对该行所在项目有财务查看权的人 ---------- */
+    // OWNER：组织管理员（没有任何岗位 / 财务键），P1 / P2 的负责人。P3 的负责人是 MEMBER0，OWNER 不是成员，但组织管理员看得到
+    const P3 = await mkProject({ owner: MEMBER0, name: "Fixture Tender Three" });
+    const r4 = await mkRound(P3, 1, ymdAfter(10));
+    await mkItem(r4, await mkSupplier("Uniform Hidden"), { status: "quoted", sentAt: ago(2), repliedAt: ago(1), unitPrice: 77.77, totalPrice: 15554, currency: "USD", deliveryDays: 18, validUntil: ymdAfter(40), contactNotes: "threadId=thrUH", quoteNotes: autoNotes("单价=77.77；贸易条款=DDP") });
+    await mkItem(r4, await mkSupplier("Victor NoFx"), { status: "quoted", sentAt: ago(2), repliedAt: ago(1), unitPrice: 400, currency: "CNY", deliveryDays: 18, validUntil: ymdAfter(40), contactNotes: "threadId=thrVN", quoteNotes: autoNotes("单价=400；贸易条款=DDP") });
+    const m3 = await loadCompareMatrix({ projectId: P3, orgId: ORG, inquiryId: r4, now });
+    const u3 = m3.ok ? m3.matrix.rows.find((x) => x.supplierName === "Uniform Hidden") : undefined;
+    const v3 = m3.ok ? m3.matrix.rows.find((x) => x.supplierName === "Victor NoFx") : undefined;
+    ok(!!u3 && u3.landedCad.total != null && u3.landedCad.total !== 15554 && !!v3 && v3.flags.includes("not_normalized"), "CHAIN-2e 前提：P3 一家换算出落地价（与原价不同）、一家缺汇率换算不出", { u3, v3 });
+    const u3Tokens = u3 ? [Math.round(u3.landedCad.total!).toLocaleString("en-US"), String(u3.landedCad.total), String(u3.landedCad.unit)] : [];
+    const g8 = await getTracker(OWNER);
+    const ru8 = rowBy(g8.body, "Uniform Hidden");
+    const rv8 = rowBy(g8.body, "Victor NoFx");
+    ok(String(ru8?.quote?.landedText) === "落地价只给有财务查看权的人看" && rec(ru8?.quote).needsCompareLink === false && Boolean(ru8?.quote?.cheapest) === !!u3?.flags.includes("cheapest") && String(ru8?.quote?.quoteText).startsWith("报价 USD 77.77 / 件"), "CHAIN-2e 组织管理员（没有财务键）看别人负责的项目：那一格写「落地价只给有财务查看权的人看」，原币种报价与「最便宜」照常", ru8?.quote);
+    ok(String(rv8?.quote?.landedText).startsWith("落地价未换算（缺 CNY→CAD 汇率") && rec(rv8?.quote).needsCompareLink === true, "CHAIN-2e 换算不出的原因照常", rv8?.quote);
+    ok(u3Tokens.length === 3 && u3Tokens.every((t) => !g8.text.includes(t)), "CHAIN-2e 响应里搜不到别人负责的项目那几家的落地价", u3Tokens.filter((t) => g8.text.includes(t)));
+    ok(String(rowBy(g8.body, "Delta Quoted")?.quote?.landedText) === `落地价 CAD ${Math.round(dTotal).toLocaleString("en-US")}`, "CHAIN-2e 本人负责的项目（P1）照常显示落地价");
+    const g9 = await getTracker(MEMBER0);
+    ok(String(rowBy(g9.body, "Uniform Hidden")?.quote?.landedText) === `落地价 CAD ${u3Tokens[0]}`, "CHAIN-2e P3 的负责人（普通组织成员）自己看：照常显示落地价", rowBy(g9.body, "Uniform Hidden")?.quote);
+    const g10 = await getTracker(MEMBER1);
+    ok(String(rowBy(g10.body, "Delta Quoted")?.quote?.landedText) === "落地价只给有财务查看权的人看" && !g10.text.includes(Math.round(dTotal).toLocaleString("en-US")) && String(rowBy(g10.body, "Epsilon CNY")?.quote?.landedText).startsWith("落地价未换算"), "CHAIN-2e P1 的只读成员：落地价不显示（搜不到），换算不出的原因照常", rowBy(g10.body, "Delta Quoted")?.quote);
+    ok(g8.body.landedHidden === true && !("hintReason" in g8.body), "CHAIN-2e 有行被隐藏：响应带 landedHidden（P3 有真人负责人 → 默认那句，不带 hintReason）", { landedHidden: g8.body.landedHidden, hintReason: g8.body.hintReason });
+    ok(g9.body.landedHidden === undefined, "CHAIN-2e 没有行被隐藏（P3 负责人自己看）：不带 landedHidden", g9.body.landedHidden);
+    ok(String(rec(rowBy(g10.body, "Epsilon CNY")?.quote).needsCompareLink) === "true" && rec(rowBy(g10.body, "Delta Quoted")?.quote).needsCompareLink === false, "CHAIN-2e 没有权限的格子没有「去比价」链接（换算不出的照旧有）");
+    // 负责人是导入用的系统账号的项目：提示改为找组织管理员
+    const sysExisting = await db.user.findFirst({ where: { email: "system@qingyan.internal" }, select: { id: true } });
+    const SYS = sysExisting?.id ?? (await db.user.create({ data: { email: "system@qingyan.internal", name: "System (API)", role: "user", status: "active", passwordHash: "" } })).id;
+    if (!sysExisting) users.push(SYS);
+    const P4 = await mkProject({ owner: SYS, name: "Fixture Tender Four" });
+    await db.projectMember.create({ data: { projectId: P4, userId: MEMBER1, role: "viewer", status: "active" } });
+    const r5 = await mkRound(P4, 1, ymdAfter(10));
+    await mkItem(r5, await mkSupplier("Whiskey System"), { status: "quoted", sentAt: ago(2), repliedAt: ago(1), unitPrice: 12.34, totalPrice: 2468, currency: "USD", deliveryDays: 18, validUntil: ymdAfter(40), contactNotes: "threadId=thrWS", quoteNotes: autoNotes("单价=12.34；贸易条款=DDP") });
+    const g11 = await getTracker(MEMBER1);
+    ok(g11.body.landedHidden === true && g11.body.hintReason === "mixed", "CHAIN-2e 只读成员看 P1（有负责人）+ P4（负责人是系统账号）：提示原因 mixed", { landedHidden: g11.body.landedHidden, hintReason: g11.body.hintReason });
+    await db.projectMember.deleteMany({ where: { projectId: P1, userId: MEMBER1 } });
+    const g12 = await getTracker(MEMBER1);
+    ok(g12.body.landedHidden === true && g12.body.hintReason === "no_owner" && String(rowBy(g12.body, "Whiskey System")?.quote?.landedText) === "落地价只给有财务查看权的人看", "CHAIN-2e 只看 P4（负责人是系统账号）：提示原因 no_owner，那一格照常写同一句", { hintReason: g12.body.hintReason, cell: rowBy(g12.body, "Whiskey System")?.quote });
+    // 审查 F5：只按截断后留下的、真正因权限被隐藏的格子算 landedHidden
+    const m1User = await db.user.findUnique({ where: { id: MEMBER1 } });
+    const m1Req = new NextRequest("http://localhost/api/org/tender-rfq/tracker", { headers: { cookie: await cookie(MEMBER1) } });
+    const cut = await loadTracker({ request: m1Req, user: m1User as never, orgId: ORG, limits: { rows: 0 } });
+    ok(cut.truncated === true && rowsOf(cut as unknown as Rec).length === 0 && cut.landedHidden === undefined, "CHAIN-2e 被行数上限截掉的格子不算：没有留下被隐藏的格子 → 不带 landedHidden", { truncated: cut.truncated, landedHidden: cut.landedHidden });
+    await db.projectMember.deleteMany({ where: { projectId: P4, userId: MEMBER1 } });
+    const P5 = await mkProject({ name: "Fixture Tender Five" });
+    await db.projectMember.create({ data: { projectId: P5, userId: MEMBER1, role: "viewer", status: "active" } });
+    const r6 = await mkRound(P5, 1, ymdAfter(10));
+    await mkItem(r6, await mkSupplier("Xenia NoFx"), { status: "quoted", sentAt: ago(2), repliedAt: ago(1), unitPrice: 88, currency: "CNY", deliveryDays: 18, validUntil: ymdAfter(40), contactNotes: "threadId=thrXN", quoteNotes: autoNotes("单价=88；贸易条款=DDP") });
+    const g13 = await getTracker(MEMBER1);
+    const rx13 = rowBy(g13.body, "Xenia NoFx");
+    ok(String(rx13?.quote?.landedText).startsWith("落地价未换算（缺 CNY→CAD 汇率") && g13.body.landedHidden === undefined, "CHAIN-2e 只有「落地价未换算」的行：不算被隐藏，不带 landedHidden", { cell: rx13?.quote, landedHidden: g13.body.landedHidden });
+    await db.projectMember.create({ data: { projectId: P1, userId: MEMBER1, role: "viewer", status: "active" } });
+    const gs8 = await getTracker(OWNER, "?summary=1");
+    ok(JSON.stringify(gs8.body.groups) === "[]" && gs8.body.landedHidden === undefined, "CHAIN-2e 汇总卡照常（不取矩阵、不带 landedHidden）");
+
     /* ---------- 9. 旧接口 ---------- */
     const old = await batchRoute.POST();
     ok(old.status === 410, "batch-followup：410");

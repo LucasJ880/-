@@ -25,6 +25,10 @@ import {
   nextChaseOutlook,
   outlookText,
   quoteCellView,
+  LANDED_HIDDEN_CELL_ZH,
+  LANDED_UNCONFIRMED_CELL_ZH,
+  isPermissionHiddenCell,
+  trackerLandedHiddenReason,
   summaryCardText,
   trackerRowView,
   trackerSummary,
@@ -214,7 +218,7 @@ console.log("报价列（与比价矩阵对照）");
   ];
   const m = buildCompareMatrix(inputs, { closeDate: new Date("2026-12-20"), deliveryDeadline: null, firstTierQty: 200, mandatoryCodes: [], now: NOW });
   const row = (id: string) => m.rows.find((r) => r.itemId === id)!;
-  const cell = (id: string, q: { unitPrice: number | null; totalPrice: number | null; currency: string }) => quoteCellView({ ...q, deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, row(id), { matrixLoaded: true, timeZone: TZ });
+  const cell = (id: string, q: { unitPrice: number | null; totalPrice: number | null; currency: string }) => quoteCellView({ ...q, deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, row(id), { matrixLoaded: true, timeZone: TZ, canViewCost: true });
   const a = cell("a", { unitPrice: 89.5, totalPrice: 17900, currency: "USD" });
   ok("齐全：原币种单价 / 总价 / 交期 / 有效期；落地价取矩阵（四舍五入到元）", a.quoteText === "报价 USD 89.50 / 件 · 总价 USD 17,900 · 交期 21 天 · 有效至 12-31" && a.landedText === `落地价 CAD ${Math.round(row("a").landedCad.total!).toLocaleString("en-US")}`, a);
   const c = cell("c", { unitPrice: 80, totalPrice: null, currency: "USD" });
@@ -227,12 +231,41 @@ console.log("报价列（与比价矩阵对照）");
   const b = cells.find((x) => x.id === "b")!.c;
   ok("只有单价：写单价，不写总价", (b.quoteText ?? "").startsWith("报价 USD 95.00 / 件") && !(b.quoteText ?? "").includes("总价"));
   ok("每一家的落地价与矩阵逐家一致", ["a", "b", "d"].every((id) => cells.find((x) => x.id === id)!.c.landedText === `落地价 CAD ${Math.round(row(id).landedCad.total!).toLocaleString("en-US")}`));
-  const capped = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "usd", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ });
+  const capped = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "usd", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ, canViewCost: true });
   ok("超过上限没算矩阵：写「请到比价面板查看」；币种转大写", capped.landedText === "落地价请到比价面板查看" && capped.needsCompareLink && (capped.quoteText ?? "").startsWith("报价 USD 1.00 / 件"));
-  ok("没有报价字段：quoteText 为空", quoteCellView({ unitPrice: null, totalPrice: null, currency: null, deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ }).quoteText === null);
+  ok("没有报价字段：quoteText 为空", quoteCellView({ unitPrice: null, totalPrice: null, currency: null, deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ, canViewCost: true }).quoteText === null);
   ok("有效期是 UTC 零点日期：按字面月日，不差一天", (a.quoteText ?? "").includes("有效至 12-31"));
-  const two = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, { landedCad: { unit: null, total: null }, flags: [], blockers: ["缺运费估算参数", "缺关税率"] }, { matrixLoaded: true, timeZone: TZ });
+  const two = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, { landedCad: { unit: null, total: null }, flags: [], blockers: ["缺运费估算参数", "缺关税率"] }, { matrixLoaded: true, timeZone: TZ, canViewCost: true });
   ok("换算不出有几条原因：写第一条（矩阵的主要原因）", two.landedText === "落地价未换算（缺运费估算参数）");
+
+  // CHAIN-2e：没有财务查看权的那一格（tracker.ts 在组装前已把那几家的落地价置空，只留标记与原因）
+  const qOf = (id: string) => ({ unitPrice: inputs.find((x) => x.itemId === id)!.quoted.unitPrice, totalPrice: inputs.find((x) => x.itemId === id)!.quoted.totalPrice, currency: "USD" });
+  const trimmed = (id: string) => ({ landedCad: { unit: null, total: null }, flags: row(id).flags, blockers: row(id).blockers });
+  const hcell = (id: string, r: Parameters<typeof quoteCellView>[1] = trimmed(id)) => quoteCellView({ ...qOf(id), deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, r, { matrixLoaded: true, timeZone: TZ, canViewCost: false });
+  ok("CHAIN-2e 提示句", LANDED_HIDDEN_CELL_ZH === "落地价只给有财务查看权的人看");
+  const ha = hcell("a");
+  ok("CHAIN-2e 无权、换算出了：写「落地价只给有财务查看权的人看」，没有金额、不给去比价链接；原币种报价照常", ha.landedText === LANDED_HIDDEN_CELL_ZH && !ha.needsCompareLink && ha.quoteText === a.quoteText, ha);
+  ok("CHAIN-2e 无权：「最便宜」照常标在矩阵认定的那一家，且只有它", ["a", "b", "d"].filter((id) => hcell(id).cheapest).join() === cheapestId);
+  const hc = hcell("c");
+  ok("CHAIN-2e 无权、换算不出：照旧写矩阵给的原因、给去比价链接", hc.landedText === c.landedText && hc.needsCompareLink && !hc.cheapest, hc);
+  const hcap = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "usd", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ, canViewCost: false });
+  ok("CHAIN-2e 无权、超过上限没取矩阵：写同一句，不写「请到比价面板查看」、不给链接", hcap.landedText === LANDED_HIDDEN_CELL_ZH && !hcap.needsCompareLink);
+  const hnone = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ, canViewCost: false });
+  ok("CHAIN-2e 无权、没有矩阵行（还没报价）：与有权一样为空", hnone.landedText === null && !hnone.needsCompareLink && !hnone.cheapest);
+  // CHAIN-2e 审查 F5：授权查询出错（暂时无法确认）时那一格写短版「暂时无法确认查看权限」，不说成没有权限
+  const ucell = (id: string) => quoteCellView({ ...qOf(id), deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, trimmed(id), { matrixLoaded: true, timeZone: TZ, canViewCost: false, costUnconfirmed: true });
+  ok("CHAIN-2e 暂时无法确认：换算出了的那一格写短版，没有链接；「最便宜」照常", LANDED_UNCONFIRMED_CELL_ZH === "暂时无法确认查看权限，请稍后刷新" && ucell("a").landedText === LANDED_UNCONFIRMED_CELL_ZH && !ucell("a").needsCompareLink && ["a", "b", "d"].filter((id) => ucell(id).cheapest).join() === cheapestId, ucell("a"));
+  ok("CHAIN-2e 暂时无法确认：换算不出的照旧写原因、给链接；超过上限没取矩阵也写短版", ucell("c").landedText === c.landedText && ucell("c").needsCompareLink && quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ, canViewCost: false, costUnconfirmed: true }).landedText === LANDED_UNCONFIRMED_CELL_ZH);
+  ok("CHAIN-2e 有权限时 costUnconfirmed 不起作用", quoteCellView({ ...qOf("a"), deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, row("a"), { matrixLoaded: true, timeZone: TZ, canViewCost: true, costUnconfirmed: true }).landedText === a.landedText);
+  ok("CHAIN-2e 哪些格子算「因权限被隐藏」：两句短句算；换算不出、超过上限（有权）、没有报价不算", isPermissionHiddenCell(ha) && isPermissionHiddenCell(ucell("a")) && !isPermissionHiddenCell(hc) && !isPermissionHiddenCell(capped) && !isPermissionHiddenCell(null) && !isPermissionHiddenCell(hnone));
+  ok("CHAIN-2e 整页提示原因：没有被隐藏的格子 → 不提示；暂时无法确认优先；按有没有真人负责人分 no_access / no_owner / mixed",
+    trackerLandedHiddenReason({ unconfirmed: true, hiddenProjects: 0, hiddenWithOwner: 0 }) === null
+    && trackerLandedHiddenReason({ unconfirmed: true, hiddenProjects: 2, hiddenWithOwner: 2 }) === "unconfirmed"
+    && trackerLandedHiddenReason({ unconfirmed: false, hiddenProjects: 2, hiddenWithOwner: 2 }) === "no_access"
+    && trackerLandedHiddenReason({ unconfirmed: false, hiddenProjects: 2, hiddenWithOwner: 0 }) === "no_owner"
+    && trackerLandedHiddenReason({ unconfirmed: false, hiddenProjects: 2, hiddenWithOwner: 1 }) === "mixed");
+  const leaked = hcell("a", row("a"));
+  ok("CHAIN-2e 即使传进完整矩阵行，无权时也不写金额", leaked.landedText === LANDED_HIDDEN_CELL_ZH && !JSON.stringify(leaked).includes(Math.round(row("a").landedCad.total!).toLocaleString("en-US")));
 }
 
 console.log("页签、全部批准、催单卡、跳过原因");
@@ -285,6 +318,16 @@ console.log("接线");
   ok("tracker-view 不引用任何模块（尤其 chase-pure / node:）", !/^\s*import\s/m.test(view) && !/from\s+"/.test(view));
   ok("追踪页与汇总卡只从 tracker-view 取，不从 tracker-pure / chase-pure 取", page.includes('from "@/lib/tender-rfq/tracker-view"') && card.includes('from "@/lib/tender-rfq/tracker-view"') && !/from "@\/lib\/tender-rfq\/(tracker-pure|chase-pure)"/.test(page + card));
   ok("tracker-pure 原样转出 tracker-view 的名字", read("src/lib/tender-rfq/tracker-pure.ts").includes('} from "./tracker-view";'));
+  // CHAIN-2e：有行的落地价被隐藏时页面顶部写一次谁能看、找谁（按原因换句）；提示模块链上没有 node: 与读库模块
+  ok("CHAIN-2e 页面：landedHidden 时顶部写一次提示（按 hintReason 换句）", /\{data\.landedHidden \? <p[^>]*data-testid="landed-hidden-hint">\{financeHiddenHintZh\("落地价", data\.hintReason \?\? "no_access"\)\}<\/p> : null\}/.test(page) && page.includes('from "@/lib/project-finance/view-hint"'));
+  const hintChain = ["src/lib/project-finance/view-hint.ts", "src/lib/tender-pricing/finance-view.ts", "src/lib/tender-pricing/calc.ts"].map(read).join("\n");
+  ok("CHAIN-2e 提示模块链（view-hint → finance-view → calc）不引用 node: / 读库模块", !/from "node:|from "@\/lib\/db"|from "next\//.test(hintChain));
+  ok("CHAIN-2e 取数：有格子因权限被隐藏时整页带 landedHidden 与提示原因；汇总卡不算", /landed = \{ landedHidden: true, \.\.\.hintReasonField\(reason\) \};/.test(svc) && /return \{ summary, groups, timeZone, truncated, \.\.\.landed \};/.test(svc) && svc.indexOf("if (input.summaryOnly) return { summary, groups: [], timeZone, truncated };") < svc.indexOf("const hiddenProjects"));
+  // CHAIN-2e 审查 F3 / F4 / F5：canViewCostOf 的定义、隐藏项目只按截断后留下的、真正因权限被隐藏的格子算、暂时无法确认接到格子与整页提示
+  ok("CHAIN-2e 取数：canViewCostOf = 组织级可看 || 本人负责", /const canViewCostOf = \(projectId: string\) => !!orgFinance && \(orgFinance\.canReadAll \|\| ownerOf\.get\(projectId\) === input\.user\.id\);/.test(svc));
+  ok("CHAIN-2e 取数：每一格带 canViewCost 与 costUnconfirmed（授权查询出错）", /canViewCost: canViewCostOf\(s\.projectId\), costUnconfirmed: !!orgFinance\?\.unconfirmed \}/.test(svc));
+  ok("CHAIN-2e 取数：被隐藏的项目按截断后留下的行、因权限被隐藏的格子、且 !canViewCostOf 算", /const hiddenProjects = \[\.\.\.new Set\(rows\.filter\(\(r\) => isPermissionHiddenCell\(r\.quote\) && !canViewCostOf\(r\.projectId\)\)\.map\(\(r\) => r\.projectId\)\)\];/.test(svc) && svc.indexOf("rows = [...rows].sort(") < svc.indexOf("const hiddenProjects"));
+  ok("CHAIN-2e 取数：整页原因用 trackerLandedHiddenReason，暂时无法确认接自组织级判定", /const reason = trackerLandedHiddenReason\(\{ unconfirmed: !!orgFinance\?\.unconfirmed, hiddenProjects: hiddenProjects\.length, hiddenWithOwner \}\);/.test(svc) && /if \(reason\) landed = \{ landedHidden: true, \.\.\.hintReasonField\(reason\) \};/.test(svc));
 }
 
 console.log(`\ntracker-pure: ${passed} passed`);

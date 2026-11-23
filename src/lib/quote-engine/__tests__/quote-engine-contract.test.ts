@@ -9,6 +9,8 @@ import { analyzeQuote } from "@/lib/quote-engine/analyze";
 import { buildCustomerView, customerViewLeaks, CUSTOMER_LINE_ALLOWED_KEYS, CUSTOMER_VIEW_ALLOWED_KEYS } from "@/lib/quote-engine/customer-view";
 import { FROZEN_STATUSES, QUOTE_STATUSES, QUOTE_TRANSITIONS, COST_CATEGORIES } from "@/lib/quote-engine/contract";
 import { resolveQuoteCapabilities } from "@/lib/quote-engine/access";
+import { decideFinancePrivilege, type FinancePrivilege } from "@/lib/project-finance/access";
+import { QUOTE_COST_HIDDEN_HINT_ZH, QUOTE_EDIT_HIDDEN_HINT_ZH, QUOTE_EDIT_NO_OWNER_HINT_ZH, QUOTE_LOAD_FAILED_PREFIX_ZH, QUOTE_SAVE_FORBIDDEN_ZH, quoteHintLinesZh } from "@/lib/quote-engine/finance-hint";
 import { demoStandingOffer, demoSupplyInstall, templateStandingOfferLines, templateSupplyInstallLines } from "@/lib/quote-engine/templates";
 import { computeTiers, computeUnitEconomics } from "@/lib/quote-engine/standing-offer";
 import { COST_TO_BUDGET_CATEGORY, mapQuoteToBudgetLines } from "@/lib/quote-engine/service";
@@ -30,14 +32,23 @@ console.log("Quote Engine 契约/安全探针");
 // QE-01 状态机：approved 不可回 draft；终态无出边；冻结集
 ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approved.includes("awarded") && !QUOTE_TRANSITIONS.approved.includes("draft") && QUOTE_TRANSITIONS.superseded.length === 0 && QUOTE_TRANSITIONS.awarded.length === 0 && QUOTE_TRANSITIONS.cancelled.length === 0 && FROZEN_STATUSES.includes("approved") && FROZEN_STATUSES.includes("cancelled") && QUOTE_STATUSES.length === 6, "QE-01: 状态机——approved 不可回 draft（只能修订），superseded/awarded/cancelled 终态，冻结集含 approved + cancelled（B4）");
 
-// QE-02 权限映射
+// QE-02 权限映射（CHAIN-2e：看内部数字只认财务查看权；编辑 / 批准要求先能看；项目角色用真实名字）
 {
-  const base = { user: { id: "u1", role: "member" }, project: { orgId: "o1", ownerId: "owner" }, orgRole: "org_member", projectRole: "project_viewer" } as never;
-  const viewer = resolveQuoteCapabilities(base, { financeManage: false });
-  const owner = resolveQuoteCapabilities({ ...base, project: { orgId: "o1", ownerId: "u1" } } as never, { financeManage: false });
-  const admin = resolveQuoteCapabilities({ ...base, orgRole: "org_admin" } as never, { financeManage: false });
-  const boss = resolveQuoteCapabilities(base, { financeManage: true });
-  ok(!viewer.canViewInternal && !viewer.canEdit && !viewer.canApprove && owner.privileged && owner.canApprove && boss.privileged && boss.canApprove, "QE-02: 普通成员默认看不到内部成本/不能编辑/不能批准；项目 owner 与持 project.finance.manage 直通");
+  const fin = (o: Partial<Parameters<typeof decideFinancePrivilege>[0]> = {}): FinancePrivilege =>
+    decideFinancePrivilege({ isPlatformSuperAdmin: false, isProjectOwner: false, holdsManage: false, holdsRead: false, ...o });
+  const base = { user: { id: "u1", role: "member" }, project: { orgId: "o1", ownerId: "owner" }, orgRole: "org_member", projectRole: "viewer" };
+  const as = (projectRole: string, finance: FinancePrivilege, extra: Record<string, unknown> = {}) => resolveQuoteCapabilities({ ...base, projectRole, ...extra } as never, { finance });
+  const viewer = as("viewer", fin());
+  const operator = as("operator", fin());
+  const accountingRole = as("accounting", fin());
+  const owner = as("viewer", fin({ isProjectOwner: true }), { project: { orgId: "o1", ownerId: "u1" } });
+  const boss = as("viewer", fin({ holdsManage: true }));
+  const none = (c: ReturnType<typeof as>) => !c.canViewInternal && !c.canEdit && !c.canApprove;
+  ok(none(viewer) && none(operator) && none(accountingRole) && owner.privileged && owner.canEdit && owner.canApprove && boss.privileged && boss.canApprove, "QE-02: 项目角色 viewer / operator / accounting（都带 project:cost:read）没有财务查看权 → 看不到内部成本、不能编辑、不能批准；项目负责人与持 project.finance.manage 直通", { viewer, operator, accountingRole });
+  const acc = as("viewer", fin({ holdsRead: true }));
+  const accOp = as("operator", fin({ holdsRead: true }));
+  ok(acc.canViewInternal && !acc.canEdit && !acc.canApprove && accOp.canViewInternal && accOp.canEdit && !accOp.canApprove, "QE-02（CHAIN-2e）：组织范围 project.finance.read（会计岗位）只读内部数字；编辑 / 批准另按项目角色的成本写 / 审权限", { acc, accOp });
+  const admin = as("viewer", fin(), { orgRole: "org_admin" });
   ok(!admin.privileged && !admin.canViewInternal, "QE-02（PERM-4c1）：org_admin 本身不再直通");
 }
 
@@ -94,10 +105,10 @@ ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approv
 
 // QE-07 结构守卫：路由全部过 requireQuoteAccess；flag 门；approve 级别；服务层禁 NaN 入库；无 eval
 {
-  const routes = ["route.ts", "[quoteId]/route.ts", "[quoteId]/status/route.ts", "[quoteId]/revise/route.ts", "[quoteId]/customer-view/route.ts", "[quoteId]/analyze/route.ts", "[quoteId]/award/route.ts", "[quoteId]/imports/route.ts", "[quoteId]/imports/[importId]/route.ts", "[quoteId]/customer-quote/route.ts", "[quoteId]/pdf/route.ts", "[quoteId]/select-bid/route.ts", "tender-bid/route.ts"].map((f) => code(`src/app/api/projects/[id]/quote-engine/${f}`));
-  ok(routes.every((r) => r.includes("requireQuoteAccess(")), "QE-07a: 13 条路由（Phase 1 7 + Phase 2 6）全部经 requireQuoteAccess（租户 + 成员 + 细粒度权限）");
+  const routes = ["route.ts", "[quoteId]/route.ts", "[quoteId]/status/route.ts", "[quoteId]/revise/route.ts", "[quoteId]/customer-view/route.ts", "[quoteId]/analyze/route.ts", "[quoteId]/award/route.ts", "[quoteId]/imports/route.ts", "[quoteId]/imports/[importId]/route.ts", "[quoteId]/customer-quote/route.ts", "[quoteId]/pdf/route.ts", "[quoteId]/select-bid/route.ts", "tender-bid/route.ts", "[quoteId]/advise/route.ts"].map((f) => code(`src/app/api/projects/[id]/quote-engine/${f}`));
+  ok(routes.length === 14 && routes.every((r) => r.includes("requireQuoteAccess(")), "QE-07a: 14 个路由文件（Phase 1 7 + Phase 2 6 + advise）全部经 requireQuoteAccess（租户 + 成员 + 细粒度权限）");
   const access = code("src/lib/quote-engine/access.ts");
-  ok(access.includes("quoteEngineDisabledResponse") && access.includes("PROJECT_COST_READ") && access.includes("PROJECT_COST_WRITE") && access.includes("PROJECT_COST_REVIEW"), "QE-07b: flag 门 + cost:read/write/review 三级映射");
+  ok(access.includes("quoteEngineDisabledResponse") && access.includes("resolveFinanceViewSafe(") && !access.includes("PROJECT_COST_READ") && access.includes("PROJECT_COST_WRITE") && access.includes("PROJECT_COST_REVIEW"), "QE-07b（CHAIN-2e）: flag 门 + 看内部数字按财务查看权 + cost:write / review 两级映射（不再认 cost:read）");
   const status = code("src/app/api/projects/[id]/quote-engine/[quoteId]/status/route.ts");
   ok(/to === "approved" \|\| to === "superseded" \|\| to === "awarded" \? "approve"/.test(status), "QE-07c: 批准/作废/award 需 approve 级");
   const svc = code("src/lib/quote-engine/service.ts");
@@ -139,6 +150,40 @@ ok(QUOTE_TRANSITIONS.approved.includes("superseded") && QUOTE_TRANSITIONS.approv
   ok(cv.includes("computeTax(taxableSubtotal, input.tax ?? null)") && !cv.includes("input.calc.tax.hst"), "QE-10e（B5 反例守卫）: 客户视图不再复用引擎税额");
   const so = code("src/lib/quote-engine/standing-offer.ts");
   ok(/SO_FX_REQUIRED/.test(so) && /input\.unit\.exact\.landedPerPiece/.test(so) && !/so\.fxRate \?\? 1/.test(so), "QE-10f（B1/B6 反例守卫）: 无 `fxRate ?? 1` 默认；分级用 exact 单件成本");
+}
+
+// QE-13（CHAIN-2e）：没有权限时的提示（逐字）；单个报价页接住客户视图与读取失败，不停在「加载报价引擎…」；保存 403 不丢编辑
+{
+  const comp = (f: string) => code(`src/components/quote-engine/${f}`);
+  const hint = code("src/lib/quote-engine/finance-hint.ts");
+  ok(/from "@\/lib\/project-finance\/view-hint"/.test(hint) && !/from "next|@\/lib\/db|@\/lib\/projects\/access/.test(hint) && !/from "next|@\/lib\/db/.test(code("src/lib/project-finance/view-hint.ts")), "QE-13a: 提示常量是纯模块（客户端可 import），经 view-hint 用 CHAIN-2b 的同一句");
+  ok(QUOTE_COST_HIDDEN_HINT_ZH === "估算成本和毛利率只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。"
+    && QUOTE_EDIT_HIDDEN_HINT_ZH === "你不是本项目负责人，不能新建、修改或批准报价。要做报价，请项目负责人或组织管理员在项目成员里把你设为主负责人。"
+    && QUOTE_EDIT_NO_OWNER_HINT_ZH === "你不是本项目负责人，不能新建、修改或批准报价。这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人。"
+    && QUOTE_LOAD_FAILED_PREFIX_ZH === "打不开这个报价："
+    && QUOTE_SAVE_FORBIDDEN_ZH.startsWith("没有保存：") && QUOTE_SAVE_FORBIDDEN_ZH.includes("填的内容还留在页面上"), "QE-13a: 报价引擎几句提示逐字钉住");
+  const texts = (caps: Parameters<typeof quoteHintLinesZh>[0], show: Parameters<typeof quoteHintLinesZh>[1]) => quoteHintLinesZh(caps, show).map((l) => `${l.kind}:${l.text}`);
+  ok(JSON.stringify(texts({ canViewInternal: false, canEdit: false }, { edit: true, cost: true })) === JSON.stringify([`edit:${QUOTE_EDIT_HIDDEN_HINT_ZH}`, `cost:${QUOTE_COST_HIDDEN_HINT_ZH}`]), "QE-13a: 不能看也不能改 → 两句");
+  ok(JSON.stringify(texts({ canViewInternal: false, canEdit: false, hintReason: "no_owner" }, { edit: true, cost: true })) === JSON.stringify([`edit:${QUOTE_EDIT_NO_OWNER_HINT_ZH}`, "cost:估算成本和毛利率只给项目负责人和有全企业「查看项目结算」权限的人看；这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人。"]), "QE-13a: 负责人是系统账号 → 不写「请找项目负责人」，改找组织管理员");
+  ok(JSON.stringify(texts({ canViewInternal: false, canEdit: false, hintReason: "unconfirmed" }, { edit: true, cost: true })) === JSON.stringify(["edit:暂时无法确认你的查看权限，请稍后刷新。"]), "QE-13a: 授权查询出错 → 只写一次「暂时无法确认」，不冒充没有权限");
+  ok(texts({ canViewInternal: true, canEdit: true }, { edit: true, cost: true }).length === 0 && texts({ canViewInternal: false }, { edit: true, cost: false }).length === 0 && texts({ canViewInternal: true, canEdit: false }, { edit: true, cost: true }).join() === `edit:${QUOTE_EDIT_HIDDEN_HINT_ZH}`, "QE-13a: 有权限不出；不知道 canEdit 时不出编辑那句；会计只读只出编辑那句");
+  const lines = (f: string) => new RegExp(`quoteHintLinesZh\\(${f}, \\{ edit: ([^,]+), cost: ([^}]+) \\}\\)\\.map\\(\\(l\\) => <p key=\\{l\\.kind\\}[^>]*data-testid=\\{\`quote-\\$\\{l\\.kind\\}-hidden-hint\`\\}>\\{l\\.text\\}</p>\\)`);
+  const card = comp("quote-budget-card.tsx");
+  const cm = card.match(lines("data\\.capabilities"));
+  ok(!!cm && cm[1] === "live.length === 0" && cm[2].trim() === "live.length > 0" && /onOpenBid && \(live\.length > 0 \|\| data\.capabilities\.canEdit\) \? <button/.test(card) && /live\.length === 0 && data\.capabilities\.canEdit \? <p[^>]*>尚无招投标报价/.test(card), "QE-13b: 「报价与成本」卡：有报价时写成本提示；没报价、不能新建时写编辑提示，不显示「去创建报价」与「在「投标」tab 新建…」", cm);
+  const section = comp("quote-engine-section.tsx");
+  const sm = section.match(lines("data\\.capabilities"));
+  ok(!!sm && sm[1] === "true" && sm[2].trim() === "data.quotes.length > 0" && /data\.quotes\.length === 0 \? \(data\.capabilities\.canEdit \? <p[^>]*>尚无报价。新建后进入/.test(section) && /data\.capabilities\.canEdit \? <div/.test(section), "QE-13c: 投标页报价区：不能新建时写编辑提示（空列表也不写「新建后进入…」）；有报价、不能看时写成本提示；新建按钮仍只给 canEdit", sm);
+  const ourBid = comp("tender-our-bid.tsx");
+  const om = ourBid.match(lines("data\\.capabilities"));
+  ok(!!om && om[1] === "false" && om[2].trim() === "true" && /data\.capabilities\.canViewInternal \? \([\s\S]*?\) : quoteHintLinesZh\(/.test(ourBid), "QE-13d: 「我方报价」卡：有我方报价、没有财务查看权时写成本提示", om);
+  const pcc = comp("pricing-control-center.tsx");
+  const customerOnlyAt = pcc.indexOf("if (customerOnly) {");
+  ok(/if \("customerView" in res\) \{\s*setData\(null\);\s*setCustomerOnly\(res\);\s*return;\s*\}/.test(pcc) && customerOnlyAt > 0 && customerOnlyAt < pcc.indexOf("const q = data.quote") && /data-testid="customer-only-view"[\s\S]*?quoteHintLinesZh\(customerOnly\.capabilities, \{ edit: true, cost: true \}\)[\s\S]*?<CustomerPreviewTable customer=\{customerOnly\.customerView\} \/>/.test(pcc), "QE-13e: 单个报价页：响应只有客户视图时显示两句提示 + 客户视图表格（在读成本行之前返回，不渲染 KPI / 成本行 / 情景 / 按钮）");
+  ok(/catch \(e\) \{\s*setData\(null\);\s*setLoadError\(e instanceof Error && e\.message \? e\.message : "读取失败"\);/.test(pcc) && /if \(loadError\) return <div[^>]*data-testid="quote-load-failed">\{QUOTE_LOAD_FAILED_PREFIX_ZH\}\{loadError\}<\/div>;/.test(pcc) && /return <div className="p-6 text-sm text-muted">加载报价引擎…<\/div>;\s*\}/.test(pcc) && !pcc.includes("未启用或无权限时不可见"), "QE-13f: 单个报价页读取失败写出接口给的原因，只有还在读取时才显示「加载报价引擎…」");
+  ok(/if \(res\.status === 403\) \{ setMsg\(QUOTE_SAVE_FORBIDDEN_ZH\); return; \}\s*if \(!res\.ok\)/.test(pcc) && pcc.indexOf("if (res.status === 403) { setMsg(QUOTE_SAVE_FORBIDDEN_ZH); return; }") < pcc.indexOf('else setMsg("已保存并重算");'), "QE-13g: 保存被拒（403）不重新读取（不切成客户视图），填的内容留在页面上");
+  const acc = code("src/lib/quote-engine/access.ts");
+  ok(/const hint = caps\.canEdit \? \{\} : hintReasonField\(await resolveFinanceHintReason\(finance, access\.project\.ownerId\)\);/.test(acc) && ["src/app/api/projects/[id]/quote-engine/route.ts", "src/app/api/projects/[id]/quote-engine/tender-bid/route.ts"].every((f) => /\.\.\.capabilityHint\(access\) \}/.test(code(f))) && (code("src/app/api/projects/[id]/quote-engine/[quoteId]/route.ts").match(/\.\.\.capabilityHint\(access\) \}/g) ?? []).length === 2, "QE-13h: 不能编辑时才查负责人；列表、单个报价（两种视图）、我方报价的 capabilities 带提示原因");
 }
 
 console.log(`\n结果：${pass} 通过，${fail} 失败`);
