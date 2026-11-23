@@ -25,6 +25,8 @@ import {
   transitionDeliveryStage,
   type OpsAccessContext,
 } from "@/lib/operations/projects";
+import { logAudit, AUDIT_ACTIONS, AUDIT_TARGETS } from "@/lib/audit/logger";
+import { guardOwnerChange, OwnerChangeConflict, ownerConflictResponse, writeOwnerIfUnchanged } from "@/lib/projects/owner-change-access";
 
 async function resolveOrgRole(
   userId: string,
@@ -227,9 +229,9 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     name?: string;
     description?: string | null;
     clientOrganization?: string | null;
-    ownerId?: string;
     plannedCompletionDate?: Date | null;
   } = {};
+  let newOwnerId: string | null = null;
 
   if (typeof body.name === "string") {
     const name = body.name.trim();
@@ -267,14 +269,10 @@ export const PATCH = withAuth(async (request, ctx, user) => {
     if (!ownerId) {
       return NextResponse.json({ error: "负责人无效" }, { status: 400 });
     }
-    const owner = await db.user.findUnique({
-      where: { id: ownerId },
-      select: { id: true },
-    });
-    if (!owner) {
-      return NextResponse.json({ error: "负责人不存在" }, { status: 400 });
-    }
-    data.ownerId = ownerId;
+    // CHAIN-2c：能管理执行项目的人可以把负责人交给别人；交给自己要有财务特权；新负责人须是本组织在用的成员
+    const guard = await guardOwnerChange({ user, orgId: project.orgId, currentOwnerId: project.ownerId, targetUserId: ownerId, isManager: true });
+    if (guard instanceof NextResponse) return guard;
+    if (guard.changed) newOwnerId = ownerId;
   }
 
   if ("plannedCompletionDate" in body) {
@@ -297,6 +295,7 @@ export const PATCH = withAuth(async (request, ctx, user) => {
 
   try {
     await db.$transaction(async (tx) => {
+      if (newOwnerId) await writeOwnerIfUnchanged(tx, project.id, project.ownerId, newOwnerId);
       if (Object.keys(data).length) {
         await tx.project.update({
           where: { id: project.id },
@@ -347,10 +346,25 @@ export const PATCH = withAuth(async (request, ctx, user) => {
       }
     });
   } catch (err) {
+    if (err instanceof OwnerChangeConflict) return ownerConflictResponse();
     const msg = err instanceof Error ? err.message : "更新失败";
     const status =
       msg.includes("无权") || msg.includes("更高权限") ? 403 : 400;
     return NextResponse.json({ error: msg }, { status });
+  }
+
+  if (newOwnerId) {
+    await logAudit({
+      userId: user.id,
+      orgId: project.orgId ?? undefined,
+      projectId: project.id,
+      action: AUDIT_ACTIONS.UPDATE,
+      targetType: AUDIT_TARGETS.PROJECT,
+      targetId: project.id,
+      beforeData: { ownerId: project.ownerId },
+      afterData: { ownerId: newOwnerId },
+      request,
+    });
   }
 
   const detail = await getDeliveryProjectDetail({
