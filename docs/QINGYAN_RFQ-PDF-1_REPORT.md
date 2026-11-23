@@ -3,6 +3,7 @@
 - OpenSpec change：`supplier-docs-converge`（`openspec/changes/supplier-docs-converge/`）
 - 任务书：`docs/QINGYAN_RFQ-PDF_TASKBRIEF.md` §5「T1」
 - 分支：`claude/adoring-feynman-w8btkv`；核对基线：main `91d928e4`
+- 结果：PR #544 由 Lucas 于 2026-11-22（多伦多时间）合并；2026-11-23 归档为 `openspec/changes/archive/2026-11-23-supplier-docs-converge`，主规格 `tender/rfq-sheet-download`（新，11 条）与 `tender/supplier-identity-guard`（改 6 条）。归档时把增量里「供应商侧生成文件」一条的正文压到 500 字以内（措辞精简，行为不变），否则归档后的主规格过不了 `openspec validate --specs --strict`
 - 日期：2026-11-21。授权：Evan 2026-11-21 在本会话说「现在你来全权负责……如果需要合并你来做，如果有问题，按照你推荐的做」
 
 ## 1. 做了什么
