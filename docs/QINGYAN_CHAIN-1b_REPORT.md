@@ -81,6 +81,24 @@
 | `openspec validate award-manual-entry-alberta --strict` | valid |
 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
 
+### 2026-11-23 交叉验证修订后复跑（修订提交 `c9214776`，分支已含协调会话合入的 main `b717427f`）
+
+| 项 | 结果 |
+|---|---|
+| 本 change 与相关测试单跑（隔离库 `qy_iso_b`，迁移已是最新） | `award-manual-entry.test.ts` 47 / 47；`award-manual-entry-db.isolated.test.ts` 30 / 30（原 21）；`awards.test.ts` 35 / 35（原 33）；`award-semantics` 16；`award-dedupe-db` 6；`award-review-db` 20；`outcome-winner-db` 18；`sourcing-suggestions-db` 36；`org-profiles` 30；`import-leads-db` 69；`alias-decisions-db` 39；`readiness-count-db` 19；`tender-result.test.ts` 17，全部通过；`awards-db.test.ts` 16 / 18（T4-DB-08 / 09 前置，既有） |
+| 改前失败、改后通过 | 去掉 `awards.ts` 与 `own-result-backfill.ts` 的修订：隔离库 F1 两条失败（28 / 30），`awards.test.ts` T4-01i、T4-01j 失败（33 / 35） |
+| 审查员的变异（`mutate.py`，22 个：匹配收紧、信任级、判定顺序 ×3、组织隔离 ×2、APC 校验 ×3、撤回上限 ×2、同一事务、开关、P2002 重读、`canEnterManual`、采购方候选 ×2、列表链接、后继键） | 22 / 22 被抓住；其中判定顺序、主机、撤回上限、同一事务、P2002 重读、跨组织候选、列表链接现在都有隔离库行为测试抓住（以前只靠源码断言或没抓住） |
+| FIX-21 目录守卫 | 98 通过、0 失败（本分支不改 `src/app/api/projects/[id]/**`） |
+| `npm test`（`qy_full_chain1b` 删掉重建、`migrate deploy`） | `719/730 通过, 11 失败`：10 项与既有失败名单逐条相同；多出的 1 项是「网站询盘异步入站 DB 端到端」的「两个并发认领 → 恰一个 claimed」（得到 `not_rerunnable`），是并发计时断言，本分支没有改 `src/lib/trade/**` 与网站询盘的任何文件；同一库单独重跑 3 次都是 58 / 58 通过 |
+| `npm run test:ci`（不带数据库，与 CI 相同） | PASS（`awards.test.ts` 35、`award-manual-entry.test.ts` 47；隔离库用例按设计跳过；注册校验已注册 696 个、欠账 66 条） |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS（errors 38，基线 53） |
+| `bash scripts/check-test-registry.sh` | 通过（已注册 696 个，欠账 66 条） |
+| `bash scripts/test-runtime-architecture.sh` | PASS（9 / 9） |
+| `openspec validate award-manual-entry-alberta --strict` | valid |
+| 归档演练（临时工作区 `openspec archive --yes`） | `tender/award-manual-entry` 新建（13 条）、`tender/award-records` + 2 条 ~ 1 条；归档后 `openspec validate --specs --strict` 152 / 152 → 153 / 153，不新增失败；每条要求 ≤ 500 字（最长 476，「落库口径」） |
+| `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与代码）**——逐条核实后全部并入四件套（`5d46fb2e`）：
@@ -158,5 +176,26 @@
 ## 7. 已知限制
 
 - 招标编号区分大小写（写入服务既有规则）：手打的 `ab-1` 与 CanadaBuys 的 `AB-1` 对不上。
-- 项目里有人按编号人工确认了同一条授标时，写入服务会把这条人工录入直接提升为人工确认，不经组织管理员（既有规则）；表单说明写「经人工确认属实后才计入（一般由组织管理员在下表确认）」。
+- 项目里有人按编号人工确认了同一条授标时，写入服务会把这条人工录入直接提升为人工确认，不经组织管理员（既有规则）；表单说明写「经人工确认属实后才计入（一般由组织管理员在下表确认）」。（2026-11-23 起：这条若是疑似重复，只升信任级、状态不变，仍由组织管理员裁决，见 §8 F1。）
 - 只做 Alberta APC；批量导入与其它省份另立 change。
+
+## 8. 2026-11-23 交叉验证后修订
+
+交叉验证结论：可以合并、没有阻断项；有一条相对 main 的回归（F1）与一处规格矛盾（F2），协调会话定为合并前修，另有 F3、F4。修订提交 `c9214776`。
+
+| 编号 | 问题 | 去向 |
+|---|---|---|
+| F1（中，回归） | 疑似重复会被既有的「提升」路径悄悄转正：CanadaBuys 记录 E（编号 S1）→ 人工录入 N（编号 S2，中标方日期金额同 E，成为疑似重复）→ 再以人工确认写入编号 S2（项目里的授标历史确认、项目结果回灌）→ N 变为 `ACTIVE + HUMAN_CONFIRMED`，`possibleDuplicateOfId` 仍指向 E，同一笔算两次，待裁决里看不到 | **已修**（协调会话定的做法）：`awards.ts` 挂到既有时，目标是 `NEEDS_REVIEW` 且带 `possibleDuplicateOfId` → 只升信任级、挂来源，不改状态，仍待组织管理员裁决；对既有「同中标方同买家」的疑似重复同样生效。附带：`own-result-backfill.ts` 未中标回灌按记录状态给 `needs_review`，页面提示「与已有授标记录疑似重复，请在历史中标页核对」，不再说「会出现在竞争对手情报里」。规格：`tender/award-records` 新增「人工确认的写入不让疑似重复转正」，`tender/award-manual-entry`「落库口径」补例外与场景；design D9。测试：审查员的复现脚本变成隔离库三条（挂上后仍疑似重复、统计不变；回灌 `needs_review`；组织管理员确认后才计入）与 `awards.test.ts` T4-01j，改前失败、改后通过 |
+| F2（规格矛盾） | 归档后「不同招标编号不判疑似重复」（同中标方同买家、编号不同 → `ACTIVE`）与新增的「同中标方同日期同金额、编号不同 → `NEEDS_REVIEW`」对「同买家、同日期、同金额、编号不同」结论相反 | **已改**：delta 改为 MODIFIED 那一条，写明例外（日期与金额也都相同时仍标为疑似重复），原有三个场景照留（第一个补「授标日期或金额与原记录不同」），另加一个例外场景；ADDED 两条（按日期金额挂到既有时不跨不同的编号、人工确认的写入不让疑似重复转正）。归档演练见 §4 |
+| F3（测试） | P2002 重读、APC 主机校验、判定顺序（M3）、撤回上限（M6）、同一事务（M7）、跨组织候选（M11b）只靠源码断言或没被抓住 | **已补行为测试**：8 路同时提交（一条记录、一条审计、8 次都 200）；`www.alberta.ca`、`alberta.ca`、`notalberta.ca`、`evil.purchasing.alberta.ca` 等 7 种主机拒绝，列表里非 APC 主机的人工录入链接不给；开关关时未登录 401、查看者 403、不存在的组织 404 先于 409，坏链接也是 409；撤回 1–9 次后能重录、满 10 次 409 且不写库；事务在写完审计后被迫回滚（替换 `db.$transaction`）→ 记录与审计都不留；别的组织的招标项目不进采购方候选（成员与平台超级管理员）。审查员的 22 个变异全部被抓住。仍只靠源码断言的：「开关关时不访问授标表」（行为上只能看到不写库，读没有可见效果）、页面与表单的文字和接线（没有浏览器测试）；源码断言保留 |
+| F4 | `awards.ts` 按日期金额找候选的 `take: 10` 没有排序，`possibleDuplicateOfId` 指向哪条不确定 | **已修**：`orderBy: [{ createdAt: "asc" }, { id: "asc" }]`（授标日期已在条件里取等，日期差都是 0），指向最早建档的那条；`awards.test.ts` T4-01i（假客户端照 `orderBy` 排、没给时按新到旧），改前失败、改后通过；规格「按日期金额挂到既有时不跨不同的招标编号」补「指向最早建档的一条」与场景 |
+
+## 9. 合并后要人做的事
+
+1. **确认生产上 `T4_AWARD_INTELLIGENCE_SCHEMA_READY` 开没开**（`docs/QINGYAN_CHAIN-0_ENV_CHECK.md` 第 4 项没有填实际值）。开着时，表单与接口、收紧的匹配（编号不同不再挂到一起、标为疑似重复）和 F1（疑似重复不被人工确认写入转正）**合并即对所有写入方生效**（CanadaBuys 观察、项目结果回灌、授标历史面板的确认、人工录入）；关着时页面不显示表单、接口 409，写入服务也不被调用。
+2. **跑一次审查员给的只读查询**，看过去有多少条记录被不同的 CanadaBuys 参考号合并成了一条（同样的情况以后会成为疑似重复，等组织管理员裁决）：
+   ```sql
+   SELECT count(*) FROM "AwardRecord" r WHERE (SELECT count(DISTINCT s."sourceKey") FROM "AwardRecordSource" s WHERE s."awardRecordId"=r.id AND s."sourceType"='CANADABUYS_OPEN_DATA')>1;
+   ```
+   只读，不改数据；数字大时告诉组织管理员「历史中标」页的「疑似重复待裁决」会变多。
+3. PR 合并后 `/opsx:archive award-manual-entry-alberta --yes`（独立小 PR）：`tender/award-manual-entry` 新建、`tender/award-records` 改一条加两条；TASKFLOW CHAIN-1b 改为 `[x]`。
