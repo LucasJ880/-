@@ -174,8 +174,11 @@ async function main() {
   assert.equal(normalizeSupplierLinkRole("candidate"), "candidate");
   assert.equal(normalizeSupplierLinkRole("bogus"), null);
 
-  assert.ok(PROJECT_PDF_DOC_TYPES.includes("china_supplier_brief"));
-  assert.equal(isProjectPdfDocType("china_supplier_brief"), true);
+  // RFQ-PDF-1：国内供应商简报已停止生成，白名单里只剩供应商询价单这一种供应商侧文件
+  assert.ok(PROJECT_PDF_DOC_TYPES.includes("supplier_rfq"));
+  assert.equal(isProjectPdfDocType("supplier_rfq"), true);
+  assert.equal(isProjectPdfDocType("china_supplier_brief"), false);
+  assert.equal(isProjectPdfDocType("tech_confirm"), false);
   assert.equal(isProjectPdfDocType("evil"), false);
 
   console.log("bid-workflow-phase1: all passed");

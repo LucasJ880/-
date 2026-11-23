@@ -193,8 +193,8 @@ console.log("project-identity-deny");
     "src/lib/tender-rfq/build.ts",
     "src/lib/tender-rfq/service.ts",
     "src/lib/tender-rfq/execute.ts",
-    "src/lib/projects/generate/generate-docs.ts",
-    "src/lib/bid-workflow/china-supplier-brief.ts",
+    // RFQ-PDF-1：供应商侧生成文件只剩询价单，接线在这一处（generate-docs 只调用它并落库）
+    "src/lib/tender-rfq/sheet-download-service.ts",
   ];
   for (const f of callers) {
     const s = readFileSync(path.join(root, f), "utf8");
