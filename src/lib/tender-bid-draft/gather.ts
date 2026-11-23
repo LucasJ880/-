@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { formatTenderProfileContext, isTenderProfileUsable } from "@/lib/tender-profile/contract";
 import { getTenderProfile } from "@/lib/tender-profile/store";
 import { complianceStatusFromFit, type BidDraftInputs, type BidDraftRequirement } from "./contract";
+import { LEGACY_MEMO_REDACTED_ZH, placeholderToNull, redactLegacyMemo } from "@/lib/tender-intel/memo-pricing";
 
 /**
  * B4（安全修复）：企业记忆已验证事实只能经 canonical 访问门读取。
@@ -131,7 +132,8 @@ async function gatherInto(
     select: { summaryJson: true },
   });
   const rsj = ((room?.summaryJson as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  const memoRaw = (rsj.bidStrategyMemo ?? null) as {
+  // CHAIN-2d：旧版备忘（输入里有我方成本）先裁剪，再交给投标文件草稿的模型
+  const memoRaw = redactLegacyMemo(rsj.bidStrategyMemo ?? null) as {
     summaryZh?: string;
     riskGates?: Array<{ gateZh: string; statusZh: string; basisZh: string }>;
     teamingAdviceZh?: string;
@@ -198,11 +200,16 @@ async function gatherInto(
     criticalFacts,
     analystBrief: sj.analystSynthesis ?? null,
     submissionChecklist: sj.submissionChecklist ?? null,
+    // CHAIN-2d：旧版备忘被隐藏的段落不送占位句，送 null
     memo: memoRaw
       ? {
-          summaryZh: memoRaw.summaryZh ?? null,
-          riskGates: (memoRaw.riskGates ?? []).slice(0, 8),
-          teamingAdviceZh: memoRaw.teamingAdviceZh ?? null,
+          summaryZh: placeholderToNull(memoRaw.summaryZh),
+          // 名称被隐藏的风险门（旧版备忘）不送
+          riskGates: (memoRaw.riskGates ?? [])
+            .filter((g) => g.gateZh !== LEGACY_MEMO_REDACTED_ZH)
+            .slice(0, 8)
+            .map((g) => ({ ...g, gateZh: placeholderToNull(g.gateZh) ?? "", basisZh: placeholderToNull(g.basisZh) })),
+          teamingAdviceZh: placeholderToNull(memoRaw.teamingAdviceZh),
         }
       : null,
     rfiCount: Array.isArray(memoRaw?.strategicRfis) ? memoRaw!.strategicRfis!.length : 0,
