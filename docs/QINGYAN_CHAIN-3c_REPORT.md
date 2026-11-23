@@ -69,6 +69,13 @@
 
 **单独计数之后的重跑**（`520acdce` 的代码）：`npm test` `702/712 通过, 10 失败`，10 项与上面同一批既有失败（跑之前删掉了 Mention Gateway M2-A 的残留那一行）；全量里 `import-leads-db` 69 全过；`npm run test:ci`（不带库）PASS；`npm run typecheck` 通过；`npm run lint:baseline` PASS；`openspec validate import-leads-alias-admin-revoke --strict` valid。
 
+**2026-11-23 合入 main `595fb896` 后复跑**（合并提交 `261b8719`；main 含 #535 CHAIN-3b、#544 RFQ-PDF-1、#532 CHAIN-2b、#533 CHAIN-4c、#540 FIX-12、#546 FIX-13、#548 FIX-17 及其归档）：
+
+- 冲突两处，两边都保留：TASKFLOW（CHAIN-3 行之后 CHAIN-3b 在前、CHAIN-3c 在后）；`import-leads.test.ts` 文件末尾两边各加的 `{ … }` 块（CHAIN-3b 在前、CHAIN-3c 在后，各自成块）。本分支改的源文件 main 在分叉后都没有改过；main 在本目录只新增了 `readiness-count.ts`（CHAIN-3b），它按「本项目、未标为不采用的 `import_lead_v1` 导入记录」判断，与本分支未改动的 `storedLeadCount` 同一口径；撤回只写一条审计、不改导入记录的状态，两者仍一致（CHAIN-3b 的源码断言与隔离库用例都过）。
+- 单跑（隔离库 `qy_iso_b`，迁移已是最新）：`import-leads.test.ts` 139 通过（合并前本分支 132 + CHAIN-3b 的 7）；`import-leads-db.isolated.test.ts` 69 通过；CHAIN-3b 的 `readiness-count-db.isolated.test.ts` 19 通过。
+- `npm test`（新库 `qy_full_chain3c`，`prisma migrate deploy`）：`712/722 通过, 10 失败`，10 项与 main 既有失败逐条相同（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB）；全量里 `import-leads-db` 69、`readiness-count-db` 19 全过。
+- `npm run test:ci`（`env -u DATABASE_ENVIRONMENT`、CI 的库地址与 JWT）：PASS（注册校验：已注册 689 个，历史欠账 66 条）；`npm run typecheck` 通过；`npm run lint:baseline` PASS（无新增指纹）；`bash scripts/check-test-registry.sh` 通过；`bash scripts/test-runtime-architecture.sh` PASS（9/9）；`openspec validate import-leads-alias-admin-revoke --strict` valid；`git diff origin/main -- prisma/ vercel.json package.json package-lock.json` 为空。
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与 CHAIN-3 代码）**——逐条核实后全部并入四件套（`43444121`）：
