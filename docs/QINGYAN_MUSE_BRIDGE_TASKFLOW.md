@@ -326,7 +326,7 @@
 
 | ID | 任务 | 依赖 | 验收 | 状态 |
 |---|---|---|---|---|
-| BIDPAGE-1 | 三步骨架 + 「下一步」提示：新页面从上到下「下一步」→ ① 找供应商、询价 → ② 定报价 → ③ 出文件，每步可折叠、标题一句话状态；「下一步」按确定性查表算出（与任务书的出入见 design D3）；只读汇总接口金额只给有成本与财务查看权的人；入口在项目页分流（`bid-tab.tsx` 不动）；带金额的旧组件只给看得到金额的人挂 | — | OpenSpec change `bid-page-v2-shell`；任务书 BIDPAGE-1；报告 `docs/QINGYAN_BIDPAGE-1_REPORT.md` | [~]（PR 待开；开工前审查 1 轮 + 六维审查已处理） |
+| BIDPAGE-1 | 三步骨架 + 「下一步」提示：新页面从上到下「下一步」→ ① 找供应商、询价 → ② 定报价 → ③ 出文件，每步可折叠、标题一句话状态；「下一步」按确定性查表算出（与任务书的出入见 design D3）；只读汇总接口金额只给有成本与财务查看权的人；入口在项目页分流（`bid-tab.tsx` 不动）；带金额的旧组件只给看得到金额的人挂 | — | OpenSpec change `bid-page-v2-shell`；任务书 BIDPAGE-1；报告 `docs/QINGYAN_BIDPAGE-1_REPORT.md` | [x]（#557，2026-11-23 合并（`d1b0d3e2`）；archive `2026-11-23-bid-page-v2-shell`；主规格 `tender/bid-page` 13 条（新）；**开关默认关，合并后页面无变化**；合并前开工前审查 1 轮 + 六维审查 + 交叉验证（报告 §5）；合并前最后一次门禁：main `212613ec` 上全量 717/727（10 项既有失败逐条相同）、CI 全绿） |
 | BIDPAGE-3 | 报价做法一「逐行报价」，成本存进系统（`QuoteCostLine`），四个数取引擎结果；旧本地草稿提示一次、人点了才导入；「按招标方价格表导出」。另须：② 换成按金额门做的新区块，恢复有 `project:cost:write`、没有财务查看权的人编辑报价（BIDPAGE-1 design D5 的临时出入）；从新页面拿掉 `BidWorkspacePanel`；「更多」里加「专业模式」；回看「下一步」「导出价格表 / 生成投标文件」的去处 | BIDPAGE-1 | OpenSpec change `quote-line-mode-persist`；任务书 BIDPAGE-3、验收 5 / 8 | [ ] |
 | BIDPAGE-4 | 报价做法二「只报总价」：总价构成表开始只有 4 行，其余从中文清单添加；落既有成本类别与计算方式；税走既有 `computeTax` | BIDPAGE-3 | OpenSpec change `quote-lump-sum-mode`；任务书 BIDPAGE-4、验收 3 / 4 | [ ] |
 | BIDPAGE-6 | 定报价只点一次：有批准权限的人「定为我方报价」= 提交 + 批准 + 选定；没有的人「提交给负责人」（站内通知负责人）；状态机不改；`TenderOurBidCard` 并入 ② 标题下一行（金额按金额门） | BIDPAGE-3 | OpenSpec change `quote-one-step-confirm`；任务书 BIDPAGE-6、验收 7 | [ ] |
