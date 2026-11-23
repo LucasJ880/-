@@ -48,11 +48,15 @@ import {
   type SaveLineModeRequest,
 } from "./contract";
 import { costLinesToState, defaultLineModeState, linePrefillMessageZh, seedRowsFromSchedule, stateToWrites, type CostLineWrite } from "./mapping";
+import { isLumpSumQuote, readLumpMeta } from "../lump-sum/contract";
+
+/** 我方报价是总价报价时导出处的原因（spec tender/quote-line-mode「按招标方价格表导出」） */
+export const LUMP_EXPORT_UNAVAILABLE_ZH = "我方报价是只报总价的报价，没有逐行单价，不能按价格表导出";
 
 export type LineCaps = { canEdit: boolean; canApprove: boolean };
 
-const QUOTE_CHANGED_ZH = "这份报价刚被别人改过（也可能是你在专业模式里改的），这次没保存";
-const frozenZh = (status: string) => `这份报价「${QUOTE_STATUS_ZH[status] ?? status}」，内容锁定；要改请在专业模式里另起新版`;
+export const QUOTE_CHANGED_ZH = "这份报价刚被别人改过（也可能是你在专业模式里改的），这次没保存";
+export const frozenZh = (status: string) => `这份报价「${QUOTE_STATUS_ZH[status] ?? status}」，内容锁定；要改请在专业模式里另起新版`;
 
 /**
  * 导出的 CSV 会被人用表格软件打开：以 = + - @ 或制表符、回车开头的品名会被当成公式，前面加一个 ' 让它按文字显示
@@ -62,7 +66,7 @@ export function csvSafeText(s: string): string {
   return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
 }
 
-const D = (v: number | null | undefined) => (v == null ? null : new Prisma.Decimal(v.toFixed(8)));
+export const D = (v: number | null | undefined) => (v == null ? null : new Prisma.Decimal(v.toFixed(8)));
 
 export { isLineModeQuote };
 
@@ -74,7 +78,7 @@ export async function usableSchedule(projectId: string): Promise<PriceScheduleLi
   return validatePriceSchedule(lines).valid ? lines : null;
 }
 
-function writeData(orgId: string | null, w: CostLineWrite) {
+export function writeData(orgId: string | null, w: CostLineWrite) {
   return {
     orgId,
     sortOrder: w.sortOrder,
@@ -120,6 +124,7 @@ export async function exportAvailability(projectId: string, orgId: string, known
     };
   }
   const q = await db.projectQuote.findFirst({ where: { id: bid.id, projectId, orgId }, select: { id: true, version: true, engineJson: true, quoteType: true } });
+  if (q && isLumpSumQuote(q)) return { available: false, reasonZh: LUMP_EXPORT_UNAVAILABLE_ZH };
   if (!q || !isLineModeQuote(q)) return { available: false, reasonZh: "我方报价是在专业模式里做的，这里只能导出逐行报价；要按价格表导出，请用逐行报价做一份并定为我方报价" };
   return { available: true, quoteId: q.id, version: q.version };
 }
@@ -144,7 +149,7 @@ export async function listLineQuotes(input: { projectId: string; orgId: string; 
       status: q.status,
       quoteType: q.quoteType,
       currency: q.currency,
-      entryMode: isLineModeQuote(q) ? ("LINE" as const) : null,
+      entryMode: isLineModeQuote(q) ? ("LINE" as const) : isLumpSumQuote(q) ? ("LUMP_SUM" as const) : null,
       sellingPrice: typeof sp === "number" && Number.isFinite(sp) ? sp : null,
       updatedAt: q.updatedAt.toISOString(),
       isOurBid: bid.id === q.id,
@@ -203,7 +208,7 @@ export async function createLineQuote(input: { projectId: string; orgId: string;
 
 /* ---------------------------------- 读 ---------------------------------- */
 
-async function inquiryQuotesOf(projectId: string): Promise<InquiryQuoteOption[]> {
+export async function inquiryQuotesOf(projectId: string): Promise<InquiryQuoteOption[]> {
   const items = await db.inquiryItem.findMany({
     where: { status: "quoted", inquiry: { projectId, status: { not: "canceled" } } },
     select: { id: true, supplierId: true, unitPrice: true, totalPrice: true, currency: true, repliedAt: true, supplier: { select: { name: true } }, inquiry: { select: { roundNumber: true } } },
@@ -273,7 +278,7 @@ export async function loadLineView(input: { projectId: string; orgId: string; qu
     capabilities: input.caps,
     state: read.state,
     notices: read.notices,
-    others: read.others.map((l) => ({ id: l.id, description: l.description, category: l.category, amount: amountById.get(l.id) ?? null, included: l.included })),
+    others: read.others.map((l) => ({ id: l.id, description: l.description, category: l.category, amount: amountById.get(l.id) ?? null, included: l.included, fromLump: readLumpMeta(l.metadata) != null })),
     computed,
     inquiryQuotes,
     seed,
@@ -287,7 +292,7 @@ export async function loadLineView(input: { projectId: string; orgId: string; qu
  * 点选询价回复的行：回复必须是本项目已报价的那一条，价与币种与回复一致；供应商一律取自库里。
  * 不是点选的行：供应商不取提交的——只沿用库里同一条货品行原有的（那一行原来也不是点选来的，例如专业模式里填的），否则为空。
  */
-async function resolveInquiryRows(projectId: string, state: LineModeState, current: QuoteRecord["costLines"]): Promise<LineModeState> {
+export async function resolveInquiryRows(projectId: string, state: LineModeState, current: QuoteRecord["costLines"]): Promise<LineModeState> {
   const manualGoods = new Map(
     current.flatMap((l) => {
       const meta = readBidLineMeta(l.metadata);
