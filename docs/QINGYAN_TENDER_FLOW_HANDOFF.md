@@ -551,18 +551,18 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 
 **开工核对（2026-11-22 约 21:30 UTC）**：远端各分支最新提交都不晚于 2026-11-21 04:09:20 UTC（`claude/modest-einstein-4ovbd2` `490d786a`）；`list_sessions` 里本账号没有别的会话在跑；原来的会话「青砚招投标线 T1–T6」（`session_01S6TUMQWjut1btSm1teBx21`）不在本账号的列表里，按 Evan 的说法已停。
 
-**进度（以本节最后一次更新为准；最后更新 2026-11-22 23:55 UTC）**
+**进度（以本节最后一次更新为准；最后更新 2026-11-23 00:50 UTC，main = `f016325f`）**
 
 | 项 | 状态 | 在哪 |
 |---|---|---|
 | 第 1 步 #546（FIX-13） | **已合并**（main `13c7ed33`）；归档 #547 **已合并**（2026-11-22 23:32 UTC，main `01e444b9`；归档核对子 agent 五项全过） | PR #546、#547 |
-| 第 2 步 FIX-17 | PR #548（分支 `claude/zen-turing-azudvx-fix17`，已合入 main `01e444b9`），**已转 Ready**：全量 `707/717`（10 项与 main 基线逐条相同）、CI 子集 / typecheck / lint 过；交叉验证子 agent 无代码阻断，补了一条断言（隔离库 60 / 60）、报告 §5.3 门禁与 §8 审查；等 GitHub CI 绿后合并，再开归档小 PR | PR #548；change `project-files-access-guard`；报告 `docs/QINGYAN_FIX-17_REPORT.md` |
-| 第 3 步 #545 / #543 | #545 已合入 main `01e444b9`（`a8bb5d5d`）、转 Ready，GitHub CI 在跑，绿后合并；#543 已合入 main 与本节，核对子 agent 认为两份原交接一行没丢、页头与本节三处过时（本次已改），改完转 Ready、合并；之后关闭 #537、#541 | PR #545、#543 |
+| 第 2 步 FIX-17 | **已合并**：#548（2026-11-23 00:28 UTC，`68bc4133`；五个维度审查 + 交叉验证，补了一条断言，全量 `707/717` 与基线相同）；归档 #549 **已合并**（`f016325f`，主规格 `projects/files-access` 8 条） | PR #548、#549 |
+| 第 3 步 #545 / #543 | **都已合并**：#545（`8f65b77a`）、#543（`2f5d24d2`，核对子 agent：两份原交接一行没丢）；#537、#541 已关闭并留言「已由 #543 取代」。之后本文件从 `claude/zen-turing-azudvx` 走新 PR | PR #545、#543 |
 | 第 4 步 FIX-15 / FIX-16 四件套 | **已定稿**：FIX-15 `cdd13767`（G1A G2A G4C；t8 原因改写归 FIX-20；排队头阻塞最坏情况；G3 合并前要生产耗时分布）+ `45ea769f`（`docs/acceptance/fix-15/prod-check.sql`）；FIX-16 `957c7325`（G1–G10 按推荐） | `claude/zen-turing-azudvx-fix15`、`-fix16` |
 | 第 5 步 FIX-14 四件套 | **已定稿** `e889c585`（G1A G2A G3A G4A G5B G6A；登记 7 条后续任务） | `claude/zen-turing-azudvx-fix14` |
-| 七个情报串联 PR | GATE 回答已写进 #532、#534、#536、#539 的 PR 正文与 #532、#536 的报告 / TASKFLOW 行（`chain-2b`、`chain-1b` 分支）；合并按顺序排在第 1–3 步之后 | 分支 `claude/inspiring-johnson-o54xbt-chain-*` |
+| 七个情报串联 PR | #533（CHAIN-4c）**已合并**（`07c02358`），归档 #550 核对通过、等 CI；#532（CHAIN-2b）合入 main `07c02358`（HEAD `de867d85`），全量 `707/717` 与基线相同，交叉验证无阻断，已转 Ready、正文写了复核，等 CI 后合并，再开归档；其后 #535 → #534 → #536 → #539 → #538 | 分支 `claude/inspiring-johnson-o54xbt-chain-*` |
 | CHAIN-2e | 未开始（排在 #532 合并之后） | `claude/inspiring-johnson-o54xbt-chain-2e` |
-| FIX-18 / 19 / 20（+20b）/ 21 | FIX-21 **已定稿** `b3533b2a`（GATE 1C 2A 3A），FIX-17 合并后实现；FIX-19 **已定稿** `58ff6dac` + `40a9606a`（prod-check.sql；第 1、2 条结果回来且第 2 条为 0 才合并）；FIX-20 已批，实现子 agent 在跑（Draft）；FIX-20b 在 FIX-18 之后；FIX-18 按推荐定稿中 | `claude/zen-turing-azudvx-fix18`、`-fix19`、`-fix20`、`-fix21` |
+| FIX-18 / 19 / 20（+20b）/ 21 | FIX-21 **实现中**（子 agent，分支 `-fix21`，已合入 main）；FIX-19 已定稿，等生产查询第 1、2 条；FIX-20 **实现完成**（`ec625198`，已合入 main），五个维度审查已回（安全：招投标判断进了冻结区执行器，要挪出；规格：归档后一条要求超 500 字；正确性 / 文案：已停下的作业仍写「正在重试」等），修订清单在 scratchpad `reviews/fix20-fixlist.md`，等测试质量维度回来后交实现者一并改；FIX-20b 在 FIX-18 之后；FIX-18 **已定稿** `eac72193` | `claude/zen-turing-azudvx-fix18`、`-fix19`、`-fix20`、`-fix21` |
 | FIX-22 四件套 | **已定稿** `7a8a9ed3`（G1–G12 按推荐；G8 要把「自动补翻」写进 `openspec/config.yaml` 第 7 条例外——config 由 Evan 改，只登记为后续任务） | `claude/zen-turing-azudvx-fix22` |
 
 **接手要知道的**
@@ -575,6 +575,10 @@ H6（跨项目询价追踪页，T-2）、H7（前接发现，P2-1～P2-3）、H8
 6. **门禁基线**：本机 main `2ef4f9c8` 全量 `703/713`，10 项失败（来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB）；Mention Gateway M2-A 在新库上通过。
 7. **审查中顺带发现、还没登记任务的**：FIX-17 报告 §6 —— 页级解析报错原文经数字员工 t2 的 `unparsedDocuments` 进 t8 综合的模型提示（既有）；FIX-19 —— 可分析类型的外部链接没有存储地址，文件抽屉的自动处理会空转（既有）；FIX-21 —— 技能与情报生成调模型不带组织，月度 AI 费用预检对这条路径不生效（既有）；FIX-17 —— 已离开组织、但项目成员关系仍是 active 的人仍能读项目并删除文件（`src/lib/projects/access.ts` 既有行为）。
 8. **还有一个会话也在写本文件**：`session_01S6TUMRcBcpowZz7Lzcekrb`（不在本会话账号的会话列表里，`send_message` 找不到它，所以只能靠本文件互通），2026-11-22 22:01 起在 #543 分支上写了 §0.5j 开头的「2026-11-22 更新」，并列出「还没人做的归档」。**那两件由本会话处理**：FIX-13 归档 = #547，**已合并**（23:32 UTC，main `01e444b9`）；FIX-12 归档 #545 已合入最新 main、转 Ready，**待合并**（由本会话合并）；#543 **待合并**（本会话核对后合并），合并后关闭 #537、#541。另一个会话 11-22 在本文件上的提交：`364ebcf1`（22:01）、`775c261a`（22:45）、`209db1ac`（22:46）、`0907e03d`（23:00）、`69f0af98`（23:38）。之后本文件的更新只从 `claude/zen-turing-azudvx` 走新 PR，**别的会话请不要再推 `claude/modest-einstein-4ovbd2`**。
+9. **合并顺序与例外**：统一顺序见上（FIX-17 → FIX-21 → FIX-19 → FIX-14 → FIX-20 → FIX-15 → FIX-18 → FIX-20b → FIX-22 → FIX-16）。**FIX-19 若一直等不到生产查询结果**，不改它的源文件的 change（FIX-14、FIX-20，按各自四件套核对过）可以先合，开工前把 main 合进去、按它们 tasks 里写的基线核对；FIX-15 必须在 FIX-19 之后（Lucas 原话），FIX-18 起的顺序不变。
+10. **生产查询由谁跑**：各 change 写法不一（FIX-16 写 Evan，其它写 Lucas），统一为「有生产只读权限的人（Lucas 或 Evan）」，本会话交给 Lucas；各报告实现时照此写。
+11. **审查做法（Lucas 2026-11-22「PR 的审查需要用子agent多方面交叉审查」）**：实现 PR 合并前至少四到五个维度各一个子 agent（正确性、安全与硬纪律、规格一致性、文案、测试质量 / 变异），互相不看结论、不看实现者自述；再起一个没参与过的子 agent 做「挑错」交叉验证，亲自跑关键验证。**做变异的审查员会改工作树里的文件**，其它审查员要从 `git archive <提交>` 导出的干净快照读代码、跑测试。归档小 PR 由一个子 agent 核对主规格与 delta。
+12. **`openspec/config.yaml` 由 Evan 改**：FIX-22 的 G8（把「自动补翻」写进第 7 条例外）只登记为后续任务，等 Evan 动手。
 
 **环境做法（本会话的容器）**：Node 24 在 `/home/user/node24/node-v24.22.3-linux-x64/`（nodejs.org 下载、校验 sha256）；`source /home/user/env.sh` 设 PATH、`JWT_SECRET`、`NODE_ENV=test`、`DATABASE_ENVIRONMENT=isolated` 并提供 `isodb <库名>`；openspec 1.15.0 全局装（项目依赖里没有它）；本机 PostgreSQL 16（`apt-get install -y postgresql-16-pgvector`、`pg_ctlcluster 16 main start`），角色 `qy`，隔离库 `qy_iso_a…g`（单测与审查子 agent 各用一个）与 `qy_full_*`（全量，每次新建）；每个 change 一个 worktree（`/home/user/wt/<名字>`，`node_modules` 符号链接）。全量在本机约 20–25 分钟（不与别的重活并行时）。CI 子集要用 `env -u DATABASE_ENVIRONMENT DATABASE_URL=… DIRECT_URL=… JWT_SECRET=… NODE_ENV=test npm run test:ci`（`env -u` 要写在变量赋值之前）。
 <!-- K-END -->
