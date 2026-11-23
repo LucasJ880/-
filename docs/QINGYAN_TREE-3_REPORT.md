@@ -110,7 +110,14 @@ GitHub CI（`validate-lint-typecheck-test-build`）在 `368c8e13` 上 success（
 - 【可后续里最该先改的，顺手改】「Delivery charges will be extra」「Freight will be charged extra」「Freight charges, if any, are extra」「Les frais de livraison sont en sus」「Prices do not include delivery」「Shipping costs to be added」被标成含运费（标错，不是不明）【改：否定词前允许 will be / to be / sont / if any，另认 do not include、to be added、charged separately；用例】；「with delivery in March」「including delivery in 30 days」【改：in 也认，日期要像日期——月份（「Mar-Tech」不算）、天数周数、年份；「en 3 lots」「within 50 km」照认含运费；用例】。
 - 【可后续，记下】括号里小写的「(500 can)」「(12 us)」一类数量不认（只少单价）；「Euro 2024 Ltd」会让币种不明；「fiscal year 2024-2025 to fiscal year 2026-2027」不认多年期。
 
-这一轮修改后纯函数测试 216 → 220（新加的四条规则各做了变异，测试都变红），其余 TREE-2 / TREE-3 测试照旧全过（160、85、62、15、36、25），typecheck 与改动文件的 eslint 通过。口径与写法的规则已经收敛到「认不清就不认」：剩下的漏认只会让口径变「不明」、单价不算，不会算错数、错币种。
+这一轮修改在提交 `34664079`（纯函数测试 216 → 220）。
+
+**第五次复核**（同一规则；19 个变异里 12 个变红，之前所有探查结果与 `27c0a6bd` 完全相同）。结论「改完再合（补测试、加几个词）」：
+- 【要改】「garantie 与年数之间只放过形容词」清单太窄，魁北克常见的「garantie du manufacturier de 5 ans」「garantie minimale / standard / de base de 2 ans」「garantie sur les pièces de 5 ans」又被当成多年期【改：加 manufacturier、minimale、standard、de base、sur les pièces；用例】。
+- 【要改】六处新规则没有测试（交货时间里的年份与 3/31、charged / billed separately、n'incluent pas / ne comprennent pas 与后面的 la / les frais de、garantie 后面跟合同期）【补用例；七处各做变异，测试都变红】。
+- 【可后续，记下】「free delivery added to all orders」被 added 当成不含（只少认）；「by May Logistics」「en 2-3 lots」被当交货时间；「with delivery in Q2」「before year-end」仍算含运费；「warranty: 3 years terms and conditions apply」算多年期（构造的边缘）。
+
+这一轮的新用例加进已有的断言里（纯函数测试仍是 220 条），其余 TREE-2 / TREE-3 测试照旧全过（160、85、62、15、36、25），typecheck 与改动文件的 eslint 通过。口径与写法的规则已经收敛到「认不清就不认」：五轮复核都没有发现错数、错币种、错单价；剩下的漏认只会让口径变「不明」、单价不算。
 
 ## 6. 对 TREE-2 测试的修改（逐条）
 

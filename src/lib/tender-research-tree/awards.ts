@@ -322,7 +322,8 @@ const WARRANTY_SPAN = "(?:\\d+|two|three|four|five|six|seven|eight|nine|ten)";
 /** 年数后面跟着合同期的说法：不当保修去掉 */
 const NOT_TERM_AFTER = "(?!['’]?\\s*(?:contracts?|terms?|agreements?|de\\s+contrat|contrat|durée)\\b)";
 /** 「garantie」与年数之间只放过的词（「garantie pièces et main-d'œuvre de 5 ans」「garantie prolongée de 3 ans」） */
-const GARANTIE_ADJ = "(?:pièces\\s+et\\s+main-d['’](?:œ|oe)uvre|pièces|main-d['’](?:œ|oe)uvre|prolongée|limitée|complète|totale|du\\s+fabricant|fabricant)";
+const GARANTIE_ADJ =
+  "(?:pièces\\s+et\\s+main-d['’](?:œ|oe)uvre|sur\\s+les\\s+pièces(?:\\s+et\\s+la\\s+main-d['’](?:œ|oe)uvre)?|pièces|main-d['’](?:œ|oe)uvre|prolongée|limitée|complète|totale|minimale|standard|de\\s+base|du\\s+(?:fabricant|manufacturier)|fabricant|manufacturier)";
 const WARRANTY_ADJ = "(?:manufacturer'?s?|manufacturer’s|limited|extended|full|standard|parts\\s+(?:and|&)\\s+labou?r|parts|labou?r|product|structural|frame|on-site)";
 const NOT_CONTRACT_TERM_RE = new RegExp(
   [

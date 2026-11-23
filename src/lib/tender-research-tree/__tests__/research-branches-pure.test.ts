@@ -491,8 +491,21 @@ console.log("\n[挑错后：认不清的数、减项、别的币种、口径提�
     "Warranty – 3 year term",
     "warranty: 3-year contract",
   ];
+  quebecTerm.push("garantie de 3 ans de contrat");
   ok(quebecTerm.every((e) => scopeBasisOk("multi_year", e)), "保修后面接着的是合同期（contrat de 3 ans、3-year contract / term）：照认多年期", quebecTerm.filter((e) => !scopeBasisOk("multi_year", e)));
-  const warrantyMore = ["warranty – 5 years", "warranty (5 years)", "Garantie : 5 ans", "garantie pièces et main-d'œuvre de 5 ans", "garantie prolongée de 3 ans", "质保期：3年"];
+  const warrantyMore = [
+    "warranty – 5 years",
+    "warranty (5 years)",
+    "Garantie : 5 ans",
+    "garantie pièces et main-d'œuvre de 5 ans",
+    "garantie prolongée de 3 ans",
+    "garantie du manufacturier de 5 ans",
+    "garantie minimale de 5 ans",
+    "garantie standard de 2 ans",
+    "garantie de base de 2 ans",
+    "garantie sur les pièces de 5 ans",
+    "质保期：3年",
+  ];
   ok(warrantyMore.every((e) => !scopeBasisOk("multi_year", e)), "保修写成横线、括号、冒号的几种：不算多年期", warrantyMore.filter((e) => scopeBasisOk("multi_year", e)));
   const term = ["3-year contract with 2-year warranty", "for a period of three (3) years", "36-month contract", "contrat de trois ans", "contrat de deux ans", "2024年至2026年", "合同期三年，质保两年"];
   ok(term.every((e) => scopeBasisOk("multi_year", e)) && !scopeBasisOk("multi_year", "12 months"), "合同期的写法（三 (3) 年、36 个月、trois ans、2024年至2026年）照认；保修另写的不影响", term.filter((e) => !scopeBasisOk("multi_year", e)));
@@ -523,9 +536,9 @@ console.log("\n[挑错后：认不清的数、减项、别的币种、口径提�
   ok(timing.every((e) => !scopeBasisOk("freight", e)), "「送货」后面跟着日期 / 时间表、单写 Transport（部门名）：不算含运费", timing.filter((e) => scopeBasisOk("freight", e)));
   const negated = ["Freight not included", "Delivery charges are not included", "delivery costs are extra", "frais de livraison en sus", "prices exclusive of freight", "hors livraison", "不含运费"];
   ok(negated.every((e) => !scopeBasisOk("freight", e)), "写明不含运费的：不算含运费", negated.filter((e) => scopeBasisOk("freight", e)));
-  const negated2 = ["Freight: N/A", "frais de livraison exclus", "Delivery charges will be extra", "Freight will be charged extra", "Freight charges, if any, are extra", "Les frais de livraison sont en sus", "Prices do not include delivery", "Shipping costs to be added", "supply plus delivery"];
+  const negated2 = ["Freight billed separately", "Les prix n'incluent pas la livraison", "ne comprennent pas les frais de livraison", "Freight: N/A", "frais de livraison exclus", "Delivery charges will be extra", "Freight will be charged extra", "Freight charges, if any, are extra", "Les frais de livraison sont en sus", "Prices do not include delivery", "Shipping costs to be added", "supply plus delivery"];
   ok(negated2.every((e) => !scopeBasisOk("freight", e)), "不含运费的更多写法（N/A、exclus、will be extra、sont en sus、do not include、to be added、plus delivery）：不算含运费", negated2.filter((e) => scopeBasisOk("freight", e)));
-  const timing2 = ["with delivery in March", "including delivery in 30 days", "delivery by Mar-Tech"];
+  const timing2 = ["with delivery in March", "including delivery in 30 days", "delivery by Mar-Tech", "with delivery in 2025", "including delivery by 3/31"];
   ok(timing2.every((e) => !scopeBasisOk("freight", e)), "送货后面跟 in + 月份 / 天数：交货时间，不算", timing2.filter((e) => scopeBasisOk("freight", e)));
   const notTiming2 = ["Fourniture et livraison en 3 lots", "including delivery within 50 km", "including delivery by Mar-Tech"];
   ok(notTiming2.every((e) => scopeBasisOk("freight", e)), "en 3 lots、within 50 km、by Mar-Tech（公司名）：不是日期，照认", notTiming2.filter((e) => !scopeBasisOk("freight", e)));
