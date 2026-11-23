@@ -21,7 +21,7 @@
 
 ## 4. 产品资料录入
 
-- [ ] 4.1 `src/lib/product-content/intake/analyze.ts` 的事实抽取入口先清理传入的文字（文件（PDF、Excel）、网页、文字、语音转写四种来源都经过它）；两个测试文件补用例（隔离库用本地文件存储跑 `analyzeJobInputs`：规格 PDF 一行「\u0000 Color: Red」→ 事实 color = Red、原文行「Color: Red」、「分析输入」一步完成，先在改动前看到这一步停在 running；不用库的接线断言：四种来源都经同一处清理）；verify：两个新测试全过，`npx tsx src/lib/product-content/__tests__/priority-conflict.test.ts` 照旧通过
+- [x] 4.1 `src/lib/product-content/intake/analyze.ts` 的事实抽取入口先清理传入的文字（文件（PDF、Excel）、网页、文字、语音转写四种来源都经过它）；两个测试文件补用例（隔离库用本地文件存储跑 `analyzeJobInputs`：规格 PDF 一行「\u0000 Color: Red」→ 事实 color = Red、原文行「Color: Red」、「分析输入」一步完成，先在改动前看到这一步停在 running；不用库的接线断言：四种来源都经同一处清理）；verify：两个新测试全过，`npx tsx src/lib/product-content/__tests__/priority-conflict.test.ts` 照旧通过
 
 ## 5. 报价成本表导入
 

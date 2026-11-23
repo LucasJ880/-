@@ -264,6 +264,30 @@ async function main() {
       const me = run ? String(((run as { inputJson: unknown }).inputJson as Record<string, unknown>).marketEvidence ?? "") : "";
       ok(e6 === null && (run as { status: string } | null)?.status === "queued" && me.length === 20_000 && me.endsWith(`e${FFFD}`), "市场证据截断处劈开表情符号：调研任务建成（等待研究），市场证据以 U+FFFD 结尾（改动前写库被拒，接口 500）", { e6, status: (run as { status: string } | null)?.status, tail: JSON.stringify(me.slice(-3)) });
     });
+
+    /* ============================ 4. 产品资料录入 ============================ */
+    await section("产品资料录入", async () => {
+      const { putPrivateBlob } = await import("@/lib/files/blob-access");
+      const { analyzeJobInputs } = await import("@/lib/product-content/intake/analyze");
+      const job = await db.productContentJob.create({ data: { orgId: ORG, title: "Fixture flag spec sheet", createdById: OWNER } });
+      const pdf = buildPdf(["BT /F2 12 Tf 72 720 Td <0000> Tj ET\nBT /F1 12 Tf 84 720 Td ( Color: Red) Tj ET\nBT /F1 12 Tf 72 690 Td (Material: Polyester) Tj ET"]);
+      const pathname = `product-content/${ORG}/${job.id}/spec.pdf`;
+      await putPrivateBlob({ pathname, body: pdf, contentType: "application/pdf" });
+      await db.productContentJobInput.create({ data: { orgId: ORG, jobId: job.id, inputType: "pdf", blobPathname: pathname, mimeType: "application/pdf", fileName: "spec.pdf", createdById: OWNER } });
+      let error: string | null = null;
+      try {
+        await analyzeJobInputs(ORG, job.id, OWNER);
+      } catch (e) {
+        error = errText(e);
+      }
+      const facts = await db.productFact.findMany({ where: { jobId: job.id }, select: { fieldKey: true, value: true, normalizedValue: true, sourceLocation: true } });
+      const color = facts.find((f) => f.fieldKey === "color");
+      const step = await db.productContentStep.findFirst({ where: { jobId: job.id, stepKey: "analyze_inputs" }, select: { status: true } });
+      const after = await db.productContentJob.findUniqueOrThrow({ where: { id: job.id }, select: { status: true } });
+      ok(error === null && color?.value === "Red" && color?.sourceLocation === "Color: Red", "规格表一行「\\u0000 Color: Red」：抽出事实 color = Red，原文行为「Color: Red」（改动前写事实失败）", { error, color });
+      ok(facts.length >= 2 && facts.every((f) => !unstorable(f.value) && !unstorable(f.normalizedValue) && !unstorable(f.sourceLocation ?? "")), "抽出的每条事实的值、规范值与原文行都不含 U+0000", facts);
+      ok(step?.status === "done" && (after.status === "NEEDS_INPUT" || after.status === "PLAN_READY"), "「分析输入」这一步完成，任务状态按缺字段照常变为 NEEDS_INPUT / PLAN_READY（改动前这一步停在进行中）", { step: step?.status, job: after.status });
+    });
   } catch (e) {
     fail++;
     console.error("  ✗ 测试中途抛错", errText(e));
@@ -282,6 +306,7 @@ async function main() {
     await d.tradeChatSession.deleteMany({ where: { userId: OWNER } });
     await d.marketResearchRun.deleteMany({ where: { orgId: ORG } });
     await d.agentSkill.deleteMany({ where: { orgId: ORG } });
+    await d.productContentJob.deleteMany({ where: { orgId: ORG } });
     await d.notification.deleteMany({ where: { OR: [{ projectId: { in: projectIds } }, { orgId: ORG }] } });
     await d.inquiryItem.deleteMany({ where: { inquiry: { projectId: { in: projectIds } } } });
     await d.projectInquiry.deleteMany({ where: { projectId: { in: projectIds } } });

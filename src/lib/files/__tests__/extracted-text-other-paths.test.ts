@@ -357,11 +357,24 @@ async function chatSection() {
   }
 }
 
+async function productContentSection() {
+  console.log("\n— 产品资料录入 —");
+  const code = src("src/lib/product-content/intake/analyze.ts");
+  const fn = code.slice(code.indexOf("function extractFactsFromText("), code.indexOf("function inferAssetRoleFromFileName("));
+  const cleanAt = fn.indexOf("const text = toStorableText(rawText);");
+  ok(/^function extractFactsFromText\(\s*rawText: string,/.test(fn) && cleanAt > 0 && cleanAt < fn.indexOf("const facts") && (fn.match(/rawText/g) ?? []).length === 2,
+    "接线：事实抽取函数第一步就把传进来的文字清理（之后按行抽出的值、原文行、任务要求都取自清理后的文字）", fn.slice(0, 300));
+  const calls = [...code.matchAll(/extractFactsFromText\(\s*([^,]+),/g)].map((m) => m[1].trim());
+  ok(JSON.stringify(calls) === JSON.stringify(["rawText: string", "item.textContent", "item.transcriptText", "parsed.text", "text"]) && code.includes('extractFactsFromText(text, "website", item.id)'),
+    "接线：文字、语音转写、文件（PDF / Excel）、网页四种来源都经这同一处进入事实抽取", calls);
+}
+
 async function main() {
   console.log("FIX-14 extracted-text other paths（不用数据库）");
   await inquirySection();
   await procurementSection();
   await chatSection();
+  await productContentSection();
   console.log(`\nFIX-14 extracted-text other paths: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
