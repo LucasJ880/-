@@ -21,7 +21,7 @@
 ## 1. 测试先行（不改路由）
 
 - [x] 1.1 改授权布线契约测试 `src/app/api/agent/tasks/__tests__/authz-contract.test.ts`（design D6）。
-  - 登记 `recent/route.ts`，必须出现：`isPlatformAdmin`、2.1 新加的 dto 投影函数名、`buildReadableProjectWhere`、`listEffectiveMemberships`；步骤的 `select` 里不得出现 `error`、`inputJson`、`outputJson`（design D3）。
+  - 登记 `recent/route.ts`，必须出现：`isPlatformAdmin`、2.1 新加的 dto 投影函数名（实现定为 `sanitizeListStepInternals`）、`buildReadableProjectWhere`、`listEffectiveMemberships`；步骤的 `select` 里不得出现 `error`、`inputJson`、`outputJson`（design D3）。
   - 新增目录完整性检查：递归列出 `src/app/api/agent/tasks/` 下所有 `route.ts`，每个都要在登记表里，漏了就失败并点名文件。
   - 把这个测试与 `src/lib/agent-tasks/__tests__/dto.test.ts` 加进 `scripts/test-ci-unit.sh`，位置见开工前提第 1 条。
   - verify：在改动前的代码上退出码非 0，失败项只有 `recent/route.ts` 那一条；完整性检查列出 7 个路由文件、全部已登记；输出存进报告。
@@ -36,9 +36,12 @@
   - 每条用例对应规格 `agents/agent-tasks-recent-view` 的一个 Scenario。
   - verify：在改动前的代码上用隔离库跑，下面这些用例失败，其余通过：
     - 对照断言里所有不是 super_admin 的对照组用户（每人都在未分发的 P3 上有任务）；
+    - 「打不开项目的人看不到」4 项（被移出项目、乙组织管理员、同企业非成员、原组织管理员）；
+    - 「未分发项目上的巡检任务」2 项（负责人看不到 P3 上的巡检；结果正好是守卫放行的 cron 任务）；
     - 置空与标记串；
-    - 条数用户的全部用例（`?limit=5`、不带 `limit`、`?limit=50`、`-5`、`abc`、`0`、`2.5`）；
-    - 岗位预览。
+    - 条数用户的全部用例（`?limit=5`、不带 `limit`、`?limit=50`、`-5`、`abc`、`0`、`2.5`、空串；审查后另加 `0x10`、`1e1`、`5.0`、`%2B3`）；
+    - 岗位预览；
+    - 审查后加的「项目任务列表的条数」里 `-5`、`-1000`、`2.5`、`0x10` 4 项。
   - verify：输出存进报告；`bash scripts/check-test-registry.sh` 输出 OK。
 
 ## 2. 实现
@@ -53,17 +56,24 @@
 - [x] 2.2 `src/app/api/agent/tasks/recent/route.ts`（design D1、D2、D3）。
   - 不是 super_admin 时：先取有效组织成员身份，挑出 owner / admin 的组织；把可读项目条件作为 `project` 关系条件，与 `createdById`、`triggerType` 放进同一个 `where`，再 `take`。
   - 每一步经 2.1 的投影，按 `isPlatformAdmin(user)` 区分。
-  - `limit`：转成数字后是大于 0 的整数才用，否则按 10，再封顶 20（design D7）。
+  - `limit`：去首尾空白后是十进制正整数才用，否则按 10，再封顶 20（design D7；审查后由「大于 0 的整数」收紧，规则在 2.3）。
   - `select`、排序、响应形状 `{ tasks }` 不变。
   - verify：`npx tsx src/app/api/agent/tasks/__tests__/authz-contract.test.ts` 退出码 0。
   - verify：隔离库测试全部通过，连跑 3 次结果一致，输出存进报告。
   - verify：`npx tsx src/lib/search/__tests__/search-where.test.ts` 通过数与开工前相同。
+- [x] 2.3 审查后修订（2026-11-23 四个维度审查，协调会话定）。
+  - `dto.ts` 加 `parseListLimit(raw, { fallback, max })` 与 `RECENT_TASKS_LIMIT`（10 / 20）、`PROJECT_TASKS_LIMIT`（20 / 100）：去首尾空白后匹配 `/^[1-9]\d*$/` 才用，否则按缺省，再封顶。不另建文件（冻结区新文件要改 baseline）。两个列表路由都改用它；`src/app/api/agent/tasks/route.ts` 只改 `limit` 一行（design D7）。
+  - 新增不连库的 `src/lib/agent-tasks/__tests__/recent-route-args.test.ts`，注册进 `scripts/test-all.sh`（隔离库测试之后）与 `scripts/test-ci-unit.sh`（契约测试之后）：截获 `db.agentTask.findMany` 的参数，断言三层 `select` 的键集合、范围条件、`take`、非平台管理员的 `checkReportJson`（design D6）。
+  - 契约测试：目录完整性匹配 `/^route\.(ts|tsx|js|jsx|mjs)$/`；登记了不存在的文件记为该条失败并点名；两个列表路由都要有 `parseListLimit`。
+  - 隔离库测试：cron 筛选下的排序用有 2 条以上 cron 的身份；`limit` 另加 `0x10` / `1e1` / `5.0` / `%2B3`；加「项目任务列表的条数」一节。
+  - verify：`recent-route-args.test.ts` 退出码 0；把两个路由换回 main 版本时失败（改动前的数字写进报告）；展开常量、引号键、计算键、简写、注释里放假 `select` 五种写法让步骤多选 `error` 时它都失败。
+  - verify：隔离库测试全部通过、连跑 3 次一致；契约测试退出码 0；`dto.test.ts` 退出码 0。
 
 ## 3. 验收
 
 - [x] 3.1 全部门禁。verify：
   - `npm test` 对照既有失败清单无新增；
-  - `npm run test:ci` PASS（含新加进去的两个测试）；
+  - `npm run test:ci` PASS（含新加进去的三个测试）；
   - `npm run typecheck` 退出码 0；
   - `npm run lint:baseline` PASS；
   - `bash scripts/check-test-registry.sh` OK；
@@ -74,30 +84,34 @@
   - 报告内容：
     - 开工前复核：合入 main 后逐处复核行号的结果，对不上的地方与四件套怎么改的；
     - 改动前 / 改动后，谁在这个接口上少看到了什么（按 design Context「谁的任务会出现在谁的列表里」的几类人）；
-    - `limit` 非法值（`-5`、`abc`、`0`、`2.5`）改动前 / 改动后各返回什么，含改动前 `abc` 与 `2.5` 的实际行为；
+    - `limit` 非法值（`-5`、`abc`、`0`、`2.5`、`0x10`、`1e1`、`5.0`、`+3`）改动前 / 改动后各返回什么，含改动前 `abc` 与 `2.5` 的实际行为；项目任务列表同样列出；
     - 冻结面核对：`recent/route.ts` 在冻结区内部、不是基线消费者，导入 `dto.ts` 不进普查；runtime-architecture baseline 无差异；
     - 三个测试改动前 / 改动后的输出，门禁结果；
     - 「留给 GATE」两条的结论；
     - **没有开关，合并即在生产生效**；回滚只能 revert 这一个 PR；
     - **合并后要人做的事**：
-      - 只读查询：写进 `docs/acceptance/fix-23/prod-check.sql`（`BEGIN READ ONLY`，只有 SELECT），Evan 在生产库跑，结果原样贴回。分两段：
-        - A 段：合并后会从创建人列表里消失的任务。条件是创建人不是 super_admin、而且按项目读权限口径打不开项目。按原因（项目未分发 / 别的企业 / 同企业非成员 / 项目成员身份已停用 / 组织成员身份已停用的原管理员）与触发方式（cron / manual）各数几条。cron 一列就是后续第 3 条要看的数。
-        - B 段：创建人不是 super_admin 的任务里，检查报告带「步骤执行失败：」的步骤、带「利润率」的步骤各几条，按任务类型分。这些就是过去能从这个接口读到的内容；有没有人真的读过查不到，因为接口不记调用者。
+      - 只读查询：写进 `docs/acceptance/fix-23/prod-check.sql`（`BEGIN READ ONLY`，只有 SELECT），Evan 在生产库跑，结果原样贴回。分三段：
+        - A 段：合并后会从创建人列表里消失的任务。条件是创建人不是 super_admin、账号 active、而且按项目读权限口径打不开项目。按原因（项目未分发 / 别的企业 / 同企业非成员 / 项目成员身份已停用 / 组织成员身份已停用的原管理员等）与触发方式（cron / manual / 其它）各数几条。「项目未分发」一行的 cron 数就是后续第 3 条要看的数。
+        - B 段：创建人不是 super_admin、账号 active 的任务里，检查报告带「步骤执行失败：」的步骤、带「利润率」的步骤各几条，按任务类型分。这些就是过去能从这个接口读到的内容；有没有人真的读过查不到，因为接口不记调用者。
+        - C 段：项目角色是空串的 active 项目成员有几行（守卫拒、批量条件放行的唯一差异，design Risks）。不为 0 时另开任务。
       - 要处理的数据：没有。本 change 不改任何数据。
       - 合并后点一遍（Lucas）：界面上没有要点的地方（唯一调用方没挂载）。登录后在浏览器地址栏打开 `/api/agent/tasks/recent?limit=5`：
         - 用 super_admin 打开，检查报告是原文；
         - 用一个不是 super_admin 的项目负责人打开，每一步 `checkReportJson` 都是 `null`，列出的任务所属项目他都打得开。
     - 测试输出、多维审查结论。
-  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：「Phase F（续）— 情报串联」表的 FIX-23 一行（FIX-21 已登记、状态 `[ ]`）改写为本 change 的说明，挪到 FIX-21 后续各行之后（位置见开工前提第 1 条），状态 `[~]`。同时登记 3 条后续任务，各一行，编号写「待定」，状态 `[ ]`：
+  - `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`：「Phase F（续）— 情报串联」表的 FIX-23 一行（FIX-21 已登记、状态 `[ ]`）改写为本 change 的说明，挪到 FIX-21 后续各行之后（位置见开工前提第 1 条），状态 `[~]`。同时登记 5 条后续任务（第 4、5 条是审查后加的），各一行，编号写「待定」，状态 `[ ]`：
     1. `GET /api/agent/approvals` 的 `approvals` 字段原样带 `riskReason` 与 `previewJson`（`src/lib/agent/approval.ts:111-164`）。
        - `riskReason` 在检查不通过时由 `src/lib/agent-core/skills/flow-runner.ts:391-393` 拼进检查报告的 blockers，含原始报错；`previewJson` 是步骤原始输出（`:394`），报价草稿那一步含价格。
        - 与 `src/lib/agent-tasks/dto.ts:22-26` 的 `APPROVAL_INTERNAL_FIELDS` 约定不一致；全仓库没有界面调用这个接口。
+       - 审查后补：只按审批可见集合判断、不重查项目读权限，被移出项目的人照样拿到该项目名字、原始报错与价格；`inbox[].preview` 同样返回（`src/lib/approval/port.ts:140`，`riskReason ?? previewJson`）。
     2. 旧仪表盘的「自动巡检」卡没有挂载：`ManagementDashboardClient`（`src/components/dashboard/management-dashboard-client.tsx:37`）没有任何页面引用，首页渲染的是 `OrgCockpitHome`。
        - 卡片（`src/components/dashboard/dashboard-auto-inspections.tsx`）是 `/api/agent/tasks/recent` 唯一的界面调用方。本 change 之后，它对不是平台管理员的人数不出「N 项发现」。
        - 删掉这两个组件，还是挂回去并另做安全的问题摘要（FIX-23 GATE 1 选项 C），待定。
-    3. cron 巡检对未分发的项目也建任务：`src/app/api/cron/inspect/route.ts:30-45` 只按 `status: "active"` 选项目、不看 `intakeStatus`。这些任务挂在负责人名下，负责人（不是 super_admin）从详情接口与最近任务接口都看不到。该不该跳过未分发项目，按 prod-check A 段 cron 一列的条数定。
+    3. cron 巡检对未分发的项目也建任务：`src/app/api/cron/inspect/route.ts:30-45` 只按 `status: "active"` 选项目、不看 `intakeStatus`。这些任务挂在负责人名下，负责人（不是 super_admin）从详情接口与最近任务接口都看不到。该不该跳过未分发项目，按 prod-check A 段「项目未分发」一行的 cron 条数定。
+    4. execute / approve 的响应 `reason` 可能带原始异常文字：技能抛错时 `src/lib/agent-core/skills/flow-runner.ts:351-356` 把 `err.message` 作为 `reason` 返回，`POST …/execute`（`src/app/api/agent/tasks/[taskId]/execute/route.ts:34`）与 `POST …/steps/:stepId/approve`（`approve/route.ts:65`）原样给调用者。
+    5. 公开的自定义流程模板跨企业可见：`GET /api/agent/templates`（`src/app/api/agent/templates/route.ts:22`）按 `isPublic` 列出所有企业的公开模板，`GET /api/agent/templates/:templateId`（`[templateId]/route.ts:28`）返回整条记录，含 `createdById`。
   - verify：报告存在，含「开工前复核」「没有开关，合并即在生产生效」「合并后要人做的事」三节；`docs/acceptance/fix-23/prod-check.sql` 存在，除 `BEGIN READ ONLY` / `ROLLBACK` 外只有 SELECT。
-  - verify：`grep -n "^| FIX-23 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行、状态 `[~]`；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于（开工前提第 3 条记下的值 + 3）。
+  - verify：`grep -n "^| FIX-23 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 有一行、状态 `[~]`；`grep -c "| 待定 |" docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 不少于（开工前提第 3 条记下的值 + 5）。
 
 ## Workflow follow-up
 
@@ -110,4 +124,4 @@
   - 另加「权限口径」：逐项核对可读项目条件与项目读权限守卫等价，含岗位预览；
   - 另加「冻结面」：runtime-architecture 普查与 baseline 无变化，改动属于 `security_fix`。
 - PR 合并后跑 `/opsx:archive agent-tasks-recent-safe-view --yes`，走独立小 PR；TASKFLOW FIX-23 改 `[x]`；至少一个子 agent 核对主规格与 delta、TASKFLOW 状态与合并记录。
-- 另开任务（不在本 change）：3 条，登记在 3.2。
+- 另开任务（不在本 change）：5 条，登记在 3.2；另有 C 段不为 0 时再开。

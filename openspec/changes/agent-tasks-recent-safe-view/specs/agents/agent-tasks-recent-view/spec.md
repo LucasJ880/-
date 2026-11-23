@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`GET /api/agent/tasks/recent`（调用者自己建的最近任务）返回哪些任务、不是平台管理员的人看到的步骤内容、不返回什么；以及 `/api/agent/tasks/` 下的每个路由都登记在授权布线契约测试里。
+`GET /api/agent/tasks/recent`（调用者自己建的最近任务）返回哪些任务、不是平台管理员的人看到的步骤内容、不返回什么；项目任务列表 `GET /api/agent/tasks?projectId=` 的条数；以及 `/api/agent/tasks/` 下的每个路由都登记在授权布线契约测试里。
 
 ## ADDED Requirements
 
@@ -50,10 +50,14 @@
 
 #### Scenario: 只按触发方式筛
 - **WHEN** 项目负责人在同一个已分发项目上有 cron 与 manual 两种任务，调用 `GET /api/agent/tasks/recent?triggerType=cron`
-- **THEN** `tasks` 里只有 cron 任务，按建任务时间从新到旧
+- **THEN** `tasks` 里只有 cron 任务
+
+#### Scenario: cron 筛选下的排序
+- **WHEN** 一个成员在能打开的项目上有 11 条 cron 任务与若干 manual 任务，调用 `GET /api/agent/tasks/recent?triggerType=cron`
+- **THEN** `tasks` 是其中最新的 10 条 cron 任务，按建任务时间从新到旧
 
 ### Requirement: 条数上限按可见任务计
-`limit` 参数 SHALL 只在是大于 0 的整数时使用；缺省、空串、0、负数、小数或不是数字时 SHALL 按 10；大于 20 时 SHALL 按 20。任何情况下 `tasks` SHALL NOT 多于 20 条。
+`limit` 参数 SHALL 只在去掉首尾空白后是十进制正整数（不带正负号、小数点、指数、前导零或十六进制前缀）时使用；缺省、空串、0、负数、小数、`0x10`、`1e1`、`5.0`、`+3` 或不是数字时 SHALL 按 10；大于 20 时 SHALL 按 20。任何情况下 `tasks` SHALL NOT 多于 20 条。
 
 上限 SHALL 作用在筛掉打不开的项目之后：结果是调用者能打开的任务里最近的 N 条，打不开的项目上的任务 SHALL NOT 占用名额。
 
@@ -69,9 +73,24 @@
 - **WHEN** 同一个成员调用 `GET /api/agent/tasks/recent?limit=-5`
 - **THEN** 返回 200，`tasks` 是能打开的项目上最新的 10 条，不是最早的那些
 
-#### Scenario: 不是数字的 limit
-- **WHEN** 同一个成员分别调用 `GET /api/agent/tasks/recent?limit=abc`、`?limit=0`、`?limit=2.5`
-- **THEN** 三次都返回 200，`tasks` 都是能打开的项目上最新的 10 条
+#### Scenario: 不是十进制正整数的 limit
+- **WHEN** 同一个成员分别以 `abc`、`0`、`2.5`、空串、`0x10`、`1e1`、`5.0`、`+3`（查询串里写作 `%2B3`）作为 `limit` 调用 `GET /api/agent/tasks/recent`
+- **THEN** 每次都返回 200，`tasks` 都是能打开的项目上最新的 10 条
+
+#### Scenario: 交给查询的条数（不连库）
+- **WHEN** 运行 `npx tsx src/lib/agent-tasks/__tests__/recent-route-args.test.ts`
+- **THEN** 退出码为 0；25 种 `limit` 写法下，最近任务交给查询的条数都按上面的规则、都在 1 到 20 之间
+
+### Requirement: 项目任务列表的条数
+`GET /api/agent/tasks?projectId=` 的 `limit` 参数 SHALL 用与上一条相同的十进制正整数规则；不是时 SHALL 按 20，大于 100 时 SHALL 按 100。任何情况下 `tasks` SHALL NOT 多于 100 条，负数 SHALL NOT 让结果从最早的任务取起。其余行为（项目读权限、排序、字段）SHALL 不变。
+
+#### Scenario: 负数与非法的 limit
+- **WHEN** 项目成员以 `-5`、`-1000`、`abc`、`0`、`2.5`、`0x10` 作为 `limit` 调用 `GET /api/agent/tasks?projectId=<项目>`，该项目上共有 41 条任务
+- **THEN** 每次都返回 200，`tasks` 是该项目最新的 20 条，按建任务时间从新到旧
+
+#### Scenario: 合法与超过上限的 limit
+- **WHEN** 同一个成员分别不带 `limit`、带 `?limit=5`、带 `?limit=150` 调用
+- **THEN** 依次是最新的 20 条、最新的 5 条、全部 41 条（按上限 100 取），都从新到旧
 
 ### Requirement: 不是平台管理员的人看到的检查报告为空
 对不是平台管理员的调用者（包括以岗位预览身份访问的 super_admin），`GET /api/agent/tasks/recent` 返回的每一步 SHALL 带 `checkReportJson`，值 SHALL 为 `null`。其余字段 SHALL 照旧：
@@ -91,6 +110,10 @@
 #### Scenario: 列表步骤投影的单测
 - **WHEN** 运行 `npx tsx src/lib/agent-tasks/__tests__/dto.test.ts`
 - **THEN** 退出码为 0；用例覆盖：不是平台管理员时步骤上的内部字段（输入、输出、检查报告）都为 `null`，其余键不变、不新增键；平台管理员原样
+
+#### Scenario: 交给查询的字段（不连库）
+- **WHEN** 运行 `npx tsx src/lib/agent-tasks/__tests__/recent-route-args.test.ts`，它截获最近任务接口交给任务查询的参数
+- **THEN** 退出码为 0；任务、项目、步骤三层选出的字段集合恰好是本条列出的那些（不含原始报错、输入、输出、审批与创建人）；不是平台管理员时步骤 `checkReportJson` 为 `null`
 
 ### Requirement: 不是平台管理员的人拿不到检查报告里的内容
 对上一条所说的调用者，`GET /api/agent/tasks/recent` 的响应正文 SHALL NOT 包含：
@@ -121,15 +144,19 @@
 - **THEN** 两次都返回 401，正文没有 `tasks` 字段
 
 ### Requirement: AgentTask 接口目录的每个路由都登记在授权布线契约里
-仓库 SHALL 有一个不依赖数据库的授权布线契约测试，覆盖 `src/app/api/agent/tasks/` 目录下（含子目录）的每一个路由文件。目录里出现没有登记的路由文件时，该测试 SHALL 失败（退出码非 0），并在输出里点名该文件。最近任务接口的登记 SHALL 要求它同时带项目可读范围的筛选与按平台管理员区分的步骤投影；它选出的步骤字段 SHALL NOT 包含原始报错、输入与输出，选了任何一项该测试即失败。
+仓库 SHALL 有一个不依赖数据库的授权布线契约测试，覆盖 `src/app/api/agent/tasks/` 目录下（含子目录）的每一个路由文件（`route.ts` / `.tsx` / `.js` / `.jsx` / `.mjs`）。下面任一情况该测试 SHALL 失败（退出码非 0）并点名文件：目录里有没登记的路由文件；登记了不存在的文件；最近任务接口缺项目可读范围的筛选、按平台管理员区分的步骤投影或 `limit` 校验；最近任务接口的步骤字段选了原始报错、输入或输出，或认不出步骤字段。
 
 #### Scenario: 当前目录全部登记
 - **WHEN** 运行 `npx tsx src/app/api/agent/tasks/__tests__/authz-contract.test.ts`
 - **THEN** 退出码为 0，输出列出该目录下 7 个路由文件都已登记，最近任务接口的登记通过
 
 #### Scenario: 新加的路由没登记
-- **WHEN** 在 `src/app/api/agent/tasks/` 下新加一个 `route.ts`、但没有加进登记表，再运行同一测试
+- **WHEN** 在 `src/app/api/agent/tasks/` 下新加一个 `route.ts` 或 `route.js`、但没有加进登记表，再运行同一测试
 - **THEN** 退出码非 0，输出点名这个新文件
+
+#### Scenario: 登记了不存在的文件
+- **WHEN** 登记表里的一个文件被删掉或改名，再运行同一测试
+- **THEN** 退出码非 0，输出点名这个文件，测试不中途崩溃
 
 #### Scenario: 最近任务接口选了原始报错
 - **WHEN** 最近任务接口的步骤字段里加上原始报错，再运行同一测试

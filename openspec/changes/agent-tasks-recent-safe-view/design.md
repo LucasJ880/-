@@ -75,13 +75,16 @@
 - `src/app/api/agent/tasks/__tests__/authz-contract.test.ts`：9 项，`:178`。它的登记表（`:37-73`）列了这个目录 7 个路由文件中的 6 个，**没有 `recent/route.ts`**。
 - 两个都不在 `scripts/test-ci-unit.sh` 里。
 
+**同目录的项目任务列表**（审查后并进本 change）：`GET /api/agent/tasks?projectId=`（`src/app/api/agent/tasks/route.ts:29`）的 `limit` 是 `Math.min(Number(参数) || 20, 100)`。`0`、空串、非数字按 20；但负数是真值，原样传给 `take`：`?limit=-1000` 一次拉出项目的全部任务、从最早的开始，不受 100 的限制。它先过项目读权限守卫，所以只影响能读这个项目的人。界面调用方（`src/components/agent-tasks/project-agent-tasks.tsx:111`）不带 `limit`。
+
 ## Goals / Non-Goals
 
 **Goals:**
 
 - 不是 super_admin 的调用者只看到自己建的、而且现在仍能打开项目的任务；判断与 `/api/agent/tasks/:taskId` 用的守卫一致，在一次查询里完成。
 - 不是平台管理员的调用者拿不到检查报告；平台管理员照旧。
-- 响应形状、合法参数的取法、排序不变；`limit` 不是大于 0 的整数时按 10，任何情况下最多 20 条。
+- 响应形状、合法参数的取法、排序不变；`limit` 不是十进制正整数时按 10，任何情况下最多 20 条。
+- 项目任务列表的 `limit` 用同一规则（缺省 20、封顶 100），其余不变。
 - 平台管理员在合法参数下看到的一字不变。
 - `/api/agent/tasks/` 目录以后新加的路由没登记进授权布线契约，CI 里就失败。
 
@@ -89,8 +92,8 @@
 
 - 不改 `src/lib/projects/access.ts`、`src/lib/projects/visibility.ts`、`src/lib/search/where.ts`、`src/lib/preview/server.ts`、`src/lib/rbac/roles.ts`、`src/lib/rbac/platform-admin.ts`：只导入。
 - 不改 `src/lib/agent/checker.ts`、`src/lib/agent-core/skills/flow-runner.ts`、`src/lib/agent/skills/**`、`src/app/api/projects/[id]/ai-bid-package/**`：检查报告照旧按原文存库。
-- 不改 `src/lib/agent-tasks/guarded-mutation.ts`；`dto.ts` 只加一个函数，不改已有导出。
-- 不改 `src/app/api/agent/tasks/route.ts`、`[taskId]/**`、`src/app/api/agent/approvals/route.ts`、`src/app/api/cron/inspect/route.ts`。
+- 不改 `src/lib/agent-tasks/guarded-mutation.ts`；`dto.ts` 只加列表步骤投影函数与它的类型、`limit` 解析函数与两组条数常量，不改已有导出；`src/lib/agent-tasks/` 不加文件（冻结区新文件触发 `FROZEN_AREA_NEW_FILE`，要改 baseline）。
+- `src/app/api/agent/tasks/route.ts` 只改 `limit` 那一行（与导入）；不改 `[taskId]/**`、`src/app/api/agent/approvals/route.ts`、`src/app/api/cron/inspect/route.ts`。
 - 不改 `src/components/dashboard/**`、`src/components/agent-tasks/**`（界面）。
 - 不改 `src/lib/runtime-architecture/**`（含 baseline 与 manifest）。
 - 不改 `prisma/**`、`src/lib/muse-bridge/**`。
@@ -126,11 +129,11 @@
 ### D3 不是平台管理员时 `checkReportJson` 为 `null`：在冻结面内部直接复用 dto（「留给 GATE」第 1 条，已定 A）
 
 - 做法：
-  - `dto.ts` 的列表视图部分（紧挨 `sanitizeListStepError`）加一个函数：传入步骤与「是不是平台管理员」。
+  - `dto.ts` 的列表视图部分（紧挨 `sanitizeListStepError`）加一个函数（实现定为 `sanitizeListStepInternals`）：传入步骤与「是不是平台管理员」。
     - 是平台管理员：原样返回；
     - 不是：把 `AGENT_STEP_INTERNAL_FIELDS` 里在这个步骤上出现的键逐个置 `null`，其余键不动，不新增键。
   - 路由按 `isPlatformAdmin(user)` 调它。`recent/route.ts` 只选了 `checkReportJson` 这一个内部字段，所以效果就是 `checkReportJson: null`。
-  - 步骤的 `select` 照旧不选 `error` / `inputJson` / `outputJson`，由契约测试断言（D6）。
+  - 步骤的 `select` 照旧不选 `error` / `inputJson` / `outputJson`，由契约测试与截获参数的测试断言（D6）。
     - 原始报错 `error` 不在内部字段清单里，投影管不到它，以后有人把它加进 `select` 就会原样漏出，只能靠这条断言拦住；
     - `inputJson` / `outputJson` 投影虽然会置空，但选出来只是白读大字段，一并禁止。
 - 为什么能导入：`recent/route.ts` 在冻结区内部，导入 `dto.ts` 不进消费者普查（Context「冻结面」），同目录两个路由已经这样用；`dto.ts` 加函数不加文件，`FROZEN_AREA_NEW_FILE` 不触发。改动类别是 `security_fix`。`npm run test:runtime-architecture` 应当不改 baseline 就通过（验证方式）。
@@ -194,42 +197,55 @@
        - 不带 `limit`：P1 上最新的 10 条；
        - `?limit=50`：P1 上最新的 20 条；
        - `?limit=-5`、`?limit=abc`、`?limit=0`、`?limit=2.5`：都是 P1 上最新的 10 条。
-    5. `?triggerType=cron` 只返回 cron 任务。
+       - `?limit=`（空串）、`0x10`、`1e1`、`5.0`、`%2B3`（参数值 `+3`）：都是 P1 上最新的 10 条。
+    5. `?triggerType=cron` 只返回 cron 任务；排序用有 2 条以上 cron 任务的身份测（组织管理员 2 条、条数用户 11 条取最新 10 条）。
+    5b. 项目任务列表（条数用户调 `GET /api/agent/tasks?projectId=P1`，P1 上共 41 条）：不带 `limit` 与 `-5`、`-1000`、`abc`、`0`、`2.5`、`0x10` 都是最新的 20 条；`5` 是最新的 5 条；`150` 是全部 41 条。
     6. 未登录、已停用账号：401。
     7. 请求前后 `AgentTask` / `AgentTaskStep` 逐字段不变。
 - `authz-contract.test.ts`：
-  - 登记 `recent/route.ts`，必须出现：`isPlatformAdmin`、D3 的 dto 投影函数名、`buildReadableProjectWhere`、`listEffectiveMemberships`；步骤的 `select` 里不得出现 `error`、`inputJson`、`outputJson`（D3）。
-  - 新增目录完整性检查：递归列出 `src/app/api/agent/tasks/` 下所有 `route.ts`，每个都要在登记表里，漏了就失败并点名。
+  - 登记 `recent/route.ts`，必须出现：`isPlatformAdmin`、D3 的 dto 投影函数名（实现定为 `sanitizeListStepInternals`）、`buildReadableProjectWhere`、`listEffectiveMemberships`；步骤的 `select` 里不得出现 `error`、`inputJson`、`outputJson`（D3）。
+  - 新增目录完整性检查：递归列出 `src/app/api/agent/tasks/` 下所有路由文件（`route.ts` / `.tsx` / `.js` / `.jsx` / `.mjs`），每个都要在登记表里，漏了就失败并点名。
+  - 另外两个失败条件：登记了不存在的文件（记为该条失败并点名，不因 ENOENT 崩溃）；认不出 `recent/route.ts` 的步骤 `select`（判失败）。两个列表路由都要出现 `parseListLimit`。
+  - 已知限制：按源码文本找步骤 `select`，展开常量、引号键、计算键、简写、注释里放假的 `select` 都能骗过它；由下面截获参数的测试兜住。
+- 新增不连库的 `src/lib/agent-tasks/__tests__/recent-route-args.test.ts`（审查后加，进 `scripts/test-ci-unit.sh`）：
+  - 在导入前把 `globalThis.prisma` 换成假的 db（`src/lib/db.ts` 优先用它），直接调两个列表路由的 `GET`，截获 `db.agentTask.findMany` 实际收到的参数。
+  - 断言：最近任务的任务层、项目、步骤三层 `select` 的键集合恰好等于允许的集合（不含 `createdBy`、`approvalRequests`、`error`、`inputJson`、`outputJson`）；不是 super_admin 时 `where` 带与守卫同口径的范围条件（字面量比对），super_admin 不带、不查成员表；`take` 按 D7 规则（25 种写法）；不是平台管理员时步骤 `checkReportJson` 为 `null`；项目任务列表的 `take` 按 D7 规则。
+  - 它让范围条件、`limit`、平台管理员判定在 CI 子集里也有保护（隔离库测试 CI 里跳过）。
   - 这个测试与 `dto.test.ts` 都不用库，同时进 `scripts/test-ci-unit.sh`，放在 `src/lib/tenancy/__tests__/tenant-context.test.ts` 那一行之后（main `22a87fb7` 上 `:137`，合入 FIX-21 后是 `:138`），不贴着 FIX-21 在 `files-route-guard.test.ts` 之后加的那一行。
 - `dto.test.ts`：新函数的用例。
   - 不是平台管理员时三种内部字段都置 `null`、其余键不动、不新增键；
   - 只有 `checkReportJson` 时只置它；
   - 平台管理员原样；
   - 新函数置空的键与 `AGENT_STEP_INTERNAL_FIELDS` 逐项相同。
-- 测试先行：三个测试都先在改动前的代码上跑一次，记下失败项；再改代码重跑。两份输出贴进报告。
+- 契约测试与隔离库测试先行（截获参数的测试是审查后加的，在改动前的两个路由上补跑）：都先在改动前的代码上跑一次，记下失败项；再改代码重跑。两份输出贴进报告。
   - 隔离库测试在改动前应当失败的：
     - 对照断言里所有不是 super_admin 的对照组用户：每人都在未分发的 P3 上有任务，改动前都会返回它；
+    - 「打不开项目的人看不到」4 项（被移出项目、乙组织管理员、同企业非成员、原组织管理员）；
+    - 「未分发项目上的巡检任务」2 项（负责人看不到 P3 上的巡检；结果正好是守卫放行的 cron 任务）；
     - 置空与标记串；
-    - 条数用户的全部用例：改动前 `?limit=5` 与不带 `limit` 返回的是 P2 上的任务，`-5` 返回最早的 5 条，`0` 返回空，`abc` 与 `2.5` 的行为没有核实、至少不会恰好是 P1 上最新的 10 条；
+    - 条数用户的全部用例：改动前 `?limit=5` 与不带 `limit` 返回的是 P2 上的任务，`-5` 返回最早的 5 条，`0` 返回空，空串返回 P2 上的 10 条，`abc` 是 500，`2.5` 返回 2 条，`0x10` 返回 16 条，`5.0` 与 `+3` 返回 5 条与 3 条；
+    - 项目任务列表的 `-5`（最早的 5 条）、`-1000`（全部 41 条）、`2.5`、`0x10`；
     - 岗位预览。
   - 契约测试在改动前应当失败的：`recent/route.ts` 那一条。
 - 被否决：只写读源码的测试。看不出查询条件写对没有，也看不出与守卫等价。
-- 被否决：用假的 `db` 跑路由。关系条件（`members.some`、`orgId in`）的语义只有真库能验证。
+- 被否决：只用假的 `db` 跑路由、不要隔离库测试。关系条件（`members.some`、`orgId in`）的语义只有真库能验证；假 db 只用来截获参数，不代替真库。
 
-### D7 `limit` 只认大于 0 的整数
+### D7 `limit` 只认十进制正整数（两个列表接口）
 
-- 做法：参数转成数字后，是大于 0 的整数才用，否则按 10；再封顶 20。参数缺省、空串、`0`、负数、小数、非数字都按 10。
+- 做法（审查后定）：参数去首尾空白后匹配 `/^[1-9]\d*$/` 才用，否则按缺省；再封顶。最近任务缺省 10、封顶 20；项目任务列表保留它原有的缺省 20、封顶 100。参数缺省、空串、`0`、负数、小数、非数字、`0x10`、`1e1`、`5.0`、`+3`、前导零都按缺省。查询串里裸写的 `+` 会被解码成空格，所以 `?limit=+3` 等于 `?limit= 3`、按 3 条；参数值真是 `+3` 时（`%2B3`）按缺省。
+- 放在 `dto.ts`（`parseListLimit`，与 `RECENT_TASKS_LIMIT`、`PROJECT_TASKS_LIMIT` 两组常量）：route 文件不能导出别的名字；冻结区里新建文件要改 baseline。
 - 理由：现在负数会绕过 20 的上限，一次读出调用者建过的全部任务（Context）。本 change 收紧的是「谁能读到哪些任务」，上限被绕开，等于把每页 20 条的约束整个拿掉。
 - 改口径影响谁：只有传了非法 `limit` 的请求；唯一的界面调用方固定传 `5`，不受影响。
 - 被否决：非法值返回 400。改变了响应，调用方要多处理一种错误；这个接口其它参数也不报错。
 - 被否决：负数取绝对值、或 `Math.max(1, …)`。都是给非法输入猜一个意思，不如回到默认值好说清。
-- 被否决：不改、另开任务。审查确认负数能绕过上限，与本 change 的目的直接相关。
+- 被否决：不改、另开任务。审查确认负数能绕过上限，与本 change 的目的直接相关；项目任务列表是同一个缺口，一并改。
+- 被否决：`Number.isInteger(Number(参数)) && > 0`（第一版）。`0x10`、`1e1`、`5.0`、`+3` 也会被当成合法值，规则说不清。
 
 ## 与八条硬纪律的关系
 
 1. 零 schema：遵守。不新增 model / 字段 / migration；测试只往隔离库写夹具并清理。
 2. 出站动作先审批：不涉及。这是只读接口，本次只少返回东西。
-3. 禁止第三套队列：遵守。不新增队列 / 调度 / lease / worker。改的是旧编排冻结区里一个读接口，类别是 `security_fix`；不加文件，runtime-architecture baseline 不变。
+3. 禁止第三套队列：遵守。不新增队列 / 调度 / lease / worker。改的是旧编排冻结区里两个读接口，类别是 `security_fix`；不加非测试文件，runtime-architecture baseline 不变。
 4. 脱敏：不涉及 Muse 通道。与脱敏方向一致：
    - 不是平台管理员的人拿到的检查报告整段换成 `null`，不做局部遮盖；
    - 报价审查写进报告的利润率、模型原文里的单价、原始报错都不出；
@@ -238,14 +254,15 @@
 6. 邮箱分离：不涉及。
 7. 确定性优先：遵守。不新增模型调用；范围判断是查成员关系。
 8. 测试注册：遵守。
-   - 新的隔离库测试注册进 `scripts/test-all.sh`，放在 `dto.test.ts` 那一条之后；
-   - `authz-contract.test.ts` 与 `dto.test.ts` 加进 `scripts/test-ci-unit.sh`（位置见 D6）；
+   - 新的隔离库测试与截获参数的测试注册进 `scripts/test-all.sh`，放在 `dto.test.ts` 那一条之后；
+   - `authz-contract.test.ts`、`dto.test.ts`、`recent-route-args.test.ts` 加进 `scripts/test-ci-unit.sh`（位置见 D6）；
    - `bash scripts/check-test-registry.sh` 通过，`ci/test-registry-baseline.txt` 不加行。
 
 ## 验证方式
 
 - `npx tsx src/app/api/agent/tasks/__tests__/authz-contract.test.ts`：改动前退出码非 0，失败项只有 `recent/route.ts` 一条；改动后退出码 0，目录完整性检查列出 7 个路由文件全部已登记。
 - `npx tsx src/lib/agent-tasks/__tests__/dto.test.ts`：退出码 0，原有 23 项照过。
+- `npx tsx src/lib/agent-tasks/__tests__/recent-route-args.test.ts`（不连库）：退出码 0；换回改动前的两个路由时失败。
 - `NODE_ENV=test DATABASE_ENVIRONMENT=isolated DATABASE_URL=… DIRECT_URL=… npx tsx src/lib/agent-tasks/__tests__/recent-view-db.isolated.test.ts`：改动前 D6 列出的用例失败，改动后全部通过；连跑 3 次结果一致。
 - `npm run test:runtime-architecture` 通过，且 `git diff --exit-code origin/main -- src/lib/runtime-architecture/` 无差异（baseline 与 manifest 都没动）。
 - 其余门禁：
@@ -263,6 +280,7 @@
 - [未分发项目上的巡检任务从负责人列表里消失] 与详情接口一致；有多少条看 tasks 3.2 的只读查询 A 段。
 - [卡片以后重新挂上] 不是平台管理员的人看不到「N 项发现」与问题列表，只看到任务、步骤与摘要。要恢复，得另做安全的问题摘要（「留给 GATE」第 1 条选项 C），登记为后续第 2 条。
 - [守卫与批量条件以后漂移] 守卫在 `access.ts`，批量条件在 `search/where.ts`，是两处代码。隔离库测试的对照断言（D6 第 1 条）逐人比对，任何一边改了都会失败；夹具里特意放了「已离开组织的负责人」，FIX-21 后续第 4 条要改的正是这一档。
+- [项目角色是空串的 active 成员] 守卫按 `if (projectRole)` 判断，角色为空串的 active 项目成员会被拒；批量条件 `members.some({ userId, status: "active" })` 不看角色，会放行。两边只在这种数据上不一致。不改共用的 `buildReadableProjectWhere`（全局搜索也用它）；`docs/acceptance/fix-23/prod-check.sql` C 段数生产上有几行，不为 0 时另开任务。
 - [每个请求多一次查询] 不是 super_admin、不在岗位预览中时多一次成员表查询；super_admin 不查；岗位预览中 `listEffectiveMemberships` 直接返回预览企业、不查成员表（它读的预览身份有 30 秒缓存）。任务查询多一个项目关系条件，仍走 `createdById` 索引（`prisma/schema.prisma` 中 `AgentTask` 的 `@@index([createdById, status])`）。与任务条数无关。
 
 ## Migration Plan
