@@ -6,7 +6,8 @@
 | 起因 | CHAIN-2b（#532）留给 GATE 的第 ③ 条；Lucas 2026-11-20 答「可以」 |
 | OpenSpec change | `openspec/changes/strategy-memo-cost-strip/`（新能力 `tender/bid-strategy-memo`，4 条要求） |
 | 基线 | origin/main `91d928e4` |
-| 合并顺序 | **须在 CHAIN-2b（#532）之后**：项目列表与调查室读取两个原样返回房间 JSON 的接口由 #532 处理，本 change 不改 |
+| 合入 main | `5a4d2760`（2026-11-23；先合 `d94e4323`（合并提交 `4e58826f`，解决冲突），复核期间 main 又进了只改文档的 #565 / #566，再合 `5a4d2760`（合并提交 `545cd025`，无冲突）；复核见 §7） |
+| 合并顺序 | **须在 CHAIN-2b（#532）之后**：项目列表与调查室读取两个原样返回房间 JSON 的接口由 #532 处理，本 change 不改。#532 已于 2026-11-23 合并（`d9de8490`），已含在本次合入的 main 里 |
 | 开关 | 没有新开关，合并即生效 |
 
 ## 1. 做了什么
@@ -86,3 +87,44 @@
 4. **评分模型里人工填的各项依据**（`otherCriteria[].basisZh`，自由文字）照旧进备忘输入，不过滤。
 5. **旧版裁剪宁可多换**：提到「成本评分」「Cost Proposal」等的买方合理问题、含年份 / 编号的段落，在旧版备忘重跑之前也会被去掉 / 换掉（澄清问题文件写明去掉了几条）。只有备忘合成成功时才换成 v3。
 6. **有财务查看权的人失去「改我方成本 → 重跑 → 备忘更新」**（Lane 3 的行为）；底价情景在报价表助手里看。
+
+## 7. 合入 main 后复核（2026-11-23）
+
+把 origin/main 合进本分支（`git merge`，不 rebase，两次）：先合 `d94e4323`（合并提交 `4e58826f`，解决下面两处冲突）；复核期间 main 又合进 #565（FIX-23 归档）与 #566（交接文档第五十次），只改 `docs/` 与 openspec 归档（新主规格 `agents/agent-tasks-recent-view`），再合 `5a4d2760`（合并提交 `545cd025`，无冲突；`git diff 4e58826f 545cd025 -- src scripts prisma package.json package-lock.json vercel.json` 为空）。这之间 main 合进了 #532 CHAIN-2b、#535 CHAIN-3b、#534 CHAIN-3c、#533 CHAIN-4c、#544 RFQ-PDF-1、FIX-12 / 13 / 17 / 21 / 23、BIDPAGE-1（#557）及各自的归档。本节之外的内容（§1–§6）仍以 `5f7d5c46` 为准，本 change 的行为没有变化。
+
+### 7.1 冲突与处理
+
+| 文件 | 冲突 | 处理 |
+|---|---|---|
+| `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` | 情报串联表 CHAIN-2 之后：本分支加了 CHAIN-2d 一行；main 加了 CHAIN-2b、CHAIN-3b、CHAIN-3c、FIX-12 / 13 / 17 / 21 / 23 与十几行「待定」，并改了 CHAIN-3 行（别名裁决已由 CHAIN-3c 落实） | 取 main 的整块（含 main 改过的 CHAIN-3 行；本分支的 CHAIN-3 行与合并基相同），CHAIN-2d 行放在 CHAIN-2b 之后（2b、2d、3、3b、3c……）；没有删任何一行。CHAIN-2c（#539）的行还没进 main，合并时放在 2b 与 2d 之间 |
+| `src/lib/projects/generate/generate-docs.ts` | 导入：本分支加了 `redactLegacyMemo`；main（RFQ-PDF-1）去掉了身份禁出相关的三个导入、改导询价单生成器 | 取 main 的导入，再加 `redactLegacyMemo` 一行；澄清问题文件那一段（`:304`、`:324`）自动合并，与合入前相同 |
+
+`scripts/test-all.sh`、`scripts/test-ci-unit.sh` 自动合并，两边的注册行都在。`openspec/config.yaml`、`.claude/launch.json`、`docs/` 下的文件都没有删改（除本报告与 TASKFLOW）。
+
+### 7.2 兼容核对
+
+| 项 | 结论 |
+|---|---|
+| a. 四个读取处仍过裁剪 | 是。情报页签 `src/app/api/projects/[id]/external-intel/award-history/route.ts:85`；工作台摘要 `src/app/api/projects/[id]/workbench-summary/route.ts:102`（`:117`、`:119`、`:122` 用裁剪结果）；投标文件草稿输入 `src/lib/tender-bid-draft/gather.ts:136`；澄清问题文件 `src/lib/projects/generate/generate-docs.ts:304`（`:324` 把去掉的条数交给 `rfi-export.ts:130`）。卡片 `src/components/tender-intel/org-award-intel-slots.tsx:390`、`:391`、`:408` 只用接口给的裁剪结果。`memo-pricing.test.ts` 遍历 src 的那条在合入后的树上照样通过 |
+| a. main 新增的读取处 | **没有发现绕过裁剪的地方，没有补代码。** 全仓 grep `bidStrategyMemo` / `strategyMemo`：除编排、提示词、本模块与上面四处外只有 #532 的 `src/lib/tender-pricing/finance-view.ts`（`:103` 起，把备忘整个删掉）。房间 JSON 的读取逐个看过：BIDPAGE-1 的 `bid-page-summary` 路由与 `src/lib/bid-page-v2/service.ts` 不读调查室（只读询价、供应商关联、待批卡、报价引擎、生成文件）；`src/components/bid-page-v2/**` 不读 `summaryJson`；FIX-21 改过的 `ai-bid-package`、`ai-bid-package/run-step`、`intelligence/regenerate`、`intelligence/review` 不读调查室；`analyst-memo`（只给分析师备忘录 v2 的段落）、`bid-draft`（只给 `bidDraft`，旧版草稿见 §6 第 2 条）、`tender-watch`、`external-intel/run`（只读状态键，返回的 outcome 不含备忘）、项目详情（只选 `summaryText` 等，不选 `summaryJson`）都不带备忘。`researchStateJson` 在仓库里不存在；`rsj` 只在 `gather.ts`（已裁剪）、`generate-docs.ts`（那是分析 run 的 JSON）、`bid-draft` 路由与编排里 |
+| b. #532 的两个接口 | 是。调查室读取 `src/app/api/projects/[id]/bid-intelligence/route.ts:33`、项目列表 `src/app/api/projects/route.ts:110` 都经 `redactRoomSummaryCost`（`finance-view.ts:103`）：`bidStrategyMemo` 整个去掉，`pricingInputs` 去掉 `ourCostCad` 与 `ourCostSource`。注意 `pricingInputs` 本身还在（对手价、目标毛利、报价引擎镜像的我方报价照旧给项目读者），这是 #532 规格的范围，本 change 只依赖「备忘与我方成本不出这两个接口」。全量里 `finance-view` 47 过、隔离库 `pricing-helper-finance-db` 34 过（含「两个接口的 JSON 里都搜不到成本与落地价的数字」「没有投标策略备忘」） |
+| c. FIX-21 目录守卫 | 通过（98 过；严格通过 249 个处理函数、守卫前预处理名单 3 个、例外 1 个、不过 0 个）。本 change 改的两个路由都只加了导入与守卫之后的取值：`award-history` 守卫在 `:36-37`（GET）、`:100-101`（POST），`workbench-summary` 在 `:22-23`；守卫前没有新增任何东西 |
+| d. 模型输入里没有成本 | 成立。`orchestrate.ts`、`strategy.ts`、`src/lib/tender-pricing/calc.ts` 在 main 上都没改过；`memo-pricing.test.ts` 40 过，其中对照组「改动前的装配恰好带出 8 个数」「整段输入里恰好搜得到那 8 个数」与禁出「每一次请求（含重试）都搜不到」照旧成立 |
+
+### 7.3 门禁
+
+全量、CI 子集与 lint 跑在 `4e58826f` 上；它与最终提交的 src / scripts / prisma / package 逐字相同（只差文档与 openspec 归档），这几项的结果对最终提交同样成立。typecheck、注册校验、`memo-pricing`、守卫、openspec 校验与归档演练在 `545cd025` 上重跑过。
+
+| 项 | 结果 |
+|---|---|
+| `memo-pricing.test.ts` | 40 通过 |
+| 隔离库 `memo-legacy-db.isolated.test.ts`（`qy_iso_d`） | 8 通过 |
+| `project-routes-guard.test.ts` | 98 通过 |
+| `bash scripts/check-test-registry.sh` | OK：已注册 698 个，历史欠账 66 条 |
+| `npm run typecheck` | 通过 |
+| `npm run lint:baseline` | PASS（current errors 38 / baseline 53，无新增指纹）。本机是浅克隆，`sourceCommit...HEAD` 没有合并基，「PR 改动文件」附加检查被跳过（main 上同样）；另对本 change 相对 main 改的 ts / tsx 单独跑 `eslint`：0 error、0 warning |
+| `openspec validate strategy-memo-cost-strip --strict` | valid |
+| 归档演练（scratchpad 里 `git archive HEAD` 的副本） | `openspec archive strategy-memo-cost-strip --yes`：新建 `tender/bid-strategy-memo`，+4；之后 `openspec validate --specs --strict` 154 过 0 不过（main `5a4d2760` 153 过 0 不过；在 `4e58826f` 上是 153 / 152）；四条要求 281 / 218 / 342 / 400 字 |
+| `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
+| CI 子集 `npm run test:ci`（`ci` 假库、不带 `DATABASE_ENVIRONMENT`） | PASS（`memo-pricing` 40、守卫 98 都在；隔离库测试按设计跳过） |
+| 全量 `npm test`（新建的 `qy_full_chain2d`，`migrate deploy` 后） | `722/732 通过, 10 失败`，10 项与 main 基线逐条相同：来信观察 DB、Sunny 工艺单 DB、Phase3A-3 Approvals、Phase3A-4 Governance、Phase3A-4 Acceptance、Autopilot A2-P0、Phase3A-5 Overview、T4 授标情报 Postgres 矩阵、客户报价 PDF 分页布局、招标询价自动起草 DB（75 / 76）。全量里 `memo-pricing` 40、`memo-legacy-db` 8、守卫 98、`finance-view` 47、`pricing-helper-finance-db` 34 都过 |
