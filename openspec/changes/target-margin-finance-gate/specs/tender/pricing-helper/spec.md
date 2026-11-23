@@ -4,8 +4,8 @@
 报价表助手 SHALL 用与「我方成本只给有财务查看权的人」相同的财务查看权判定决定谁能看目标毛利。没有财务查看权的人读取与保存成功时，返回的 `inputs.targetMarginPct` SHALL 为 `null`（不论库里存了什么、填没填），与 `inputs.ourCostCad` 共用 `costHidden: true` 一个标记；情景表 SHALL 按没有成本、没有目标毛利计算；响应的任何字段 SHALL NOT 含已保存的目标毛利，也 SHALL NOT 含由它算出的成本加成率。读取与不碰目标毛利的保存 SHALL NOT 改变库里的目标毛利。有财务查看权的人读取与保存的返回 SHALL 与改动前逐字节相同。
 
 #### Scenario: 复现数据下没有财务查看权的人读取
-- **WHEN** 房间存着对手价 100,000、我方成本 87,654.32、目标毛利 23.7、报价引擎镜像的我方报价 114,881.15（项目 `ourBidPrice` 同值）；只读成员、项目编辑者、没有财务键的 `org_admin`、只在分配范围持 `project.finance.read` 的投标同事分别读报价表助手
-- **THEN** 都是 `inputs.targetMarginPct` 与 `inputs.ourCostCad` 为 `null`、带 `costHidden`，响应 JSON 里搜不到 `23.7` 与 `87654.32`（`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`）
+- **WHEN** 房间存着对手价 100,000、我方成本 87,654.32、目标毛利 23.7、报价引擎镜像的我方报价 114,881.15（项目 `ourBidPrice` 同值）；只读成员、项目编辑者、没有财务键的 `org_admin`、只在分配范围持 `project.finance.read` 的投标同事分别读报价表助手；本组织普通成员（不是项目成员）也读一次
+- **THEN** 前四种人都是 `inputs.targetMarginPct` 与 `inputs.ourCostCad` 为 `null`、带 `costHidden`，响应 JSON 里搜不到 `23.7` 与 `87654.32`；不是项目成员的那位得到 403、响应里同样搜不到（`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`）
 
 #### Scenario: 有财务查看权的人读取
 - **WHEN** 同一项目的负责人、持组织范围 `project.finance.read` 的成员、平台超级管理员分别读取
@@ -16,8 +16,8 @@
 - **THEN** 三种情况的读取结果逐字节相同，情景与「成本、目标毛利都为 null」直接计算的结果相同，入参没被改；有财务查看权时结果与直接计算相同（`npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts`）
 
 #### Scenario: 由我方报价与目标毛利反推成本不再成立
-- **WHEN** 复现数据下只读成员依次读调查室、项目列表、报价表助手与项目详情
-- **THEN** 项目列表与项目详情照旧带 `ourBidPrice` 114,881.15，但四个响应里都没有目标毛利，整组响应里搜不到 `23.7` 与 `87654.32`（`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`）
+- **WHEN** 复现数据下只读成员依次读调查室、项目列表、报价表助手与项目详情；本组织普通成员（不是项目成员，项目列表照样列出这个项目）读同样四个接口
+- **THEN** 项目列表与项目详情照旧给只读成员 `ourBidPrice` 114,881.15，但四个响应里都没有目标毛利；不是项目成员的那位在项目列表里拿到 `ourBidPrice`、没有 `pricingInputs`，另外三个接口 403；两组响应里都搜不到 `23.7` 与 `87654.32`（`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`）
 
 ## MODIFIED Requirements
 
@@ -52,7 +52,7 @@
 - **THEN** 分别得到 400、403、409，房间的 `summaryJson` 与请求前相同（`pricing-helper-save-db.isolated.test.ts`）
 
 ### Requirement: 没有财务查看权的人改不了成本
-没有财务查看权的人保存时，请求的 `inputs` 里有 `ourCostCad` 或 `targetMarginPct` 这个键（不论值），或请求带了 `ourCostSource` 这个键，系统 SHALL 返回 403「没有保存：需要财务查看权才能修改我方成本和目标毛利。请刷新页面，重新填写后再保存。」且 SHALL NOT 写库；判定顺序 SHALL 是项目没有投标调查室 409、再财务 403、再目标毛利不小于 100 的 400。不碰这三个键的保存 SHALL 照常，已保存的成本、来源与目标毛利 SHALL 原样保留，返回的 `inputs.ourCostCad` 与 `inputs.targetMarginPct` SHALL 为 `null` 并带 `costHidden: true`、SHALL NOT 带 `ourCostSource`。重新推导评分模型 SHALL NOT 做财务判定。`inputs` 不是对象时 SHALL 当作没带。
+没有财务查看权的人保存时，请求的 `inputs` 里有 `ourCostCad` 或 `targetMarginPct` 这个键（不论值），或请求带了 `ourCostSource` 这个键，系统 SHALL 返回 403「页面已更新，没有保存：需要财务查看权才能修改我方成本和目标毛利。请刷新页面，重新填写后再保存。」且 SHALL NOT 写库；判定顺序 SHALL 是项目没有投标调查室 409、再财务 403、再目标毛利不小于 100 的 400。不碰这三个键的保存 SHALL 照常，已保存的成本、来源与目标毛利 SHALL 原样保留，返回的 `inputs.ourCostCad` 与 `inputs.targetMarginPct` SHALL 为 `null` 并带 `costHidden: true`、SHALL NOT 带 `ourCostSource`。重新推导评分模型 SHALL NOT 做财务判定。`inputs` 不是对象时 SHALL 当作没带。
 
 #### Scenario: 没有财务查看权的编辑者保存
 - **WHEN** 能编辑项目、没有财务键的成员保存时带了 `ourCostCad`；又带了 `ourCostSource: null`；又带了 `targetMarginPct`（数字与 `null` 各一次）；再只带对手价
@@ -67,7 +67,7 @@
 - **THEN** 依次 409、403、400（`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`；重新推导在财务判定之前返回：`npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts` 源码断言）
 
 ### Requirement: 卡片上没有财务查看权时的显示
-读取结果带 `costHidden` 时，卡片 SHALL 以「需要财务查看权才能看我方成本。」代替「我方成本」输入框、以「需要财务查看权才能看目标毛利。」代替目标毛利输入框，SHALL NOT 显示毛利一栏与成本加成提示，保存请求 SHALL NOT 带 `ourCostCad` 与 `targetMarginPct`；有情景结果时 SHALL 在情景表上方写假设说明里那一句加「只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。」，假设说明列表里 SHALL NOT 重复那一句。保存被拒（403）时 SHALL 用醒目的错误样式写出那句话、并保留表单里刚填的值。
+读取结果带 `costHidden` 时，卡片 SHALL 以「需要财务查看权才能看我方成本。」代替「我方成本」输入框、以标签（开关开着时「目标毛利率 %（按售价）」，否则「目标毛利 %」）加「需要财务查看权才能看目标毛利。」代替目标毛利输入框，SHALL NOT 显示毛利一栏与成本加成提示，保存请求 SHALL NOT 带 `ourCostCad` 与 `targetMarginPct`；有情景结果时 SHALL 在情景表上方写假设说明里那一句加「只给项目负责人和有全企业「查看项目结算」权限的人看；需要的话请找项目负责人。」，假设说明列表里 SHALL NOT 重复那一句。保存被拒（403）时 SHALL 用醒目的错误样式写出那句话、并保留表单里刚填的值。
 
 #### Scenario: 卡片
 - **WHEN** 读取结果带 `costHidden`，人改了对手价后保存被拒
@@ -85,12 +85,12 @@
 - **THEN** 两次响应的 JSON 里都没有 `compareCost`、`ourCostSource`，也搜不到成本、落地价与目标毛利的数字（`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts`；`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`）
 
 ### Requirement: 调查室 JSON 不带出我方成本
-`GET /api/projects` 返回的每个项目的 `intelligenceRoom.summaryJson`、`GET /api/projects/{项目}/bid-intelligence` 返回的 `room.summaryJson`，对任何人 SHALL NOT 含 `pricingInputs`（报价表助手存的对手价、我方成本、目标毛利、成本来源与报价引擎镜像的我方报价都在里面），也 SHALL NOT 含投标策略备忘 `bidStrategyMemo`（它由含成本与毛利的情景写成）；`summaryJson` 的其它内容 SHALL 原样返回；SHALL NOT 改库。报价表助手的输入只经报价表助手接口按财务查看权给出；投标策略备忘在其它地方的显示不在本条范围。
+`GET /api/projects` 返回的每个项目的 `intelligenceRoom.summaryJson`、`GET /api/projects/{项目}/bid-intelligence` 返回的 `room.summaryJson`，对任何人 SHALL NOT 含 `pricingInputs`（报价表助手存的对手价、我方成本、目标毛利、成本来源与报价引擎镜像的我方报价都在里面），也 SHALL NOT 含投标策略备忘 `bidStrategyMemo`（它由含成本与毛利的情景写成）与投标文件草稿元信息 `bidDraft`（含起草模型写的内部注）；`summaryJson` 的其它内容 SHALL 原样返回；SHALL NOT 改库。报价表助手的输入只经报价表助手接口按财务查看权给出；备忘与草稿在其它接口的显示不在本条范围。
 
 #### Scenario: 两个接口
-- **WHEN** 房间里存着成本、目标毛利 23.7、成本来源、投标策略备忘、报价引擎镜像的我方报价、评分模型与 `majorBlockers`；只读成员与项目负责人各读一次项目列表与调查室
-- **THEN** 四次的 `summaryJson` 都没有 `pricingInputs` 与 `bidStrategyMemo`，`pricingModel`、`majorBlockers` 等其它键还在；库里的 `summaryJson` 不变（`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`）
+- **WHEN** 房间里存着成本、目标毛利 23.7、成本来源、投标策略备忘、投标文件草稿元信息（内部注是一句少见的话）、报价引擎镜像的我方报价、评分模型与 `majorBlockers`；只读成员与项目负责人各读一次项目列表与调查室
+- **THEN** 四次的 `summaryJson` 都没有 `pricingInputs`、`bidStrategyMemo` 与 `bidDraft`，搜不到那句内部注，`pricingModel`、`majorBlockers` 等其它键还在；库里的 `summaryJson` 不变（`NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-db.isolated.test.ts`）
 
 #### Scenario: 裁剪是纯的
-- **WHEN** 房间 JSON 有 `pricingInputs` 与备忘；或两者都没有；或不是对象、是 `null`
-- **THEN** 第一种返回去掉这两个键的副本、入参不变；后两种原样返回同一个值（`npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts`）
+- **WHEN** 房间 JSON 有 `pricingInputs`、备忘与 `bidDraft`；或三者都没有；或不是对象、是 `null`
+- **THEN** 第一种返回去掉这三个键的副本、入参不变；后两种原样返回同一个值（`npx tsx src/lib/tender-pricing/__tests__/target-margin-finance-view.test.ts`）
