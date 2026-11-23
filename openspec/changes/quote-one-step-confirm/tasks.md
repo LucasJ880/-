@@ -49,7 +49,7 @@
   - `npx tsx src/components/bid-page-v2/__tests__/bid-page-v2.test.tsx` 全过，开关关时入口与 `BidTab` 逐字节相同；
   - `npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx`、`npx tsx src/components/bid-page-v2/__tests__/lump-sum-editor.test.tsx` 全过；
   - `bash scripts/check-test-registry.sh` 输出 OK、历史欠账不增。
-- [ ] 4. 合入最新 origin/main 后跑门禁。
+- [x] 4. 合入最新 origin/main 后跑门禁。
 
   verify：
   - `npm test` 失败名单与 main 逐条相同；
@@ -57,7 +57,7 @@
   - `npm run typecheck` 通过；`npm run lint:baseline` PASS；
   - `openspec validate quote-one-step-confirm --strict` valid；
   - `git diff origin/main -- prisma/ vercel.json` 为空。
-- [ ] 5. 浏览器抽检（本地合成数据，开关开）：
+- [x] 5. 浏览器抽检（本地合成数据，开关开）：
   - 有批准权限的账号对草稿点「定为我方报价」一次 → 标题行显示版本与金额，审计提交、批准、选定各一条；
   - 已有另一份我方报价时再定一份 → 改选；
   - 操作员只看到「提交给负责人」，负责人收到通知，点开回到这份报价，看到「批准并定为我方报价 / 退回」；
@@ -65,7 +65,7 @@
   - 开关关时页签与 main 截图一致。
 
   verify：截图存 `docs/acceptance/bidpage-6/`。
-- [ ] 6. 写 `docs/QINGYAN_BIDPAGE-6_REPORT.md` + 更新 TASKFLOW 状态列 + 交接文档。报告写：改了什么、与任务书的出入、门禁、审查意见与去向、要 Lucas / Evan 确认的、未验证、回退。
+- [x] 6. 写 `docs/QINGYAN_BIDPAGE-6_REPORT.md` + 更新 TASKFLOW 状态列 + 交接文档。报告写：改了什么、与任务书的出入、门禁、审查意见与去向、要 Lucas / Evan 确认的、未验证、回退。
 
   verify：报告存在；TASKFLOW BIDPAGE-6 为 `[~]`。
 
