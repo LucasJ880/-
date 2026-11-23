@@ -579,6 +579,7 @@ npx tsx src/lib/bid-page-v2/__tests__/quote-line.test.ts
 npx tsx src/components/bid-page-v2/__tests__/quote-step.test.tsx
 NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/quote-line-db.isolated.test.ts
 npx tsx src/lib/bid-page-v2/__tests__/lump-sum.test.ts
+NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/lump-sum-db.isolated.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh
