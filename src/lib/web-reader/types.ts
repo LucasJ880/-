@@ -30,9 +30,7 @@ export type UnreachableReason =
   | "http_4xx"
   | "too_many_redirects"
   | "invalid_redirect"
-  | "deadline"
-  | "pdf_unreadable"
-  | "pdf_too_large";
+  | "deadline";
 
 /** 不读的原因（我方按规则不读：没有发出请求，或发现内网地址 / 类型不支持后不读正文） */
 export type RefusedReason =
@@ -45,8 +43,7 @@ export type RefusedReason =
   | "ip_literal"
   | "url_not_allowed"
   | "unsupported_type"
-  | "pdf_too_complex"
-  | "pdf_encrypted";
+  | "pdf_not_read";
 
 export type PageReadReason = BlockedReason | UnreachableReason | RefusedReason | "budget_exhausted";
 

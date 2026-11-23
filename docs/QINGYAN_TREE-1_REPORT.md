@@ -7,7 +7,7 @@
 - **读公开网页的唯一入口** `src/lib/web-reader/`：`readPublicPage(url, ctx)`；上下文只能由 `createResearchReadSession({ orgId, jobId })` 从库里核对过的「人发起的调研 Job」建出，再 `session.forBranch({ branchKey, budget, deadlineAt })` 得到每一支的上下文。
 - **六条读网页规则全部在代码里强制**：只在人发起的调研 Job 里读（定时任务 / 没有 Job / 不是调研 Job / 开关关 → 抛错、零请求）；用户代理 `QingyanResearchBot/1.0 (+https://qingyan.ca)`；只 GET、不带 cookie 与任何凭证；被挡即停（登录页 / 验证码 / 401 / 403 / 407 / 跳转到登录地址 / robots）；超时 / 中断 / 5xx 最多重试 2 次（等 1 秒、3 秒），429 只在 `Retry-After` ≤30 秒时等够再试一次；每次读页扣 1 次额度（跳转、重试、robots 不扣）、同站请求开始时间间隔 ≥2 秒；同一棵树内同址只读一次（并发合并）。
 - **安全护栏**：只 http / https、只 80 / 443、网址带凭证拒绝；解析出的地址是内网 / 回环 / 链路本地 / 保留段一律拒绝，连接时由传输层的 `lookup` 再校验一次（防 DNS 重绑定）；最多跟 3 次跳转、每跳重新校验；单次请求 15 秒；正文解压后 2 MB 截断。
-- **内容**：HTML / XHTML 转纯文本（公共模块）、纯文本、PDF（unpdf，U+0000 → 空格）；其它类型拒绝。返回 `{ untrusted: true, url, finalUrl, fetchedAt, text, truncated, blocked, outcome, reason, messageZh, httpStatus, attempts, fromCache }`。
+- **内容**：HTML / XHTML 转纯文本（公共模块）、纯文本；**PDF 不在本层解析**（返回「不读」，由人用 TREE-6 补页；与任务书有出入，见 design D7、§6）；其它类型不读。返回 `{ untrusted: true, url, finalUrl, fetchedAt, text, truncated, blocked, outcome, reason, messageZh, httpStatus, attempts, fromCache }`。
 - **站点名单**：「不碰」预置 `detail.1688.com`、`login.1688.com`、`merx.com`、`linkedin.com`、`facebook.com`、`instagram.com`；「按人发起处理」预置 `importyeti.com`（不看 robots，额度相同）；「可以读」预置 `canada.ca`、`gc.ca`、`canadabuys.canada.ca`。组织设置 `settingsJson.researchTree.sites` 只能加「不碰」与「可以读」。
 - **审计**：每次实际发出页面请求写一条 `research.web_read`，只记网址、最终网址、结果类别、状态、字数、是否截断、原因、尝试次数、站点、分支；不记正文与头。
 - **HTML 转文本挪成公共模块** `src/lib/text/html-to-text.ts`（原 `trade/email-forward-parse.ts` 那一份，输入上限做参数；邮件解析仍传 200 000，行为不变）。
@@ -16,7 +16,7 @@
 
 ## 2. 改了哪些文件
 
-- 新增：`src/lib/web-reader/{index,read-page,transport,pure,types}.ts`、`src/lib/text/html-to-text.ts`、`src/lib/tender-research-tree/flags.ts`；测试 `src/lib/web-reader/__tests__/{web-reader,web-reader-pure}.test.ts`、`web-reader-context-db.isolated.test.ts`、`src/lib/text/__tests__/html-to-text.test.ts`。
+- 新增：`src/lib/web-reader/{index,read-page,transport,pure,types,db-deps}.ts`、`src/lib/text/html-to-text.ts`、`src/lib/tender-research-tree/flags.ts`；测试 `src/lib/web-reader/__tests__/{web-reader,web-reader-pure,web-reader-edges,web-reader-transport}.test.ts`、`web-reader-context-db.isolated.test.ts`、`__tests__/fake-world.ts`（夹具）、`src/lib/text/__tests__/html-to-text.test.ts`。
 - 修改：`src/lib/trade/email-forward-parse.ts`（改为调用公共模块）、`scripts/test-all.sh`、`scripts/test-ci-unit.sh`（只新增注册）、`openspec/config.yaml`、`docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md`。
 - 新增文档：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md`、`docs/QINGYAN_TREE_HANDOFF.md`、本报告。
 - 没动：`prisma/**`、`vercel.json`、`src/lib/workforce-runtime/**`、`src/app/**`、`src/lib/tender-intel/**`、`src/lib/tender-workforce/**`。
@@ -27,10 +27,9 @@
 |---|---|---|
 | `src/lib/web-reader/__tests__/web-reader-pure.test.ts` | 开关真值表、内网地址（含 IPv6 各段）、网址校验、站点名单与组织覆盖、robots（分组 / 归一 / 上限 / 步数预算）、登录地址 / 登录页 / 人机验证 / meta refresh、Retry-After、文案、唯一入口守卫 | 139 |
 | `web-reader.test.ts` | 规则 1–6 的主路径（假网络 + 虚拟时钟） | 93 |
-| `web-reader-edges.test.ts` | 审查后补的边界与回归：并发同址不空转（审计走宏任务）、被挡记真正挡人的站、每跳校验、robots 跳转、额度 / 截止 / 缓存、15 秒与截止封顶、429 边界、首次被挡记站、可以读站遵守 robots、跨会话间隔、robots 审计、额度封顶与每支只建一次、关开关即停、网址检查、正文清理、PDF 原因、结果冻结 | 59 |
+| `web-reader-edges.test.ts`（第二轮挑错后 93 条，含内部状态改不动、审计历史恢复、robots 跳转与次数、缓存校验、PDF 不读） | 审查后补的边界与回归：并发同址不空转（审计走宏任务）、被挡记真正挡人的站、每跳校验、robots 跳转、额度 / 截止 / 缓存、15 秒与截止封顶、429 边界、首次被挡记站、可以读站遵守 robots、跨会话间隔、robots 审计、额度封顶与每支只建一次、关开关即停、网址检查、正文清理、PDF 原因、结果冻结 | 59 |
 | `web-reader-transport.test.ts` | 真实传输层，只连本机服务：127.0.0.1 / localhost / [::1] / 0x7f.1 在连接前被拒（服务端 0 次）；接缝放行后 gzip、炸弹截断、坏 gzip、不跟 302、两种超时、连接失败、只 GET 无 cookie | 17 |
-| `web-reader-pdf.test.ts` | 预扫描（炸弹、图片流、LZW、加密、合计）与真实 unpdf（两页、35 页截 30 页、字数、8 秒、截止、炸弹、非 PDF、半截 PDF） | 15 |
-| `web-reader-context-db.isolated.test.ts` | 隔离库：经 extraMetadata 写标记的调研 Job、一键分析 Job、缺发起人、非人发起、已结束、别的组织、不存在；组织「不碰」；审计落库、键固定、不含正文 | 15 |
+| `web-reader-context-db.isolated.test.ts`（第二轮挑错后 18 条，含重建会话从审计恢复额度与被挡站） | 隔离库：经 extraMetadata 写标记的调研 Job、一键分析 Job、缺发起人、非人发起、已结束、别的组织、不存在；组织「不碰」；审计落库、键固定、不含正文 | 15 |
 | `src/lib/text/__tests__/html-to-text.test.ts` | 公共实现；用挪动前实现算出的固定期望值逐条比对；&#0;、截断、2 MB 性能 | 16 |
 
 另：挪动 HTML 转文本前后，用 20000 条随机输入对比旧新实现 0 处不同（实现者）；审查员②、⑥ 各自独立再比 25245 次、59246 次，0 处不同。
@@ -79,7 +78,12 @@
 **挑错交叉验证**（一个没参与实现、没参与上面审查的子 agent，基于 `01206fae`，结论「改完再合」，没有阻断）：它亲自跑了全量（PR 718/728、main 710/721，PR 没有新增失败）、test:ci、typecheck、lint、注册、架构、openspec；自写验收脚本 59/59、传输层与 300 轮并发随机测试；独立证明零调用方、email-forward 47672 次比较 0 差异。意见与去向（按「以更保守的一方为准」全部处理）：
 X1（应改，高）PDF 预扫描可绕过（任意位置写 `/Encrypt` 放行、字典自称图片跳过、过滤器链解压出错被吞；40 KB 的文件 → 单页 9.7 秒 / 836 MB）→ 加密的不读、所有 Flate 流计数、过滤器链与解压出错按过大不读；spec 写实「单页解析不中断」【改】；X2（应改）等别的支取 robots 不受截止 → 受截止【改】；X3（应改）robots 跳到本支被挡站的结论进了共用缓存 → 不缓存的「这一支被挡」【改】；X4（应改）额度对象建好后可被改 → 内部记账、只读快照，持久化 used 写成 TREE-2 硬要求【改】；X5（应改）config「核对员一次」被放宽成每条一次 → 改回字面「每棵树一次」，30 次标明由实现者定，发起方式补「重新查」「补页后重算」两个取值【改】；X6（小）被挡后用 IP 地址或子域名绕过 → IP 地址的网址不读、被挡站的子域名也算被挡【改】；X7（小）网址检查可选 → 必填【改】；X8（小）robots 没解码非保留字符 → 解码【改】；X9（小）主机名末尾的点 → 归一【改】；X10（小）入口导出了读库与写审计的函数 → 挪到 `db-deps.ts`、守卫测试禁止外部引用【改】；X11（小）「不碰」没有自家域名 → 预置 qingyan.ca / qingyan.ai / vercel.app【改】；X12（小）等审计写库与持久缓存不受截止 → 毫秒级，按截止中断会丢审计行【不改，design D5 写明】；X13 流程项：tasks 打勾、变基到最新 main 后重跑门禁、每条有去向【做，见 §4 复跑】。
 
-## 6. 没验证到的地方
+**第二轮挑错交叉验证**（又一个没参与过的子 agent，基于 `5c455f13`，结论「改完再合」，**阻断 1 条**）：它亲自跑全量 718/729（11 个失败逐个在两边单独重跑：10 个签名相同，Autopilot A2-P0 单跑两边都过＝不稳定）、test:ci、typecheck、lint、注册、架构、openspec；差分 36004 用例 0 差异；传输层、重绑定、炸弹、并发压力（6×40×80）无卡死。意见与去向：
+Y1（阻断）PDF 预扫描靠正则可被六种写法绕过，且 1.1 KB、不超任何上限的放大文件单页 11 秒 / 711 MB → **读网页层不在线解析 PDF**（返回「不读」、由人补页），删掉 `pdf.ts`；进程隔离要改打包、影响既有上传解析，本 PR 不做；与任务书「PDF 用 unpdf 抽文字」的出入报 Evan【改；出入上报】；Y2（应改）调用方能改额度 getter、站点名单、被挡站、审计归属、截止时间 → 全部内部记账、冻结外观与快照、原始值只读一次、截止只收有限数【改】；Y3（应改）重建会话额度与被挡站清零、分支无限 → 建会话时从审计历史恢复、每棵树 ≤24 支【改】；Y4（小）robots 跳转没查登录地址与 IP【改】；Y5（小）主机名末尾两个点 → 有空标签的网址无效【改】；Y6（小）守卫按字面匹配可绕、可直接写审计动作 → 路径规范化、审计动作字面量只许在本模块；刻意混淆由代码审查兜底【改】；Y7（小）robots 请求不受额度 → 每支取 robots ≤12 次【改】；Y8（小）持久缓存不校验 → 校验形状、强制不可信【改】；Y9（小）config 里实现者解释没全标 → 标明三处、交接请 Evan 确认【改】；Y10（小）文档对不上、Job 状态只在建会话时查、规则 1 依赖 TREE-2 只在人发起接口写标记 → 文档改；会话只活一个切片写进 design；写进 TREE-2 验收【改文档】。
+
+## 6. 没验证到的地方与任务书出入
+
+- **出入**：任务书 TREE-1「PDF 用现有的 unpdf 抽文字」与测试项「PDF 的 U+0000 被清」没有做——进程内解析 PDF 限不住成本（两轮挑错实测），进程隔离要改打包、影响既有上传解析，不在本批范围。请 Evan 定后续。
 
 - 真实网络（政府站、gzip / br、真实 PDF、慢速响应）：本 change 没有调用方，生产上不会发出请求；真实读取在 TREE-2 接入后、预发验收时第一次发生。
 - 同站 2 秒间隔只在同一进程内保证。

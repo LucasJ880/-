@@ -11,7 +11,6 @@ import {
   type ResearchJobRow,
   type WebReadAuditEntry,
 } from "../read-page";
-import type { PdfExtractResult } from "../pdf";
 
 export const enc = new TextEncoder();
 export const LONG_HTML = `<p>${"Award notice. ".repeat(300)}</p>`;
@@ -58,9 +57,11 @@ export function makeWorld(addresses: Record<string, string[]> = {}) {
   const world = {
     handlers,
     log,
+    robotsRequestsCount: () => log.filter((l) => l.url.endsWith("/robots.txt")).length,
     audits,
     now: () => time,
-    pdf: null as ((bytes: Uint8Array) => PdfExtractResult) | null,
+    /** 这棵树过去的读页审计（建会话时读出） */
+    history: [] as Array<{ branchKey: string; attempts: number; blockedSite: string | null }>,
     /** 审计写入方式：默认像真实写库一样走宏任务（setImmediate） */
     auditMode: "macrotask" as "macrotask" | "microtask",
     net: {
@@ -121,6 +122,7 @@ export async function openSession(
     {
       loadJob: async () => over.job ?? RESEARCH_JOB,
       loadOrgSettings: async () => over.settings ?? null,
+      loadTreeHistory: async () => w.history,
       env: over.env ?? { TENDER_RESEARCH_TREE_ENABLED: "1" },
       reader: {
         net: w.net,
@@ -129,7 +131,6 @@ export async function openSession(
           w.auditMode === "microtask"
             ? Promise.resolve(void w.audits.push(e))
             : new Promise<void>((r) => setImmediate(() => r(void w.audits.push(e)))),
-        extractPdf: async (bytes) => (w.pdf ? w.pdf(bytes) : { ok: true, text: new TextDecoder().decode(bytes), truncated: false, pagesRead: 1, totalPages: 1 }),
       },
     },
   );
@@ -137,6 +138,19 @@ export async function openSession(
 
 /** 测试里放行所有网址的网址检查（生产里 TREE-2 必须给真正的检查） */
 export const ALLOW_ALL = (): boolean => true;
+
+export async function openSessionWithCache(w: World, cache: import("../read-page").TreePageCache) {
+  return createResearchReadSessionWithDeps(
+    { orgId: "org1", jobId: "job1", cache },
+    {
+      loadJob: async () => RESEARCH_JOB,
+      loadOrgSettings: async () => null,
+      loadTreeHistory: async () => w.history,
+      env: { TENDER_RESEARCH_TREE_ENABLED: "1" },
+      reader: { net: w.net, clock: w.clock, audit: async (e) => void w.audits.push(e) },
+    },
+  );
+}
 
 export function budget(n = 12) {
   return { remaining: n, used: 0 };

@@ -5,7 +5,14 @@
 
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit/logger";
-import { WEB_READ_AUDIT_ACTION, type ResearchJobRow, type WebReadAuditEntry, type WebReaderClock } from "./read-page";
+import {
+  WEB_READER_LIMITS,
+  WEB_READ_AUDIT_ACTION,
+  type ResearchJobRow,
+  type TreeHistoryRow,
+  type WebReadAuditEntry,
+  type WebReaderClock,
+} from "./read-page";
 
 export const realClock: WebReaderClock = {
   now: () => Date.now(),
@@ -44,6 +51,7 @@ export async function writeWebReadAudit(entry: WebReadAuditEntry): Promise<void>
       attempts: entry.attempts,
       robotsRequests: entry.robotsRequests,
       site: entry.site,
+      blockedSite: entry.blockedSite,
     },
   });
 }
@@ -56,4 +64,34 @@ export async function loadResearchJobRow(id: string): Promise<ResearchJobRow | n
 /** 读组织设置（站点名单的组织覆盖在 settingsJson.researchTree.sites） */
 export async function loadOrgSettingsJson(orgId: string): Promise<unknown> {
   return (await db.organization.findUnique({ where: { id: orgId }, select: { settingsJson: true } }))?.settingsJson ?? null;
+}
+
+/** 这棵树过去的读页审计（按 jobId）：重建会话时恢复每支的已用额度与被挡站、数分支 */
+export async function loadTreeHistory(orgId: string, jobId: string): Promise<TreeHistoryRow[]> {
+  const rows = await db.auditLog.findMany({
+    where: { orgId, action: WEB_READ_AUDIT_ACTION, targetType: "research_job", targetId: jobId },
+    select: { afterData: true },
+    orderBy: { createdAt: "asc" },
+    take: WEB_READER_LIMITS.HISTORY_MAX_ROWS,
+  });
+  const out: TreeHistoryRow[] = [];
+  for (const r of rows) {
+    let d: unknown = r.afterData;
+    if (typeof d === "string") {
+      try {
+        d = JSON.parse(d);
+      } catch {
+        continue;
+      }
+    }
+    if (!d || typeof d !== "object") continue;
+    const a = d as Record<string, unknown>;
+    if (typeof a.branchKey !== "string") continue;
+    out.push({
+      branchKey: a.branchKey,
+      attempts: typeof a.attempts === "number" ? a.attempts : 0,
+      blockedSite: typeof a.blockedSite === "string" ? a.blockedSite : null,
+    });
+  }
+  return out;
 }

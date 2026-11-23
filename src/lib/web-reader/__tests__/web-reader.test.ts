@@ -143,12 +143,12 @@ async function session(
     {
       loadJob: async () => (over.job === undefined ? RESEARCH_JOB : over.job),
       loadOrgSettings: async () => over.settings ?? null,
+      loadTreeHistory: async () => [],
       env: over.env ?? ENV_ON,
       reader: {
         net: world.net,
         clock: world.clock,
         audit: async (e) => void world.audits.push(e),
-        extractPdf: async (bytes) => ({ ok: true, text: new TextDecoder().decode(bytes), truncated: false, pagesRead: 1, totalPages: 1 }),
       },
     },
   );
@@ -475,8 +475,12 @@ async function main() {
     w.handlers.set("https://doc.example/latin", () => ({ status: 200, headers: { "content-type": "text/html; charset=windows-1252" }, body: new Uint8Array([0x3c, 0x70, 0x3e, 0x43, 0x61, 0x66, 0xe9, 0x3c, 0x2f, 0x70, 0x3e]), truncated: false }));
     const s = await session(w);
     const ctx = s.forBranch({ allowUrl: ALLOW_ALL, branchKey: "b", budget: budget() });
+    const before = w.log.length;
     const pdf = await readPublicPage("https://doc.example/a.pdf", ctx);
-    ok("PDF：读到且不含 U+0000", pdf.outcome === "ok" && !pdf.text.includes("\u0000") && pdf.text.includes("230,000"), pdf);
+    ok("网址以 .pdf 结尾：不读、不请求（PDF 不在线解析）", pdf.outcome === "refused" && pdf.reason === "pdf_not_read" && w.log.length === before, pdf);
+    w.handlers.set("https://doc.example/report", () => ({ status: 200, headers: { "content-type": "application/pdf" }, body: enc.encode("%PDF-1.4"), truncated: false }));
+    const pdf2 = await readPublicPage("https://doc.example/report", ctx);
+    ok("返回 application/pdf：不读、不解析", pdf2.outcome === "refused" && pdf2.reason === "pdf_not_read" && pdf2.text === "", pdf2);
     const big = await readPublicPage("https://doc.example/big", ctx);
     ok("3 MB 页面：读到、标「已截断」", big.outcome === "ok" && big.truncated === true && big.text.length <= WEB_READER_LIMITS.MAX_BODY_BYTES);
     const img = await readPublicPage("https://doc.example/img.png", ctx);
@@ -488,7 +492,7 @@ async function main() {
     ok("HTML：去掉 head 与 script，表格用制表符", h.text.includes("Award") && h.text.includes("Vendor\tACME") && !h.text.includes("evil"), h.text);
     const latin = await readPublicPage("https://doc.example/latin", ctx);
     ok("按 charset 解码", latin.text === "Café", latin.text);
-    ok("结果带 untrusted 与各字段", [pdf, big, h].every((r) => r.untrusted === true && typeof r.fetchedAt === "string" && r.finalUrl !== null && r.blocked === null));
+    ok("结果带 untrusted 与各字段", [big, h, txt].every((r) => r.untrusted === true && typeof r.fetchedAt === "string" && r.finalUrl !== null && r.blocked === null));
   }
 
   console.log("审计不记正文");
@@ -511,7 +515,7 @@ async function main() {
     const a = w.audits[0];
     ok("审计含网址、状态、字数、发起人与 Job", !!a && a.url === "https://aud.example/p" && a.httpStatus === 200 && a.chars === r.text.length && a.userId === "u1" && a.jobId === "job1" && a.outcome === "ok");
     ok("审计与日志里搜不到正文", !JSON.stringify(w.audits).includes("SECRET-BODY-TEXT") && !logs.join("\n").includes("SECRET-BODY-TEXT"));
-    ok("审计字段固定（没有正文 / 头）", !!a && Object.keys(a).sort().join(",") === "attempts,branchKey,chars,finalUrl,httpStatus,jobId,orgId,outcome,reason,robotsRequests,site,truncated,url,userId");
+    ok("审计字段固定（没有正文 / 头）", !!a && Object.keys(a).sort().join(",") === "attempts,blockedSite,branchKey,chars,finalUrl,httpStatus,jobId,orgId,outcome,reason,robotsRequests,site,truncated,url,userId");
   }
 
   console.log(`\nweb-reader: ${passed} passed, ${failed} failed`);

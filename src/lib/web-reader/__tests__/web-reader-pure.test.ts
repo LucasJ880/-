@@ -4,7 +4,7 @@
  * 运行：npx tsx src/lib/web-reader/__tests__/web-reader-pure.test.ts
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join, posix, relative, sep } from "node:path";
 import { isResearchTreeEnabledForOrgWithEnv } from "@/lib/tender-research-tree/flags";
 import {
   OUTCOME_ZH,
@@ -214,6 +214,9 @@ console.log("守卫：读网页的唯一入口");
 {
   const root = process.cwd();
   const offenders: string[] = [];
+  // 把 import / require / import() 里出现的模块路径取出来规范化（去掉 ./、多余的 /）再比，
+  // 含 web-reader 的只许恰好是 "@/lib/web-reader"
+  const SPEC_RE = /(?:from\s*|import\s*\(\s*|require\s*\(\s*|import\s+)["'`]([^"'`]+)["'`]/g;
   const walk = (dir: string) => {
     for (const name of readdirSync(dir)) {
       const full = join(dir, name);
@@ -226,11 +229,23 @@ console.log("守卫：读网页的唯一入口");
       const rel = relative(root, full).split(sep).join("/");
       if (rel.startsWith("src/lib/web-reader/") || rel.includes("/__tests__/")) continue;
       const src = readFileSync(full, "utf8");
-      if (/web-reader\/(read-page|transport|pdf|pure|db-deps)\b/.test(src) || /createResearchReadSessionWithDeps|createNodeNet\b|writeWebReadAudit|loadResearchJobRow/.test(src)) offenders.push(rel);
+      let bad = /createResearchReadSessionWithDeps|createNodeNet\b|writeWebReadAudit|loadResearchJobRow|loadTreeHistory/.test(src);
+      // 审计动作字面量只许出现在 web-reader 目录（别处不能伪造读页审计）
+      if (src.includes("research.web_read")) bad = true;
+      for (const m of src.matchAll(SPEC_RE)) {
+        const spec = posix.normalize(m[1].replace(/\/{2,}/g, "/"));
+        if (/web-reader/.test(spec) && spec !== "@/lib/web-reader" && spec !== "@/lib/web-reader/index") bad = true;
+      }
+      if (bad) offenders.push(rel);
     }
   };
   walk(join(root, "src"));
   walk(join(root, "scripts"));
+  const probe = (code: string) => [...code.matchAll(SPEC_RE)].some((m) => {
+    const spec = posix.normalize(m[1].replace(/\/{2,}/g, "/"));
+    return /web-reader/.test(spec) && spec !== "@/lib/web-reader";
+  });
+  ok("守卫认得出路径花招（./、//、动态 import、require）", probe('import * as rp from "@/lib/web-reader/./read-page"') && probe('import x from "@/lib/web-reader//transport"') && probe('await import("@/lib/web-reader/db-deps")') && probe('require("../web-reader/pure")') && !probe('import { readPublicPage } from "@/lib/web-reader"'));
   ok("web-reader 目录与测试之外只经 @/lib/web-reader 入口（不直接 import read-page / transport / pdf / pure，不用测试接缝）", offenders.length === 0, offenders);
   const index = readFileSync(join(root, "src/lib/web-reader/index.ts"), "utf8");
   ok("生产入口不把测试接缝、读库与写审计的函数导出去", !/export\s*\{[^}]*(createResearchReadSessionWithDeps|createNodeNet|writeWebReadAudit|loadResearchJobRow|loadOrgSettingsJson)/.test(index) && !/export (async )?function (writeWebReadAudit|loadResearchJobRow|loadOrgSettingsJson)/.test(index));

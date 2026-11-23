@@ -9,8 +9,7 @@
  */
 
 import { createResearchReadSessionWithDeps, type CreateResearchReadContextInput, type ResearchReadSession } from "./read-page";
-import { loadOrgSettingsJson, loadResearchJobRow, realClock, writeWebReadAudit } from "./db-deps";
-import { extractPdfTextGuarded } from "./pdf";
+import { loadOrgSettingsJson, loadResearchJobRow, loadTreeHistory, realClock, writeWebReadAudit } from "./db-deps";
 import { createNodeNet } from "./transport";
 
 export { readPublicPage, WebReaderContextError, WEB_READER_LIMITS, WEB_READER_USER_AGENT } from "./read-page";
@@ -23,11 +22,7 @@ export async function createResearchReadSession(input: CreateResearchReadContext
   return createResearchReadSessionWithDeps(input, {
     loadJob: loadResearchJobRow,
     loadOrgSettings: loadOrgSettingsJson,
-    reader: {
-      net: createNodeNet(),
-      clock: realClock,
-      audit: writeWebReadAudit,
-      extractPdf: (bytes, opts) => extractPdfTextGuarded(bytes, opts),
-    },
+    loadTreeHistory,
+    reader: { net: createNodeNet(), clock: realClock, audit: writeWebReadAudit },
   });
 }

@@ -123,7 +123,8 @@ export function checkPublicUrl(raw: string): UrlCheck {
   if (url.username || url.password) return { ok: false, reason: "credentials_in_url" };
   // WHATWG URL 在端口等于协议默认端口时把 port 置空
   if (url.port !== "") return { ok: false, reason: "non_default_port" };
-  if (!url.hostname) return { ok: false, reason: "invalid_url" };
+  // 主机名不能有空标签（「a..b」「.a」「a..」）：避免同一个站有多种写法
+  if (!url.hostname || /^\.|\.\./.test(url.hostname)) return { ok: false, reason: "invalid_url" };
   return { ok: true, url };
 }
 
@@ -138,7 +139,7 @@ export function normalizePageUrl(url: URL): string {
 
 /** 主机名（小写、去 IPv6 方括号、去末尾的点） */
 export function hostOf(url: URL): string {
-  return url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  return url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
 }
 
 /** 主机名本身就是 IP 字面量时返回它 */
@@ -507,8 +508,6 @@ const REASON_ZH: Record<PageReadReason, string> = {
   too_many_redirects: "跳转次数太多，没打开",
   invalid_redirect: "跳转地址无效，没打开",
   deadline: "这一轮处理时间到了，没来得及读，下一轮再读",
-  pdf_unreadable: "PDF 抽不出文字（可能是扫描件），没打开",
-  pdf_too_large: "PDF 超过 2 MB，只取到前一部分，抽不出文字",
   invalid_url: "网址无效，不读",
   credentials_in_url: "网址里带了用户名或密码，不读",
   non_default_port: "网址带了非标准端口，不读",
@@ -518,8 +517,7 @@ const REASON_ZH: Record<PageReadReason, string> = {
   ip_literal: "网址是 IP 地址而不是网站域名，不读",
   url_not_allowed: "这个网址不是从搜索结果或已读页面里来的，不读",
   unsupported_type: "不是网页、纯文本或 PDF，不读",
-  pdf_too_complex: "PDF 解压后过大或结构异常，按规定不读",
-  pdf_encrypted: "PDF 加了密，按规定不读",
+  pdf_not_read: "PDF 不在线解析（安全原因），请用「我来补一页」上传，这里不读",
   budget_exhausted: "读页次数到上限，未读",
 };
 

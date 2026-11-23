@@ -30,11 +30,14 @@
 ## Decisions
 
 ### D1 读页会话只能从一条「人发起的调研 Job」建出（规则 1）
-生产入口 `createResearchReadSession({ orgId, jobId, scheduled? })`（`src/lib/web-reader/index.ts`）调 `createResearchReadSessionWithDeps`，读 `AgentRun` 的 `id / orgId / status / metadata`，逐项核对：同组织；`metadata.workDomain === "tender"`；`metadata.researchTree === true` 且 `researchTreeVersion === 1`；`researchTrigger ∈ { "human_start", "requirements_confirmed", "human_rerun", "human_page_intake" }`（开始调研 / 确认招标要求 / 某一支重新查 / 人工补页后重算）；发起人取运行时写的保留键 `metadata.initiatedByUserId`（调用方没法经 extraMetadata 伪造）；状态不是 completed / failed / cancelled。调用方传 `scheduled: true`、没有 `jobId`、开关关着都直接抛错。会话的 `forBranch({ branchKey, budget, blockedSites?, deadlineAt?, allowUrl? })` 造每一支的上下文；`readPublicPage(url, ctx)` 只接受这样造出来的上下文（内部 WeakSet 登记，手拼、展开复制都被拒），每次读页再查一次开关（关开关即停）。TREE-2 的「开始调研」接口经 `createWorkforceJob` 的 `extraMetadata` 写 `{ researchTree: true, researchTreeVersion: 1, researchTrigger }`。
+生产入口 `createResearchReadSession({ orgId, jobId, scheduled? })`（`src/lib/web-reader/index.ts`）调 `createResearchReadSessionWithDeps`，读 `AgentRun` 的 `id / orgId / status / metadata`，逐项核对：同组织；`metadata.workDomain === "tender"`；`metadata.researchTree === true` 且 `researchTreeVersion === 1`；`researchTrigger ∈ { "human_start", "requirements_confirmed", "human_rerun", "human_page_intake" }`（开始调研 / 确认招标要求 / 某一支重新查 / 人工补页后重算）；发起人取运行时写的保留键 `metadata.initiatedByUserId`（调用方没法经 extraMetadata 伪造）；状态不是 completed / failed / cancelled。调用方传 `scheduled: true`、没有 `jobId`、开关关着都直接抛错。会话的 `forBranch({ branchKey, budget, blockedSites?, deadlineAt?, allowUrl })`（`allowUrl` 必填）造每一支的上下文；`readPublicPage(url, ctx)` 只接受这样造出来的上下文（内部 WeakSet 登记，手拼、展开复制都被拒），每次读页再查一次开关（关开关即停）。TREE-2 的「开始调研」接口经 `createWorkforceJob` 的 `extraMetadata` 写 `{ researchTree: true, researchTreeVersion: 1, researchTrigger }`。
 - 否决「按当前进程是不是 cron 判断」：调研 Job 本身就由 `api/cron/agent-runs` 处理，这样判断会把合法的调研也挡掉，而真正的定时任务换一个进程照样能调。
 - 否决「只要求调用方传一个 jobId 字符串」：任何定时任务都能编一个；必须到库里确认它是人发起的调研 Job。
 - 否决「标记写成一个对象 `metadata.researchTree = {…}`」（第一稿）：`extraMetadata` 只收原始值，对象只能建完 Job 再补写，补写之前处理器就可能认领这个 Job；平铺后建 Job 时一次写全。
-- 测试接缝 `createResearchReadSessionWithDeps`（可注入 `loadJob`、`env`）只给测试用：守卫测试扫 `src/` 与 `scripts/`，web-reader 目录与测试之外不许 import `web-reader/read-page`、`transport`、`pdf`、`pure`，也不许出现这两个接缝名；生产入口不收 `env`。
+- 测试接缝 `createResearchReadSessionWithDeps`（可注入 `loadJob`、`env`）只给测试用。守卫测试扫 `src/` 与 `scripts/`：把 import / require / import() 里的模块路径规范化（去 `./`、多余的 `/`）后，含 web-reader 的只许恰好是 `@/lib/web-reader`；接缝名、读库与写审计的函数名、审计动作字面量 `research.web_read` 不许出现在 web-reader 目录以外；生产入口不收 `env`。刻意混淆（拼字符串取属性等）静态守卫拦不住，由代码审查兜底（第二轮挑错交叉验证 Y6）。
+- **所有影响判断的状态都在读页层内部**（第二轮挑错交叉验证 Y2：调用方曾能清空会话上的站点名单、清空被挡站、改审计归属、把截止时间改空）：会话状态与分支状态放在模块内的 WeakMap 里；调用方拿到的会话与上下文是冻结的只读外观，站点名单深冻结，额度与被挡站是快照；`forBranch` 的每个原始值只读一次（防 getter 前后给不同的值），截止时间只收有限数或不给。
+- **重建会话不清零**（Y3）：建会话时按 `jobId` 读这棵树的 `research.web_read` 审计（审计里加了 `blockedSite`），每支「发过页面请求的读页」条数计入已用额度、被挡站并进被挡站，分支总数（审计里已有的 + 本会话的）≤24。零 schema；审计写入失败（`logAudit` 吞错）时会少记，属于已知的宽松方向。
+- 会话只活一个处理切片（≤240 秒）：Job 被取消后，下一切片建会话时被拒；同一切片里已建的会话不再查 Job 状态。`scheduled` 由调用方自报、`researchTrigger` 不是运行时保留键——规则 1 最终依赖「只有 TREE-2 的人发起接口写调研标记」，写进 TREE-2 的验收（守卫测试：`researchTree: true` 只许出现在那几个接口里）。
 
 ### D2 自己发请求，连接时再校验地址（安全）
 用 Node 自带的 `http` / `https.request`，`lookup` 换成「解析全部地址 → 有一个不合格就报错」的函数，所以「先解析校验、再由连接库自己解析」之间换了地址（DNS 重绑定）也连不上内网；主机名是 IP 字面量时 Node 不走 lookup，传输层先自己判断。请求前读页层还先解析一次做同样判断（假网络测试走这一层），解析超过 5 秒按解析失败。只发 GET；请求头固定为用户代理、`Accept`、`Accept-Encoding: gzip, deflate, br`、`Accept-Language`，没有 cookie 罐；`agent: false`（不复用连接、也不走 `HTTP(S)_PROXY`）；响应按 `Content-Encoding` 解压，解压后计数到 2 MB 截断（防压缩炸弹）；每次尝试一个 15 秒的总计时（连接 + 收头 + 收正文）。传输层有一个只给测试的接缝 `createNodeNet({ isBlockedAddress })`，用来在本机起服务测正常路径。
@@ -54,7 +57,7 @@
 - 否决「页面里只要有 password 输入框就算登录页」：会把大量带页眉登录框的政府与厂家页面误判为被挡。
 
 ### D5 限量、间隔、重试与截止的计数口径
-- 额度由调用方给（TREE-2 每支一个，初值 12，可被组织调低）。`forBranch` 拒绝「剩余 + 已用 > 12」或不是非负整数的额度，同一会话里同一支只能建一次上下文；额度拷进读页层内部记账（WeakMap），`ctx.budget` 只是只读快照——建好后改调用方的对象不起作用（挑错交叉验证 X4）。跨会话（每个切片新建会话）的额度靠调用方把 `used` 持久化后传回，**这是 TREE-2 的硬要求**。一次读页在**真正发出第一个页面请求前一刻**扣 1（`beforeSend` 钩子）；同一次读页里的跳转、重试与 robots 请求不扣；缓存命中、不读、这一支已被挡的站、时间到了而没发请求的都不扣。额度为 0 时连 robots 也不请求。
+- 额度由调用方给（TREE-2 每支一个，初值 12，可被组织调低），并与审计历史取较大的已用数（D1）。每支发起取 robots 最多 12 次（第二轮挑错 Y7：额度 1 时也能对 30 个站各取一次 robots），超了按到上限。`forBranch` 拒绝「剩余 + 已用 > 12」或不是非负整数的额度，同一会话里同一支只能建一次上下文；额度拷进读页层内部记账（WeakMap），`ctx.budget` 只是只读快照——建好后改调用方的对象不起作用（挑错交叉验证 X4）。跨会话（每个切片新建会话）的额度靠调用方把 `used` 持久化后传回，**这是 TREE-2 的硬要求**。一次读页在**真正发出第一个页面请求前一刻**扣 1（`beforeSend` 钩子）；同一次读页里的跳转、重试与 robots 请求不扣；缓存命中、不读、这一支已被挡的站、时间到了而没发请求的都不扣。额度为 0 时连 robots 也不请求。
 - 站点间隔：进程内的「站点节拍」，按时钟对象分开（生产是一个模块级时钟 → 全进程共享；测试的每个假世界各自一份），按站点键（主机名去掉 `www.`）记「下一次最早可以开始的时间」。每次请求前**同步预约**：算出开始时间并立刻占住（之后的预约至少再晚 2 秒），再等到开始时间；开始时间超过本支剩余时间就不预约、直接「时间到了」。跨进程（两个函数实例同时读同一站）不保证，交接文档记为已知限制。
 - 重试：超时 / 连接中断 / 5xx 最多再试 2 次，等待 1 秒、3 秒；429 只在 `Retry-After` 给出纯数字秒数、或带 GMT 的 HTTP 日期、且不超过 30 秒时等够再试一次。每次请求前再查一次这一支被挡过的站。
 - 截止：等待、重试、站点排队、域名解析、等别的支的同址结果、取 robots 都受本支截止时间约束（与截止赛跑的计时器在赛跑结束时清掉，不留悬着的计时器）；单次超时被截止缩短后超时的记「时间到了」（不进缓存）。TREE-2 传切片截止时间，做法同 FIX-12。
@@ -67,15 +70,15 @@
 ### D6 站点名单与 robots
 - 代码常量（`src/lib/web-reader/pure.ts` 的 `PRESET_SITE_POLICY`）：`deny`「不碰」（预置 `detail.1688.com`、`login.1688.com`、`merx.com`、`linkedin.com`、`facebook.com`、`instagram.com`——要登录才能看的站；`qingyan.ca`、`qingyan.ai`、`vercel.app`——青砚自己的站与预览域名，不对自家站点发请求；后缀匹配）；`humanInitiated`「按人发起处理」（预置 `importyeti.com`）；`allow`「可以读」（预置 `canada.ca`、`gc.ca`、`canadabuys.canada.ca`，与默认同样处理、照样看 robots，只是文档化）。
 - 组织覆盖：`Organization.settingsJson.researchTree.sites = { deny?: string[], allow?: string[] }`；只收这两类，分类时 `deny` 永远先查（组织把 ImportYeti 加进 `deny` 就不读）。不收 `humanInitiated`：不看 robots 是一个要拍板的放宽，不能由组织设置自己放开。
-- robots：按 RFC 9309——取 `QingyanResearchBot` 组（`User-agent` 值的版本号部分忽略），没有则取 `*` 组；规则与路径按 UTF-8 百分号编码归一（非 ASCII 编码；非保留字符 `A–Z a–z 0–9 - . _ ~` 的 `%xx` 解码；其余 `%xx` 大写）后比较；`Allow` / `Disallow` 最长匹配，同长 `Allow` 优先；支持 `*` 与 `$`，路径含查询串；只读前 500 KiB。4xx（含 401 / 403）视为没有限制；429、5xx、超时、连接失败视为全部不许读（RFC 9309 §2.3.1.3 / §2.3.1.4；429 按读取失败处理与主流爬虫一致）。规则超过 5000 条或单条模式超过 512 字 → 读取失败；一次判断的匹配步数预算 200 万步，用完按不许读——对方没法用超大规则表占满 CPU。robots 的跳转只跟到别处的 `/robots.txt`（最多 5 次，RFC 建议）；跳到别的页面（登录页等）视为没有 robots、不请求；跳到「不碰」站不请求、按读取失败；跳到这一支被挡过的站不请求、记为「这一支被挡」——这个结论与那一支的状态有关，不进会话缓存（挑错交叉验证 X3）。robots 结果按「协议 + 主机 + 端口」在会话里缓存；某支取 robots 时它自己的时间到了、或跳到了它被挡过的站，结果不缓存，别的支自己再取；等别的支取 robots 也受本支截止约束（X2）。
+- robots：按 RFC 9309——取 `QingyanResearchBot` 组（`User-agent` 值的版本号部分忽略），没有则取 `*` 组；规则与路径按 UTF-8 百分号编码归一（非 ASCII 编码；非保留字符 `A–Z a–z 0–9 - . _ ~` 的 `%xx` 解码；其余 `%xx` 大写）后比较；`Allow` / `Disallow` 最长匹配，同长 `Allow` 优先；支持 `*` 与 `$`，路径含查询串；只读前 500 KiB。4xx（含 401 / 403）视为没有限制；429、5xx、超时、连接失败视为全部不许读（RFC 9309 §2.3.1.3 / §2.3.1.4；429 按读取失败处理与主流爬虫一致）。规则超过 5000 条或单条模式超过 512 字 → 读取失败；一次判断的匹配步数预算 200 万步，用完按不许读——对方没法用超大规则表占满 CPU。robots 的跳转只跟到别处的 `/robots.txt`（最多 5 次，RFC 建议）；跳到别的页面（登录页等）视为没有 robots、不请求；跳到登录地址视为没有 robots、不请求；跳到 IP 地址按读取失败、不请求（第二轮挑错 Y4）；跳到「不碰」站不请求、按读取失败；跳到这一支被挡过的站不请求、记为「这一支被挡」——这个结论与那一支的状态有关，不进会话缓存（挑错交叉验证 X3）。robots 结果按「协议 + 主机 + 端口」在会话里缓存；某支取 robots 时它自己的时间到了、或跳到了它被挡过的站，结果不缓存，别的支自己再取；等别的支取 robots 也受本支截止约束（X2）。
 - 否决「robots 401 / 403 也视为不许读」：RFC 明确 4xx 视为不可得，政府站点常对 `/robots.txt` 返回 403，会让大量页面无谓被挡。
 
 ### D7 读到的内容
 - HTML / XHTML：按 `Content-Type` 的 charset（没有则看 `<meta charset>`，再没有用 UTF-8）解码后转纯文本（公共模块，见「不确定处」第 5 条）。
 - 纯文本：同样解码。任务书只写了 HTML 与 PDF；纯文本（`.txt` 公告、CSV 预览）风险与 HTML 转出的文本相同，收下更有用，所以一并收。
-- PDF（`src/lib/web-reader/pdf.ts`）：2 MB 只限住了下载字节，限不住解析成本（审查实测 58 KB 的 PDF 让 unpdf 跑 21.8 秒、用 3.4 GB）。三层：① 预扫描：文件里出现 `/Encrypt` 就不读（`pdf_encrypted`；流是密文，估不出解压量；任意位置出现都按加密处理，宁可多拒）；所有 FlateDecode 流——不信字典自述，自称图片的也算——用 zlib 的输出上限解压计数，合计超过 16 MB、过滤器链（如 `[/ASCII85Decode /FlateDecode]`）、解压出错、LZW / RunLength 都不读（`pdf_too_complex`）；② 只抽前 30 页，逐页取文字、取完 `cleanup`；③ 页与页之间查：累计 8 秒或离截止不到 2 秒就停、正文到 2 MB 字数就停，都标截断。单页内的解析不能中断（pdf.js 在主线程上），靠 ① 的解压量上限兜底。被 2 MB 截断的 PDF 抽不出文字时一律写「PDF 超过 2 MB」（`pdf_too_large`）。
-- 第一稿里预扫描「跳过图片流、加密的放行、解压出错的忽略」都能被构造的 PDF 利用（挑错交叉验证 X1 实测：40 KB 的文件绕过后单页 9.7 秒、836 MB）；代价是：加密的政府 PDF、用过滤器链的老 PDF、带大张 Flate 图片的 PDF 会被拒——这些由人用 TREE-6 的「我来补一页」送进来。
-- 不放进 worker 线程：unpdf 是打包进服务端代码的（不在 `next.config.ts` 的 `serverExternalPackages` 里），worker 里解析要改 `next.config.ts`，会改变既有上传解析的打包方式。
+- **PDF：本层不解析**（网址以 `.pdf` 结尾的不发请求；返回 `application/pdf` 的不解析正文；都是「不读」，原因写明请用「我来补一页」上传）。过程：第一稿直接用 unpdf 抽文字——审查员③实测 58 KB 的 PDF 让 unpdf 跑 21.8 秒、用 3.4 GB；第二稿加了预扫描（解压量上限 + 30 页 + 8 秒）——第一轮挑错找到三种绕过；第三稿收紧预扫描——第二轮挑错又找到六种语法变体绕过（间接引用的 /Filter、名字转义、`stream` 后只跟 `\r` 等），并用一个 1.1 KB、不超过任何上限的 PDF（一个表单对象被调用 6000 次）让单页解析跑 11 秒、占 711 MB。结论：靠正则预扫描做不到可靠，进程内解析 PDF 限不住成本。
+- 进程隔离（worker 线程或子进程 + 内存上限 + 超时终止）才是正解，但本 PR 不做：unpdf 被 webpack 打进服务端代码（`next build --webpack`，不在 `serverExternalPackages`），要在 worker 里加载它就得改 `next.config.ts` 的打包方式，会改变既有上传解析（招标文件页级解析、文件列表解析、宣传册解析）加载 unpdf 的方式——开关关着生产也有变化；worker 在 Vercel 上的打包与运行在本地也验证不了。
+- **与任务书的出入**：任务书 TREE-1「PDF 用现有的 unpdf 抽文字」与测试项「PDF 的 U+0000 被清」本 PR 没有做到——写进报告、PR 与交接，请 Evan 定：是另开一个改动做进程隔离（要改打包，不在本批授权内），还是维持「PDF 由人补页」。
 - 其它类型（含没有 `Content-Type`）：不读，不读正文。
 - 所有正文最后都清掉 U+0000、落单代理字符（`toStorableText`）、Unicode 标签字符（U+E0000–E007F）、双向控制符与零宽字符（常被用来藏指令）；后续写库不会因此失败。隐藏元素（`display:none` 等）里的文字不在本层处理，交给 TREE-2 的提示词约束（正文只作为数据进模型）。
 - 返回结果冻结（含 `blocked` 子对象）：一支改不了缓存里别的支会拿到的结果。
@@ -92,6 +95,7 @@
 `openspec/config.yaml` 硬纪律第 7 条把原文「唯一例外（KPI-2…）」改为「例外一（KPI-2…）」（KPI-2 的正文一字不动；加了第二条，「唯一」必须去掉），其后补「例外二（TREE-0，Evan 2026-11-22 拍板）」，分「开放 / 上限 / 约束」三段写明：分支子代理在分支内由模型决定下一步搜索、读页或结束；每支最多 16 次搜索、12 次读页、模型请求 30 次（每决定一步算一次：16 + 12 次动作加收尾 2 次；同一次请求里的重试与换备用模型不另算）；每棵树最多 24 个分支、最深 5 层；条款员每棵树一次；核对员每棵树调用模型一次（一次核对全部待核事实）；以上上限写成常量，组织设置只能调低；调研树只由人发起（「开始调研」「重新查」、确认招标要求、补页后重算），任何定时任务都不发起（既有 agent-runs 处理器续跑人发起的调研 Job 不算）；开关默认关；骨架分叉、单价、可比度、建议区间与结论句仍是规则与纯函数，模型不写结论里的数字。另起一句写明同一拍板反转的两处范围：读公开网页全文（反转 CHAIN 任务书「系统不抓任何第三方网站」与供应商发现「只用搜索索引」；第 5 条不变）；给出建议报价区间（只限调研树的树干结论，区间只由代码从已核实的证据算，最终报价仍由人定；第 4 条与 CHAIN-2 价格对照卡 `tender/auto-supplier-run` 不变）。文件头的来源注释加一行。
 - 「核对员一次」按字面登记为每棵树一次（把全部待核事实一次交给核对员；第一稿写成「每条一次、每棵树最多 60 次」，挑错交叉验证 X5 指出那是放宽，改回字面）。TREE-4 第 1 条「输入只有待核的值 + 网址」照样能满足：一次调用里每条只带值、网址与重读到的摘录。
 - 「模型请求 30 次」与「组织设置只能调低」是实现者按授权定的数与做法（任务书只要求写明每处上限），config 里写明「由实现者定」。
+- 另三处是实现者对任务书的解释，config 里同样标明、交接请 Evan 确认（第二轮挑错 Y9）：「既有 agent-runs 处理器续跑人发起的调研 Job 不算定时任务」（任务书「任何定时任务里不跑」与运行时由 cron 驱动之间的张力）；「补页后重算」「重新查」算人发起；每次模型请求内部的重试与换备用模型不另算（受既有调用层自身的重试上限约束）。
 - 交接文档 `docs/QINGYAN_TENDER_FLOW_HANDOFF.md` §0.5k 第 12 条写着「`openspec/config.yaml` 由 Evan 改」——那一条说的是 FIX-22 的 G8。本处改动是 Evan 在任务书 TREE-0 里亲自要求、并写明了内容的登记；PR 正文写明这一点。`src/lib/sales/period/narrative-pure.ts` 文件头注释里「第 7 条的唯一例外」同步改为「例外一」（只改注释）。
 - 否决把例外写进单独的文件：硬纪律的唯一事实源是 `openspec/config.yaml` 的 `context`，例外必须写在同一处才会注入每一次 `/opsx:*`。
 
@@ -111,7 +115,7 @@
 5. 不爬登录页：遵守并机制化。不登录、不带凭证、不存 cookie；登录页 / 验证码 / 401 / 403 / 407 / 登录跳转即停，直接给的登录地址不读；「不碰」名单预置要登录的站。
 6. 邮箱分离：不涉及。
 7. 确定性优先：本 change 不增加模型调用；TREE-0 登记例外（D10）。
-8. 测试注册：新增 `web-reader.test.ts`、`web-reader-pure.test.ts`、`web-reader-edges.test.ts`、`web-reader-transport.test.ts`、`web-reader-pdf.test.ts`、`web-reader-context-db.isolated.test.ts`、`src/lib/text/__tests__/html-to-text.test.ts` 都注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`（隔离库那份在 CI 里自动跳过，与仓库里其它隔离库测试同一写法）；`__tests__/fake-world.ts` 是测试夹具，不是测试文件。
+8. 测试注册：新增 `web-reader.test.ts`、`web-reader-pure.test.ts`、`web-reader-edges.test.ts`、`web-reader-transport.test.ts`、`web-reader-context-db.isolated.test.ts`、`src/lib/text/__tests__/html-to-text.test.ts` 都注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`（隔离库那份在 CI 里自动跳过，与仓库里其它隔离库测试同一写法）；`__tests__/fake-world.ts` 是测试夹具，不是测试文件。
 
 ## Risks / Trade-offs
 
@@ -119,13 +123,13 @@
 - 同站 2 秒间隔只在同一进程内保证（D5）。
 - robots 对 5xx / 429 视为全部不许读：站点 robots 不稳定时会被挡，符合 RFC，且只影响该站点。
 - 一支里 robots 只禁了某一路径，也会让该站在这一支里作废（任务书「同一站点在这一支里被挡过一次，这一支不再读它」按字面执行）——会损失一些召回，交接给 TREE-2 留意。
-- 加密 PDF 无法预扫描，只靠页数、时间、字数上限（残余风险：单页里的解压炸弹仍可能占用较多内存）。
+- PDF 不在线解析：政府授标公告常是 PDF，这一层读不到，要人补页（TREE-6）——召回会少一截，等 Evan 定是否做进程隔离（D7）。
 
 ## 验证方式
 
 - `npx tsx src/lib/web-reader/__tests__/web-reader.test.ts`、`web-reader-edges.test.ts`（全部假网络与虚拟时钟：规则 1–6、内网与跳转、每跳校验、被挡即停与记站、重试与 429、截止、额度与封顶、同站间隔跨会话、同址去重与并发合并不空转、站点名单与 robots、内容、冻结、审计）。
 - `npx tsx src/lib/web-reader/__tests__/web-reader-pure.test.ts`（开关真值表、内网地址、robots 解析 / 归一 / 上限 / 步数预算、站点名单、登录地址 / 登录页 / 人机验证 / meta refresh、Retry-After、文案、唯一入口守卫）。
-- `npx tsx src/lib/web-reader/__tests__/web-reader-transport.test.ts`（真实传输层，只连本机服务）、`web-reader-pdf.test.ts`（真实 unpdf）。
+- `npx tsx src/lib/web-reader/__tests__/web-reader-transport.test.ts`（真实传输层，只连本机服务）。
 - `NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/web-reader/__tests__/web-reader-context-db.isolated.test.ts`（隔离库：Job 校验与审计落库）。
 - `npx tsx src/lib/text/__tests__/html-to-text.test.ts`（挪动前实现算出的固定期望值）、`npx tsx src/lib/trade/__tests__/email-forward-parse.test.ts`。
 - 开关关 = 零变化：全仓 `git grep -nE "web-reader|tender-research-tree|lib/text/html-to-text" -- src scripts`，除本模块、测试、注册行与 `trade/email-forward-parse.ts` 外为空（没有调用方）；开关关的用例。

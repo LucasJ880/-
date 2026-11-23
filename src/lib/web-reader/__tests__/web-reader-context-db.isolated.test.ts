@@ -36,7 +36,7 @@ async function main() {
   const { seedWorkforceFixture } = await import("@/lib/workforce-runtime/__tests__/helpers");
   const { createWorkforceJob } = await import("@/lib/workforce-runtime/job");
   const { createResearchReadSessionWithDeps, readPublicPage, WebReaderContextError, WEB_READ_AUDIT_ACTION } = await import("../read-page");
-  const { loadResearchJobRow, loadOrgSettingsJson, writeWebReadAudit } = await import("../db-deps");
+  const { loadResearchJobRow, loadOrgSettingsJson, loadTreeHistory, writeWebReadAudit } = await import("../db-deps");
 
   console.log("TREE-1 读页上下文 — isolated DB");
   const fx = await seedWorkforceFixture("wr");
@@ -81,9 +81,8 @@ async function main() {
     },
     clock: { now: () => Date.now(), sleep: async () => undefined },
     audit: writeWebReadAudit,
-    extractPdf: async () => [] as string[],
   };
-  const deps = { loadJob: loadResearchJobRow, loadOrgSettings: loadOrgSettingsJson, env, reader };
+  const deps = { loadJob: loadResearchJobRow, loadOrgSettings: loadOrgSettingsJson, loadTreeHistory, env, reader };
 
   async function expectError(name: string, orgId: string, jobId: string, code: string) {
     try {
@@ -127,7 +126,27 @@ async function main() {
     ok(a?.userId === USER && a?.targetType === "research_job", "审计记在发起人名下、指向调研 Job");
     ok(after.url === "https://example.gov/award" && after.httpStatus === 200 && after.chars === page.text.length && typeof after.chars === "number" && after.outcome === "ok" && after.branchKey === "prior_award", "审计含网址、状态、字数", { after, textLength: page.text.length });
     ok(!JSON.stringify(audits).includes("SECRET-BODY-TEXT"), "审计里搜不到正文");
-    ok(Object.keys(after).sort().join(",") === "attempts,branchKey,chars,finalUrl,httpStatus,outcome,reason,robotsRequests,site,truncated,url", "审计 afterData 的键固定", Object.keys(after));
+    ok(Object.keys(after).sort().join(",") === "attempts,blockedSite,branchKey,chars,finalUrl,httpStatus,outcome,reason,robotsRequests,site,truncated,url", "审计 afterData 的键固定", Object.keys(after));
+
+    // 重建会话：已用额度与被挡站从审计历史恢复（同一 Job、同一支）
+    const forbid = "https://forbid.example/p";
+    const reader403 = { ...reader, net: { ...reader.net, request: async (req: { url: URL }) => {
+      requests.push(req.url.toString());
+      if (req.url.pathname === "/robots.txt") return { status: 404, headers: {}, body: new Uint8Array(), truncated: false };
+      if (req.url.hostname === "forbid.example") return { status: 403, headers: { "content-type": "text/html" }, body: new Uint8Array(), truncated: false };
+      return { status: 200, headers: { "content-type": "text/html" }, body: enc.encode(`<p>${"Award notice. ".repeat(200)}</p>`), truncated: false };
+    } } };
+    const deps403 = { ...deps, reader: reader403 };
+    const s2 = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: research }, deps403);
+    const c2 = s2.forBranch({ branchKey: "prior_award", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
+    ok(c2.budget.used === 1 && c2.budget.remaining === 11, "重建会话：上一次发过请求的读页计入已用", c2.budget);
+    const blockedRead = await readPublicPage(forbid, c2);
+    ok(blockedRead.reason === "http_403" && blockedRead.blocked?.site === "forbid.example", "这次读到 403");
+    const s3 = await createResearchReadSessionWithDeps({ orgId: ORG, jobId: research }, deps403);
+    const c3 = s3.forBranch({ branchKey: "prior_award", budget: { remaining: 12, used: 0 }, allowUrl: ALLOW_ALL });
+    const before = requests.length;
+    const again = await readPublicPage("https://forbid.example/other", c3);
+    ok(again.reason === "site_blocked_in_branch" && requests.length === before && c3.budget.used === 2, "再重建：被挡站从审计恢复、不再发请求；已用 2", { again: again.reason, budget: c3.budget });
   } finally {
     await db.auditLog.deleteMany({ where: { orgId: { in: [ORG, other.orgId] } } }).catch(() => undefined);
     await db.agentRunEvent.deleteMany({ where: { runId: { in: jobIds } } }).catch(() => undefined);

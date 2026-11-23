@@ -14,7 +14,7 @@
 
 ## 4. 读网页入口
 
-- [x] 4.1 读页会话（Job 校验、定时任务拒绝、开关）、会话缓存与站点节拍、额度、真实传输（`http` / `https.request` + 连接时校验地址 + 解压与 2 MB 截断 + 15 秒）、重试与被挡规则、HTML / PDF / 文本抽取（PDF 上限在 `pdf.ts`）、网址检查、审计；新增 `web-reader.test.ts`、`web-reader-edges.test.ts`（假网络与虚拟时钟）、`web-reader-transport.test.ts`（本机服务）、`web-reader-pdf.test.ts`（真实 unpdf）并注册（verify：四份都通过，覆盖 spec 里对应的全部场景）
+- [x] 4.1 读页会话（Job 校验、定时任务拒绝、开关）、会话缓存与站点节拍、额度、真实传输（`http` / `https.request` + 连接时校验地址 + 解压与 2 MB 截断 + 15 秒）、重试与被挡规则、HTML / 文本抽取（PDF 不解析）、网址检查、内部状态与审计历史、审计；新增 `web-reader.test.ts`、`web-reader-edges.test.ts`（假网络与虚拟时钟）、`web-reader-transport.test.ts`（本机服务）并注册（verify：三份都通过，覆盖 spec 里对应的全部场景）
 - [x] 4.2 新增 `web-reader-context-db.isolated.test.ts`（隔离库：调研 Job / 一键分析 Job / 别的组织的 Job / 缺发起人；审计落库且不含正文）并注册（verify：`NODE_ENV=test DATABASE_ENVIRONMENT=isolated npx tsx src/lib/web-reader/__tests__/web-reader-context-db.isolated.test.ts` 通过）
 
 ## 5. 门禁与报告
