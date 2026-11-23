@@ -1,4 +1,4 @@
-/** 批次一 E2E（隔离快照 + 真实模型）：Halifax 真实数据 → 备忘录 v2 落库。 */
+/** 批次一 E2E（隔离快照 + 真实模型）：Halifax 真实数据 → 备忘录 v3 落库（CHAIN-2d：输入里没有我方成本）。 */
 import { db } from "@/lib/db";
 import { runExternalIntelForProject } from "@/lib/tender-intel/orchestrate";
 let pass = 0; let fail = 0;
@@ -15,7 +15,7 @@ async function main() {
   const room = await db.bidIntelligenceRoom.findUniqueOrThrow({ where: { projectId }, select: { summaryJson: true } });
   const sj = (room.summaryJson ?? {}) as Record<string, unknown>;
   const memo = sj.bidStrategyMemo as Record<string, unknown> | undefined;
-  ok(!!memo && memo.label === "AI_INFERRED" && String(memo.version).includes("v2"), "E2E-02: 备忘录 v2 落库（AI_INFERRED）");
+  ok(!!memo && memo.label === "AI_INFERRED" && String(memo.version) === "tender-bid-strategy-memo/v3", "E2E-02: 备忘录 v3（输入里没有我方成本）落库（AI_INFERRED）");
   const gates = (memo?.riskGates as unknown[]) ?? [];
   const rfis = (memo?.strategicRfis as unknown[]) ?? [];
   ok(gates.length >= 2 && rfis.length >= 1, `E2E-03: 风险门 ${gates.length} 条 + 策略级 RFI ${rfis.length} 条`);
@@ -24,6 +24,11 @@ async function main() {
   console.log("  竞争格局（实录）:", landscape.slice(0, 180));
   console.log("  评分演算（实录）:", String(memo?.scoringAnalysisZh ?? "").slice(0, 180));
   ok(landscape.length > 20, "E2E-05: 竞争格局非空（incumbentLead 已入输入面）");
+  // CHAIN-2d：备忘的文字里不出现调查室里存的我方成本 / 目标毛利 / 我方报价（输入里本来就没有）
+  const pi = (sj.pricingInputs ?? {}) as { ourCostCad?: unknown; targetMarginPct?: unknown; ourPriceCad?: unknown };
+  const roomNumbers = [pi.ourCostCad, pi.ourPriceCad].filter((v): v is number => typeof v === "number" && v > 0).map(String);
+  const memoText = JSON.stringify(memo ?? {});
+  ok(roomNumbers.every((n) => !memoText.includes(n)), `E2E-06: 备忘文字里没有调查室的我方成本与我方报价（${roomNumbers.join(", ") || "调查室未存"}）`);
   console.log(`\n结果：${pass} 通过，${fail} 失败`);
   await db.$disconnect();
   if (fail > 0) process.exit(1);
