@@ -78,6 +78,8 @@ npx tsx src/lib/tender-intel/__tests__/org-profiles-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/award-dedupe-db.isolated.test.ts
 # P2-0d：授标记录人工处理（DB e2e 无隔离库自动跳过）
 npx tsx src/lib/tender-intel/__tests__/award-review-db.isolated.test.ts
+npx tsx src/lib/tender-intel/__tests__/award-manual-entry.test.ts
+NODE_ENV=test npx tsx src/lib/tender-intel/__tests__/award-manual-entry-db.isolated.test.ts
 npx tsx src/lib/tender-intel/__tests__/intel-auto-flow.test.ts
 npx tsx src/lib/pdf/__tests__/cjk-pdf.test.ts
 npx tsx src/components/project-detail/__tests__/workbench-command-deck.test.ts
@@ -387,6 +389,9 @@ npx tsx src/lib/rbac/__tests__/effective-platform-role.test.ts
 npx tsx src/lib/accounting/__tests__/accounting.test.ts
 # PERM-4c1：项目财务 / 报价引擎按岗位（决策表 + 源码断言）
 npx tsx src/lib/project-finance/__tests__/finance-access.test.ts
+# CHAIN-2c：更换项目负责人（纯判定 + 四个入口与卡片的源码断言；DB 用例无隔离库时跳过）
+npx tsx src/lib/projects/__tests__/owner-change.test.ts
+NODE_ENV=test npx tsx src/lib/projects/__tests__/owner-change-db.isolated.test.ts
 npx tsx scripts/wave15-smoke-readonly.ts --self-check-only
 
 npx tsx src/lib/ai/__tests__/client-tuning.test.ts
@@ -510,6 +515,13 @@ npx tsx src/lib/tender-pricing/__tests__/compare-cost-source.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/compare-cost-source-db.isolated.test.ts
 npx tsx src/lib/tender-pricing/__tests__/finance-view.test.ts
 NODE_ENV=test npx tsx src/lib/tender-pricing/__tests__/pricing-helper-finance-db.isolated.test.ts
+# 情报调研树（TREE-1）
+npx tsx src/lib/text/__tests__/html-to-text.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-pure.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader.test.ts
+NODE_ENV=test npx tsx src/lib/web-reader/__tests__/web-reader-context-db.isolated.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-edges.test.ts
+npx tsx src/lib/web-reader/__tests__/web-reader-transport.test.ts
 npx tsx src/lib/tender-rfq/__tests__/tracker-pure.test.tsx
 NODE_ENV=test npx tsx src/lib/tender-rfq/__tests__/tracker-db.isolated.test.ts
 npx tsx src/lib/tender-rfq/__tests__/settings-form.test.tsx
