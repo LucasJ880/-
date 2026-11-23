@@ -130,13 +130,14 @@
 | `src/lib/quote/__tests__/export-customer-pdf.test.ts`（FIX-26a） | 32 过 | 32 过 |
 | 另跑（改完后）：`quote-ops-contract` / `digital-employee` / `mail-untrusted-guard` / `m1-tool-policy` / `marketing-tools-org-isolation` / `quote-step` | — | 75 / 50 / 56 / 124 / 36 / 63 过 |
 | 另跑（改完后，隔离库）：BIDPAGE-4 只报总价 / BIDPAGE-3 逐行报价 / CHAIN-2e 比价与报价引擎 / B3 台账 producer | — | 72 / 64 / 155 / 11 过 |
+| `NODE_ENV=test npx tsx src/lib/projects/__tests__/intel-bidpackage-access-db.isolated.test.ts`（FIX-21，**改了一条用例**） | 全量里 145 过 3 不过（本 change 的预期变化：它让不是负责人、没有财务键的项目管理员执行报价草稿，期望技能调模型、库里存模型原文；FIX-26 起技能对这种人不调模型、存「没有起草：……」，于是「库里存模型原文」与两条「一共 4 次模型请求」不成立） | 149 过：报价草稿那条改由项目负责人执行（原意「技能返回失败、报错夹带模型原文时，不是平台管理员只拿固定提示、库里存原文」不变，4 次模型请求不变）；另加一条「没有财务查看权的项目管理员执行报价草稿：不调模型、库里存『没有起草：……』、响应是固定提示」 |
 
 ## 6. 门禁
 
 | 命令 | 结果 |
 |---|---|
-| `npm test`（`< /dev/null`，全新库 `qy_full_fix26`，`prisma migrate deploy` 后） | 见下方「全量」 |
-| CI 子集 `npm run test:ci`（CI 同款环境变量） | 见下方「全量」 |
+| `npm test`（`< /dev/null`，全新库 `qy_full_fix26`，`prisma migrate deploy` 后；在 `1d7019ba` 的源码上） | **751/762 通过，11 失败**：10 项与本机基线逐条相同，另 1 项是 FIX-21 一键投标方案 DB 测试——本 change 的预期变化，已改用例，单独重跑 149 过（§5）；偶发四项都没出现；全量里 typecheck 0 错误；本 change 三个新测试 78 / 20 / 161 全过 |
+| CI 子集 `npm run test:ci`（CI 同款环境变量） | PASS（含两个新的不连库测试 78 / 20、`check-swc-nullish-logical`、测试注册校验） |
 | `npm run typecheck` | 0 错误 |
 | `npm run lint:baseline` | PASS（errors 38 / 基线 53，无新增 fingerprint） |
 | `npx tsx scripts/check-swc-nullish-logical.test.ts` | PASS |
@@ -146,7 +147,23 @@
 | `git diff 534049a3 -- prisma/ vercel.json package.json package-lock.json` | 空 |
 | `docs/acceptance/fix-26/prod-check.sql` | 在隔离库上整段执行无语法错误（只读事务） |
 
-全量：（填在提交前最后一次运行之后，见文末「全量结果」。）
+全量失败清单与基线逐条对照：
+
+| 失败项 | 基线？ |
+|---|---|
+| 来信观察 DB 端到端（MAIL-2） | 是 |
+| Sunny 工艺单 签字→草稿→门禁→确认→导出 DB | 是 |
+| Phase3A-3 Approvals Smoke | 是 |
+| Phase3A-4 Governance Smoke | 是 |
+| Phase3A-4 Acceptance | 是 |
+| Autopilot A2-P0 Isolated E2E | 是 |
+| Phase3A-5 Overview Acceptance | 是 |
+| T4 授标情报真实 Postgres 矩阵 | 是 |
+| Quote Operations 客户报价 PDF 分页布局 | 是 |
+| 招标询价 自动起草第 1 轮 DB（RFQ-AUTO-2） | 是 |
+| FIX-21 项目情报与一键投标方案六个接口的项目权限 DB+HTTP | 否：145 过 3 不过，全是「项目管理员执行报价草稿要调模型、库里存模型原文」——FIX-26 D7 的预期变化；用例已改（报价草稿改由项目负责人执行，另加没有财务查看权的那条），在 `qy_iso_fix26` 上单独重跑 149 过 0 不过；改后的 typecheck、lint:baseline、`check-swc-nullish-logical` 复核通过 |
+
+偶发项（Supplier Intel S1 T20、网站询盘并发认领、CAL-1 日历观察 DB、FLOW-H1「下一步」DB）这一轮都没出现。
 
 ## 7. GATE（已定）
 
@@ -204,9 +221,6 @@
 - 问青砚 `project_bid_quote` 对没有组织的老项目从此拒绝（design 已写）；`project_get_project_quotes` 照旧列出报价引擎的报价、只置空利润率（D7 没要求过滤）。
 - 编辑器对不能编辑的人多收了三处（不自动请求模板推荐、模板与检查项按钮不可点、空报价单不提示 AI 生成），看不到成本时已确认摘要写「可导出客户报价单」；报价管理区块在还不知道能力时也不出「新建报价」（design 已写）。
 - TASKFLOW：「FIX-21 后续 8」那一行在本分支还在（第 331 行，ID「待定」），但 main 已另有 `| FIX-26 |` 一行，把它的 ID 改成 FIX-26 会出两行 FIX-26；改成「并入 FIX-26」、状态写明旧报价单部分由本 change 做、询价部分改由 FIX-26b。`| FIX-26 |` 那一行改状态为本 change 与 `[~]`（不新增第二行），描述里询价部分标「改由 FIX-26b 做」；CHAIN-2e 带进来的两行「编号待定」状态写「并入 FIX-26」；新增 FIX-26b 一行（`[ ]`）与两行「待定」小问题。
+- 改了 FIX-21 的隔离库测试 `src/lib/projects/__tests__/intel-bidpackage-access-db.isolated.test.ts`（四件套没写到）：它的「执行失败的两条路径」让项目管理员执行报价草稿并期望调模型，与 D7 冲突；报价草稿改由项目负责人执行、另加一条没有财务查看权的用例，文件头说明同步改（§5）。
 - 行号：`src/lib/quote-engine/service.ts` 另起新版那条审计在本分支是第 352 行（上面加了一行注释），四件套写的是核对时的第 351 行。
 - 改动前失败条数的做法：三个新测试先写好，在改动前的源文件上跑（不连库的两个测试按组动态 import 被测模块，缺的模块只让那一组记一条失败）；最后一版测试在提交前又对改动前的源文件（暂存本 change 的源码改动、移开三个新源文件）重跑一遍，得到 §5 的数字，再恢复。
-
-## 全量结果
-
-（运行中，结果补在这里。）

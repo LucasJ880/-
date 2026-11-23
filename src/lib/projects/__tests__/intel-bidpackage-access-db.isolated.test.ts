@@ -20,7 +20,9 @@
  * 模型端是本机起的 OpenAI 兼容假服务（OPENAI_BASE_URL 指过去），统计收到的请求数：被拒用例应当是 0 次模型请求。
  * 放行用例大多挑不调模型的路径（项目丙没有可用文档；执行的那一步是无事可做的文档摘要、未知技能或未知报价动作）；
  * 只有「执行失败时报错给谁看」用专用项目「模」：假服务对它的报价草稿回一段不是 JSON 的原文（技能返回 success=false、
- * 报错夹带模型原文），对它的询价邮件草稿回 400（技能抛错），两条路径各让项目管理员与 super_admin 执行一次。
+ * 报错夹带模型原文），对它的询价邮件草稿回 400（技能抛错）；报价草稿由项目负责人与 super_admin、询价邮件草稿由项目管理员与
+ * super_admin 各执行一次（FIX-26 起报价技能按执行的人判财务查看权：没有财务查看权的项目管理员执行报价草稿时技能不调模型、
+ * 返回固定句子，另有一条用例看住）。
  * 执行完最后一步发的通知不 await，按 projectId + sourceKey 前缀轮询到预期条数。
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -354,6 +356,7 @@ async function main() {
   const emailThrowTask = () => mkTask(projM.id, "queued", [{ skillId: "email_draft", status: "pending", inputJson: JSON.stringify({ inquiryItemId: `'${inquiryItemM.id}'` }) }]);
   const taskMQuote = await quoteDraftTask();
   const taskMQuoteSuper = await quoteDraftTask();
+  const taskMQuoteNoFinance = await quoteDraftTask();
   const taskMEmail = await emailThrowTask();
   const taskMEmailSuper = await emailThrowTask();
   // 项目「预」：与「丙-展示」同样的内容，给以岗位预览身份访问的 super_admin 看
@@ -762,8 +765,8 @@ async function main() {
     console.log("执行失败的两条路径（技能返回失败、技能抛错）：报错给谁看");
     {
       const before = modelRequests.length;
-      const q = await runStep(uProjAdmin, projM.id, taskMQuote.id);
-      ok(q.status === 200 && q.body.success === false && q.body.error === SAFE_STEP_ERROR_MESSAGE && !q.text.includes(modelRoute.rawOutputMark), "项目管理员执行报价草稿、模型回的不是 JSON（技能返回 success=false，报错是模型原文）：error 是固定提示，响应里没有模型原文", q.body);
+      const q = await runStep(uOwner, projM.id, taskMQuote.id);
+      ok(q.status === 200 && q.body.success === false && q.body.error === SAFE_STEP_ERROR_MESSAGE && !q.text.includes(modelRoute.rawOutputMark), "项目负责人执行报价草稿、模型回的不是 JSON（技能返回 success=false，报错是模型原文）：error 是固定提示，响应里没有模型原文", q.body);
       const qStep = await db.agentTaskStep.findFirst({ where: { taskId: taskMQuote.id, stepIndex: 0 } });
       ok(qStep?.status === "failed" && (qStep.error ?? "").includes(modelRoute.rawOutputMark), "库里照旧写入原始报错（含模型原文）", qStep?.error);
       const qs = await runStep(uSuper, projM.id, taskMQuoteSuper.id);
@@ -775,6 +778,11 @@ async function main() {
       const es = await runStep(uSuper, projM.id, taskMEmailSuper.id);
       ok(es.status === 200 && es.body.success === false && typeof es.body.error === "string" && es.body.error.includes(modelRoute.errorMark), "super_admin 执行同样的一步：error 是原始报错", es.body);
       ok(modelRequests.length - before === 4 && modelRequests.slice(before).every((m) => m.startsWith("model-project")), "这两条路径一共向假模型服务发了 4 次请求，都是项目「模」的", modelRequests.slice(before));
+      // FIX-26：报价技能按执行的人判财务查看权；不是负责人、没有财务键的项目管理员执行报价草稿 → 不调模型、库里存固定句子
+      const beforeNoFinance = modelRequests.length;
+      const nf = await runStep(uProjAdmin, projM.id, taskMQuoteNoFinance.id);
+      const nfStep = await db.agentTaskStep.findFirst({ where: { taskId: taskMQuoteNoFinance.id, stepIndex: 0 } });
+      ok(nf.status === 200 && nf.body.success === false && nf.body.error === SAFE_STEP_ERROR_MESSAGE && nfStep?.status === "failed" && (nfStep.error ?? "").startsWith("没有起草：") && modelRequests.length === beforeNoFinance, "没有财务查看权的项目管理员执行报价草稿：技能不调模型，库里存「没有起草：……」，响应是固定提示（FIX-26）", { body: nf.body, error: nfStep?.error, calls: modelRequests.length - beforeNoFinance });
     }
 
     console.log("以岗位预览身份访问的 super_admin 只拿安全视图");
