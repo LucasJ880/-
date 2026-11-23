@@ -14,7 +14,7 @@
 
 ## 3. 询价追踪页
 
-- [ ] 3.1 `src/lib/tender-rfq/tracker.ts` 按项目判定并在组装前裁掉矩阵行的落地价、`tracker-pure.ts` 的 `quoteCellView` 加 `canViewCost`（D5）；`tracker-pure.test.tsx` 加无权四种格子（换算出了、换算不出、超过上限没取、没有矩阵行），`tracker-db.isolated.test.ts` 加组织管理员看本人负责 / 别人负责的项目；verify：两个测试通过（隔离库本机执行）
+- [x] 3.1 `src/lib/tender-rfq/tracker.ts` 按项目判定并在组装前裁掉矩阵行的落地价、`tracker-pure.ts` 的 `quoteCellView` 加 `canViewCost`（D5）；`tracker-pure.test.tsx` 加无权四种格子（换算出了、换算不出、超过上限没取、没有矩阵行），`tracker-db.isolated.test.ts` 加组织管理员看本人负责 / 别人负责的项目；verify：两个测试通过（隔离库本机执行）
 
 ## 4. 端到端与收尾
 

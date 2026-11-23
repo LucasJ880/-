@@ -25,6 +25,7 @@ import {
   nextChaseOutlook,
   outlookText,
   quoteCellView,
+  LANDED_HIDDEN_CELL_ZH,
   summaryCardText,
   trackerRowView,
   trackerSummary,
@@ -214,7 +215,7 @@ console.log("报价列（与比价矩阵对照）");
   ];
   const m = buildCompareMatrix(inputs, { closeDate: new Date("2026-12-20"), deliveryDeadline: null, firstTierQty: 200, mandatoryCodes: [], now: NOW });
   const row = (id: string) => m.rows.find((r) => r.itemId === id)!;
-  const cell = (id: string, q: { unitPrice: number | null; totalPrice: number | null; currency: string }) => quoteCellView({ ...q, deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, row(id), { matrixLoaded: true, timeZone: TZ });
+  const cell = (id: string, q: { unitPrice: number | null; totalPrice: number | null; currency: string }) => quoteCellView({ ...q, deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, row(id), { matrixLoaded: true, timeZone: TZ, canViewCost: true });
   const a = cell("a", { unitPrice: 89.5, totalPrice: 17900, currency: "USD" });
   ok("齐全：原币种单价 / 总价 / 交期 / 有效期；落地价取矩阵（四舍五入到元）", a.quoteText === "报价 USD 89.50 / 件 · 总价 USD 17,900 · 交期 21 天 · 有效至 12-31" && a.landedText === `落地价 CAD ${Math.round(row("a").landedCad.total!).toLocaleString("en-US")}`, a);
   const c = cell("c", { unitPrice: 80, totalPrice: null, currency: "USD" });
@@ -227,12 +228,29 @@ console.log("报价列（与比价矩阵对照）");
   const b = cells.find((x) => x.id === "b")!.c;
   ok("只有单价：写单价，不写总价", (b.quoteText ?? "").startsWith("报价 USD 95.00 / 件") && !(b.quoteText ?? "").includes("总价"));
   ok("每一家的落地价与矩阵逐家一致", ["a", "b", "d"].every((id) => cells.find((x) => x.id === id)!.c.landedText === `落地价 CAD ${Math.round(row(id).landedCad.total!).toLocaleString("en-US")}`));
-  const capped = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "usd", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ });
+  const capped = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "usd", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ, canViewCost: true });
   ok("超过上限没算矩阵：写「请到比价面板查看」；币种转大写", capped.landedText === "落地价请到比价面板查看" && capped.needsCompareLink && (capped.quoteText ?? "").startsWith("报价 USD 1.00 / 件"));
-  ok("没有报价字段：quoteText 为空", quoteCellView({ unitPrice: null, totalPrice: null, currency: null, deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ }).quoteText === null);
+  ok("没有报价字段：quoteText 为空", quoteCellView({ unitPrice: null, totalPrice: null, currency: null, deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ, canViewCost: true }).quoteText === null);
   ok("有效期是 UTC 零点日期：按字面月日，不差一天", (a.quoteText ?? "").includes("有效至 12-31"));
-  const two = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, { landedCad: { unit: null, total: null }, flags: [], blockers: ["缺运费估算参数", "缺关税率"] }, { matrixLoaded: true, timeZone: TZ });
+  const two = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, { landedCad: { unit: null, total: null }, flags: [], blockers: ["缺运费估算参数", "缺关税率"] }, { matrixLoaded: true, timeZone: TZ, canViewCost: true });
   ok("换算不出有几条原因：写第一条（矩阵的主要原因）", two.landedText === "落地价未换算（缺运费估算参数）");
+
+  // CHAIN-2e：没有财务查看权的那一格（tracker.ts 在组装前已把那几家的落地价置空，只留标记与原因）
+  const qOf = (id: string) => ({ unitPrice: inputs.find((x) => x.itemId === id)!.quoted.unitPrice, totalPrice: inputs.find((x) => x.itemId === id)!.quoted.totalPrice, currency: "USD" });
+  const trimmed = (id: string) => ({ landedCad: { unit: null, total: null }, flags: row(id).flags, blockers: row(id).blockers });
+  const hcell = (id: string, r: Parameters<typeof quoteCellView>[1] = trimmed(id)) => quoteCellView({ ...qOf(id), deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, r, { matrixLoaded: true, timeZone: TZ, canViewCost: false });
+  ok("CHAIN-2e 提示句", LANDED_HIDDEN_CELL_ZH === "落地价只给有财务查看权的人看");
+  const ha = hcell("a");
+  ok("CHAIN-2e 无权、换算出了：写「落地价只给有财务查看权的人看」，没有金额、不给去比价链接；原币种报价照常", ha.landedText === LANDED_HIDDEN_CELL_ZH && !ha.needsCompareLink && ha.quoteText === a.quoteText, ha);
+  ok("CHAIN-2e 无权：「最便宜」照常标在矩阵认定的那一家，且只有它", ["a", "b", "d"].filter((id) => hcell(id).cheapest).join() === cheapestId);
+  const hc = hcell("c");
+  ok("CHAIN-2e 无权、换算不出：照旧写矩阵给的原因、给去比价链接", hc.landedText === c.landedText && hc.needsCompareLink && !hc.cheapest, hc);
+  const hcap = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "usd", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ, canViewCost: false });
+  ok("CHAIN-2e 无权、超过上限没取矩阵：写同一句，不写「请到比价面板查看」、不给链接", hcap.landedText === LANDED_HIDDEN_CELL_ZH && !hcap.needsCompareLink);
+  const hnone = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ, canViewCost: false });
+  ok("CHAIN-2e 无权、没有矩阵行（还没报价）：与有权一样为空", hnone.landedText === null && !hnone.needsCompareLink && !hnone.cheapest);
+  const leaked = hcell("a", row("a"));
+  ok("CHAIN-2e 即使传进完整矩阵行，无权时也不写金额", leaked.landedText === LANDED_HIDDEN_CELL_ZH && !JSON.stringify(leaked).includes(Math.round(row("a").landedCad.total!).toLocaleString("en-US")));
 }
 
 console.log("页签、全部批准、催单卡、跳过原因");

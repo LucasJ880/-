@@ -218,14 +218,19 @@ export type QuoteCell = {
 
 const money = (n: number, maxFrac: number) => n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: maxFrac });
 
+/** CHAIN-2e：对这一行所在项目没有财务查看权的人，落地价那一格写这一句 */
+export const LANDED_HIDDEN_CELL_ZH = "落地价只给有财务查看权的人看";
+
 /**
  * matrixRow：该轮比价矩阵里对上的那一行；matrixLoaded = false 表示这一轮没算矩阵（超过上限），写「请到比价面板查看」。
  * 落地价、最便宜、换算不出的原因都只取 matrixRow，不自己算。
+ * canViewCost（CHAIN-2e）= 对这一行所在项目有财务查看权。没有时：换算不出照旧写原因；其余（换算出了、超过上限没取矩阵）
+ * 写 LANDED_HIDDEN_CELL_ZH、不给去比价链接（比价面板对他同样不显示落地价）；「最便宜」照旧取矩阵标记；不读 landedCad。
  */
 export function quoteCellView(
   q: QuoteFields,
   matrixRow: Pick<CompareRow, "landedCad" | "flags" | "blockers"> | null,
-  opts: { matrixLoaded: boolean; timeZone: string },
+  opts: { matrixLoaded: boolean; timeZone: string; canViewCost: boolean },
 ): QuoteCell {
   const cur = (q.currency ?? "").trim().toUpperCase() || "币种未注明";
   const parts: string[] = [];
@@ -235,6 +240,14 @@ export function quoteCellView(
   if (q.validUntil) parts.push(`有效至 ${monthDay(q.validUntil, opts.timeZone)}`);
   const quoteText = parts.length ? parts.join(" · ") : null;
 
+  if (!opts.canViewCost) {
+    if (!opts.matrixLoaded) return { quoteText, landedText: LANDED_HIDDEN_CELL_ZH, cheapest: false, needsCompareLink: false };
+    if (!matrixRow) return { quoteText, landedText: null, cheapest: false, needsCompareLink: false };
+    if (matrixRow.flags.includes("not_normalized")) {
+      return { quoteText, landedText: `落地价未换算（${matrixRow.blockers[0] ?? "缺换算参数"}）`, cheapest: false, needsCompareLink: true };
+    }
+    return { quoteText, landedText: LANDED_HIDDEN_CELL_ZH, cheapest: matrixRow.flags.includes("cheapest"), needsCompareLink: false };
+  }
   if (!opts.matrixLoaded) return { quoteText, landedText: "落地价请到比价面板查看", cheapest: false, needsCompareLink: true };
   if (!matrixRow) return { quoteText, landedText: null, cheapest: false, needsCompareLink: false };
   if (matrixRow.landedCad.total == null) {

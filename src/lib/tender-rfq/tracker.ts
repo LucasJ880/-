@@ -6,6 +6,8 @@
  * - 下一步：tracker-pure.nextChaseOutlook，间隔用 chaseDaysForRound（与扫描同一来源）。
  * - 待批催单卡：审批信息与正文复用 W-1 的 loadRfqApprovalInfo / loadRfqSendEmails。
  * - 价格：至少一家已报价的轮次调 loadCompareMatrix，按 itemId 对上；最多 50 轮。按白名单组装，不带估值、我方报价、毛利。
+ * - CHAIN-2e：落地价只给对该行所在项目有财务查看权的人（与成本核算同一判定；组织级查一次，每个项目再并上「负责人是本人」）；
+ *   没有的项目在组装前就把矩阵行的落地价置空，那一格写「落地价只给有财务查看权的人看」。
  */
 
 import type { NextRequest } from "next/server";
@@ -17,6 +19,7 @@ import { listEffectiveMemberships } from "@/lib/preview/server";
 import { chaseDaysForRound, loadFollowUpRoundState, loadItems, type LoadedItem } from "./chase-service";
 import { currentMissingFields } from "./chase-pure";
 import { loadCompareMatrix } from "./compare-service";
+import { resolveFinanceViewSafe } from "@/lib/project-finance/access";
 import type { CompareRow } from "./compare";
 import type { InboundMissingField } from "./inbound-contract";
 import { TENDER_SEND_CHASE_TYPE } from "./types";
@@ -233,9 +236,13 @@ export async function loadTracker(input: {
   const matrixRounds = input.summaryOnly ? [] : [...quotedRounds.entries()].sort((a, b) => b[1].latest - a[1].latest).slice(0, matrixRoundLimit);
   const matrixRowByItem = new Map<string, Pick<CompareRow, "landedCad" | "flags" | "blockers">>();
   const matrices = await mapLimit(matrixRounds, 5, ([inquiryId, r]) => loadCompareMatrix({ projectId: r.projectId, orgId: input.orgId, inquiryId, now }));
+  // 财务查看权：组织级判定（平台超管 / 组织范围结算键；出错时只剩平台超管）查一次，每个项目再并上「负责人是本人」。汇总卡不取矩阵，不查
+  const orgFinance = input.summaryOnly ? null : await resolveFinanceViewSafe(input.user, input.orgId, null);
+  const canViewCostOf = (projectId: string) => !!orgFinance && (orgFinance.canReadAll || ownerOf.get(projectId) === input.user.id);
   for (const m of matrices) {
     if (!m.ok) continue;
-    for (const row of m.matrix.rows) matrixRowByItem.set(row.itemId, { landedCad: row.landedCad, flags: row.flags, blockers: row.blockers });
+    const canView = canViewCostOf(m.projectId);
+    for (const row of m.matrix.rows) matrixRowByItem.set(row.itemId, { landedCad: canView ? row.landedCad : { unit: null, total: null }, flags: row.flags, blockers: row.blockers });
   }
 
   // 组装行（白名单）
@@ -252,7 +259,7 @@ export async function loadTracker(input: {
     return quoteCellView(
       { unitPrice, totalPrice, currency: extras.get(s.itemId)?.currency ?? null, deliveryDays: s.quote.deliveryDays, validUntil: vu ? new Date(vu) : null },
       row,
-      { matrixLoaded: s.status !== "quoted" || row != null, timeZone },
+      { matrixLoaded: s.status !== "quoted" || row != null, timeZone, canViewCost: canViewCostOf(s.projectId) },
     );
   };
 
