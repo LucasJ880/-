@@ -47,7 +47,8 @@ export type BidPageRule =
 /** 每条规则指向哪里（规格「下一步指向哪里」的对应表） */
 export const BID_PAGE_RULE_TARGET: Record<BidPageRule, "requirements" | BidPageSection> = {
   requirements_unapproved: "requirements",
-  bid_decided: "documents",
+  // 按招标方价格表导出在 ② 底部，③ 紧接在下面（BIDPAGE-3 design D10）
+  bid_decided: "quote",
   quote_draft: "quote",
   no_suppliers: "sourcing",
   rfq_pending_approval: "sourcing",

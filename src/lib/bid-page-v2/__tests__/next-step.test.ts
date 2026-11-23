@@ -67,7 +67,7 @@ console.log("BIDPAGE-1 下一步查表");
 {
   const cases: Array<[string, Over, BidPageRule, string, string]> = [
     ["招标分析未批准、还没往下走", { analysisStatus: "REVIEW_REQUIRED", supplierCount: 2 }, "requirements_unapproved", "先去「招标要求」确认要求", "tab"],
-    ["已定", { quote: { bid: DECIDED } }, "bid_decided", "导出价格表 / 生成投标文件", "documents"],
+    ["已定", { quote: { bid: DECIDED } }, "bid_decided", "导出价格表 / 生成投标文件", "quote"],
     ["有草稿", { quote: { openDraft: { status: "draft", version: 2 } } }, "quote_draft", "检查后定为我方报价", "quote"],
     ["已批准两份、没选", { quote: { approvedUnselected: 2 } }, "quote_draft", "检查后定为我方报价", "quote"],
     ["没有供应商", {}, "no_suppliers", "添加供应商或起草询价", "sourcing"],
@@ -91,15 +91,15 @@ console.log("BIDPAGE-1 下一步查表");
 // —— 「下一步」指向哪里（规格场景「每条规则的去处」） ——
 {
   const expected: Record<BidPageRule, string> = {
-    requirements_unapproved: "requirements", bid_decided: "documents", quote_draft: "quote", no_suppliers: "sourcing",
+    requirements_unapproved: "requirements", bid_decided: "quote", quote_draft: "quote", no_suppliers: "sourcing",
     rfq_pending_approval: "sourcing", no_rfq_sent: "sourcing", waiting_replies: "sourcing", replies_to_record: "sourcing", start_quote: "quote",
   };
-  ok(JSON.stringify(BID_PAGE_RULE_TARGET) === JSON.stringify(expected), "对应表：招标要求 → 切页签；找供应商那几条 → ①；检查后定 / 开始做报价 → ②；已定 → ③", BID_PAGE_RULE_TARGET);
+  ok(JSON.stringify(BID_PAGE_RULE_TARGET) === JSON.stringify(expected), "对应表：招标要求 → 切页签；找供应商那几条 → ①；检查后定 / 开始做报价 / 已定（导出在 ② 底部）→ ②（BIDPAGE-3）", BID_PAGE_RULE_TARGET);
   const req = decideBidPageNextStep(facts({ analysisStatus: null }));
   ok(req.action.labelZh === "去「招标要求」" && req.action.target.kind === "tab" && req.action.target.tab === "requirements" && req.expanded === "sourcing", "指向招标要求：按钮「去「招标要求」」、切页签、默认展开 ①", req);
   const labels: Array<[Over, string, string]> = [
     [{ supplierCount: 1, inquiry: { askedCount: 1, quotedCount: 1, respondedCount: 1 } }, "去「定报价」", "quote"],
-    [{ quote: { bid: DECIDED } }, "去「出文件」", "documents"],
+    [{ quote: { bid: DECIDED } }, "去「定报价」", "quote"],
     [{}, "去「找供应商、询价」", "sourcing"],
   ];
   for (const [o, label, expanded] of labels) {

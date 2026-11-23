@@ -127,7 +127,8 @@ function assertEditable(q: { status: string }) {
   if ((FROZEN_STATUSES as readonly string[]).includes(q.status)) throw new QuoteEngineError("QUOTE_FROZEN", `状态 ${q.status} 的报价内容已冻结，请创建修订版本`, 409);
 }
 
-async function nextQuoteNumber(orgId: string, projectId: string): Promise<string> {
+/** 报价编号（BIDPAGE-3 的逐行报价新建沿用同一个编号规则） */
+export async function nextQuoteNumber(orgId: string, projectId: string): Promise<string> {
   const count = await db.projectQuote.count({ where: { orgId, quoteNumber: { not: null } } });
   return `Q-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}-${projectId.slice(-4).toUpperCase()}`;
 }
