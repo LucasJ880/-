@@ -370,7 +370,7 @@
 | TREE-2 | 调研树骨架：独立的调研 Job（失败不触发「AI 分析未完成」），服务端写死的两波图，有上限的分支循环（被挡换来源），交接单 `research-handoff/v1`，表驱动的分叉规则，树干写进情报室 `summaryJson.researchTree` | TREE-1 | OpenSpec change `research-tree-runtime`；报告 `docs/QINGYAN_TREE-2_REPORT.md` | [~] |
 | TREE-3 | 三个子代理：条款员（等效品 / 指定品牌 / 加拿大含量，带页码）、往期同标员、同类项目员；单价换算与可比度打分（纯函数） | TREE-2 | OpenSpec change `research-branches-awards`；报告 `docs/QINGYAN_TREE-3_REPORT.md` | [ ] |
 | TREE-4 | 交叉验证八条规则：① 另一步骤核对、不带原推理；② 重读网址逐字回查金额 / 数量 / 公司名；③ 两个不同域名或一个官方来源；④ 公司名三档；⑤ 口径不明另标；⑥ 只有已核实的进区间、矛盾的并排；⑦ 核对换模型；⑧ 人可剔除并重算 | TREE-2 | OpenSpec change `research-cross-verify`；报告 `docs/QINGYAN_TREE-4_REPORT.md` | [ ] |
-| TREE-5 | 树干结论与情报页签「调研树」卡：证据表、建议区间与中位数（不少于 3 条已核实才出）、每支状态、重新查、这条不对 | TREE-3、TREE-4 | OpenSpec change `research-trunk-view`；报告 `docs/QINGYAN_TREE-5_REPORT.md` | [ ] |
+| TREE-5 | 树干结论与情报页签「调研树」卡：证据表、建议区间与中位数（不少于 3 条已核实才出）、每支状态、重新查、这条不对；确认招标要求时自动起一次（判断点 2，TREE-2 移来） | TREE-3、TREE-4 | OpenSpec change `research-trunk-view`；报告 `docs/QINGYAN_TREE-5_REPORT.md` | [ ] |
 | TREE-6 | 一键送页：粘贴网址与文字、截图 / PDF、书签小工具；记为「人工提供，未复读」，按单一来源对待 | TREE-5 | OpenSpec change `research-page-intake`；报告 `docs/QINGYAN_TREE-6_REPORT.md` | [ ] |
 | TREE-7 | 查不到金额时「起草资料申请」：带参数进 PROC-1 的申请卡草稿，不提交 | TREE-5 | OpenSpec change `research-records-request-draft`；报告 `docs/QINGYAN_TREE-7_REPORT.md` | [ ] |
 | TREE-8 | 直接问采购方：往期同标没查到时往澄清问题清单加一条待确认的问题与英文邮件草稿；过提问截止日不显示 | TREE-5 | OpenSpec change `research-buyer-question`；报告 `docs/QINGYAN_TREE-8_REPORT.md` | [ ] |
