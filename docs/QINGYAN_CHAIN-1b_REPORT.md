@@ -5,7 +5,8 @@
 | TASKFLOW | CHAIN-1b（Phase F（续）— 情报串联；CHAIN-1 前置核查不通过后的人工路线） |
 | 起因 | `docs/QINGYAN_CHAIN-1_PRECHECK.md`：APC 对匿名程序化访问返回 Cloudflare 人机验证，CHAIN-1 不能自动读取；交接文档第四十四次更正：现有授标历史面板做不了 Alberta 人工录入 |
 | 拍板 | Lucas 2026-11-20：「CHAIN-1：做 Alberta 授标的人工录入表单。来源标成人工录入、带 APC 公告链接、信任级为待复核，不进 SYSTEM_VERIFIED，不碰 APC 网站。单独开一个 change。」 |
-| OpenSpec change | `openspec/changes/award-manual-entry-alberta/`（新能力 `tender/award-manual-entry`，13 条要求；修改 `tender/award-records`：新增 1 条） |
+| OpenSpec change | `award-manual-entry-alberta`（已归档到 `openspec/changes/archive/2026-11-23-award-manual-entry-alberta/`；新能力 `tender/award-manual-entry`，13 条要求；修改 `tender/award-records`：改 1 条（「不同招标编号不判疑似重复」写明例外）、新增 2 条） |
+| PR | #536，2026-11-23 合并（合并提交 `51865685`）；归档 `openspec/changes/archive/2026-11-23-award-manual-entry-alberta/`；归档后 `openspec validate --specs --strict` 154 / 154 |
 | 基线 | origin/main `91d928e4` |
 | 开关 | 没有新开关：跟随授标情报开关 `T4_AWARD_INTELLIGENCE_SCHEMA_READY`（关时页面不显示表单，接口 409 且不访问授标表） |
 
@@ -207,4 +208,4 @@
    SELECT count(*) FROM "AwardRecord" r WHERE (SELECT count(DISTINCT s."sourceKey") FROM "AwardRecordSource" s WHERE s."awardRecordId"=r.id AND s."sourceType"='CANADABUYS_OPEN_DATA')>1;
    ```
    只读，不改数据；数字大时告诉组织管理员「历史中标」页的「疑似重复待裁决」会变多。
-3. PR 合并后 `/opsx:archive award-manual-entry-alberta --yes`（独立小 PR）：`tender/award-manual-entry` 新建、`tender/award-records` 改一条加两条；TASKFLOW CHAIN-1b 改为 `[x]`。
+3. ~~PR 合并后 `/opsx:archive award-manual-entry-alberta --yes`（独立小 PR）~~ **已做**：归档 PR #568：`tender/award-manual-entry` 新建、`tender/award-records` 改一条加两条；TASKFLOW CHAIN-1b 改为 `[x]`。
