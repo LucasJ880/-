@@ -375,7 +375,8 @@ psql -X -v ON_ERROR_STOP=1 -f docs/acceptance/fix-24/prod-check.sql "<生产只�
 | `c6cc33cc` | 3.1 / 3.3 门禁、报告、TASKFLOW |
 | `f61c53df` | 合入 main `1c590b1f` |
 | `88b261ba` | 多维审查修订：代码与测试（R1、R3 收窄、K1、Q4、`toCompareInputs`、顺序表导出，`notes-forgery` 120 项） |
-| （本次） | 多维审查修订：只读核查 SQL 与回归测试、四件套、TASKFLOW、核查表、本报告 |
+| `9c859bc3` | 多维审查修订：只读核查 SQL 与回归测试、四件套、TASKFLOW、核查表、本报告 |
+| （本次） | 门禁数字补进报告 §5.3 |
 
 ## 12. 多维审查
 
