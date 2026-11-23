@@ -12,18 +12,18 @@
 
 | 项 | 值 |
 |---|---|
-| 当前 main | `fc321a7d`（#538 CHAIN-2d 合并后；2026-11-23 约 11:40 核对，已合进 BIDPAGE-4 分支） |
+| 当前 main | `1c590b1f`（#579 FIX-26a 归档合并后；2026-11-23 核对，已合进 BIDPAGE-4 分支） |
 | 工作分支 | `claude/laughing-curie-2b9s1v`（每个 PR 合并后从最新 main 重开同名分支做下一个） |
 | BIDPAGE-1 | **已合并**（#557，`d1b0d3e2`，2026-11-23）；开关默认关，合并后页面无变化；生产部署：**已部署**——2026-11-23 04:41 UTC `release-drift`（workflow_dispatch，run 45113342662）读到线上 `deployedCommit = f9c73ba`，即 main 当时的最新提交，`d1b0d3e` 是它的祖先（中间只多了 FIX-21 的归档 #560）。合并后约 1.5 分钟那次查时线上还是 `212613e`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-bid-page-v2-shell`（主规格 `tender/bid-page` 13 条），归档 PR 见下表 |
 | BIDPAGE-3 | **已合并**（#564，`c376be86`，2026-11-23 09:31）；开关默认关；生产部署：**已部署**——2026-11-23 09:47 UTC `release-drift`（workflow_dispatch，run 45150109772）读到线上 `deployedCommit = c376be8`，与 main 一致；合并后约 1 分钟那次（run 45147965079）线上还是 `2a0eb96`（太早）。开关没设，页面与改版前相同（开关是否确实未设：未核实，会话看不到生产环境变量）；归档 `2026-11-23-quote-line-mode-persist`（主规格 `tender/quote-line-mode` 15 条、`tender/bid-page` 改 3 条），归档 PR 见下表 |
-| 正在做 | BIDPAGE-4 `quote-lump-sum-mode`：四件套（开工前审查后第二版）与实现 tasks 1–3 已提交在分支上；全量门禁、六维审查在跑（2026-11-23） |
-| 下一步 | 门禁 + 六维审查意见逐条处理 → 浏览器抽检 → 交叉验证 → 报告 → PR → 合并 → 部署核对 → 归档 |
+| 正在做 | BIDPAGE-4 `quote-lump-sum-mode`：实现、六维审查、交叉验证、浏览器抽检、报告都已完成（tasks 6/6）；最终代码 `2934304e` 全量门禁 742/752（10 项与 main 既有失败相同）、CI 子集 PASS；开 PR |
+| 下一步 | PR 的 GitHub CI 绿 → 合并 → 部署核对 → 归档小 PR → BIDPAGE-6 `quote-one-step-confirm` |
 
 | change | ID | 状态 | PR | 分支 |
 |---|---|---|---|---|
 | `bid-page-v2-shell` | BIDPAGE-1 | 已合并、已归档 | #557（合并 `d1b0d3e2`）；归档 #561（合并 `b717427f`） | `claude/laughing-curie-2b9s1v` |
 | `quote-line-mode-persist` | BIDPAGE-3 | 已合并、已归档 | #564（合并 `c376be86`）；归档 #572（合并 `325cbdc0`） | `claude/laughing-curie-2b9s1v` |
-| `quote-lump-sum-mode` | BIDPAGE-4 | 实现中（门禁 / 审查） | 未开 | `claude/laughing-curie-2b9s1v` |
+| `quote-lump-sum-mode` | BIDPAGE-4 | 待合并 | 本次开的 PR | `claude/laughing-curie-2b9s1v` |
 | `quote-one-step-confirm` | BIDPAGE-6 | 未开始 | — | — |
 | `quote-margin-advice-market` | BIDPAGE-5 | 未开始 | — | — |
 | `bid-page-sourcing-step` | BIDPAGE-2 | 未开始 | — | — |
@@ -79,6 +79,8 @@
   - 销售税存 `engineJson.tax` 的 HST / GST / PST 三项（不是成本行）；总价表保存时只换配置里的税。我方报价照旧是税前报价。
   - 范围与库里能存的一致（金额 4 位小数、关税 / 售后预留 / 预备金比例 0–100、保函 < 100、备注 ≤ 2000），转换与专业模式写进来的数能原样保存。
   - 互转写库前用 `computeQuote` 对「转换前」与「按库里位数模拟的转换后」各算一次，四个数不同就 409 不转；同一项两条、共用参数算法在专业模式里改过、货品是总数 / 总数和明细都计入、供货加安装转逐行都 409。
+- **引擎读成本行只按 `sortOrder` 排，同序行的先后不固定**（`getQuote`，原有特性；BIDPAGE-4 交叉验证实测）：按直接成本比例算的项会因先后差一分。BIDPAGE-4 的互转写库前按 `sortOrder`、id 模拟，写库后在事务里按真实读出再核对，转换本身不会把差写进库；转换之后的读出仍可能差一分（专业模式同样会）。要根治得在引擎读法里加固定的第二排序键（不在 BIDPAGE 范围；专业模式「复制」用 sortOrder + 1、新加行用 (n + 1) × 10，容易与明细行同序）。
+- **注册脚本的同位置追加**：BIDPAGE-4 与 FIX-26a（#574）都在 `scripts/test-ci-unit.sh` BIDPAGE-3 那几行后面追加，合 main 时冲突过一次，两边的注册行都保留。以后别的轨道也在同一处追加时照此处理。
 - **其它轨道的协调说明**（「青砚招投标线交接」会话 2026-11-23 10:21 发来，只是告知）：
   - FIX-26（`quote-inquiry-cost-finance-gate`，分支 `claude/zen-turing-azudvx-fix26`）会改 `src/components/quote/project-quote-section.tsx` 与旧报价单的接口、编辑器、Excel 导出；`orgId` 不为空的报价引擎报价（含逐行 / 总价报价）经旧接口读详情、修改、删除、AI 审查返回 409。它叠在 CHAIN-2e 之上、CHAIN-2e 合并后才合。**BIDPAGE-8 若要动 `project-quote-section.tsx`，等 FIX-26 合并后变基、保留它的判断。**
   - FIX-26a（报价 PDF 不再印「Profit Margin」）先单独合，只改 `src/lib/quote/export-pdf.ts`。
