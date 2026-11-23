@@ -251,9 +251,37 @@ L06 的 `zzz`、只有日期、全角「［auto」三条由格式与「能原样
 
 都不改断言。
 
-### 5.3 门禁（多维审查修订后，合入 main `1c590b1f`）
+### 5.3 门禁（多维审查修订后，合入 main `1c590b1f`，提交 `9c859bc3`）
 
-（全量跑完后填写）
+| 门禁 | 结果 |
+|---|---|
+| `npm test`（`qy_full_fix24` 删库重建、`prisma migrate deploy` 后跑，`< /dev/null`，输出 `/home/user/full-fix24.log`） | **741 / 751 通过、10 失败**，失败清单与本机 main 基线逐条相同（见下）。全量里 `notes-forgery` 120 / 0、只读核查回归 71 / 0 |
+| `npm run test:ci`（CI 子集，库 `ci`，输出 `/home/user/ci-fix24.log`） | **CI unit subset PASS**，其中 `notes-forgery` 120 / 0 |
+| `npm run typecheck` | 退出码 0 |
+| `npm run lint:baseline` | PASS（current errors 38 / baseline 53，无新增 error fingerprint） |
+| `bash scripts/check-test-registry.sh` | OK（已注册 716 个，基线 66 条） |
+| `bash scripts/test-runtime-architecture.sh` | PASS |
+| `OPENSPEC_TELEMETRY=0 openspec validate inbound-notes-filename-forgery --strict` | valid |
+| 归档演练（临时副本里 `openspec archive inbound-notes-filename-forgery --yes`） | 主规格 160 → 161（`tender/rfq-inbound-notes` 9 条），`openspec validate --specs --strict` 161 / 161 |
+| `git diff --exit-code origin/main -- prisma vercel.json package.json package-lock.json openspec/config.yaml openspec/specs .claude/launch.json` | 无差异 |
+
+全量的 10 项失败与基线逐条相同，没有新增：
+- 来信观察 DB 端到端（MAIL-2）
+- Sunny 工艺单 DB 端到端
+- Phase3A-3 Approvals Smoke
+- Phase3A-4 Governance Smoke
+- Phase3A-4 Acceptance
+- Autopilot A2-P0 Isolated E2E
+- Phase3A-5 Overview Acceptance
+- T4 授标情报真实 Postgres 矩阵
+- 客户报价 PDF 分页布局
+- 招标询价自动起草第 1 轮 DB 端到端（RFQ-AUTO-2）
+
+偶发项（Supplier Intel S1 T20、网站询盘并发认领、CAL-1 日历观察 DB、FLOW-H1「下一步」DB）这次都通过，没有重跑。
+
+读报价备注的隔离库测试照过：询价追踪页 DB（T-2）46 / 0，报价表助手比价矩阵成本来源 DB（FLOW-H2）42 / 0。
+
+初版（`c6cc33cc`，合入 main `fbacf6bd`）的全量是 739 / 749，同样 10 项与基线相同；`test:ci` PASS。
 
 ### 5.4 只读核查回归（隔离库 `qy_iso_a`）
 
@@ -376,7 +404,7 @@ psql -X -v ON_ERROR_STOP=1 -f docs/acceptance/fix-24/prod-check.sql "<生产只�
 | `f61c53df` | 合入 main `1c590b1f` |
 | `88b261ba` | 多维审查修订：代码与测试（R1、R3 收窄、K1、Q4、`toCompareInputs`、顺序表导出，`notes-forgery` 120 项） |
 | `9c859bc3` | 多维审查修订：只读核查 SQL 与回归测试、四件套、TASKFLOW、核查表、本报告 |
-| （本次） | 门禁数字补进报告 §5.3 |
+| `0f35019f`、（本次） | 门禁数字补进报告 §5.3 |
 
 ## 12. 多维审查
 
