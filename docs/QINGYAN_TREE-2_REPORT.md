@@ -50,7 +50,6 @@ PR：[LucasJ880/-#575](https://github.com/LucasJ880/-/pull/575)，2026-11-23 合
 
 main 从 `c376be86` 到 `325cbdc0` 只改了 `docs/` 与 `openspec/`（BIDPAGE-3 归档），不影响测试结果，所以基线用 `c376be86`。挑错交叉验证另在 `44dcdf29` 上亲自跑了一遍（§5）。`1c7dceb1` 之后的提交只改报告。
 
-
 **合并前的最后几轮**（审查期间 main 又合了几次代码；按交接 D-26 的规则，每次 main 新提交动了本 PR 改的文件或共享测试设施就变基、分支与同一 main 各跑一遍全量，逐条比失败项）：
 
 | 分支提交（基于 main） | 分支 `npm test` | main 基线 | 失败项 |
@@ -60,7 +59,8 @@ main 从 `c376be86` 到 `325cbdc0` 只改了 `docs/` 与 `openspec/`（BIDPAGE-3
 | `1eefc548`（`1c590b1f`） | 743/753 | 作废（跑到一半 main 又动了） | — |
 | `53a0576b`（`4b6c3dd4`） | 746/756 | 741/752 | 分支 10 项都在 main 的 11 项里；main 多出的「Mention Gateway M2-A Identity DB」是它自己的夹具撞唯一约束，分支两次与上一轮 main 都过 |
 
-`53a0576b` 上 `test:ci` / `typecheck` / `lint:baseline` / 测试注册 / 架构 / openspec 都过，GitHub CI 绿。之后 main 只合了归档 BIDPAGE-4（只动 docs 与 openspec），变基到 `9ff1b29e` 得 `7236a466`（代码与 `53a0576b` 相同），快速门禁（openspec 161/161、测试注册、架构、typecheck）与 GitHub CI 都过，合并。
+`53a0576b` 上 `test:ci` / `typecheck` / `lint:baseline` / 测试注册 / 架构 / openspec 都过，GitHub CI 绿（同一检查在 `53a0576b` 上 success，2026-11-23 14:07 UTC）。之后 main 只合了归档 BIDPAGE-4（只动 docs 与 openspec），变基到 `9ff1b29e` 得 `7236a466`（代码与 `53a0576b` 相同），快速门禁（openspec 161/161、测试注册、架构、typecheck）与 GitHub CI（`validate-lint-typecheck-test-build`，[运行 45194212766](https://github.com/LucasJ880/-/actions/runs/45194212766)，2026-11-23 14:41 UTC success）都过，合并。
+
 ## 5. 多维审查与交叉验证
 
 九个维度子 agent 独立审查 `0330457e`（各自只看任务书、四件套、diff 与现有代码，不看自述），全部结论「改完再合」或「可以合」；阻断 2 条（③1、④1）。逐条去向（「改」指提交 `1b9f8e70` 代码与测试、`44dcdf29` 四件套）：
