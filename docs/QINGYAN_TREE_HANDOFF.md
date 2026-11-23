@@ -5,8 +5,8 @@
 
 | 项 | 值 |
 |---|---|
-| 最后更新 | 2026-11-23（第 5 次：TREE-1 归档 #567 已合并；TREE-2 四件套与实现完成、九维度审查后已改、挑错交叉验证进行中） |
-| 当前 main | `c376be86`（#564 BIDPAGE-3，2026-11-23）；TREE-2 分支已变基到它。TREE-1 合并提交是 `99bd7e18`，归档 #567 合并提交 `86a85724` |
+| 最后更新 | 2026-11-23（第 6 次：TREE-2 #575 已合并、归档小 PR；TREE-3 实现与九维度审查已改、待变基后门禁与挑错；TREE-4 实现与八维度审查已改） |
+| 当前 main | `58508ecc`（#575 TREE-2 合并，2026-11-23）。TREE-1 合并提交 `99bd7e18`、归档 #567 `86a85724` |
 | 工作分支 | `claude/awesome-maxwell-9wh9m6`（会话指定的唯一可推送分支；八个 PR 依次从它开：上一个合并后把它重置到最新 main 再做下一个） |
 | 授权 | Evan 2026-11-22 20:08：TREE-0 ～ TREE-8 全权交给实现者，PR 自行合并，条件是至少七维度子 agent 独立审查 + 一个挑错子 agent 亲自重跑验证 + 每条意见有去向 + 基于最新 main 重跑门禁。**不在授权内**：改预发 / 生产环境变量与开关、买付费数据、对外发送、改数据库结构、改任务运行时、绕过访问限制 |
 
@@ -16,9 +16,9 @@
 |---|---|---|---|
 | TREE-0 | （随 TREE-1） | 已合并 | 同 TREE-1 |
 | TREE-1 | `public-page-reader` | 已合并（2026-11-23，合并提交 `99bd7e18`）；已归档进 `openspec/specs/tender/public-page-reader/spec.md` | PR [LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559)；归档 [LucasJ880/-#567](https://github.com/LucasJ880/-/pull/567) |
-| TREE-2 | `research-tree-runtime` | 审查中（四件套 + 实现 + 九维度审查已改；挑错交叉验证与门禁进行中） | 分支 `claude/awesome-maxwell-9wh9m6`（提交 `44dcdf29` 起），PR 未开 |
-| TREE-3 | `research-branches-awards` | 未开始 | — |
-| TREE-4 | `research-cross-verify` | 未开始 | — |
+| TREE-2 | `research-tree-runtime` | 已合并（2026-11-23，合并提交 `58508ecc`，PR 头 `7236a466`）；归档进 `openspec/specs/tender/research-tree/spec.md`（归档小 PR 从工作分支开） | PR [LucasJ880/-#575](https://github.com/LucasJ880/-/pull/575) |
+| TREE-3 | `research-branches-awards` | 四件套 + 实现 + 九维度审查已改（`docs/QINGYAN_TREE-3_REPORT.md` §5）；等 TREE-2 归档合并后变基、全量门禁、挑错交叉验证、开 PR | 本地分支 `tree3-wip`（worktree `/home/user/qy-tree3`，未推送；已叠在 TREE-2 最终头上） |
+| TREE-4 | `research-cross-verify` | 四件套 + 实现 + 八维度审查已改（`docs/QINGYAN_TREE-4_REPORT.md` §5，在 TREE-4 分支上）；排在 TREE-3 之后 | 本地分支 `tree4-wip`（worktree `/home/user/qy-tree4`，未推送；叠在 `tree3-wip` 上） |
 | TREE-5 | `research-trunk-view` | 未开始 | — |
 | TREE-6 | `research-page-intake` | 未开始 | — |
 | TREE-7 | `research-records-request-draft` | 未开始 | — |
@@ -26,9 +26,9 @@
 
 ## 2. 正在做的与下一步
 
-- **TREE-1（含 TREE-0）已合并并归档**：[LucasJ880/-#559](https://github.com/LucasJ880/-/pull/559)（合并提交 `99bd7e18`）、归档 [LucasJ880/-#567](https://github.com/LucasJ880/-/pull/567)（`86a85724`）。合并后核对：新模块没有调用方、没有页面、没有迁移，开关关着时生产行为不变。main 上 `99bd7e18` 的 CI 被下一次推送（#536，`51865685`）按并发组取消；含 TREE-1 的 `51865685` 上的 CI：**success**（2026-11-23 08:30 UTC 核对）。生产部署是否完成、开关的生产值：**未核实**（实现者的工具读不到 Vercel 生产部署，也不读生产环境变量）。
-- **正在做：TREE-2 `research-tree-runtime`**。四件套 `openspec/changes/research-tree-runtime/`（spec 21 条、design D1–D20）；实现在 `src/lib/tender-research-tree/`、接口 `src/app/api/projects/[id]/research-tree/route.ts`；测试四份（纯函数 153、分支循环 84、发起接口隔离库 25、整棵树隔离库 35）。九个维度子 agent 审查 `0330457e`：阻断 2 条（TREE-1 守卫测试变红；事实的值不对照摘录），都已改（`1b9f8e70` 代码与测试、`44dcdf29` 四件套），每条去向见 `docs/QINGYAN_TREE-2_REPORT.md` §5。已变基到 main `c376be86`。
-- **下一步**：挑错交叉验证子 agent 在 `44dcdf29` 上亲自重跑全量门禁、开关关对比与验收 6 / 7 / 9 / 10；实现者在新库上跑分支 `44dcdf29` 与 main `c376be86` 两份全量门禁逐条对比。两者都过 → 填报告 §4、开 PR → CI 绿 → `git fetch` 核对 main 没再动（动了就变基重跑）→ 合并 → 合并后核对 → 归档小 PR → TREE-3。
+- **TREE-2 已合并**：[LucasJ880/-#575](https://github.com/LucasJ880/-/pull/575)（`58508ecc`）。合并前最后一轮：分支 `53a0576b` 746/756 vs main `4b6c3dd4` 741/752，分支的 10 项失败都在 main 的失败里（详见 `docs/QINGYAN_TREE-2_REPORT.md` §4）；变基到只动文档的 `9ff1b29e` 后快速门禁与 CI 都过。合并后：生产部署用 `release-drift` 工作流核对（结果见本节下一条）；开关的生产值实现者不读，**未核实**；TREE-2 没有页面，情报页签不变。
+- **生产部署**：**未核实**（`release-drift` 在归档小 PR 之后触发，结果写进下一次交接）。
+- **下一步**：归档小 PR 合并 → `tree3-wip` 变基到 main → 推到工作分支 → 分支与 main 全量门禁 → 挑错交叉验证（亲自重跑门禁、开关关对比、验收 2 / 8）→ 报告 §4 / §5 → 开 PR → 合并 → 归档；然后 TREE-4 同样走一遍（审查已做完，只差变基后门禁与挑错）；然后 TREE-5（开工调研已做：情报页签结构、卡片写法、读取接口的口径，见 scratchpad `tree4-notes.md`「TREE-5 explore」——会话结束会丢，要点已在本文件 §6「给 TREE-5」）。
 
 ## 3. 开工核对（2026-11-23）
 
@@ -67,6 +67,8 @@
 - **D-23（TREE-2）「任何定时任务都不发起」的口径**：只有「开始调研」接口能建调研 Job；建好之后每一片都由既有 agent-runs 处理器执行（config 例外二登记的实现者解释，本 change 第一次用上）。**打开开关前请 Evan 确认**。另：agent-runs 每次只取 2 条 Job、与一键分析共用，一棵树跑满额度要几十片（挑错实测 29 片），开关打开后一键分析排队可能变慢（生产影响**未核实**）。design D20。
 - **D-24（TREE-2）两份测试放在 `src/lib/web-reader/__tests__/tree2-*`**：要用 TREE-1 真读页层 + 假网络，TREE-1 的守卫只许那个目录引用内部模块；不改守卫。design D17。
 - **D-25（TREE-2）四份既有测试的工具数断言**改为「原 9 个分析工具逐个不变 + 两个调研工具」，`t5-seg2-v2-spine` 的 `runFence` 名单加两项并加更严的 14d。design D18。
+- **D-26（合并流程）main 在审查期间移动时怎么办**：全量门禁跑完后 main 又动了——新提交动了本 PR 改的文件或共享测试设施（`scripts/`、`prisma/`、`package*.json`、`agent-runtime*`、`workforce-runtime`、`web-reader`、`tender-research-tree`、`tender-workforce`、`ai/model-policy`）→ 变基、分支与同一 main 各跑一遍全量重来；否则（例如只动 docs / openspec）→ 变基 + 快速门禁（openspec、测试注册、架构、typecheck、本 change 的测试）+ GitHub CI 绿。理由：main 一天合十几次，每次都全量重跑永远追不上；只动文档的提交不改变代码与测试的结果。
+- **D-27（合并流程）门禁失败项的比法**：分支的失败项必须逐条都在同一 main 新库基线的失败项里，不许有新增；main 多出的失败项要看日志确认与本 PR 无关（例：`4b6c3dd4` 上「Mention Gateway M2-A Identity DB」夹具撞 `(orgId, channel)` 唯一约束，分支两次都过）。日志里有二进制字符时 `grep` 要加 `-a`，否则统计行被吞。
 
 ## 5. 判断点与「不确定处」的结论
 
@@ -94,6 +96,8 @@
 - 范围外的既有风险（第三轮挑错发现，未核实到生产）：询价回信附件（`src/lib/tender-rfq/inbound-parse.ts`）、文件解析（`files/parse-buffer.ts`、`files/parse-content.ts`）、页级解析（`tender-auto-analysis/page-parse.ts`）、宣传册解析（`supplier/brochure-parser.ts`）在进程内用 unpdf 解析不可信 PDF，构造的 2 KB PDF 能让事件循环几十秒不动。建议另开任务做进程隔离（要改打包、在 Vercel 上验证），不在 TREE 范围。
 - config 第 7 条例外二里标为「实现者解释」的三处（agent-runs 续跑不算定时任务发起；重新查 / 补页后重算算人发起；请求内部重试不另算）**待 Evan 确认**。
 - 一支里 robots 只禁一个路径也会让该站在这一支作废（任务书字面），会损失召回。
+- main 上的隔离库测试「Mention Gateway M2-A Identity DB」在 `4b6c3dd4` 的新库基线里失败过一次（夹具建 `weChatGateway` 撞唯一约束），别的几轮都过——偶发，与 TREE 无关，比门禁时记得看日志。
+- 物理请求上限更正（TREE-4 审查 ⑤）：分支循环与条款员的一次模型请求物理上最多 6 次计费调用（2 次尝试 × 主模型、选到 Astra 时同模型重试、换备用），SDK 网络重试另算；TREE-3 的 design 原写「约 4 次」，已在 `tree3-wip` 上更正。
 - **给 TREE-2 的硬要求（审查员④⑤⑥①提出，TREE-2 的 design 必须逐条落实）**：
   1. 建 Job 用平铺标记（D-9）；调研 Job 不能与一键分析的卡片 / 重用逻辑撞车——`tender-workforce/trigger-service.ts` 的 `tenderJobWhere` 只看 `metadata.projectId` + `workDomain`，调研 Job 不要设 `metadata.projectId`（项目放另一个键），见 scratchpad `tree2-research-notes.md` §1。
   2. 每支每次处理只 `forBranch` 一次；必须传 `deadlineAt`（切片截止 − 15 秒，同 FIX-12）。额度、取 robots 次数、被挡站与分支数由读页层记在进程内按 Job 共用的树账本里，建会话时与审计历史取大（第三轮挑错后，D13）——`ctx.budget.used` 与 `blockedSites` 仍建议持久化后传回（第二道保险，取大）。**读页层不防跨进程同时处理同一 Job**：TREE-2 必须靠运行时的租约保证同一 Job 同一时间只有一处处理，并配测试（两个处理器同时认领同一调研 Job 只有一个拿到）。
