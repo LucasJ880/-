@@ -21,7 +21,7 @@ import { chaseDaysForRound, loadFollowUpRoundState, loadItems, type LoadedItem }
 import { currentMissingFields } from "./chase-pure";
 import { loadCompareMatrix } from "./compare-service";
 import { resolveFinanceViewSafe } from "@/lib/project-finance/access";
-import { hintReasonField, type FinanceHintReason, type FinanceHintReasonField } from "@/lib/project-finance/view-hint";
+import { hintReasonField, type FinanceHintReasonField } from "@/lib/project-finance/view-hint";
 import { projectHasAssignedOwner } from "@/lib/projects/system-owner";
 import type { CompareRow } from "./compare";
 import type { InboundMissingField } from "./inbound-contract";
@@ -29,6 +29,8 @@ import { TENDER_SEND_CHASE_TYPE } from "./types";
 import {
   NEEDS_ACTION_LABELS,
   classifyNeedsAction,
+  isPermissionHiddenCell,
+  trackerLandedHiddenReason,
   nextChaseOutlook,
   quoteCellView,
   trackerRowView,
@@ -264,7 +266,7 @@ export async function loadTracker(input: {
     return quoteCellView(
       { unitPrice, totalPrice, currency: extras.get(s.itemId)?.currency ?? null, deliveryDays: s.quote.deliveryDays, validUntil: vu ? new Date(vu) : null },
       row,
-      { matrixLoaded: s.status !== "quoted" || row != null, timeZone, canViewCost: canViewCostOf(s.projectId) },
+      { matrixLoaded: s.status !== "quoted" || row != null, timeZone, canViewCost: canViewCostOf(s.projectId), costUnconfirmed: !!orgFinance?.unconfirmed },
     );
   };
 
@@ -334,25 +336,24 @@ export async function loadTracker(input: {
   const summary = trackerSummary(built, now);
   if (input.summaryOnly) return { summary, groups: [], timeZone, truncated };
 
-  // 有报价行的落地价被隐藏 → 页面顶部写一次谁能看、找谁（按被隐藏的项目有没有真人负责人换句）
-  const hiddenProjects = [...new Set(items.filter((it) => it.snapshot.status === "quoted" && !canViewCostOf(it.snapshot.projectId)).map((it) => it.snapshot.projectId))];
-  let landed: { landedHidden?: true } & FinanceHintReasonField = {};
-  if (hiddenProjects.length > 0) {
-    let reason: FinanceHintReason = "unconfirmed";
-    if (!orgFinance?.unconfirmed) {
-      const ownerIds = [...new Set(hiddenProjects.map((p) => ownerOf.get(p)).filter((x): x is string => !!x))];
-      const owners = new Map((await db.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, email: true } })).map((u) => [u.id, u]));
-      const withOwner = hiddenProjects.filter((p) => projectHasAssignedOwner(owners.get(ownerOf.get(p) ?? "") ?? null)).length;
-      reason = withOwner === hiddenProjects.length ? "no_access" : withOwner === 0 ? "no_owner" : "mixed";
-    }
-    landed = { landedHidden: true, ...hintReasonField(reason) };
-  }
   let rows = built;
   if (rows.length > rowLimit) {
     truncated = true;
     // 需要我处理的优先留下
     rows = [...rows].sort((a, b) => Number(b.needsAction != null) - Number(a.needsAction != null)).slice(0, rowLimit);
   }
+
+  // 有格子因权限被隐藏 → 页面顶部写一次谁能看、找谁（只看截断后留下的行；换算不出的不算；按被隐藏的项目有没有真人负责人换句）
+  const hiddenProjects = [...new Set(rows.filter((r) => isPermissionHiddenCell(r.quote) && !canViewCostOf(r.projectId)).map((r) => r.projectId))];
+  let landed: { landedHidden?: true } & FinanceHintReasonField = {};
+  let hiddenWithOwner = 0;
+  if (hiddenProjects.length > 0 && !orgFinance?.unconfirmed) {
+    const ownerIds = [...new Set(hiddenProjects.map((p) => ownerOf.get(p)).filter((x): x is string => !!x))];
+    const owners = new Map((await db.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, email: true } })).map((u) => [u.id, u]));
+    hiddenWithOwner = hiddenProjects.filter((p) => projectHasAssignedOwner(owners.get(ownerOf.get(p) ?? "") ?? null)).length;
+  }
+  const reason = trackerLandedHiddenReason({ unconfirmed: !!orgFinance?.unconfirmed, hiddenProjects: hiddenProjects.length, hiddenWithOwner });
+  if (reason) landed = { landedHidden: true, ...hintReasonField(reason) };
 
   const nameOf = new Map(visible.map((p) => [p.id, p.name]));
   const groups: TrackerGroup[] = [];

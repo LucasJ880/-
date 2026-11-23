@@ -26,6 +26,9 @@ import {
   outlookText,
   quoteCellView,
   LANDED_HIDDEN_CELL_ZH,
+  LANDED_UNCONFIRMED_CELL_ZH,
+  isPermissionHiddenCell,
+  trackerLandedHiddenReason,
   summaryCardText,
   trackerRowView,
   trackerSummary,
@@ -249,6 +252,18 @@ console.log("报价列（与比价矩阵对照）");
   ok("CHAIN-2e 无权、超过上限没取矩阵：写同一句，不写「请到比价面板查看」、不给链接", hcap.landedText === LANDED_HIDDEN_CELL_ZH && !hcap.needsCompareLink);
   const hnone = quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, null, { matrixLoaded: true, timeZone: TZ, canViewCost: false });
   ok("CHAIN-2e 无权、没有矩阵行（还没报价）：与有权一样为空", hnone.landedText === null && !hnone.needsCompareLink && !hnone.cheapest);
+  // CHAIN-2e 审查 F5：授权查询出错（暂时无法确认）时那一格写短版「暂时无法确认查看权限」，不说成没有权限
+  const ucell = (id: string) => quoteCellView({ ...qOf(id), deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, trimmed(id), { matrixLoaded: true, timeZone: TZ, canViewCost: false, costUnconfirmed: true });
+  ok("CHAIN-2e 暂时无法确认：换算出了的那一格写短版，没有链接；「最便宜」照常", LANDED_UNCONFIRMED_CELL_ZH === "暂时无法确认查看权限，请稍后刷新" && ucell("a").landedText === LANDED_UNCONFIRMED_CELL_ZH && !ucell("a").needsCompareLink && ["a", "b", "d"].filter((id) => ucell(id).cheapest).join() === cheapestId, ucell("a"));
+  ok("CHAIN-2e 暂时无法确认：换算不出的照旧写原因、给链接；超过上限没取矩阵也写短版", ucell("c").landedText === c.landedText && ucell("c").needsCompareLink && quoteCellView({ unitPrice: 1, totalPrice: null, currency: "USD", deliveryDays: null, validUntil: null }, null, { matrixLoaded: false, timeZone: TZ, canViewCost: false, costUnconfirmed: true }).landedText === LANDED_UNCONFIRMED_CELL_ZH);
+  ok("CHAIN-2e 有权限时 costUnconfirmed 不起作用", quoteCellView({ ...qOf("a"), deliveryDays: 21, validUntil: new Date("2026-12-31T00:00:00Z") }, row("a"), { matrixLoaded: true, timeZone: TZ, canViewCost: true, costUnconfirmed: true }).landedText === a.landedText);
+  ok("CHAIN-2e 哪些格子算「因权限被隐藏」：两句短句算；换算不出、超过上限（有权）、没有报价不算", isPermissionHiddenCell(ha) && isPermissionHiddenCell(ucell("a")) && !isPermissionHiddenCell(hc) && !isPermissionHiddenCell(capped) && !isPermissionHiddenCell(null) && !isPermissionHiddenCell(hnone));
+  ok("CHAIN-2e 整页提示原因：没有被隐藏的格子 → 不提示；暂时无法确认优先；按有没有真人负责人分 no_access / no_owner / mixed",
+    trackerLandedHiddenReason({ unconfirmed: true, hiddenProjects: 0, hiddenWithOwner: 0 }) === null
+    && trackerLandedHiddenReason({ unconfirmed: true, hiddenProjects: 2, hiddenWithOwner: 2 }) === "unconfirmed"
+    && trackerLandedHiddenReason({ unconfirmed: false, hiddenProjects: 2, hiddenWithOwner: 2 }) === "no_access"
+    && trackerLandedHiddenReason({ unconfirmed: false, hiddenProjects: 2, hiddenWithOwner: 0 }) === "no_owner"
+    && trackerLandedHiddenReason({ unconfirmed: false, hiddenProjects: 2, hiddenWithOwner: 1 }) === "mixed");
   const leaked = hcell("a", row("a"));
   ok("CHAIN-2e 即使传进完整矩阵行，无权时也不写金额", leaked.landedText === LANDED_HIDDEN_CELL_ZH && !JSON.stringify(leaked).includes(Math.round(row("a").landedCad.total!).toLocaleString("en-US")));
 }
@@ -307,7 +322,12 @@ console.log("接线");
   ok("CHAIN-2e 页面：landedHidden 时顶部写一次提示（按 hintReason 换句）", /\{data\.landedHidden \? <p[^>]*data-testid="landed-hidden-hint">\{financeHiddenHintZh\("落地价", data\.hintReason \?\? "no_access"\)\}<\/p> : null\}/.test(page) && page.includes('from "@/lib/project-finance/view-hint"'));
   const hintChain = ["src/lib/project-finance/view-hint.ts", "src/lib/tender-pricing/finance-view.ts", "src/lib/tender-pricing/calc.ts"].map(read).join("\n");
   ok("CHAIN-2e 提示模块链（view-hint → finance-view → calc）不引用 node: / 读库模块", !/from "node:|from "@\/lib\/db"|from "next\//.test(hintChain));
-  ok("CHAIN-2e 取数：有行被隐藏时整页带 landedHidden 与提示原因；汇总卡不算", /landed = \{ landedHidden: true, \.\.\.hintReasonField\(reason\) \};/.test(svc) && /return \{ summary, groups, timeZone, truncated, \.\.\.landed \};/.test(svc) && svc.indexOf("if (input.summaryOnly) return { summary, groups: [], timeZone, truncated };") < svc.indexOf("const hiddenProjects"));
+  ok("CHAIN-2e 取数：有格子因权限被隐藏时整页带 landedHidden 与提示原因；汇总卡不算", /landed = \{ landedHidden: true, \.\.\.hintReasonField\(reason\) \};/.test(svc) && /return \{ summary, groups, timeZone, truncated, \.\.\.landed \};/.test(svc) && svc.indexOf("if (input.summaryOnly) return { summary, groups: [], timeZone, truncated };") < svc.indexOf("const hiddenProjects"));
+  // CHAIN-2e 审查 F3 / F4 / F5：canViewCostOf 的定义、隐藏项目只按截断后留下的、真正因权限被隐藏的格子算、暂时无法确认接到格子与整页提示
+  ok("CHAIN-2e 取数：canViewCostOf = 组织级可看 || 本人负责", /const canViewCostOf = \(projectId: string\) => !!orgFinance && \(orgFinance\.canReadAll \|\| ownerOf\.get\(projectId\) === input\.user\.id\);/.test(svc));
+  ok("CHAIN-2e 取数：每一格带 canViewCost 与 costUnconfirmed（授权查询出错）", /canViewCost: canViewCostOf\(s\.projectId\), costUnconfirmed: !!orgFinance\?\.unconfirmed \}/.test(svc));
+  ok("CHAIN-2e 取数：被隐藏的项目按截断后留下的行、因权限被隐藏的格子、且 !canViewCostOf 算", /const hiddenProjects = \[\.\.\.new Set\(rows\.filter\(\(r\) => isPermissionHiddenCell\(r\.quote\) && !canViewCostOf\(r\.projectId\)\)\.map\(\(r\) => r\.projectId\)\)\];/.test(svc) && svc.indexOf("rows = [...rows].sort(") < svc.indexOf("const hiddenProjects"));
+  ok("CHAIN-2e 取数：整页原因用 trackerLandedHiddenReason，暂时无法确认接自组织级判定", /const reason = trackerLandedHiddenReason\(\{ unconfirmed: !!orgFinance\?\.unconfirmed, hiddenProjects: hiddenProjects\.length, hiddenWithOwner \}\);/.test(svc) && /if \(reason\) landed = \{ landedHidden: true, \.\.\.hintReasonField\(reason\) \};/.test(svc));
 }
 
 console.log(`\ntracker-pure: ${passed} passed`);

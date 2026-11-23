@@ -7,7 +7,7 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { allowCostPermission, decideFinancePrivilege, FINANCE_VIEW_FALLBACK_LOG, resolveFinanceViewSafe, type FinancePrivilege } from "../access";
+import { allowCostPermission, decideFinancePrivilege, FINANCE_VIEW_FALLBACK_LOG, projectOwnerAssigned, resolveFinanceHintReason, resolveFinanceViewSafe, type FinancePrivilege } from "../access";
 import { ASK_OWNER_ZH, financeHiddenHintZh, financeHintReason, hintReasonField, WHO_CAN_SEE_ZH } from "../view-hint";
 import { COST_ACCESS_HINT_ZH } from "@/lib/tender-pricing/finance-view";
 import { INTAKE_SYSTEM_USER_EMAIL, isIntakeSystemUserEmail, projectHasAssignedOwner } from "@/lib/projects/system-owner";
@@ -164,6 +164,19 @@ async function fallbackCases() {
   ok(noOrg.privileged && !called, "项目没有组织：不调判定，只剩超级管理员与负责人");
   const noOrgOther = await resolveFinanceViewSafe(user("u2"), null, "u1");
   ok(!noOrgOther.canReadAll && noOrgOther.unconfirmed === undefined, "项目没有组织、不是负责人 → 看不到（这是规则，不是暂时无法确认）");
+
+  // 审查 F4：unconfirmed 接到提示原因——暂时无法确认优先，不去查负责人
+  const lookups: Array<string | null> = [];
+  const ownerStub = (assigned: boolean) => async (ownerId: string | null) => {
+    lookups.push(ownerId);
+    return assigned;
+  };
+  const r1 = await resolveFinanceHintReason({ privileged: false, canReadAll: false, unconfirmed: true }, "owner1", ownerStub(false));
+  ok(r1 === "unconfirmed" && lookups.length === 0, "提示原因：兜底标了 unconfirmed → unconfirmed（即使负责人是系统账号），不去查负责人", { r1, lookups });
+  const r2 = await resolveFinanceHintReason({ privileged: false, canReadAll: false }, "owner1", ownerStub(false));
+  const r3 = await resolveFinanceHintReason({ privileged: false, canReadAll: false }, "owner1", ownerStub(true));
+  ok(r2 === "no_owner" && r3 === "no_access" && JSON.stringify(lookups) === '["owner1","owner1"]', "提示原因：没有 unconfirmed 时按负责人分 no_owner / no_access", { r2, r3, lookups });
+  ok(await projectOwnerAssigned(null) === false, "没有负责人 id → 没有真人负责人（不查库）");
 }
 
 console.log("CHAIN-2e 提示句与系统负责人（纯函数）");

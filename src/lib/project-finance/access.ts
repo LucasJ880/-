@@ -110,10 +110,14 @@ export async function projectOwnerAssigned(ownerId: string | null): Promise<bool
   }
 }
 
-/** CHAIN-2e：看不到时为什么（提示用哪一句）：授权查询出错 > 没有真人负责人 > 没有权限 */
-export async function resolveFinanceHintReason(finance: FinancePrivilege, ownerId: string | null): Promise<Exclude<FinanceHintReason, "mixed">> {
+/** CHAIN-2e：看不到时为什么（提示用哪一句）：授权查询出错 > 没有真人负责人 > 没有权限。第三个参数只给测试注入 */
+export async function resolveFinanceHintReason(
+  finance: FinancePrivilege,
+  ownerId: string | null,
+  ownerAssigned: (ownerId: string | null) => Promise<boolean> = projectOwnerAssigned,
+): Promise<Exclude<FinanceHintReason, "mixed">> {
   if (finance.unconfirmed) return "unconfirmed";
-  return financeHintReason({ unconfirmed: false, ownerAssigned: await projectOwnerAssigned(ownerId) });
+  return financeHintReason({ unconfirmed: false, ownerAssigned: await ownerAssigned(ownerId) });
 }
 
 /** 纯决策：请求的细粒度权限是否放行 */

@@ -316,6 +316,19 @@ async function main() {
     await db.projectMember.deleteMany({ where: { projectId: P1, userId: MEMBER1 } });
     const g12 = await getTracker(MEMBER1);
     ok(g12.body.landedHidden === true && g12.body.hintReason === "no_owner" && String(rowBy(g12.body, "Whiskey System")?.quote?.landedText) === "落地价只给有财务查看权的人看", "CHAIN-2e 只看 P4（负责人是系统账号）：提示原因 no_owner，那一格照常写同一句", { hintReason: g12.body.hintReason, cell: rowBy(g12.body, "Whiskey System")?.quote });
+    // 审查 F5：只按截断后留下的、真正因权限被隐藏的格子算 landedHidden
+    const m1User = await db.user.findUnique({ where: { id: MEMBER1 } });
+    const m1Req = new NextRequest("http://localhost/api/org/tender-rfq/tracker", { headers: { cookie: await cookie(MEMBER1) } });
+    const cut = await loadTracker({ request: m1Req, user: m1User as never, orgId: ORG, limits: { rows: 0 } });
+    ok(cut.truncated === true && rowsOf(cut as unknown as Rec).length === 0 && cut.landedHidden === undefined, "CHAIN-2e 被行数上限截掉的格子不算：没有留下被隐藏的格子 → 不带 landedHidden", { truncated: cut.truncated, landedHidden: cut.landedHidden });
+    await db.projectMember.deleteMany({ where: { projectId: P4, userId: MEMBER1 } });
+    const P5 = await mkProject({ name: "Fixture Tender Five" });
+    await db.projectMember.create({ data: { projectId: P5, userId: MEMBER1, role: "viewer", status: "active" } });
+    const r6 = await mkRound(P5, 1, ymdAfter(10));
+    await mkItem(r6, await mkSupplier("Xenia NoFx"), { status: "quoted", sentAt: ago(2), repliedAt: ago(1), unitPrice: 88, currency: "CNY", deliveryDays: 18, validUntil: ymdAfter(40), contactNotes: "threadId=thrXN", quoteNotes: autoNotes("单价=88；贸易条款=DDP") });
+    const g13 = await getTracker(MEMBER1);
+    const rx13 = rowBy(g13.body, "Xenia NoFx");
+    ok(String(rx13?.quote?.landedText).startsWith("落地价未换算（缺 CNY→CAD 汇率") && g13.body.landedHidden === undefined, "CHAIN-2e 只有「落地价未换算」的行：不算被隐藏，不带 landedHidden", { cell: rx13?.quote, landedHidden: g13.body.landedHidden });
     await db.projectMember.create({ data: { projectId: P1, userId: MEMBER1, role: "viewer", status: "active" } });
     const gs8 = await getTracker(OWNER, "?summary=1");
     ok(JSON.stringify(gs8.body.groups) === "[]" && gs8.body.landedHidden === undefined, "CHAIN-2e 汇总卡照常（不取矩阵、不带 landedHidden）");
