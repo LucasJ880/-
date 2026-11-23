@@ -1,6 +1,6 @@
 # TREE-3 报告 — 三个子代理（`research-branches-awards`）
 
-PR：（开 PR 后填）。任务书：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md`「TREE-3」（Evan 2026-11-22）。四件套：`openspec/changes/research-branches-awards/`（新能力 `tender/research-branches` 14 条 Requirement；改 `tender/research-tree` 10 条、删 1 条）。交接：`docs/QINGYAN_TREE_HANDOFF.md`。
+PR：[LucasJ880/-#584](https://github.com/LucasJ880/-/pull/584)。任务书：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIEF.md`「TREE-3」（Evan 2026-11-22）。四件套：`openspec/changes/research-branches-awards/`（新能力 `tender/research-branches` 14 条 Requirement；改 `tender/research-tree` 10 条、删 1 条）。交接：`docs/QINGYAN_TREE_HANDOFF.md`。
 
 ## 1. 做了什么
 
@@ -29,7 +29,20 @@ PR：（开 PR 后填）。任务书：`docs/QINGYAN_TREE_RESEARCH_TREE_TASKBRIE
 
 ## 4. 门禁
 
-（变基到含 TREE-2 与其归档的 main 之后，在干净 worktree、新建空库上跑；结果补在这里。）
+实现者在干净 worktree、新建空库上各跑一遍（`scratchpad/gate2.sh`）。分支提交 `387c1eb9` 叠在 `4909bddf`（main `58508ecc` + TREE-2 归档提交，只动 docs 与 openspec）上；之后 TREE-2 归档 #583 合并成 `e77e2c72`，分支变基到它（`368c8e13`），与 `387c1eb9` 只差 TREE-2 的报告与交接两份文档（代码相同，交接 D-26）。
+
+| 项 | 分支 `387c1eb9` | main `58508ecc` 基线（新库） |
+|---|---|---|
+| `npm test` | 750/760 通过，10 失败 | 746/756，10 失败 |
+| 失败项 | 10 项与 main 逐条相同（Autopilot A2-P0、Phase3A-3 / 3A-4 ×2 / 3A-5、报价 PDF 分页、Sunny 工艺单 DB、T4 授标矩阵、RFQ-AUTO-2、MAIL-2），没有新增 | — |
+| `test:ci` | PASS | — |
+| `typecheck` | 通过 | — |
+| `lint:baseline` | PASS（相对基线少 15 处） | — |
+| 测试注册 / 架构 | 通过 / 通过 | — |
+| openspec | `research-branches-awards --strict` 通过；`--specs --strict` 162/162 | — |
+| 受保护文件（`prisma/`、`vercel.json`、`workforce-runtime/`、`.claude/launch.json`） | 没有改动 | — |
+
+GitHub CI（`validate-lint-typecheck-test-build`）在 `368c8e13` 上 success（2026-11-23 15:26 UTC）。
 
 ## 5. 多维审查
 
