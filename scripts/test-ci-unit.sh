@@ -556,6 +556,9 @@ NODE_ENV=test npx tsx src/lib/tender-submission/__tests__/submission-record-db.i
 npx tsx src/lib/tender-submission-checklist/__tests__/checklist.test.ts
 NODE_ENV=test npx tsx src/lib/tender-submission-checklist/__tests__/checklist-db.isolated.test.ts
 npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx
+npx tsx src/lib/bid-page-v2/__tests__/next-step.test.ts
+npx tsx src/components/bid-page-v2/__tests__/bid-page-v2.test.tsx
+NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/bid-page-summary-db.isolated.test.ts
 
 # R1 架构边界冻结守卫（QYANE_RUNTIME_CONVERGENCE_T3_5）
 bash scripts/test-runtime-architecture.sh

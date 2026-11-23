@@ -747,6 +747,10 @@ run_test "FLOW-H4a 投标提交记录 DB（隔离库执行，否则跳过）" "N
 run_test "FLOW-H4b 交付前检查清单（纯逻辑）" "npx tsx src/lib/tender-submission-checklist/__tests__/checklist.test.ts"
 run_test "FLOW-H4b 交付前检查清单 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/tender-submission-checklist/__tests__/checklist-db.isolated.test.ts"
 run_test "FLOW-H4b 交付前检查清单渲染" "npx tsx src/components/tender/__tests__/submission-checklist-card.test.tsx"
+# BIDPAGE-1（openspec change bid-page-v2-shell）：「标书与报价」页改版骨架——查表纯逻辑、新页面渲染与开关关零变化、汇总接口隔离库
+run_test "BIDPAGE-1 标书与报价页「下一步」查表与分区状态（纯逻辑）" "npx tsx src/lib/bid-page-v2/__tests__/next-step.test.ts"
+run_test "BIDPAGE-1 标书与报价页新页面渲染与开关关零变化" "npx tsx src/components/bid-page-v2/__tests__/bid-page-v2.test.tsx"
+run_test "BIDPAGE-1 标书与报价页汇总接口 DB（隔离库执行，否则跳过）" "NODE_ENV=test npx tsx src/lib/bid-page-v2/__tests__/bid-page-summary-db.isolated.test.ts"
 
 # 组织驾驶舱 × FDE 任务书 A-1（openspec change org-cockpit-posts）：岗位注册表穷举——纯逻辑，无 DB
 run_test "组织驾驶舱 岗位注册表（A-1）" "npx tsx src/lib/cockpit/__tests__/posts.test.ts"
