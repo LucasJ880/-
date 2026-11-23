@@ -20,7 +20,9 @@
 
 - [x] 4.1 新增 `src/lib/project-finance/__tests__/finance-view-compare-quote-db.isolated.test.ts`（七种身份：只读成员、`bids` 岗位 operator、没有财务键的组织管理员、项目负责人、`accounting` 岗位、`owner` 岗位、平台超级管理员 × 比价矩阵 / AI 分析的模型输入（本机假模型服务记下请求，不打真模型）/ 报价列表 / 单个报价 / 「我方报价」/ 新建 / 编辑；少见数字搜索；在改动前的源文件上跑一次记下失败数），同一 task 注册进 `scripts/test-all.sh` 与 `scripts/test-ci-unit.sh`；verify：本机隔离库全部通过，`bash scripts/check-test-registry.sh` 通过
 - [ ] 4.2 多维审查：并行派四个子 agent（正确性与回归、安全 / 隐私与八条硬纪律、规格—代码—测试一致性、使用流畅与文案），每个只管一个维度，各审一遍 diff，逐条核实后修，超出范围的另开任务；全量门禁：`npm test`（与 main 对照失败名单）、`npm run test:ci`（不带数据库）、`npm run typecheck`、`npm run lint:baseline`、`openspec validate finance-view-compare-quote-gate --strict`，`git diff origin/main -- prisma/ vercel.json` 为空；verify：报告「多维审查」一节逐条写明处理，门禁输出写进报告
-- [x] 4.3 写 `docs/QINGYAN_CHAIN-2e_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 状态列（CHAIN-2e 一行 `[~]`，放在 CHAIN-2b 之后；CHAIN-2c / 2d 两行在各自分支上，合并时保留全部；另加「编号待定」的兜底整理一行）；verify：两个文件在 PR diff 里
+- [x] 4.3 写 `docs/QINGYAN_CHAIN-2e_REPORT.md` + 更新 `docs/QINGYAN_MUSE_BRIDGE_TASKFLOW.md` 状态列（CHAIN-2e 一行 `[~]`，放在 CHAIN-2b 之后；CHAIN-2c / 2d / 3b 的行合并时保留全部）；「编号待定」后续各一行：两份兜底收成一份（并入三处兜底口径不一、成本核算 403 没有「找谁」）、legacy 报价接口（**打开 `TENDER_QUOTE_ENGINE_ENABLED` 之前必须修**，报告「上线前提」）、项目财务接口仍认项目角色成本读权限、Muse compare / price_scenario 不看项目读权限与财务查看权且整份回复进审计、问青砚 `project_get_project_quotes` 返回毛利率、派发时负责人必填；合并前提 `docs/acceptance/chain-2e/prod-check.sql`（只读，已在隔离库验证）；verify：两个文件与 SQL 在 PR diff 里
+
+审查修订（协调会话 2026-11-23 清单 A1–A8、A2 第 9–14 条、A3 第 21–26 条）已按清单改完，见报告「审查后的修订」；4.2 由协调会话在审查与处理都完成后打勾。
 
 ## Workflow follow-up
 

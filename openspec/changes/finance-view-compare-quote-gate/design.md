@@ -28,7 +28,9 @@
 - `src/lib/tender-pricing/**`（CHAIN-2b 的范围）：只 import `finance-view.ts` 的 `COST_ACCESS_HINT_ZH` 拼提示句，不改；`compare-cost-source-load.ts` 不改；`src/lib/tender-intel/sourcing-suggestions*.ts`（已按财务查看权）。
 - `src/lib/tender-rfq/landed-cost.ts`、`compare.ts` 的 `buildCompareMatrix` 与排序 / 推荐规则、`compare-service.ts` 的 `loadCompareMatrix`。
 - `src/lib/quote-engine/customer-view.ts`、`quotation-pdf.ts`、`calc.ts`、`service.ts`、`advisors.ts`、`templates.ts`（客户视图与计算不变；`advisors.ts` / `templates.ts` 归 BIDPAGE 轨道）。报价引擎组件只做权限收口与无权说明，其它文案不改。
-- `src/app/api/projects/[id]/bid-workspace/cost-sheet/route.ts`、项目财务接口、`allowCostPermission`、`resolveFinancePrivilege`。
+- `src/app/api/projects/[id]/bid-workspace/cost-sheet/route.ts`（已按财务查看权）、`resolveFinancePrivilege`。
+- 项目财务接口与 `allowCostPermission`：**仍认项目角色的成本读权限**（`src/lib/project-finance/access.ts` 的 `allowCostPermission`，只读成员也能读），不在本 change 改——开关 `TENDER_FINANCIAL_CONTROL_ENABLED` 生产关着，另开任务（TASKFLOW「编号待定」）。
+- legacy 报价接口 `src/app/api/projects/[id]/quotes/**`、`src/lib/agent/skills/quote.ts`、问青砚工具 `project_get_project_quotes`、Muse compare / price_scenario 的权限与审计——审查发现，另开任务（TASKFLOW「编号待定」；legacy 报价接口是打开 `TENDER_QUOTE_ENGINE_ENABLED` 之前必须修的）。
 - 谁能当、谁能换项目负责人（`src/app/api/projects/[id]/members/**`、派发；CHAIN-2c #539 的范围）。
 - Prisma schema、`vercel.json`、环境变量。
 
@@ -52,9 +54,10 @@
 
 ### D3. 比价里「成本」指系统算出的落地价及由它推出的东西
 
-裁掉：每行 `landedCad`（unit / total 置 null）、`assumptions`（逐项金额与汇率，置空数组）、`summaryZh`（换成不含金额与百分比的版本），矩阵上加 `costHidden: true`，两条接口的响应顶层也加 `costHidden: true`。保留：供应商报价原价 `quoted`（询价明细与旧比价接口对同一批人已经返回）、排序、`cheapest` / `fully_compliant` / `not_normalized` 等标记、`recommendedItemId`、`cheapestItemId`、`checks`、`deliveryLateDays` / `validityShortDays`、`missingFields`、`warnings`（汇率过期天数，不含金额）、`blockers`（缺什么参数，不含金额）。纯函数 `compareMatrixFinanceView(matrix, { canView, firstTierQty })` 放在 `src/lib/tender-rfq/compare.ts`；无金额结论由 `summarizeMatrixZh` 加 `{ hideAmounts: true }` 用裁剪前的行生成（「换算不出」要看原来的落地价），有权限时调用方式与结果不变。
+裁掉：每行 `landedCad`（unit / total 置 null）、`assumptions` 里带金额或汇率的几条（落地价换算写的每一条都带「CAD」「汇率」或「%」，`isLandedCostAssumption`；检查说明如「未设交付截止，按截标日 +30 天……判断交期」保留）、`summaryZh`（换成不含金额与百分比的版本），矩阵上加 `costHidden: true`，两条接口的响应顶层也加 `costHidden: true`。保留：供应商报价原价 `quoted`（询价明细与旧比价接口对同一批人已经返回）、排序、`cheapest` / `fully_compliant` / `not_normalized` 等标记、`recommendedItemId`、`cheapestItemId`、`checks`、`deliveryLateDays` / `validityShortDays`、`missingFields`、`warnings`（汇率过期天数，不含金额）、`blockers`（缺什么参数，不含金额）。纯函数 `compareMatrixFinanceView(matrix, { canView, firstTierQty })` 放在 `src/lib/tender-rfq/compare.ts`；无金额结论由 `summarizeMatrixZh` 加 `{ hideAmounts: true }` 用裁剪前的行生成（「换算不出」要看原来的落地价），有权限时调用方式与结果不变。
 
-- 否决：连原价一起藏——询价同事要据原价追问供应商，且原价已经经两个既有接口对项目读者返回，只藏这里没有意义。
+- 否决：连原价一起藏——询价同事要据原价追问供应商，且原价已经经两个既有接口对项目读者返回，只藏这里没有意义。代价：供应商报 DDP 且币种为 CAD 时，原价就是落地价；组织管理员还能从组织的询价设置（汇率、运费、保险、清关、关税率）加原价自己算出落地价——写进报告「已知限制」。
+- 否决：`assumptions` 整个置空（第一版）——检查说明不含金额，置空后看的人不知道交期是按截标日 +30 天判的（审查正确性 3）。
 - 否决：连排序与推荐一起藏——推荐是比价的结论，藏了面板就没有用；排序只透露谁更便宜，不透露差多少（GATE ③ 已同意）。
 
 ### D4. AI 报价分析：无权时同一次调用，输入不含落地价
@@ -88,10 +91,18 @@
 
 ### D8. 不能新建 / 修改 / 批准报价时说清楚（GATE ①）
 
-投标页报价区（`quote-engine-section.tsx`）今天在 `canEdit = false` 时直接不显示新建按钮，没有任何说明。改后在同一位置显示：「你不是本项目负责人，不能新建、修改或批准报价；需要的话请找项目负责人。」（`canEdit = false` 的人一定不是负责人：负责人是特权，`canEdit` 恒为真。）没有财务查看权时同一区块另显示 D6 的那一句。常量同放 `src/lib/quote-engine/finance-hint.ts`。
+投标页报价区（`quote-engine-section.tsx`）今天在 `canEdit = false` 时直接不显示新建按钮，没有任何说明。改后在同一位置显示：「你不是本项目负责人，不能新建、修改或批准报价。要做报价，请项目负责人或组织管理员在项目成员里把你设为主负责人。」（`canEdit = false` 的人一定不是负责人：负责人是特权，`canEdit` 恒为真。）有报价、没有财务查看权时同一区块另显示 D6 的那一句；还没有报价时不再写「新建后进入…」。「报价与成本」卡对不能新建的人不显示「去创建报价」与「在「投标」tab 新建…」，还没有报价时改写这一句。单个报价页只给客户视图时两句都写。常量同放 `src/lib/quote-engine/finance-hint.ts`（`quoteHintLinesZh` 决定哪个位置出哪几句、同一句只出一次）。
 
 - 否决：写成「只给项目负责人和有全企业「管理项目财务」权限的人」——还有「组织范围查看项目结算 + 项目角色带成本写权限」这条路能编辑，「只给」不准确；按看的人自己的情况说（不是负责人）才准确。
 - 否决：不加——GATE ① 明确要求打开报价入口能看到为什么、找谁。
+
+### D9. 没有真人负责人、暂时无法确认时换句（审查后加）
+
+负责人是导入建项目用的系统账号（`system@qingyan.internal`，`src/app/api/v1/projects/route.ts` 按它找或建；派发不指定负责人就一直是它）或负责人账号不存在时，「需要的话请找项目负责人」没人可找——换成「这个项目还没有指定负责人，请找组织管理员在项目成员里把做报价的同事设为主负责人。」。授权查询出错时 D1 的兜底同样看不到，但那不是「没有权限」——`resolveFinanceViewSafe` 给结果标 `unconfirmed`、记 `console.error`（固定标签 `FINANCE_VIEW_FALLBACK_LOG`），界面写「暂时无法确认你的查看权限，请稍后刷新。」。判断与四种说法放纯模块：`src/lib/projects/system-owner.ts`（系统账号）、`src/lib/project-finance/view-hint.ts`（`financeHiddenHintZh`、`financeHintReason`）；接口用 `hintReason`（`no_owner` / `unconfirmed`；追踪页另有 `mixed`）告诉界面，默认那句不带（有权限的人返回形状不变）。查负责人账号只在看的人缺权限时多一次查询。单个报价页保存遇到 403 时不重新读取（否则整页切成客户视图、丢掉没保存的成本行），写明没有保存、填的内容还在。
+
+- 否决：按负责人名字「System (API)」认——名字可改，邮箱是导入接口找账号的键。
+- 否决：兜底时照旧写「没有权限」——授权服务抖一下就让会计以为自己被收了权限（审查正确性 2）。
+- 否决：追踪页按项目分组各写一句——一页只写一次，被隐藏的项目有的有负责人、有的没有时用 `mixed` 两种找谁都写。
 
 ## 与八条硬纪律的关系
 
@@ -107,7 +118,7 @@
 ## Risks / Trade-offs
 
 - 不是负责人的投标同事不能再用报价引擎建 / 改 / 批报价，也看不到比价落地价（D2 代价）→ GATE ① 已接受（前提：谁做报价谁就是该项目负责人）。
-- 派发时没指定负责人的项目（派发对话框「项目负责人（可选）」选了「不指定（保持系统默认）」），负责人是导入时的系统账号：改后只有平台超级管理员与持组织范围「管理项目财务」的人能做报价，要先在项目成员页把做报价的人设为主负责人 → 写进报告「合并后要人做的事」。
+- 派发时没指定负责人的项目（派发对话框「项目负责人（可选）」默认「不指定（保持系统默认）」），负责人是导入时的系统账号：比价与追踪页合并当天就只给持组织范围财务键的人看落地价；报价引擎开关打开后只有平台超级管理员、持组织范围「管理项目财务」的人、持组织范围「查看项目结算」且项目角色能写成本的成员能做报价。提示改为找组织管理员（D9）；合并前由协调会话按 `docs/acceptance/chain-2e/prod-check.sql` 查生产里有多少这类项目、先补负责人；派发时负责人必填另开任务。
 - 追踪页对组织管理员：别人负责的项目不再显示落地价 → 写在报告里。
 - CHAIN-2b 与本 change 各有一份同口径兜底 → 另开整理（编号待定）。
 - 每次报价引擎请求多一次 `authorize`（`project.finance.read`），与成本核算接口同代价。
