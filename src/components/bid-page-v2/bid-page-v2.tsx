@@ -3,11 +3,12 @@
 /**
  * BIDPAGE-1 改版后的「标书与报价」页：「更多」（版本历史）→「下一步」→ ① 找供应商、询价 → ② 定报价 → ③ 出文件。
  *
- * - 三个分区本 change 先挂既有组件（不改它们），由 BIDPAGE-2 / 3 / 4 / 6 / 7 替换。
- * - 金额（任务书附录 C 决定 C）：带金额的既有组件（询价轮次里的供应商报价、我方报价卡、报价区、投标工作区、
+ * - 三个分区先挂既有组件（不改它们），由 BIDPAGE-2 / 3 / 4 / 6 / 7 替换；② 已由 BIDPAGE-3 换成新的报价区（`quote-step.tsx`），
+ *   不再挂投标工作区面板与改版前的报价区。
+ * - 金额（任务书附录 C 决定 C）：带金额的区块（询价轮次里的供应商报价、我方报价卡、报价区、旧版报价单、
  *   「更多」里的版本历史）只给看得到金额的人挂；其余人在那里看到一句说明。新页面自己写的字只用汇总接口给的金额。
  *   这只是「不挂组件」，不是数据保护：旧接口的口径照旧（决定 C 留给 CHAIN-2e）。
- * - 收起的分区仍挂在页面上、只加 hidden：组件取数照常，页内位置（rfq-section、bid-quote-area、bid-workspace）一直在。
+ * - 收起的分区仍挂在页面上、只加 hidden：组件取数照常，页内位置（rfq-section、bid-quote-area）一直在；改版前投标工作区的位置（bid-workspace）落到 ②。
  * - 打开时展开哪个分区：地址里的 #位置 落在哪个分区就展开哪个（优先）；否则展开「下一步」指向的那个。
  * - 「下一步」按钮只导航：展开分区并滚过去，或切到「招标要求」页签。不起草、不批准、不发送、不保存、不生成。
  * - 不放国内供应商简报面板（去向以 #544 为准）。
@@ -16,17 +17,17 @@ import { useCallback, useEffect, useRef, useState, type ComponentProps, type Rea
 import { useRouter } from "next/navigation";
 import { ArrowRight, ChevronDown, Compass, History, Lock, MoreHorizontal } from "lucide-react";
 import { ProjectInquirySection } from "@/components/inquiry/project-inquiry-section";
-import { BidQuoteArea } from "@/components/quote-engine/bid-quote-area";
 import { TenderOurBidCard } from "@/components/quote-engine/tender-our-bid";
 import { ProjectGenerateMenu } from "@/components/project-generate/project-generate-menu";
 import { ProjectSupplierLinks } from "@/components/bid-workflow/project-supplier-links";
 import { TenderSourcingEntry } from "@/components/supplier-intel/tender-sourcing-entry";
 import { VersionHistoryDrawer } from "@/components/project-detail/version-history-drawer";
-import { BidWorkspacePanel } from "@/components/tender/bid-workspace-panel";
+import { ProjectQuoteSection } from "@/components/quote/project-quote-section";
 import type { BidTab } from "@/components/project-detail/tabs/bid-tab";
 import { BID_PAGE_SECTIONS, BID_PAGE_SECTION_TITLES_ZH, type BidPageSection, type BidPageTarget, type BidPageView } from "@/lib/bid-page-v2/next-step";
 import { cn } from "@/lib/utils";
 import { SECTION_ANCHOR, sectionForAnchor } from "./entry-mode";
+import { QuoteStep } from "./quote-step";
 
 export type BidPageV2Props = ComponentProps<typeof BidTab> & { view: BidPageView };
 
@@ -109,13 +110,18 @@ export function BidPageV2({ projectId, orgId, canManage, view }: BidPageV2Props)
     ),
     quote: showAmounts ? (
       <div className="space-y-6">
-        {/* 投标工作区：它自己的开关关闭时接口 404，面板不渲染任何内容 */}
-        <BidWorkspacePanel projectId={projectId} canManage={canManage} />
+        {/* 我方报价卡到 BIDPAGE-6 并入分区标题；投标工作区面板与改版前的报价区不进新页面（BIDPAGE-3 design D10） */}
         <TenderOurBidCard projectId={projectId} />
         {/* 项目页「下一步」卡滚动到投标价的位置 */}
         <div id="bid-quote-area" className="scroll-mt-4">
-          <BidQuoteArea projectId={projectId} />
+          <QuoteStep projectId={projectId} />
         </div>
+        <details className="rounded-xl border border-border/60 bg-card-bg/60" data-testid="bid-page-legacy-quote">
+          <summary className="cursor-pointer px-4 py-2 text-xs text-muted">旧版报价单（外贸标准报价，点开查看）</summary>
+          <div className="px-1 pb-2">
+            <ProjectQuoteSection projectId={projectId} />
+          </div>
+        </details>
       </div>
     ) : (
       // 位置照样留着，项目页「下一步」卡跳过来落在这句说明上
