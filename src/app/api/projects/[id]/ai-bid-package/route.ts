@@ -1,15 +1,30 @@
 /**
  * POST — 创建 AI 投标方案任务（持久化到 AgentTask），立即返回 taskId
  * GET  — 查询任务完整状态 + 所有步骤结果
+ *
+ * 权限（FIX-21）：POST 要项目写权限，GET 要项目读权限，都是处理函数的第一步。
+ * GET 对不是平台管理员的调用者只给安全视图（与 /api/agent/tasks 同一约定，src/lib/agent-tasks/dto.ts 头注释）：
+ * 每一步的 data 为空对象，失败或带报错的步骤 error 换成固定提示；平台管理员照旧拿到原始输出与原始报错。
  */
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { createBidPackageTask } from "@/lib/agent-core/skills/bid-package";
+import { requireProjectReadAccess, requireProjectWriteAccess } from "@/lib/projects/access";
+import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
 
-export const POST = withAuth(async (_request, ctx, user) => {
+/**
+ * 与 src/lib/agent-tasks/dto.ts 的 SAFE_STEP_ERROR_MESSAGE 一字不差。src/lib/agent-tasks 是 runtime-architecture
+ * 冻结面，新文件不能导入它（scripts/test-runtime-architecture.sh 的 NEW_FROZEN_MODULE_IMPORTER_FORBIDDEN），
+ * 所以在这里照抄；两处一字不差由 src/lib/projects/__tests__/project-routes-guard.test.ts 按源码文本比较（CI 子集里跑）。
+ */
+const SAFE_STEP_ERROR_MESSAGE = "处理失败，请稍后重试或联系管理员";
+
+export const POST = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
+  const access = await requireProjectWriteAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
 
   const project = await db.project.findUnique({
     where: { id: projectId },
@@ -34,6 +49,11 @@ export const POST = withAuth(async (_request, ctx, user) => {
 
 export const GET = withAuth(async (request, ctx) => {
   const { id: projectId } = await ctx.params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
+  // 平台管理员保留完整诊断视图；其余人（含以岗位预览身份访问的 super_admin）只拿安全视图
+  const diagnostic = isPlatformAdmin(access.user);
+
   const url = new URL(request.url);
   const taskId = url.searchParams.get("taskId");
 
@@ -50,8 +70,9 @@ export const GET = withAuth(async (request, ctx) => {
     resolvedTaskId = latest.id;
   }
 
+  // 只认本项目的一键投标方案任务：同项目里别的类型的 AgentTask（如 custom_flow）按「任务不存在」处理
   const task = await db.agentTask.findUnique({
-    where: { id: resolvedTaskId, projectId },
+    where: { id: resolvedTaskId, projectId, taskType: "ai_bid_package" },
     select: {
       id: true,
       status: true,
@@ -87,7 +108,7 @@ export const GET = withAuth(async (request, ctx) => {
 
   const steps = task.steps.map((s) => {
     let data: Record<string, unknown> = {};
-    if (s.outputJson) {
+    if (diagnostic && s.outputJson) {
       try { data = JSON.parse(s.outputJson); } catch { /* skip */ }
     }
     let action: string | undefined;
@@ -109,7 +130,12 @@ export const GET = withAuth(async (request, ctx) => {
       success: s.status === "completed",
       summary: s.outputSummary ?? "",
       data,
-      error: s.error,
+      // 与 dto.ts 的 sanitizeListStepError 同一口径：失败或带报错给固定提示，否则 null；平台管理员给原文
+      error: diagnostic
+        ? s.error
+        : s.status === "error" || s.status === "failed" || s.error
+          ? SAFE_STEP_ERROR_MESSAGE
+          : null,
       startedAt: s.startedAt,
       completedAt: s.completedAt,
       durationMs:
