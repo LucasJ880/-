@@ -1,15 +1,24 @@
 /**
  * POST — 创建 AI 投标方案任务（持久化到 AgentTask），立即返回 taskId
  * GET  — 查询任务完整状态 + 所有步骤结果
+ *
+ * 权限（FIX-21）：POST 要项目写权限，GET 要项目读权限，都是处理函数的第一步。
+ * GET 对不是平台管理员的调用者只给安全视图（与 /api/agent/tasks 同一约定，src/lib/agent-tasks/dto.ts）：
+ * 每一步的 data 为空对象，失败或带报错的步骤 error 换成固定提示；平台管理员照旧拿到原始输出与原始报错。
  */
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/common/api-helpers";
 import { db } from "@/lib/db";
 import { createBidPackageTask } from "@/lib/agent-core/skills/bid-package";
+import { requireProjectReadAccess, requireProjectWriteAccess } from "@/lib/projects/access";
+import { isPlatformAdmin } from "@/lib/rbac/platform-admin";
+import { sanitizeListStepError } from "@/lib/agent-tasks/dto";
 
-export const POST = withAuth(async (_request, ctx, user) => {
+export const POST = withAuth(async (request, ctx, user) => {
   const { id: projectId } = await ctx.params;
+  const access = await requireProjectWriteAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
 
   const project = await db.project.findUnique({
     where: { id: projectId },
@@ -34,6 +43,11 @@ export const POST = withAuth(async (_request, ctx, user) => {
 
 export const GET = withAuth(async (request, ctx) => {
   const { id: projectId } = await ctx.params;
+  const access = await requireProjectReadAccess(request, projectId);
+  if (access instanceof NextResponse) return access;
+  // 平台管理员保留完整诊断视图；其余人（含以岗位预览身份访问的 super_admin）只拿安全视图
+  const diagnostic = isPlatformAdmin(access.user);
+
   const url = new URL(request.url);
   const taskId = url.searchParams.get("taskId");
 
@@ -87,7 +101,7 @@ export const GET = withAuth(async (request, ctx) => {
 
   const steps = task.steps.map((s) => {
     let data: Record<string, unknown> = {};
-    if (s.outputJson) {
+    if (diagnostic && s.outputJson) {
       try { data = JSON.parse(s.outputJson); } catch { /* skip */ }
     }
     let action: string | undefined;
@@ -109,7 +123,7 @@ export const GET = withAuth(async (request, ctx) => {
       success: s.status === "completed",
       summary: s.outputSummary ?? "",
       data,
-      error: s.error,
+      error: sanitizeListStepError(s, diagnostic).error,
       startedAt: s.startedAt,
       completedAt: s.completedAt,
       durationMs:
