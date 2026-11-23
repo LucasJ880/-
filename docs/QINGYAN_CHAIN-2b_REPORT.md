@@ -71,6 +71,9 @@
 | OpenSpec | `openspec validate pricing-helper-finance-gate --strict` | valid |
 | 受保护文件 | `git diff origin/main -- prisma/ vercel.json package.json package-lock.json` | 空 |
 
+
+**2026-11-23 合并前交叉验证**（另起一个没参与实现与之前审查的子 agent，只看需求、四件套、diff，亲自跑；HEAD `de867d85`，隔离库 `qy_iso_e`）：可以合并，没有阻断项。13 种身份逐个调真实路由，并与成本核算接口的判定 `resolveFinancePrivilege(...).canReadAll` 对照，开关开 / 关都一致；有权的人 GET / POST 返回与 origin/main 逐字节相同（26 / 26）；带成本的保存各种写法一律 403 且不写库；12 个变异全部被测试抓住。它提的：比价矩阵与「报价与成本」卡在 CHAIN-2e 合并前仍显示落地价 / 估算成本（既有，GATE 第 4 条已定由 CHAIN-2e 统一）；卡片「找谁」那句漏了持 `project.finance.manage` 的人与平台超级管理员（文案不全，记为后续）；读屏播报区域随消息挂上（可不修）；隔离库没对组织 owner 断言（探针补测一致）。
+
 ## 5. 多维审查
 
 **开工前（一个子 agent，只给四件套与代码）**——逐条核实后并入四件套（`408e587a`）：项目列表与调查室两个接口的房间 JSON 也带出成本，一并去掉；开关开着时无权的人带 `compareCostHidden`、不取数；判定出错只收组织范围的键；保存顺序 409 → 403 → 400；五条比价规格限定为有财务查看权的人；投标同事看不到成本列为 GATE 问题。
