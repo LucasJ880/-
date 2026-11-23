@@ -212,6 +212,7 @@ async function main() {
     const forbidden = [
       [{ action: "save", inputs: { competitorPriceCad: 100000, ourCostCad: 1 } }, "带 ourCostCad"],
       [{ action: "save", inputs: { competitorPriceCad: 100000 }, ourCostSource: null }, "带 ourCostSource: null"],
+      [{ action: "save", ourCostSource: { kind: "rfq_compare", inquiryItemId: "item_fixture" } }, "只带顶层成本来源、不带 inputs（交叉验证 X09）"],
       [{ action: "save", inputs: { competitorPriceCad: 100000, targetMarginPct: 25 } }, "带目标毛利（上线前打开的旧卡片就是这样带的）"],
       [{ action: "save", inputs: { competitorPriceCad: 100000, targetMarginPct: null } }, "带目标毛利 null"],
       [{ action: "save", inputs: { competitorPriceCad: 100000, targetMarginPct: MARGIN } }, "带与库里相同的目标毛利 23.7（不能拿 200 / 403 当探针猜已存的值）"],

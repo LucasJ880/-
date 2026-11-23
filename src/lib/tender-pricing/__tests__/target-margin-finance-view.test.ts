@@ -159,6 +159,9 @@ console.log("保存请求体（多审 T7：行为断言）");
     ok("有财务查看权：三项都带（数字）、带成本来源声明", JSON.stringify(Object.keys(rec(shown.inputs))) === JSON.stringify(["competitorPriceCad", "ourCostCad", "targetMarginPct"]) && rec(shown.inputs).ourCostCad === 87654.32 && rec(shown.inputs).targetMarginPct === 23.7 && JSON.stringify(shown.ourCostSource) === JSON.stringify(claim), shown);
     const empty = build({ competitor: " ", cost: "", margin: "" }, false, null);
     ok("有财务查看权：空串存成 null、没有声明时不带 ourCostSource", rec(empty.inputs).competitorPriceCad === null && rec(empty.inputs).ourCostCad === null && rec(empty.inputs).targetMarginPct === null && !("ourCostSource" in empty), empty);
+    // 交叉验证 X14：0 是合法的目标毛利（零毛利），不能被当成「没填」存成 null
+    const zero = build({ competitor: "0", cost: "0", margin: "0" }, false, null);
+    ok("有财务查看权：填 0 就存 0（目标毛利、成本、对手价都不变成 null）", rec(zero.inputs).targetMarginPct === 0 && rec(zero.inputs).ourCostCad === 0 && rec(zero.inputs).competitorPriceCad === 0, zero);
     ok("没有财务查看权的请求体过 403 判定：没碰受限的键；有财务查看权的请求体：碰了", !fv.touchesCost(hidden) && fv.touchesCost(shown));
   }
 }
@@ -215,7 +218,7 @@ async function renderChecks() {
     benchmark: { vendor: null, low: null, high: null, median: null, sampleSize: null, noteZh: null, source: null },
   };
   const noop = () => undefined;
-  const html = (data: Rec, form: Rec) => renderToStaticMarkup(React.createElement(View, { data, form, canManage: true, busy: null, msg: null, msgIsError: false, onFieldChange: noop, onSave: noop, onDerive: noop, onFill: noop }));
+  const html = (data: Rec, form: Rec, canManage = true) => renderToStaticMarkup(React.createElement(View, { data, form, canManage, busy: null, msg: null, msgIsError: false, onFieldChange: noop, onSave: noop, onDerive: noop, onFill: noop }));
   const hiddenData = { ...base, inputs: { competitorPriceCad: 100000, ourCostCad: null, targetMarginPct: null }, result: { ...result, assumptionsZh: [...result.assumptionsZh.filter((a) => a !== fv.NO_COST_ASSUMPTION_ZH), fv.COST_HIDDEN_NOTE_ZH] }, costHidden: true, compareCostHidden: true };
   // 表单里故意留着 23.7（例如旧值没清掉）：没有财务查看权时也不能渲染出来
   const h = html(hiddenData, { competitor: "100000", cost: "", margin: "23.7" });
@@ -227,6 +230,11 @@ async function renderChecks() {
   const shownData = { ...base, inputs: { competitorPriceCad: 100000, ourCostCad: COST, targetMarginPct: 20 }, result: buildScenarios(model, { competitorPriceCad: 100000, ourCostCad: COST, targetMarginPct: 20 }), compareCost: { suggestion: { status: "none_selected", messageZh: "x" }, source: null, staleNoteZh: null } };
   const g = html(shownData, { competitor: "100000", cost: String(COST), margin: "20" });
   ok("有财务查看权（开关开着）：三个输入框、标签「目标毛利率 %（按售价）」、成本加成提示「相当于成本加成 25%」、毛利一栏，没有那两句", (g.match(/<input\b/g) ?? []).length === 3 && g.includes("目标毛利率 %（按售价）") && g.includes("相当于成本加成 25%") && g.includes("毛利率（按售价）") && !g.includes("pricing-margin-hidden") && !g.includes("pricing-cost-hidden"), g.slice(g.indexOf("我方假设"), g.indexOf("我方假设") + 600));
+  // 交叉验证 X12：只读的人（canManage=false，如只读成员）——没有财务查看权时同样只有一句话；有财务查看权的只读的人照旧看到（禁用的框）
+  const hr = html(hiddenData, { competitor: "100000", cost: "", margin: "23.7" }, false);
+  ok("只读、没有财务查看权：目标毛利格是那句话，不出目标毛利的值与成本加成提示，只剩对手价一个（禁用的）输入框，没有保存按钮", (hr.match(/<input\b/g) ?? []).length === 1 && /<input[^>]*disabled/.test(hr) && hr.includes('data-testid="pricing-margin-hidden"') && hr.includes(fv.TARGET_MARGIN_HIDDEN_FIELD_ZH) && !hr.includes("23.7") && !hr.includes("pricing-markup-hint") && !hr.includes("相当于成本加成") && !hr.includes('data-testid="pricing-save"'), hr.slice(hr.indexOf("我方假设"), hr.indexOf("我方假设") + 900));
+  const gr = html(shownData, { competitor: "100000", cost: String(COST), margin: "20" }, false);
+  ok("只读、有财务查看权：三个禁用的输入框、目标毛利值与成本加成提示照旧（他们本来就该看到），没有保存按钮", (gr.match(/<input\b/g) ?? []).length === 3 && (gr.match(/<input[^>]*disabled/g) ?? []).length === 3 && gr.includes('value="20"') && gr.includes("相当于成本加成 25%") && !gr.includes("pricing-margin-hidden") && !gr.includes('data-testid="pricing-save"'), gr.slice(gr.indexOf("我方假设"), gr.indexOf("我方假设") + 900));
 }
 
 void renderChecks().then(() => {
